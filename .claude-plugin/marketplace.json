@@ -1,0 +1,19 @@
+{
+  "name": "cc-tuner",
+  "owner": {
+    "name": "Clicktronix",
+    "url": "https://github.com/clicktronix"
+  },
+  "metadata": {
+    "description": "Tune Claude Code's own configuration. A home for skills that write and audit Claude Code's config files against the official docs — starting with claude-md-writer for CLAUDE.md / .claude/rules/ memory.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "cc-tuner",
+      "source": "./plugins/cc-tuner",
+      "description": "Create, refactor, and audit CLAUDE.md / .claude/rules/ memory files against the official Anthropic memory docs (claude-md-writer skill).",
+      "version": "0.1.0"
+    }
+  ]
+}

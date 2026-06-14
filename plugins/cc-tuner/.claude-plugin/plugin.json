@@ -1,0 +1,23 @@
+{
+  "name": "cc-tuner",
+  "displayName": "CC Tuner",
+  "description": "Tune Claude Code's own configuration. Ships claude-md-writer: create, refactor, and audit CLAUDE.md / .claude/rules/ memory files against the official Anthropic memory docs.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Clicktronix",
+    "url": "https://github.com/clicktronix"
+  },
+  "homepage": "https://github.com/clicktronix/cc-tuner",
+  "repository": "https://github.com/clicktronix/cc-tuner",
+  "license": "MIT",
+  "keywords": [
+    "claude-md",
+    "claude-code",
+    "memory",
+    "claude-rules",
+    "path-scoped-rules",
+    "agent-skills",
+    "configuration",
+    "best-practices"
+  ]
+}
