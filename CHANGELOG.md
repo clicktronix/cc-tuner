@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.0] - 2026-06-15
+
+### Added
+
+- **`statusline` skill + `/cc-tuner:statusline-setup` command** — a two-line,
+  usage-focused statusline for Claude Code. Line 1: dir, git branch with
+  staged/modified/untracked counts, model + reasoning effort, session duration.
+  Line 2: 5h/7d rate-limit windows (utilization %, colored bar, local reset
+  time) and context-window %. Since plugins can't register a statusline
+  themselves, the setup command copies the bundled script to
+  `~/.claude/cc-tuner-statusline.sh` and wires `statusLine` into the user's
+  `settings.json` (with a backup); `update` / `remove` / `status` supported.
+- The statusline script is **cross-platform**: reads the OAuth token from the
+  macOS Keychain or `~/.claude/.credentials.json` on Linux/Windows (honoring
+  `$CLAUDE_CONFIG_DIR`), and uses portable file-mtime (`stat -f` / `stat -c`).
+
+### Notes
+
+- The 5h/7d figures come from Claude Code's **unofficial** OAuth usage endpoint
+  (`api/oauth/usage`); it may change without notice and the segment degrades
+  silently if unavailable. The token is read locally and only sent to
+  `api.anthropic.com`.
+
 ## [0.1.0] - 2026-06-14
 
 Initial release. Centralizes the `claude-md-writer` skill that had drifted across

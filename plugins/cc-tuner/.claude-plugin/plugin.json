@@ -1,8 +1,8 @@
 {
   "name": "cc-tuner",
   "displayName": "CC Tuner",
-  "description": "Tune Claude Code's own configuration. Ships claude-md-writer: create, refactor, and audit CLAUDE.md / .claude/rules/ memory files against the official Anthropic memory docs.",
-  "version": "0.1.0",
+  "description": "Tune Claude Code's own configuration. Ships claude-md-writer (audit CLAUDE.md / .claude/rules/ memory against the official docs) and a usage statusline (rate-limit + context %, /cc-tuner:statusline-setup).",
+  "version": "0.2.0",
   "author": {
     "name": "Clicktronix",
     "url": "https://github.com/clicktronix"
@@ -18,6 +18,9 @@
     "path-scoped-rules",
     "agent-skills",
     "configuration",
-    "best-practices"
+    "best-practices",
+    "statusline",
+    "rate-limit",
+    "usage"
   ]
 }

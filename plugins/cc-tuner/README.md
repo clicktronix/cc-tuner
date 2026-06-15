@@ -18,6 +18,31 @@ What it covers (Claude Code memory facts checked against the docs):
 
 Deep examples and the verified source list are in the skill's `reference.md`.
 
+### `statusline`
+
+A two-line usage-focused statusline for Claude Code:
+
+```
+➜ my-project git:(main) S:2 M:1 U:4 | Opus 4.8 xhigh | 1h12m
+ | 5h:66%[▓▓▓▓▓░░░]>23:30  7d:9%[▓░░░░░░░]>17:00 | ctx:8%[▓░░░░░░░░░]
+```
+
+Rate-limit windows (5h / 7d utilization + reset time), context-window %, git branch with
+staged/modified/untracked counts, model + reasoning effort, and session duration. Bars go
+green → yellow (≥50%) → red (≥80%). Cross-platform (macOS Keychain, Linux/Windows
+`~/.claude/.credentials.json`).
+
+Plugins can't register a statusline themselves, so a setup command wires it into the
+user's `settings.json`:
+
+```
+/cc-tuner:statusline-setup            # install (also: update | remove | status)
+```
+
+The 5h/7d data uses Claude Code's **unofficial** OAuth usage endpoint — it degrades
+silently if that ever breaks. The OAuth token is read locally and only sent to
+`api.anthropic.com`.
+
 ## Install
 
 ```
