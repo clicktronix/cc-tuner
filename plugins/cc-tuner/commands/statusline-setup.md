@@ -43,12 +43,20 @@ settings edit).
    path before overwriting so the user can restore it.
    ```bash
    S="$HOME/.claude/settings.json"
+   command -v jq >/dev/null || { echo "ERROR: jq is required to patch settings.json"; exit 1; }
    [ -f "$S" ] || echo '{}' > "$S"
-   cp "$S" "$S.bak-$(date +%Y%m%d-%H%M%S)"
+   jq -e . "$S" >/dev/null 2>&1 || { echo "ERROR: $S is not valid JSON — fix it first; not touching it"; exit 1; }
+   BACKUP="$S.bak-$(date +%Y%m%d-%H%M%S)"
+   cp "$S" "$BACKUP" || { echo "ERROR: could not create backup $BACKUP — aborting"; exit 1; }
+   echo "Backed up settings -> $BACKUP"
    existing=$(jq -r '.statusLine.command // empty' "$S")
-   [ -n "$existing" ] && echo "Existing statusLine.command: $existing (backed up above)"
-   jq '.statusLine = {type:"command", command:"bash ~/.claude/cc-tuner-statusline.sh"}' "$S" > "$S.tmp" && mv "$S.tmp" "$S"
-   echo "settings.json statusLine -> bash ~/.claude/cc-tuner-statusline.sh"
+   [ -n "$existing" ] && echo "Existing statusLine.command: $existing (restore from $BACKUP if you want it back)"
+   TMP=$(mktemp "$(dirname "$S")/.cc-tuner-statusline.XXXXXX")   # same dir => mv is atomic
+   if jq '.statusLine = {type:"command", command:"bash ~/.claude/cc-tuner-statusline.sh"}' "$S" > "$TMP" && [ -s "$TMP" ] && mv "$TMP" "$S"; then
+     echo "settings.json statusLine -> bash ~/.claude/cc-tuner-statusline.sh"
+   else
+     rm -f "$TMP"; echo "ERROR: failed to patch $S — left unchanged (backup at $BACKUP)"; exit 1
+   fi
    ```
 4. Tell the user to **restart Claude Code or run `/reload`** for the statusline to take effect.
 
@@ -59,12 +67,22 @@ if `.statusLine.command` already points at `~/.claude/cc-tuner-statusline.sh`.
 
 ```bash
 S="$HOME/.claude/settings.json"
-if [ -f "$S" ] && [ "$(jq -r '.statusLine.command // empty' "$S")" = "bash ~/.claude/cc-tuner-statusline.sh" ]; then
-  cp "$S" "$S.bak-$(date +%Y%m%d-%H%M%S)"
-  jq 'del(.statusLine)' "$S" > "$S.tmp" && mv "$S.tmp" "$S"
-  echo "Removed statusLine from settings.json (backup saved)"
-else
-  echo "settings.json statusLine does not point at cc-tuner — leaving it alone"
+command -v jq >/dev/null || { echo "ERROR: jq is required"; exit 1; }
+if [ -f "$S" ]; then
+  jq -e . "$S" >/dev/null 2>&1 || { echo "ERROR: $S is not valid JSON — fix it first; not touching it"; exit 1; }
+  if [ "$(jq -r '.statusLine.command // empty' "$S")" = "bash ~/.claude/cc-tuner-statusline.sh" ]; then
+    BACKUP="$S.bak-$(date +%Y%m%d-%H%M%S)"
+    cp "$S" "$BACKUP" || { echo "ERROR: could not create backup $BACKUP — aborting"; exit 1; }
+    echo "Backed up settings -> $BACKUP"
+    TMP=$(mktemp "$(dirname "$S")/.cc-tuner-statusline.XXXXXX")   # same dir => mv is atomic
+    if jq 'del(.statusLine)' "$S" > "$TMP" && [ -s "$TMP" ] && mv "$TMP" "$S"; then
+      echo "Removed statusLine from settings.json"
+    else
+      rm -f "$TMP"; echo "ERROR: failed to edit $S — left unchanged (backup at $BACKUP)"; exit 1
+    fi
+  else
+    echo "settings.json statusLine does not point at cc-tuner — leaving it alone"
+  fi
 fi
 rm -f "$HOME/.claude/cc-tuner-statusline.sh" && echo "Removed $HOME/.claude/cc-tuner-statusline.sh"
 ```

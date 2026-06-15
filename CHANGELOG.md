@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1] - 2026-06-15
+
+Hardening of the 0.2.0 statusline after a 3-round cross-agent (Codex) review.
+
+### Fixed
+
+- **Git staged/modified counts were always zero** — `--no-optional-locks` was
+  passed as a `git diff` option, which git rejects; the env form
+  `GIT_OPTIONAL_LOCKS=0` is used now.
+- **Stale rate-limit data could show forever** on a permanent fetch failure. A
+  `fetched_at` stamp now gates rendering; the 5h/7d segment is dropped once data
+  is older than 30 min.
+- **Fresh-install fetch failures retried every render** (paying the 5s timeout)
+  because there was no cache to touch — a negative cache marker now suppresses
+  retries until the TTL.
+- **Insecure shared `/tmp` cache** — the cache + lock now live in a private
+  per-user dir (`chmod 700`) keyed by uid and a hash of the effective
+  `CLAUDE_CONFIG_DIR`, so usage data can't leak across users or accounts.
+- **`/cc-tuner:statusline-setup` could report success while failing** — the
+  install/remove `settings.json` edits now require valid JSON, guard the backup
+  and the `jq`/`mv` steps, use a same-directory temp file for an atomic replace,
+  and only claim success after it lands. The remove path validates JSON before
+  touching anything.
+- **Reset-time parsing** normalizes a trailing `Z` so it works on Python < 3.11.
+
 ## [0.2.0] - 2026-06-15
 
 ### Added

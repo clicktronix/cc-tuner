@@ -42,8 +42,10 @@ git_info=""
 if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
   branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null || git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
   if [ -n "$branch" ]; then
-    staged=$(git -C "$cwd" diff --cached --numstat --no-optional-locks 2>/dev/null | wc -l | tr -d ' ')
-    modified=$(git -C "$cwd" diff --numstat --no-optional-locks 2>/dev/null | wc -l | tr -d ' ')
+    # GIT_OPTIONAL_LOCKS=0 is the env form; --no-optional-locks is a top-level
+    # git option, NOT a `git diff` option (passing it after `diff` errors out).
+    staged=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
+    modified=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
     untracked=$(git -C "$cwd" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
 
     counts=""
@@ -90,9 +92,17 @@ fi
 
 # --- Rate-limit usage (5 min cache, mkdir lock so only one process refreshes) ---
 usage_info=""
-USAGE_CACHE="${TMPDIR:-/tmp}/claude_usage_cache"
-USAGE_CACHE_LOCK="${TMPDIR:-/tmp}/claude_usage_cache.lock"
+# Private per-user dir (700) so a shared /tmp on Linux can't leak one user's
+# usage response to another. Scoped by uid AND a hash of the effective Claude
+# config dir, so one user running multiple accounts (different CLAUDE_CONFIG_DIR)
+# doesn't reuse another account's cached usage.
+_cfg_id=$(printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | cksum | cut -d' ' -f1)
+USAGE_CACHE_DIR="${TMPDIR:-/tmp}/cc-tuner-statusline-$(id -u 2>/dev/null || echo 0)-${_cfg_id}"
+mkdir -p "$USAGE_CACHE_DIR" 2>/dev/null && chmod 700 "$USAGE_CACHE_DIR" 2>/dev/null
+USAGE_CACHE="$USAGE_CACHE_DIR/usage_cache"
+USAGE_CACHE_LOCK="$USAGE_CACHE_DIR/usage_cache.lock"
 USAGE_CACHE_TTL=300
+USAGE_MAX_STALE=1800   # stop showing rate-limit data once it is >30 min old
 
 refresh_usage() {
   # mkdir is atomic — only one process wins the lock and refreshes.
@@ -109,7 +119,7 @@ refresh_usage() {
   # usage endpoint, and pre-compute local reset times (HH:MM) into the cached
   # JSON so the per-render path needs no python at all.
   python3 -c "
-import json, urllib.request, sys, subprocess, re, codecs, os, shutil
+import json, urllib.request, sys, subprocess, re, codecs, os, shutil, time
 from datetime import datetime
 
 def get_token():
@@ -153,17 +163,27 @@ for key in ('five_hour', 'seven_day'):
     node = data.get(key)
     if isinstance(node, dict) and node.get('resets_at'):
         try:
-            node['reset_local'] = datetime.fromisoformat(node['resets_at']).astimezone().strftime('%H:%M')
+            ts = node['resets_at']
+            if ts.endswith('Z'):  # Python < 3.11 rejects a trailing 'Z'
+                ts = ts[:-1] + '+00:00'
+            node['reset_local'] = datetime.fromisoformat(ts).astimezone().strftime('%H:%M')
         except Exception:
             pass
+data['fetched_at'] = int(time.time())  # consumed by the staleness gate below
 json.dump(data, sys.stdout)
 " > "$tmp" 2>/dev/null
   if [ $? -eq 0 ] && [ -s "$tmp" ]; then
     mv "$tmp" "$USAGE_CACHE"
   else
     rm -f "$tmp"
-    # On failure, touch the old cache so we keep showing it and retry after TTL.
-    [ -f "$USAGE_CACHE" ] && touch "$USAGE_CACHE"
+    # Suppress retries for one TTL even on a fresh install with a dead/slow
+    # endpoint — otherwise a missing cache means refresh (+5s timeout) on EVERY
+    # render. The staleness gate (fetched_at) still hides the 5h/7d segment.
+    if [ -f "$USAGE_CACHE" ]; then
+      touch "$USAGE_CACHE"
+    else
+      printf '{"fetched_at":0}' > "$USAGE_CACHE"
+    fi
   fi
 }
 
@@ -219,15 +239,22 @@ window_segment() {
   printf '%s' " ${bar_color}${label}:${pct}%${RESET}${DIM}[${RESET}${bar_color}${bar_result}${RESET}${DIM}]${RESET}${reset_str}"
 }
 
-# Parse cache → 5h / 7d segments
+# Parse cache → 5h / 7d segments. Only render fresh data: a permanent fetch
+# failure (revoked token, dead endpoint, missing python3) must drop the segment
+# rather than show stale values forever. fetched_at is stamped on each success.
 if [ -f "$USAGE_CACHE" ] && [ -s "$USAGE_CACHE" ]; then
-  five_h=$(jq -r '.five_hour.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
-  five_reset=$(jq -r '.five_hour.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
-  seven_d=$(jq -r '.seven_day.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
-  seven_reset=$(jq -r '.seven_day.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
+  fetched_at=$(jq -r '.fetched_at // 0' "$USAGE_CACHE" 2>/dev/null)
+  case "$fetched_at" in '' | *[!0-9]*) fetched_at=0 ;; esac
+  data_age=$(( $(date +%s) - fetched_at ))
+  if [ "$data_age" -le "$USAGE_MAX_STALE" ]; then
+    five_h=$(jq -r '.five_hour.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
+    five_reset=$(jq -r '.five_hour.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
+    seven_d=$(jq -r '.seven_day.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
+    seven_reset=$(jq -r '.seven_day.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
 
-  [ -n "$five_h" ] && usage_info="${usage_info} ${DIM}|${RESET}$(window_segment 5h "$five_h" "$five_reset")"
-  [ -n "$seven_d" ] && usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+    [ -n "$five_h" ] && usage_info="${usage_info} ${DIM}|${RESET}$(window_segment 5h "$five_h" "$five_reset")"
+    [ -n "$seven_d" ] && usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+  fi
 fi
 
 # --- Context window with progress bar ---
