@@ -13,9 +13,16 @@
 ## Conventions for every script
 
 - Shebang `#!/usr/bin/env bash`, `set -u` (NOT `set -e` — we handle exits explicitly so a paid step is never lost).
-- Anchor to repo root: `cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" 2>/dev/null || true`.
+- **Anchor to repo root and FAIL LOUD** (a bad `CLAUDE_PROJECT_DIR` must never let a git-mutating script run in the wrong tree). Every script that touches git/fs starts with:
+  ```bash
+  ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+  cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
+  git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
+  ```
+- **run-id is sanitized** wherever it forms a path (`preflight.sh`, `journal.sh`): `RUN_ID="$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9_.-' '-')"` then reject empty. Stripping `/` keeps every artifact inside the ignored runs dir (no `../` escape).
+- **All local-only operational artifacts live UNDER `.claude/execute-task-runs/<run-id>/`** — the journal is `.claude/execute-task-runs/<run-id>.md`, and screenshots / raw test+CI logs go in `.claude/execute-task-runs/<run-id>/`. One ignore rule (`.claude/execute-task-runs/`) and one guard pattern therefore cover ALL of them.
 - Forward-slash paths only. No `git add -A`. `date -u +%FT%TZ` is allowed (plain shell).
-- Exit codes: `0` ok, `1` usage/missing, `2` dirty tree, `3` refused (staged artifacts).
+- Exit codes: `0` ok, `1` usage/missing/bad-root, `2` dirty tree, `3` refused (staged artifacts).
 
 Tests create a throwaway git repo under `mktemp -d`, run the script with `CLAUDE_PROJECT_DIR` pointed at it, assert, and clean up. Each test prints `PASS`/`FAIL` lines and exits non-zero on any failure.
 
@@ -47,20 +54,20 @@ CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1 \
   && echo "PASS both-present" || { echo "FAIL both-present"; fails=1; }
 rm -rf "$ROOT"
 
-# superpowers missing -> exit 1
+# superpowers missing -> exit exactly 1
 mkroot
 mkdir -p "$ROOT/cache/cc-codex-triage/cc-codex-triage/0.6.0/commands"
 touch    "$ROOT/cache/cc-codex-triage/cc-codex-triage/0.6.0/commands/review.md"
-CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1 \
-  && { echo "FAIL sp-missing (should exit 1)"; fails=1; } || echo "PASS sp-missing"
+CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && echo "PASS sp-missing" || { echo "FAIL sp-missing (rc=$rc, want 1)"; fails=1; }
 rm -rf "$ROOT"
 
-# cc-codex-triage missing -> exit 1
+# cc-codex-triage missing -> exit exactly 1
 mkroot
 mkdir -p "$ROOT/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming"
 touch    "$ROOT/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/SKILL.md"
-CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1 \
-  && { echo "FAIL cct-missing (should exit 1)"; fails=1; } || echo "PASS cct-missing"
+CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && echo "PASS cct-missing" || { echo "FAIL cct-missing (rc=$rc, want 1)"; fails=1; }
 rm -rf "$ROOT"
 
 exit $fails
@@ -83,7 +90,7 @@ set -u
 CACHE="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
 missing=0
 
-have() { ls $1 >/dev/null 2>&1; }  # glob check (unquoted on purpose)
+have() { compgen -G "$1" >/dev/null 2>&1; }  # quoted glob check — safe with spaces in the path
 
 if ! have "$CACHE/cache/*/superpowers/*/skills/brainstorming/SKILL.md"; then
   echo "MISSING: superpowers (skills: brainstorming, writing-plans, subagent-driven-development, requesting-code-review)" >&2
@@ -153,10 +160,10 @@ TPL="$(cd "$(dirname "$0")/../../assets/execute-task" && pwd)/config.template.md
 fails=0
 
 T="$(mktemp -d)"; ( cd "$T" && git init -q )
-# missing -> created from template
-CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1
-if [ -f "$T/.claude/execute-task.md" ] && grep -q "execute-task config" "$T/.claude/execute-task.md"; then
-  echo "PASS scaffold-created"; else echo "FAIL scaffold-created"; fails=1; fi
+# missing -> created from template, exit 0
+CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$T/.claude/execute-task.md" ] && grep -q "execute-task config" "$T/.claude/execute-task.md"; then
+  echo "PASS scaffold-created"; else echo "FAIL scaffold-created (rc=$rc)"; fails=1; fi
 # present -> left untouched (sentinel preserved)
 echo "SENTINEL" > "$T/.claude/execute-task.md"
 CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1
@@ -178,7 +185,9 @@ Expected: FAIL — `config-init.sh` not found.
 # Ensure .claude/execute-task.md exists; scaffold from the template if missing.
 # usage: config-init.sh <template-path>
 set -u
-cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" 2>/dev/null || true
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
+git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
 TEMPLATE="${1:?usage: config-init.sh <template-path>}"
 CFG=".claude/execute-task.md"
 if [ -f "$CFG" ]; then
@@ -237,12 +246,34 @@ if [ -f "$T/.claude/execute-task-runs/run1.md" ] \
   && echo "PASS prints-journal-path" || { echo "FAIL prints-journal-path ($OUT)"; fails=1; }
 rm -rf "$T"
 
-# dirty tree -> exit 2
+# dirty tree -> exit exactly 2
 mkrepo
 echo change >> "$T/f"
-if CLAUDE_PROJECT_DIR="$T" bash "$S" run2 main >/dev/null 2>&1; then
-  echo "FAIL dirty-blocks (should exit 2)"; fails=1; else echo "PASS dirty-blocks"; fi
+CLAUDE_PROJECT_DIR="$T" bash "$S" run2 main >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && echo "PASS dirty-blocks" || { echo "FAIL dirty-blocks (rc=$rc, want 2)"; fails=1; }
 rm -rf "$T"
+
+# unsafe run-id ('/', '..') -> sanitized, journal stays INSIDE the runs dir
+mkrepo
+OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$S" "DEV-1/../escape" main 2>/dev/null)"
+case "$OUT" in .claude/execute-task-runs/*) echo "PASS runid-sanitized" ;; *) echo "FAIL runid-sanitized ($OUT)"; fails=1 ;; esac
+{ [ -n "$OUT" ] && [ -f "$T/$OUT" ]; } && echo "PASS runid-file-in-dir" || { echo "FAIL runid-file-in-dir"; fails=1; }
+rm -rf "$T"
+
+# linked worktree (.git is a FILE, not a dir) -> ignore-coverage still works
+mkrepo
+WT="$(mktemp -d)/wt"
+( cd "$T" && git worktree add -q "$WT" -b wtbranch >/dev/null 2>&1 )
+CLAUDE_PROJECT_DIR="$WT" bash "$S" runwt main >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && ( cd "$WT" && git check-ignore -q .claude/execute-task-runs/runwt.md ); } \
+  && echo "PASS worktree-ignore" || { echo "FAIL worktree-ignore (rc=$rc)"; fails=1; }
+( cd "$T" && git worktree remove --force "$WT" >/dev/null 2>&1 ); rm -rf "$WT" "$T"
+
+# bad CLAUDE_PROJECT_DIR (not a git repo) -> exit 1, never a silent wrong-dir run
+NOGIT="$(mktemp -d)"
+CLAUDE_PROJECT_DIR="$NOGIT" bash "$S" run3 main >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && echo "PASS bad-root" || { echo "FAIL bad-root (rc=$rc, want 1)"; fails=1; }
+rm -rf "$NOGIT"
 
 exit $fails
 ```
@@ -263,15 +294,22 @@ Expected: FAIL — `preflight.sh` not found.
 #   3) open a run-journal recording base SHA / branch / target.
 # usage: preflight.sh <run-id> [<target-branch>]
 set -u
-cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" 2>/dev/null || true
-RUN_ID="${1:?usage: preflight.sh <run-id> [target-branch]}"
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
+git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
+
+RAW="${1:?usage: preflight.sh <run-id> [target-branch]}"
+RUN_ID="$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9_.-' '-')"   # strip '/' etc → can't escape RUNS_DIR
+[ -n "$RUN_ID" ] || { echo "invalid run-id: '$RAW'" >&2; exit 1; }
 TARGET="${2:-}"
 RUNS_DIR=".claude/execute-task-runs"
 
-# 1) ignore coverage via .git/info/exclude (local, not shared via .gitignore)
+# 1) ignore coverage via the repo's REAL exclude file. git rev-parse --git-path
+#    resolves it correctly even in a linked worktree (where .git is a file).
 if ! git check-ignore -q "$RUNS_DIR/x" 2>/dev/null; then
-  EX=".git/info/exclude"
-  if [ -d .git ]; then
+  EX="$(git rev-parse --git-path info/exclude 2>/dev/null)"
+  if [ -n "$EX" ]; then
+    mkdir -p "$(dirname "$EX")"
     grep -qxF "$RUNS_DIR/" "$EX" 2>/dev/null || echo "$RUNS_DIR/" >> "$EX"
   fi
 fi
@@ -343,9 +381,9 @@ CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main >/dev/null 2>&1
 CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 "step 2 APPROVE r3" >/dev/null 2>&1
 grep -q "step 2 APPROVE r3" "$T/.claude/execute-task-runs/run1.md" \
   && echo "PASS append" || { echo "FAIL append"; fails=1; }
-# append to missing journal -> exit 1
-if CLAUDE_PROJECT_DIR="$T" bash "$J" append nope "x" >/dev/null 2>&1; then
-  echo "FAIL append-missing (should exit 1)"; fails=1; else echo "PASS append-missing"; fi
+# append to missing journal -> exit exactly 1
+CLAUDE_PROJECT_DIR="$T" bash "$J" append nope "x" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && echo "PASS append-missing" || { echo "FAIL append-missing (rc=$rc, want 1)"; fails=1; }
 rm -rf "$T"
 exit $fails
 ```
@@ -362,10 +400,14 @@ Expected: FAIL — `journal.sh` not found.
 # Append a timestamped entry to a run-journal, or print its path.
 # usage: journal.sh append <run-id> <text...>   |   journal.sh path <run-id>
 set -u
-cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" 2>/dev/null || true
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
+git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
 RUNS_DIR=".claude/execute-task-runs"
 SUB="${1:?usage: journal.sh append|path <run-id> [text]}"
-RUN_ID="${2:?run-id required}"
+RAW="${2:?run-id required}"
+RUN_ID="$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9_.-' '-')"   # SAME sanitize as preflight → same file
+[ -n "$RUN_ID" ] || { echo "invalid run-id: '$RAW'" >&2; exit 1; }
 JOURNAL="$RUNS_DIR/$RUN_ID.md"
 case "$SUB" in
   path) echo "$JOURNAL" ;;
@@ -413,11 +455,11 @@ mkrepo() {
     && mkdir -p .claude/execute-task-runs && echo j > .claude/execute-task-runs/run1.md )
 }
 
-# operational artifact staged -> exit 3
+# operational artifact staged -> exit exactly 3
 mkrepo
 ( cd "$T" && git add -f .claude/execute-task-runs/run1.md )
-if CLAUDE_PROJECT_DIR="$T" bash "$S" >/dev/null 2>&1; then
-  echo "FAIL staged-artifact (should exit 3)"; fails=1; else echo "PASS staged-artifact"; fi
+CLAUDE_PROJECT_DIR="$T" bash "$S" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && echo "PASS staged-artifact" || { echo "FAIL staged-artifact (rc=$rc, want 3)"; fails=1; }
 rm -rf "$T"
 
 # clean staging (only a real source change) -> exit 0 and status shown
@@ -443,9 +485,12 @@ Expected: FAIL — `guard-artifacts.sh` not found.
 # artifacts are staged, then print the full change set INCLUDING untracked so
 # nothing slips past the review. No git add -A anywhere upstream.
 set -u
-cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" 2>/dev/null || true
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
+git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
 
-# local-only patterns that must never be committed (extend as artifacts grow)
+# One pattern covers ALL local-only operational artifacts: journal, screenshots,
+# and raw logs all live under .claude/execute-task-runs/<run-id>/ (see Conventions).
 LOCAL_ONLY=".claude/execute-task-runs/"
 
 STAGED="$(git diff --cached --name-only 2>/dev/null || true)"
@@ -485,7 +530,7 @@ Not unit-tested (it is agent-facing instructions, not code). Verified by a struc
 
 ````markdown
 ---
-description: Run a coding task end-to-end (brainstorm → plan → implement → review → CI/CD → merge) as a guided playbook with a chosen autonomy level. Use when the user says "execute this task / issue", "take this ticket from start to finish", or wants the full task lifecycle driven for them. Requires the superpowers and cc-codex-triage plugins.
+description: Drives a coding task from intake through merge as a guided, gated playbook with a chosen autonomy level. Use when the user wants a whole task or issue taken start-to-finish for them, says "execute this task", "run this ticket end to end", or asks to automate the task lifecycle. Requires the superpowers and cc-codex-triage plugins.
 argument-hint: '<issue-ref> [--autonomy brainstorm-only|checkpoints|supervised]'
 disable-model-invocation: true
 ---
@@ -516,7 +561,11 @@ Design of record: `docs/superpowers/specs/2026-06-21-execute-task-design.md`.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/config-init.sh" "${CLAUDE_PLUGIN_ROOT}/assets/execute-task/config.template.md"
    ```
    If it reports "config created", STOP and ask the user to fill `.claude/execute-task.md`, then re-run. Otherwise **Read** `.claude/execute-task.md` — those values drive every step below.
-3. Autonomy: take `--autonomy` if passed, else the config's `autonomy:`, else ask once (AskUserQuestion): `brainstorm-only` / `checkpoints` / `supervised`. See **Hard-stops** below for what autonomy can and cannot waive.
+3. Autonomy: take `--autonomy` if passed, else the config's `autonomy:`, else ask once (AskUserQuestion): `brainstorm-only` / `checkpoints` / `supervised`. Which `🚦` gates stay in the human loop:
+   - `supervised` — every `🚦`.
+   - `checkpoints` — step 1 (brainstorm / DoR-DoD), step 4 (UI acceptance), step 10 (merge).
+   - `brainstorm-only` — step 1 only.
+   In every mode the **Hard-stops** below still apply — autonomy can't waive those.
 
 ## Step 0.7 — preflight
 
@@ -537,18 +586,18 @@ Record each step's outcome to the journal. `🚦` = a human gate in `supervised`
 2. **Plan.** `superpowers:writing-plans`, then stress-test via cc-codex-triage `/plan` to APPROVE. Validate each objection; refute wrong ones with file:line. `🚦` in supervised; autonomous otherwise.
 3. **Implement.** `superpowers:subagent-driven-development`. If units are independent, fan out with a Workflow (worktree isolation for parallel file edits).
 4. **3.5 — cheap gate.** Run the config's `cheap_gate` (types/lint/unit). Red → fix before going further (hard-stop in every mode).
-5. **4 — smoke / acceptance.** Run `test` per the acceptance criteria. `[machine]` criteria you verify with chrome-devtools / `verify`; `[eyes]` criteria are a hard-stop (see below). `🚦` in supervised.
+5. **4 — smoke / acceptance.** Run `test` per the acceptance criteria. `[machine]` criteria you verify with chrome-devtools / `verify`; `[eyes]` criteria are a hard-stop (see below). **`🚦` in supervised AND checkpoints** (UI acceptance is a checkpoints stop).
 6. **5 — code-review.** Run `/code-review` (xhigh), validate findings, fix the neighborhood.
-7. **6 — peer review (conditional).** Run `superpowers:requesting-code-review` only when `review_passes` risk rules fire (diff touches auth/migrations/public API, or > N files). Else skip and journal why.
+7. **6 — peer review (conditional).** Run `superpowers:requesting-code-review` only when the config's `review_passes` risk rules fire (diff touches auth / migrations / public API, or > 20 files — use the threshold set in `review_passes`). Else skip and journal why.
 8. **7 — Codex review.** cc-codex-triage `/review` to APPROVE; validate objections. `🚦` in supervised.
 9. **7.5 — re-verify.** If the fixes in 5–7 touched FE/behaviour, re-run the relevant smoke from step 4.
 10. **8 — reconcile.** Tick off plan + DoD items; journal what shipped vs deferred.
 11. **9a — CI.** Run `ci` (trigger if manual). Red → hard-stop.
-12. **9b — CD (if `cd` set).** Before running it, run the guard and show the change set:
+12. **9b — CD (if `cd` set).** Before running `cd`, do the **full outward-facing preflight** (same bar as merge): run the guard, show the exact commit/diff, **classify the side effect** (deploy / publish / data migration), state the **rollback path**, and journal all of it.
     ```bash
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh"
     ```
-    Exit 3 → unstage the operational artifacts. CD is an outward-facing **hard-stop** in every mode.
+    Exit 3 → unstage the operational artifacts. CD is an outward-facing **hard-stop** in every mode — autonomy never runs it unattended.
 13. **10 — merge.** Run the guard again, show the exact commit/diff + rollback path, then merge per `merge`. Default: stop for confirmation even in `brainstorm-only`; only `merge: auto` waives that.
 
 ## Hard-stops (what autonomy can NEVER waive)
@@ -557,7 +606,7 @@ Whatever the mode, STOP and involve the human for: a failed prereq (0); a dirty 
 
 ## Artifact hygiene
 
-`.claude/execute-task-runs/` and any screenshots/raw logs are local-only — preflight ignores them; never `git add -A`; the guard refuses to proceed if they are staged and shows untracked files in the final diff. The project config and any plan/spec files are committable.
+All local-only operational artifacts live under `.claude/execute-task-runs/<run-id>/` — the journal **and** any screenshots / raw test+CI logs (write them there, e.g. `.claude/execute-task-runs/<run-id>/smoke.png`). Preflight git-ignores that single directory, so every class is covered at once. Never `git add -A`; the guard refuses to proceed if any are staged and shows untracked files in the final diff. The project config and any plan/spec files ARE committable. The config's optional `artifacts` field may redirect/extend this — honor it if set.
 ````
 
 - [ ] **Step 2: Structural self-check** (no code change — verify against the spec)
@@ -570,11 +619,12 @@ Run, from a scratch git repo, the exact invocations the command lists:
 ```bash
 T="$(mktemp -d)"; cd "$T" && git init -q && git config user.email a@b.c && git config user.name t && echo x>f && git add f && git commit -qm init
 bash "$OLDPWD/plugins/cc-tuner/scripts/execute-task/config-init.sh" "$OLDPWD/plugins/cc-tuner/assets/execute-task/config.template.md"
+git add .claude/execute-task.md && git commit -qm "add execute-task config"   # config is committable — clean the tree before preflight
 bash "$OLDPWD/plugins/cc-tuner/scripts/execute-task/preflight.sh" smoke main
 bash "$OLDPWD/plugins/cc-tuner/scripts/execute-task/journal.sh" append smoke "wiring ok"
 bash "$OLDPWD/plugins/cc-tuner/scripts/execute-task/guard-artifacts.sh"; cd "$OLDPWD"; rm -rf "$T"
 ```
-Expected: config created, journal path printed, append succeeds, guard prints the change set with exit 0.
+Expected: config created, then committed; preflight prints the journal path (clean tree); append succeeds; guard prints the change set with exit 0.
 
 - [ ] **Step 4: Commit**
 
@@ -612,9 +662,13 @@ Add a short `## /execute-task` section: one-paragraph what/when, the dependency 
 - [ ] **Step 5: Run the full test suite once more**
 
 ```bash
-for t in plugins/cc-tuner/tests/execute-task/test_*.sh; do echo "== $t =="; bash "$t" || echo "FAILED"; done
+rc=0
+for t in plugins/cc-tuner/tests/execute-task/test_*.sh; do
+  echo "== $t =="; bash "$t" || { echo "FAILED: $t"; rc=1; }
+done
+[ "$rc" -eq 0 ] && echo "ALL TESTS PASS" || { echo "SOME TESTS FAILED"; exit 1; }
 ```
-Expected: all `PASS`, no `FAILED`.
+Expected: all `PASS`, final line `ALL TESTS PASS`, exit 0. (The loop tracks failures and exits non-zero — it does not mask them.)
 
 - [ ] **Step 6: Commit**
 
