@@ -1,8 +1,8 @@
 {
   "name": "cc-tuner",
   "displayName": "CC Tuner",
-  "description": "Tune Claude Code's own configuration. Ships claude-md-writer (audit CLAUDE.md / .claude/rules/ memory against the official docs) and a usage statusline (rate-limit + context %, /cc-tuner:statusline-setup).",
-  "version": "0.2.1",
+  "description": "Tune Claude Code's own configuration. Ships claude-md-writer (audit CLAUDE.md / .claude/rules/ memory against the official docs) and a usage statusline (rate-limit + context %, /cc-tuner:statusline-setup). Plus /execute-task, a gated task-lifecycle playbook (requires superpowers + cc-codex-triage).",
+  "version": "0.3.0",
   "author": {
     "name": "Clicktronix",
     "url": "https://github.com/clicktronix"
@@ -21,6 +21,9 @@
     "best-practices",
     "statusline",
     "rate-limit",
-    "usage"
+    "usage",
+    "execute-task",
+    "workflow",
+    "playbook"
   ]
 }

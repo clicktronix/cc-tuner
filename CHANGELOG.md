@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-06-25
+
+### Added
+
+- **`/execute-task`** — a task-lifecycle playbook command (intake → plan →
+  implement → review → CI/CD → merge) driven by the main agent, with a
+  start-time autonomy level (`brainstorm-only` / `checkpoints` / `supervised`)
+  and honest hard-stops (prereq, dirty tree, red gate, human-eye acceptance,
+  CD/merge). Five bundled bash scripts (prereq-check, config-init, preflight,
+  journal, guard-artifacts) handle the deterministic git/fs work; per-project
+  settings live in `.claude/execute-task.md`. Requires the `superpowers` and
+  `cc-codex-triage` plugins (prereq-checked at runtime; cc-tuner still installs
+  standalone).
+
 ## [0.2.1] - 2026-06-15
 
 Hardening of the 0.2.0 statusline after a 3-round cross-agent (Codex) review.
