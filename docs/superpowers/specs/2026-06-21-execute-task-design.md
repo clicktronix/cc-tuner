@@ -131,3 +131,14 @@ cc-tuner ставится **standalone**; зависимость от superpower
 - Авто-определение, какие правки «трогают FE/поведение» для условного шага 7.5 (по путям из diff vs `test`-конфига).
 - Конкретные risk-правила для условного прохода 6 (порог N файлов; список чувствительных путей) — заданы как идея в §4, точные значения на этапе плана.
 - Возможный явный `--resume <id>` поверх run-journal (пока возобновление — чтение журнала вручную).
+
+## 11. Авторинг: command vs skill (решить на реализации)
+
+`/execute-task` спроектирован как **slash-команда** (`disable-model-invocation` markdown, как команды cc-codex-triage). На переходе от спеки к коду — зафиксировать развилку:
+
+- **Остаётся чистой командой** (дефолт) — `writing-skills` / `skill-creator` строго не нужны (оба про SKILL.md). Применяем только переносимые принципы: description/argument-hint = триггер, не пересказ workflow; объяснять «почему», без жёстких MUST; держать lean; повторяющиеся bash-куски выносить в `scripts/` рядом с командой.
+- **Выделяем скил-часть** — тогда обязателен `superpowers:writing-skills` (**Iron Law: RED→GREEN на воспроизведённом baseline** — без него скил это гипотеза) и/или Anthropic `skill-creator` (eval-loop: with-skill vs baseline, бенчмарк pass-rate/токены/время, оптимизация description, упаковка `.skill`).
+
+**Сверенные источники авторинга** (проверены 2026-06-25): `superpowers:writing-skills` (+ бандл `anthropic-best-practices.md`), Anthropic `skill-creator` (установлен в `anthropic-agent-skills`).
+
+**Расхождение, которое надо примирить, если выделяем скил:** `writing-skills` требует description = **только WHEN** (не пересказывать workflow, иначе модель идёт по описанию мимо тела), а `skill-creator` советует **WHAT + WHEN и быть слегка «pushy»** против undertriggering. Для команды это неважно (её вызывают явно); для скила — берём when-ориентированное, но достаточно «pushy» описание.
