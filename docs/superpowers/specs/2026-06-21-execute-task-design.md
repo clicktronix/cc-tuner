@@ -139,6 +139,12 @@ cc-tuner ставится **standalone**; зависимость от superpower
 - **Остаётся чистой командой** (дефолт) — `writing-skills` / `skill-creator` строго не нужны (оба про SKILL.md). Применяем только переносимые принципы: description/argument-hint = триггер, не пересказ workflow; объяснять «почему», без жёстких MUST; держать lean; повторяющиеся bash-куски выносить в `scripts/` рядом с командой.
 - **Выделяем скил-часть** — тогда обязателен `superpowers:writing-skills` (**Iron Law: RED→GREEN на воспроизведённом baseline** — без него скил это гипотеза) и/или Anthropic `skill-creator` (eval-loop: with-skill vs baseline, бенчмарк pass-rate/токены/время, оптимизация description, упаковка `.skill`).
 
-**Сверенные источники авторинга** (проверены 2026-06-25): `superpowers:writing-skills` (+ бандл `anthropic-best-practices.md`), Anthropic `skill-creator` (установлен в `anthropic-agent-skills`).
+**Сверенные источники авторинга** (прочитаны 2026-06-25): Anthropic «Skill authoring best practices» (`anthropic-best-practices.md`, целиком), Anthropic `skill-creator` (установлен в `anthropic-agent-skills`), `superpowers:writing-skills`.
 
-**Расхождение, которое надо примирить, если выделяем скил:** `writing-skills` требует description = **только WHEN** (не пересказывать workflow, иначе модель идёт по описанию мимо тела), а `skill-creator` советует **WHAT + WHEN и быть слегка «pushy»** против undertriggering. Для команды это неважно (её вызывают явно); для скила — берём when-ориентированное, но достаточно «pushy» описание.
+**Про description — официальная позиция Anthropic снимает мнимое расхождение:** best-practices прямо требует description = **WHAT + WHEN, в третьем лице** (это первичный механизм выбора скила из 100+). «Только WHEN» из `writing-skills` — не противоречие, а более жёсткая эвристика против одной конкретной ошибки: пересказа *пошагового workflow* в описании (тогда модель идёт по описанию мимо тела). Примирение: **what + when, третье лицо, но без пересказа шагов**; для скила — чуть «pushy» против undertriggering.
+
+**Официальные best-practices, применяемые на реализации** (и для команды, и для скил-части):
+- **Eval-first (= Iron Law, теперь официально Anthropic):** ≥3 сценария, baseline без скила, прогон на Haiku/Sonnet/Opus — *до* написания тела.
+- **Plan-validate-execute** для batch/destructive/high-stakes — наш дизайн уже это воплощает (префлайт 0.7 + cheap-gate 3.5 + re-verify 7.5 + run-journal как verifiable intermediate output). Подтверждает, что спина «в духе» официального паттерна.
+- **Degrees of freedom:** judgment-шаги — high-freedom (текст); prereq/префлайт/гейты — low-freedom (точный bash, «run exactly this»).
+- **Скрипты:** solve-don't-punt (явная обработка ошибок), без voodoo-констант, forward-slash пути, MCP полными именами (`chrome-devtools:...` на шаге 4), concise — не объяснять то, что модель и так знает.
