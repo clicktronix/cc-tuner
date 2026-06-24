@@ -145,6 +145,7 @@ cc-tuner ставится **standalone**; зависимость от superpower
 
 **Официальные best-practices, применяемые на реализации** (и для команды, и для скил-части):
 - **Eval-first (= Iron Law, теперь официально Anthropic):** ≥3 сценария, baseline без скила, прогон на Haiku/Sonnet/Opus — *до* написания тела.
-- **Plan-validate-execute** для batch/destructive/high-stakes — наш дизайн уже это воплощает (префлайт 0.7 + cheap-gate 3.5 + re-verify 7.5 + run-journal как verifiable intermediate output). Подтверждает, что спина «в духе» официального паттерна.
+- **Plan-validate-execute** для batch/destructive/high-stakes — **буквальная** часть паттерна (план-файл → валидация → исполнение) у нас = **шаг 2** (`writing-plans` + `cc-codex-triage:plan` до APPROVE *перед* реализацией). Префлайт 0.7 / cheap-gate 3.5 / re-verify 7.5 / run-journal — дополнительная checkpoint-машинерия в том же духе, но **не подменяет** шаг 2 (journal — это evidence/state, не сам «validated plan»).
 - **Degrees of freedom:** judgment-шаги — high-freedom (текст); prereq/префлайт/гейты — low-freedom (точный bash, «run exactly this»).
 - **Скрипты:** solve-don't-punt (явная обработка ошибок), без voodoo-констант, forward-slash пути, MCP полными именами (`chrome-devtools:...` на шаге 4), concise — не объяснять то, что модель и так знает.
+- **Структура/контент:** reference-файлы (если будут) — one level deep от тела команды; **не тащить в тело команды/скила time-sensitive заметки** (даты «прочитано …», «на 2026-…») — best-practices явно против; такие пометки живут только в этой спеке-records.
