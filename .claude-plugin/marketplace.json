@@ -5,14 +5,14 @@
     "url": "https://github.com/clicktronix"
   },
   "metadata": {
-    "description": "Tune Claude Code's own configuration. A home for skills that write and audit Claude Code's config files against the official docs — claude-md-writer for CLAUDE.md / .claude/rules/ memory, and a usage statusline.",
+    "description": "Tune Claude Code's own configuration. A home for skills that write and audit Claude Code's config files against the official docs — claude-md-writer for CLAUDE.md / .claude/rules/ memory, a usage statusline, and /execute-task for driving a coding task end-to-end from intake to merge.",
     "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "cc-tuner",
       "source": "./plugins/cc-tuner",
-      "description": "Audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), and install a rate-limit + context usage statusline (/cc-tuner:statusline-setup).",
+      "description": "Audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (/cc-tuner:statusline-setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:execute-task).",
       "version": "0.3.0"
     }
   ]
