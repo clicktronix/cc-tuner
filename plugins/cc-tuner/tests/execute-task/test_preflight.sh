@@ -36,17 +36,35 @@ rm -rf "$T"
 
 # linked worktree (.git is a FILE, not a dir) -> ignore-coverage still works
 mkrepo
-WT="$(mktemp -d)/wt"
+WTP="$(mktemp -d)"; WT="$WTP/wt"
 ( cd "$T" && git worktree add -q "$WT" -b wtbranch >/dev/null 2>&1 )
 CLAUDE_PROJECT_DIR="$WT" bash "$S" runwt main >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && ( cd "$WT" && git check-ignore -q .claude/execute-task-runs/runwt.md ); } \
   && echo "PASS worktree-ignore" || { echo "FAIL worktree-ignore (rc=$rc)"; fails=1; }
-( cd "$T" && git worktree remove --force "$WT" >/dev/null 2>&1 ); rm -rf "$WT" "$T"
+( cd "$T" && git worktree remove --force "$WT" >/dev/null 2>&1 ); rm -rf "$WTP" "$T"
 
 # bad CLAUDE_PROJECT_DIR (not a git repo) -> exit 1, never a silent wrong-dir run
 NOGIT="$(mktemp -d)"
 CLAUDE_PROJECT_DIR="$NOGIT" bash "$S" run3 main >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && echo "PASS bad-root" || { echo "FAIL bad-root (rc=$rc, want 1)"; fails=1; }
 rm -rf "$NOGIT"
+
+# re-run for the same run-id -> prior journal PRESERVED (not truncated), restart marked
+mkrepo
+J="$(CLAUDE_PROJECT_DIR="$T" bash "$S" run1 main 2>/dev/null)"
+printf -- '- [t] prior entry\n' >> "$T/$J"
+CLAUDE_PROJECT_DIR="$T" bash "$S" run1 main >/dev/null 2>&1
+{ grep -qF "prior entry" "$T/$J" && grep -qF "restarted:" "$T/$J"; } \
+  && echo "PASS journal-preserved-on-rerun" || { echo "FAIL journal-preserved-on-rerun"; fails=1; }
+rm -rf "$T"
+
+# anti-false-positive: a real change under a nested src/.claude/execute-task-runs/ path
+# is NOT the operational runs dir -> tree is DIRTY (exit 2), not silently clean
+mkrepo
+( cd "$T" && mkdir -p src/.claude/execute-task-runs && echo c > src/.claude/execute-task-runs/code.py \
+  && git add src/.claude/execute-task-runs/code.py )
+CLAUDE_PROJECT_DIR="$T" bash "$S" run4 main >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && echo "PASS substring-not-false-clean" || { echo "FAIL substring-not-false-clean (rc=$rc, want 2)"; fails=1; }
+rm -rf "$T"
 
 exit $fails

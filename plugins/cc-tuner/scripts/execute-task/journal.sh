@@ -15,8 +15,10 @@ case "$SUB" in
   path) echo "$JOURNAL" ;;
   append)
     shift 2
+    MSG="$*"
+    [ -n "$MSG" ] || { echo "journal append: message text required (got empty)" >&2; exit 1; }
     [ -f "$JOURNAL" ] || { echo "journal not found: $JOURNAL (run preflight first)" >&2; exit 1; }
-    printf -- '- [%s] %s\n' "$(date -u +%FT%TZ)" "$*" >> "$JOURNAL"
+    printf -- '- [%s] %s\n' "$(date -u +%FT%TZ)" "$MSG" >> "$JOURNAL"
     ;;
   *) echo "unknown subcommand: $SUB (use append|path)" >&2; exit 1 ;;
 esac

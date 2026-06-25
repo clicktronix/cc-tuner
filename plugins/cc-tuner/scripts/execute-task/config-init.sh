@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Ensure .claude/execute-task.md exists; scaffold from the template if missing.
 # usage: config-init.sh <template-path>
+# Exit codes: 0 = config already exists (proceed); 2 = freshly created → STOP and
+#   have the user fill it in before re-running; 1 = usage / bad root / no template.
 set -u
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
@@ -15,3 +17,4 @@ fi
 mkdir -p .claude
 cp "$TEMPLATE" "$CFG"
 echo "config created: $CFG — edit it for this repo, then re-run /cc-tuner:execute-task"
+exit 2

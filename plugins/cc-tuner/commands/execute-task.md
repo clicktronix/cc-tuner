@@ -29,7 +29,7 @@ Design of record: `docs/superpowers/specs/2026-06-21-execute-task-design.md`.
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/config-init.sh" "${CLAUDE_PLUGIN_ROOT}/assets/execute-task/config.template.md"
    ```
-   If it reports "config created", STOP and ask the user to fill `.claude/execute-task.md`, then re-run. Otherwise **Read** `.claude/execute-task.md` — those values drive every step below.
+   On **exit 2** (config freshly created), STOP and ask the user to fill `.claude/execute-task.md`, then re-run. On **exit 0** (config already exists), **Read** `.claude/execute-task.md` — those values drive every step below.
 3. Autonomy: take `--autonomy` if passed, else the config's `autonomy:`, else ask once (AskUserQuestion): `brainstorm-only` / `checkpoints` / `supervised`. Which `🚦` gates stay in the human loop:
    - `supervised` — every `🚦`.
    - `checkpoints` — step 1 (brainstorm / DoR-DoD), step 4 (UI acceptance), step 10 (merge).
@@ -75,4 +75,4 @@ Whatever the mode, STOP and involve the human for: a failed prereq (0); a dirty 
 
 ## Artifact hygiene
 
-All local-only operational artifacts live under `.claude/execute-task-runs/` — the journal is the flat file `.claude/execute-task-runs/<run-id>.md`, and the run's other artifacts (screenshots / raw test+CI logs) go in the sibling subdir `.claude/execute-task-runs/<run-id>/` (e.g. `.claude/execute-task-runs/<run-id>/smoke.png`). Preflight git-ignores that single top directory, so every class is covered at once. Never `git add -A`; the guard refuses to proceed if any are staged and shows untracked files in the final diff. The project config and any plan/spec files ARE committable. The config's optional `artifacts` field may redirect/extend this — honor it if set.
+All local-only operational artifacts live under `.claude/execute-task-runs/` — the journal is the flat file `.claude/execute-task-runs/<run-id>.md`, and the run's other artifacts (screenshots / raw test+CI logs) go in the sibling subdir `.claude/execute-task-runs/<run-id>/` (e.g. `.claude/execute-task-runs/<run-id>/smoke.png`). Preflight git-ignores that single top directory, so every class is covered at once. Never `git add -A`; the guard refuses to proceed if any are staged **or already committed** under that dir, and shows untracked files in the final diff. The project config and any plan/spec files ARE committable.
