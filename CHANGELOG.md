@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [0.3.0] - 2026-06-25
+## [0.3.0] - 2026-06-26
 
 ### Added
 
@@ -15,6 +15,13 @@ All notable changes to this project are documented in this file.
   settings live in `.claude/execute-task.md`. Requires the `superpowers` and
   `cc-codex-triage` plugins (prereq-checked at runtime; cc-tuner still installs
   standalone).
+- The gate scripts are **fail-closed**: a filesystem or git error never reads as
+  a clean tree / created config / empty change set. Runs-dir detection uses git
+  pathspecs (not substring matching); the artifact guard is **history-aware**
+  (rejects run artifacts hiding in `<target>..HEAD` that a non-squash merge would
+  publish); and the run-journal survives re-runs, monorepo subdirs, linked
+  worktrees, and unborn/detached HEAD. Hardened across six review passes, each
+  gated to APPROVE with regression tests (26 checks on bash 3.2.57).
 
 ## [0.2.1] - 2026-06-15
 
