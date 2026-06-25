@@ -47,7 +47,7 @@ fi
 # 3) open (re-run: preserve) the run-journal.
 mkdir -p "$RUNS_DIR"
 JOURNAL="$RUNS_DIR/$RUN_ID.md"
-BASE_SHA="$(git rev-parse HEAD 2>/dev/null || echo '(unborn)')"
+BASE_SHA="$(git rev-parse --verify HEAD 2>/dev/null || echo '(unborn)')"   # --verify: prints nothing on an unborn HEAD, so only the fallback survives (no 'HEAD\n(unborn)')
 # symbolic-ref gives the branch name for a normal OR unborn branch, and fails
 # (→ '(detached)') only on a true detached HEAD — unlike abbrev-ref, which prints
 # 'HEAD' when detached and errors on an unborn branch.

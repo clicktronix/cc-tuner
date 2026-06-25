@@ -51,23 +51,23 @@ Design of record: `docs/superpowers/specs/2026-06-21-execute-task-design.md`.
 
 Record each step's outcome to the journal. `🚦` = a human gate in `supervised`; see Hard-stops for `brainstorm-only`/`checkpoints`.
 
-1. **Intake + DoR/DoD.** Fetch the issue per `tracker`. If anything is unclear, invoke `superpowers:brainstorming`. Write DoR/DoD with acceptance criteria, each tagged `[machine]` or `[eyes]`. `🚦` always (this is the point of `brainstorm-only`).
-2. **Plan.** `superpowers:writing-plans`, then stress-test via cc-codex-triage `/plan` to APPROVE. Validate each objection; refute wrong ones with file:line. `🚦` in supervised; autonomous otherwise.
-3. **Implement.** `superpowers:subagent-driven-development`. If units are independent, fan out with a Workflow (worktree isolation for parallel file edits).
-4. **3.5 — cheap gate.** Run the config's `cheap_gate` (types/lint/unit). Red → fix before going further (hard-stop in every mode).
-5. **4 — smoke / acceptance.** Run `test` per the acceptance criteria. `[machine]` criteria you verify with chrome-devtools / `verify`; `[eyes]` criteria are a hard-stop (see below). **`🚦` in supervised AND checkpoints** (UI acceptance is a checkpoints stop).
-6. **5 — code-review.** Run `/code-review` (xhigh), validate findings, fix the neighborhood.
-7. **6 — peer review (conditional).** Run `superpowers:requesting-code-review` only when the config's `review_passes` risk rules fire (diff touches auth / migrations / public API, or > 20 files — use the threshold set in `review_passes`). Else skip and journal why.
-8. **7 — Codex review.** cc-codex-triage `/review` to APPROVE; validate objections. `🚦` in supervised.
-9. **7.5 — re-verify.** If the fixes in 5–7 touched FE/behaviour, re-run the relevant smoke from step 4.
-10. **8 — reconcile.** Tick off plan + DoD items; journal what shipped vs deferred.
-11. **9a — CI.** Run `ci` (trigger if manual). Red → hard-stop.
-12. **9b — CD (if `cd` set).** Before running `cd`, do the **full outward-facing preflight** (same bar as merge): run the guard, show the exact commit/diff, **classify the side effect** (deploy / publish / data migration), state the **rollback path**, and journal all of it.
-    ```bash
-    bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh"
-    ```
-    Exit 3 → unstage the operational artifacts. CD is an outward-facing **hard-stop** in every mode — autonomy never runs it unattended.
-13. **10 — merge.** Run the guard again, show the exact commit/diff + rollback path, then merge per `merge`. Default: stop for confirmation even in `brainstorm-only`; only `merge: auto` waives that.
+- **1 — Intake + DoR/DoD.** Fetch the issue per `tracker`. If anything is unclear, invoke `superpowers:brainstorming`. Write DoR/DoD with acceptance criteria, each tagged `[machine]` or `[eyes]`. `🚦` always (this is the point of `brainstorm-only`).
+- **2 — Plan.** `superpowers:writing-plans`, then stress-test via cc-codex-triage `/plan` to APPROVE. Validate each objection; refute wrong ones with file:line. `🚦` in supervised; autonomous otherwise.
+- **3 — Implement.** `superpowers:subagent-driven-development`. If units are independent, fan out with a Workflow (worktree isolation for parallel file edits).
+- **3.5 — cheap gate.** Run the config's `cheap_gate` (types/lint/unit). Red → fix before going further (hard-stop in every mode).
+- **4 — smoke / acceptance.** Run `test` per the acceptance criteria. `[machine]` criteria you verify with chrome-devtools / `verify`; `[eyes]` criteria are a hard-stop (see below). **`🚦` in supervised AND checkpoints** (UI acceptance is a checkpoints stop).
+- **5 — code-review.** Run `/code-review` (xhigh), validate findings, fix the neighborhood.
+- **6 — peer review (conditional).** Run `superpowers:requesting-code-review` only when the config's `review_passes` risk rules fire (diff touches auth / migrations / public API, or > 20 files — use the threshold set in `review_passes`). Else skip and journal why.
+- **7 — Codex review.** cc-codex-triage `/review` to APPROVE; validate objections. `🚦` in supervised.
+- **7.5 — re-verify.** If the fixes in 5–7 touched FE/behaviour, re-run the relevant smoke from step 4.
+- **8 — reconcile.** Tick off plan + DoD items; journal what shipped vs deferred.
+- **9a — CI.** Run `ci` (trigger if manual). Red → hard-stop.
+- **9b — CD (if `cd` set).** Before running `cd`, do the **full outward-facing preflight** (same bar as merge): run the guard, show the exact commit/diff, **classify the side effect** (deploy / publish / data migration), state the **rollback path**, and journal all of it.
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh"
+  ```
+  Exit 3 → unstage the operational artifacts. CD is an outward-facing **hard-stop** in every mode — autonomy never runs it unattended.
+- **10 — merge.** Run the guard again, show the exact commit/diff + rollback path, then merge per `merge`. Default: stop for confirmation even in `brainstorm-only`; only `merge: auto` waives that.
 
 ## Hard-stops (what autonomy can NEVER waive)
 

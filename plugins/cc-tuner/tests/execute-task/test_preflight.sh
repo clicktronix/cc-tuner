@@ -67,4 +67,11 @@ CLAUDE_PROJECT_DIR="$T" bash "$S" run4 main >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && echo "PASS substring-not-false-clean" || { echo "FAIL substring-not-false-clean (rc=$rc, want 2)"; fails=1; }
 rm -rf "$T"
 
+# unborn branch (fresh repo, no commits) -> base SHA recorded as (unborn), not a garbled 'HEAD' + stray line
+UB="$(mktemp -d)"; ( cd "$UB" && git init -qb main )
+JUB="$(CLAUDE_PROJECT_DIR="$UB" bash "$S" run5 main 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 0 ] && grep -qF "base SHA: (unborn)" "$UB/$JUB" && ! grep -qF "base SHA: HEAD" "$UB/$JUB"; } \
+  && echo "PASS unborn-base-sha" || { echo "FAIL unborn-base-sha (rc=$rc)"; fails=1; }
+rm -rf "$UB"
+
 exit $fails
