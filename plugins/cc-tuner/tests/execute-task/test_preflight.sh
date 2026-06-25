@@ -4,8 +4,10 @@ S="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)/preflight.sh"
 fails=0
 
 mkrepo() {
-  T="$(mktemp -d)"; ( cd "$T" && git init -q && git config user.email a@b.c \
-    && git config user.name t && echo x > f && git add f && git commit -qm init )
+  T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+  ( cd "$T" && git init -q && git config user.email a@b.c \
+    && git config user.name t && echo x > f && git add f && git commit -qm init ) \
+    || { echo "FATAL: fixture setup failed"; exit 1; }
 }
 
 # clean tree -> journal created with base SHA, runs dir gitignored
@@ -36,7 +38,7 @@ rm -rf "$T"
 
 # linked worktree (.git is a FILE, not a dir) -> ignore-coverage still works
 mkrepo
-WTP="$(mktemp -d)"; WT="$WTP/wt"
+WTP="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }; WT="$WTP/wt"
 ( cd "$T" && git worktree add -q "$WT" -b wtbranch >/dev/null 2>&1 )
 CLAUDE_PROJECT_DIR="$WT" bash "$S" runwt main >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && ( cd "$WT" && git check-ignore -q .claude/execute-task-runs/runwt.md ); } \
@@ -44,7 +46,7 @@ CLAUDE_PROJECT_DIR="$WT" bash "$S" runwt main >/dev/null 2>&1; rc=$?
 ( cd "$T" && git worktree remove --force "$WT" >/dev/null 2>&1 ); rm -rf "$WTP" "$T"
 
 # bad CLAUDE_PROJECT_DIR (not a git repo) -> exit 1, never a silent wrong-dir run
-NOGIT="$(mktemp -d)"
+NOGIT="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
 CLAUDE_PROJECT_DIR="$NOGIT" bash "$S" run3 main >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && echo "PASS bad-root" || { echo "FAIL bad-root (rc=$rc, want 1)"; fails=1; }
 rm -rf "$NOGIT"
@@ -68,7 +70,7 @@ CLAUDE_PROJECT_DIR="$T" bash "$S" run4 main >/dev/null 2>&1; rc=$?
 rm -rf "$T"
 
 # unborn branch (fresh repo, no commits) -> base SHA recorded as (unborn), not a garbled 'HEAD' + stray line
-UB="$(mktemp -d)"; ( cd "$UB" && git init -qb main )
+UB="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }; ( cd "$UB" && git init -qb main )
 JUB="$(CLAUDE_PROJECT_DIR="$UB" bash "$S" run5 main 2>/dev/null)"; rc=$?
 { [ "$rc" -eq 0 ] && grep -qF "base SHA: (unborn)" "$UB/$JUB" && ! grep -qF "base SHA: HEAD" "$UB/$JUB"; } \
   && echo "PASS unborn-base-sha" || { echo "FAIL unborn-base-sha (rc=$rc)"; fails=1; }

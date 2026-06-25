@@ -5,7 +5,8 @@ S="$HERE/config-init.sh"
 TPL="$(cd "$(dirname "$0")/../../assets/execute-task" && pwd)/config.template.md"
 fails=0
 
-T="$(mktemp -d)"; ( cd "$T" && git init -q )
+T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+( cd "$T" && git init -q ) || { echo "FATAL: fixture setup failed"; exit 1; }
 # missing -> created from template, exit EXACTLY 2 (the STOP-and-fill signal)
 CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] && grep -q "execute-task config" "$T/.claude/execute-task.md"; then

@@ -26,10 +26,10 @@ if ! git check-ignore -q "$RUNS_DIR/x" 2>/dev/null; then
   PREFIX="$(git rev-parse --show-prefix 2>/dev/null)"   # '' at root, 'packages/app/' in a subdir
   PATTERN="/$PREFIX$RUNS_DIR/"
   if [ -n "$EX" ]; then
-    mkdir -p "$(dirname "$EX")"
+    mkdir -p "$(dirname "$EX")" || { echo "execute-task: cannot create $(dirname "$EX")" >&2; exit 1; }
     if ! grep -qxF "$PATTERN" "$EX" 2>/dev/null; then
       [ -s "$EX" ] && [ -n "$(tail -c1 "$EX" 2>/dev/null)" ] && printf '\n' >> "$EX"
-      printf '%s\n' "$PATTERN" >> "$EX"
+      printf '%s\n' "$PATTERN" >> "$EX" || { echo "execute-task: cannot update exclude file $EX" >&2; exit 1; }
     fi
   fi
 fi
@@ -37,15 +37,19 @@ fi
 # 2) clean tree. Exclude the runs dir with a git PATHSPEC (anchored to the path,
 #    NOT a substring) so a real source path that merely contains the marker
 #    string is not silently dropped. -unormal: we only need a boolean "dirty?".
-DIRTY="$(git status --porcelain -unormal -- . ":(exclude)$RUNS_DIR" 2>/dev/null || true)"
+#    FAIL CLOSED: a 'git status' error (bad index, lock) must NOT pass as clean.
+if ! DIRTY="$(git status --porcelain -unormal -- . ":(exclude)$RUNS_DIR" 2>/dev/null)"; then
+  echo "execute-task: 'git status' failed — refusing to assume a clean tree" >&2; exit 1
+fi
 if [ -n "$DIRTY" ]; then
   echo "DIRTY working tree — commit/stash first (or allow via branch policy):" >&2
   printf '%s\n' "$DIRTY" >&2
   exit 2
 fi
 
-# 3) open (re-run: preserve) the run-journal.
-mkdir -p "$RUNS_DIR"
+# 3) open (re-run: preserve) the run-journal. Writes fail CLOSED — a gate must not
+#    print a journal path it did not actually create.
+mkdir -p "$RUNS_DIR" || { echo "execute-task: cannot create $RUNS_DIR" >&2; exit 1; }
 JOURNAL="$RUNS_DIR/$RUN_ID.md"
 BASE_SHA="$(git rev-parse --verify HEAD 2>/dev/null || echo '(unborn)')"   # --verify: prints nothing on an unborn HEAD, so only the fallback survives (no 'HEAD\n(unborn)')
 # symbolic-ref gives the branch name for a normal OR unborn branch, and fails
@@ -57,7 +61,7 @@ if [ -f "$JOURNAL" ]; then
   {
     echo
     echo "## restarted: $(date -u +%FT%TZ)  (branch $BRANCH, base $BASE_SHA)"
-  } >> "$JOURNAL"
+  } >> "$JOURNAL" || { echo "execute-task: failed to append journal $JOURNAL" >&2; exit 1; }
 else
   {
     echo "# execute-task run: $RUN_ID"
@@ -68,6 +72,6 @@ else
     echo "- base SHA: $BASE_SHA"
     echo
     echo "## log"
-  } > "$JOURNAL"
+  } > "$JOURNAL" || { echo "execute-task: failed to write journal $JOURNAL" >&2; exit 1; }
 fi
 echo "$JOURNAL"

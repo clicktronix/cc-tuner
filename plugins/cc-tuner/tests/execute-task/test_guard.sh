@@ -4,9 +4,11 @@ S="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)/guard-artifacts.sh"
 fails=0
 
 mkrepo() {
-  T="$(mktemp -d)"; ( cd "$T" && git init -q && git config user.email a@b.c \
+  T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+  ( cd "$T" && git init -q && git config user.email a@b.c \
     && git config user.name t && echo x > f && git add f && git commit -qm init \
-    && mkdir -p .claude/execute-task-runs && echo j > .claude/execute-task-runs/run1.md )
+    && mkdir -p .claude/execute-task-runs && echo j > .claude/execute-task-runs/run1.md ) \
+    || { echo "FATAL: fixture setup failed"; exit 1; }
 }
 
 # operational artifact staged -> exit exactly 3
@@ -37,5 +39,18 @@ mkrepo
   && git add src/.claude/execute-task-runs/x.py )
 CLAUDE_PROJECT_DIR="$T" bash "$S" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && echo "PASS substring-not-false-refuse" || { echo "FAIL substring-not-false-refuse (rc=$rc, want 0)"; fails=1; }
+rm -rf "$T"
+
+# artifact committed THEN deleted -> gone from index/tree, still in HISTORY.
+# guard WITH the merge target refuses (a non-squash merge would publish it).
+mkrepo
+BASE="$(cd "$T" && git rev-parse HEAD)"
+( cd "$T" && git add -f .claude/execute-task-runs/run1.md && git commit -qm "add artifact" \
+  && git rm -q .claude/execute-task-runs/run1.md && git commit -qm "delete artifact" )
+CLAUDE_PROJECT_DIR="$T" bash "$S" "$BASE" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && echo "PASS history-artifact" || { echo "FAIL history-artifact (rc=$rc, want 3)"; fails=1; }
+# without a base ref, history is not scanned -> same repo passes (exit 0)
+CLAUDE_PROJECT_DIR="$T" bash "$S" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && echo "PASS history-needs-base" || { echo "FAIL history-needs-base (rc=$rc, want 0)"; fails=1; }
 rm -rf "$T"
 exit $fails

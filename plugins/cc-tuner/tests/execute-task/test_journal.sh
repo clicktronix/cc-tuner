@@ -4,8 +4,10 @@ DIR="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)"
 J="$DIR/journal.sh"; P="$DIR/preflight.sh"
 fails=0
 
-T="$(mktemp -d)"; ( cd "$T" && git init -q && git config user.email a@b.c \
-  && git config user.name t && echo x > f && git add f && git commit -qm init )
+T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+( cd "$T" && git init -q && git config user.email a@b.c \
+  && git config user.name t && echo x > f && git add f && git commit -qm init ) \
+  || { echo "FATAL: fixture setup failed"; exit 1; }
 CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main >/dev/null 2>&1
 
 # path

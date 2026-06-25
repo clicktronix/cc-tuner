@@ -62,12 +62,12 @@ Record each step's outcome to the journal. `🚦` = a human gate in `supervised`
 - **7.5 — re-verify.** If the fixes in 5–7 touched FE/behaviour, re-run the relevant smoke from step 4.
 - **8 — reconcile.** Tick off plan + DoD items; journal what shipped vs deferred.
 - **9a — CI.** Run `ci` (trigger if manual). Red → hard-stop.
-- **9b — CD (if `cd` set).** Before running `cd`, do the **full outward-facing preflight** (same bar as merge): run the guard, show the exact commit/diff, **classify the side effect** (deploy / publish / data migration), state the **rollback path**, and journal all of it.
+- **9b — CD (if `cd` set).** Before running `cd`, do the **full outward-facing preflight** (same bar as merge): run the guard **with the merge target** (so it also rejects run artifacts hiding in branch history that a non-squash merge would publish), show the exact commit/diff, **classify the side effect** (deploy / publish / data migration), state the **rollback path**, and journal all of it.
   ```bash
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh"
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh" <merge-target-branch>
   ```
-  Exit 3 → unstage the operational artifacts. CD is an outward-facing **hard-stop** in every mode — autonomy never runs it unattended.
-- **10 — merge.** Run the guard again, show the exact commit/diff + rollback path, then merge per `merge`. Default: stop for confirmation even in `brainstorm-only`; only `merge: auto` waives that.
+  Exit 3 → unstage/uncommit the operational artifacts. CD is an outward-facing **hard-stop** in every mode — autonomy never runs it unattended.
+- **10 — merge.** Run the guard again with the merge target (`guard-artifacts.sh <merge-target>`), show the exact commit/diff + rollback path, then merge per `merge`. Default: stop for confirmation even in `brainstorm-only`; only `merge: auto` waives that.
 
 ## Hard-stops (what autonomy can NEVER waive)
 

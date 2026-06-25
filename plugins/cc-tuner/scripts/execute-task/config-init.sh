@@ -14,7 +14,7 @@ if [ -f "$CFG" ]; then
   exit 0
 fi
 [ -f "$TEMPLATE" ] || { echo "template not found: $TEMPLATE" >&2; exit 1; }
-mkdir -p .claude
-cp "$TEMPLATE" "$CFG"
+mkdir -p .claude || { echo "execute-task: cannot create .claude/" >&2; exit 1; }
+cp "$TEMPLATE" "$CFG" || { echo "execute-task: failed to write $CFG" >&2; exit 1; }
 echo "config created: $CFG — edit it for this repo, then re-run /cc-tuner:execute-task"
 exit 2

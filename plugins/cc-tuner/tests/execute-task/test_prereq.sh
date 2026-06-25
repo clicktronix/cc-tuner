@@ -2,7 +2,7 @@
 set -u
 S="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)/prereq-check.sh"
 fails=0
-mkroot() { ROOT="$(mktemp -d)"; }  # fake plugin cache root
+mkroot() { ROOT="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }; }  # fake plugin cache root
 
 # both present -> exit 0
 mkroot
