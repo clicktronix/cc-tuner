@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-06-26
+
+### Added
+
+- **`/execute-task`** — a task-lifecycle playbook command (intake → plan →
+  implement → review → CI/CD → merge) driven by the main agent, with a
+  start-time autonomy level (`brainstorm-only` / `checkpoints` / `supervised`)
+  and honest hard-stops (prereq, dirty tree, red gate, human-eye acceptance,
+  CD/merge). Five bundled bash scripts (prereq-check, config-init, preflight,
+  journal, guard-artifacts) handle the deterministic git/fs work; per-project
+  settings live in `.claude/execute-task.md`. Requires the `superpowers` and
+  `cc-codex-triage` plugins (prereq-checked at runtime; cc-tuner still installs
+  standalone).
+- The gate scripts are **fail-closed**: a filesystem or git error never reads as
+  a clean tree / created config / empty change set. Runs-dir detection uses git
+  pathspecs (not substring matching); the artifact guard is **history-aware**
+  (rejects run artifacts hiding in `<target>..HEAD` that a non-squash merge would
+  publish); and the run-journal survives re-runs, monorepo subdirs, linked
+  worktrees, and unborn/detached HEAD. Hardened across six review passes, each
+  gated to APPROVE with regression tests (26 checks on bash 3.2.57).
+
 ## [0.2.1] - 2026-06-15
 
 Hardening of the 0.2.0 statusline after a 3-round cross-agent (Codex) review.

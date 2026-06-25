@@ -43,6 +43,14 @@ The 5h/7d data uses Claude Code's **unofficial** OAuth usage endpoint — it deg
 silently if that ever breaks. The OAuth token is read locally and only sent to
 `api.anthropic.com`.
 
+## /execute-task
+
+A task-lifecycle playbook that walks the main agent through the full development cycle: intake → plan → implement → review → CI/CD → merge. Choose an autonomy level at start time (`brainstorm-only`, `checkpoints`, or `supervised`) to control how often the agent pauses for human input. Hard-stops are built in at each gate — dirty tree, red CI, human-eye acceptance, and CD/merge — so the agent can't silently skip them.
+
+Use it whenever you want a structured, reviewable workflow instead of a free-form "implement this" prompt. Five bundled bash scripts handle the deterministic git/fs work (prereq-check, config-init, preflight, journal, guard-artifacts); per-project settings and overrides live in `.claude/execute-task.md`.
+
+Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime via prereq-check; cc-tuner installs and works standalone without them).
+
 ## Install
 
 ```
