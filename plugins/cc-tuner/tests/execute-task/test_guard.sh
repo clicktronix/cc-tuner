@@ -53,4 +53,10 @@ CLAUDE_PROJECT_DIR="$T" bash "$S" "$BASE" >/dev/null 2>&1; rc=$?
 CLAUDE_PROJECT_DIR="$T" bash "$S" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && echo "PASS history-needs-base" || { echo "FAIL history-needs-base (rc=$rc, want 0)"; fails=1; }
 rm -rf "$T"
+
+# a SUPPLIED but invalid merge target must NOT silently skip the scan -> fail closed (exit 1)
+mkrepo
+CLAUDE_PROJECT_DIR="$T" bash "$S" definitely-not-a-real-ref >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && echo "PASS invalid-base-fails-closed" || { echo "FAIL invalid-base-fails-closed (rc=$rc, want 1)"; fails=1; }
+rm -rf "$T"
 exit $fails

@@ -23,7 +23,12 @@ STAGED_BAD="$(git diff --cached --name-only -- "$RUNS_DIR" 2>/dev/null)" \
 TRACKED_BAD="$(git ls-files -- "$RUNS_DIR" 2>/dev/null)" \
   || { echo "execute-task: 'git ls-files' failed — refusing the outward-facing op" >&2; exit 1; }
 HIST_BAD=""
-if [ -n "$BASE" ] && git rev-parse --verify -q "$BASE^{commit}" >/dev/null 2>&1; then
+if [ -n "$BASE" ]; then
+  # A target was supplied → it MUST resolve. A typo'd/missing ref must NOT silently
+  # skip the history scan — that would re-open the exact gap this arg exists to close.
+  # (Omitting the arg entirely is the intentional "no history scan" path.)
+  git rev-parse --verify -q "$BASE^{commit}" >/dev/null 2>&1 \
+    || { echo "execute-task: merge target '$BASE' is not a valid ref — refusing (cannot scan history)" >&2; exit 1; }
   HIST_BAD="$(git log --format='%h %s' "$BASE..HEAD" -- "$RUNS_DIR" 2>/dev/null)" \
     || { echo "execute-task: 'git log' failed — refusing the outward-facing op" >&2; exit 1; }
 fi
