@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-07-01
+
+Tuning of `/execute-task`'s review stage after two more cross-agent review passes.
+
+### Changed
+
+- **`/execute-task` review is now diff-scaled.** Step 5 (`/code-review` at
+  `xhigh`) is **skipped for small, non-sensitive diffs** — within the config's
+  budget (default ≤ 50 changed lines and ≤ 5 files) and touching none of:
+  auth/secrets/crypto, migrations or destructive data ops, public API,
+  money/payments/pricing, infra/CI/deploy config, or security-relevant input
+  handling. Codex `/review` (always on) covers those, so small diffs keep one
+  full review engine instead of two. Any sensitive-surface touch runs `xhigh`
+  regardless of size. Tunable via the config's `review_passes`.
+- **Step 4 (smoke/acceptance) is explicit about behavior verification** —
+  exercise the DoR/DoD acceptance criteria (`[machine]` via chrome-devtools MCP
+  for UI flows and the config's `test` scripts for backend, `[eyes]` a human
+  hard-stop), running the full smoke rather than just the cheap unit gate. The
+  old undefined `verify` token was dropped.
+
+### Added
+
+- **Step 1.5 — Research** between intake and plan: pull current library/API docs
+  via Context7 MCP (WebFetch fallback when Context7 isn't configured) and
+  web-search unfamiliar territory, skippable when no lookup would change the
+  plan. Read-only and autonomous, with an egress caveat (send generic technical
+  queries, never proprietary ticket text).
+
 ## [0.3.0] - 2026-06-26
 
 ### Added

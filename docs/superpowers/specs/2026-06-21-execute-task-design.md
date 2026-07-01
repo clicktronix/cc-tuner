@@ -1,7 +1,7 @@
 # `/cc-tuner:execute-task` — дизайн
 
 - **Дата:** 2026-06-21
-- **Статус:** дизайн (до реализации)
+- **Статус:** реализовано (v0.4.0); синхронизировано с шагами 1.5 / 4 / 5 и полем review_passes
 - **Где живёт:** плагин **cc-tuner** (`plugins/cc-tuner/commands/execute-task.md`)
 - **Зависит от:** `superpowers`, `cc-codex-triage` — внешние плагины, проверяются в рантайме (в CC plugin.json нет механизма зависимостей)
 
@@ -30,7 +30,7 @@ cc-tuner ставится **standalone**; зависимость от superpower
 
 Чего-то нет → печатает команду доустановки (`/plugin install …`) и **мягкий стоп**. Логики graceful-degradation нет намеренно (YAGNI: у пользователя обе всегда стоят).
 
-Один якорь на плагин достаточно: скилы/команды плагина ставятся комплектом, так что наличие якоря = наличие всех его частей (`writing-plans`, `subagent-driven-development`, `requesting-code-review` приходят с superpowers; `/plan` — с cc-codex-triage). `code-review`, `verify`, `/simplify` — first-party, проверять не нужно.
+Один якорь на плагин достаточно: скилы/команды плагина ставятся комплектом, так что наличие якоря = наличие всех его частей (`writing-plans`, `subagent-driven-development`, `requesting-code-review` приходят с superpowers; `/plan` — с cc-codex-triage). `code-review`, `/simplify` — first-party, проверять не нужно.
 
 ## 4. Проектный конфиг `.claude/execute-task.md`
 
@@ -49,7 +49,7 @@ cc-tuner ставится **standalone**; зависимость от superpower
 | `tracker` | как тянуть issue (`gh` / `glab` / `none`) |
 | `dor_dod` | шаблон DoR/DoD и acceptance-критерии; пометка по каждому: машинно-проверяем или **требует глаза** (hard-stop, см. §5) |
 | `allow_unverified_manual` | явный opt-in: завершить с невыполненным human-eye критерием (по умолчанию `false`; `merge: auto` его НЕ перебивает) |
-| `review_passes` | какие слои ревью обязательны/по риску. Дефолт: code-review + Codex всегда; requesting-code-review — по **конкретным** risk-правилам (diff трогает auth/миграции/публичный API, или > N файлов) |
+| `review_passes` | какие слои ревью обязательны/по риску. Дефолт: Codex `/review` всегда; `/code-review` (xhigh) — всегда, **кроме** small ∧ non-sensitive диффа (≤ 50 строк (added+removed) И ≤ 5 файлов И не трогает sensitive-поверхности: auth/secrets/crypto, миграции/деструктивные data-ops, public API, деньги/платежи, infra/CI/deploy, security-input-handling) — он скипается (Codex покрывает); любой sensitive touch — или дифф, чей размер/чувствительность нельзя уверенно определить — → xhigh (fail closed; скип требует положительного подтверждения обоих). requesting-code-review — по risk-правилам (diff трогает auth/миграции/публичный API, или > N файлов) |
 | `artifacts` | (опц.) переопределить политику артефактов (§4bis) |
 | `autonomy` | дефолтный режим автономии (см. §5) |
 
@@ -87,11 +87,12 @@ cc-tuner ставится **standalone**; зависимость от superpower
 | 0 | prereq-чек + загрузка `.claude/execute-task.md` + выбор autonomy | bash + read | — | — |
 | 0.7 | **префлайт:** чистое дерево (по `branch`-политике), создать/подтвердить feature-ветку, записать target-ветку + base SHA, гарантировать ignore-покрытие local-only артефактов (§4bis), завести run-journal `.claude/execute-task-runs/<id>.md` | bash + git | 🚦 если дерево грязное и политика требует решения | hard-stop если грязное дерево не разрешено политикой |
 | 1 | читаем issue/план; неясно → brainstorm; пишем DoR/DoD | `superpowers:brainstorming` | 🚦 | **твой** (суть режима) |
+| 1.5 | research: доки библиотек/API (Context7 MCP, fallback WebFetch), веб-поиск для остального; skip если уверен, что доку читать не надо | Context7 MCP / WebSearch/WebFetch | — | авто (read-only) |
 | 2 | план → `writing-plans` → `cc-codex-triage:plan` до APPROVE | writing-plans + Codex (судейство) | 🚦 | авто (агент судит сам) |
 | 3 | реализация субагентами | `subagent-driven-development` (+ Workflow fan-out если юниты независимы) | — | авто |
 | 3.5 | **дешёвый автогейт: types/lint/unit** | bash из `cheap_gate` | авто | авто; красный → hard-stop |
-| 4 | смоук по acceptance-критериям (чаще UI) | chrome-devtools / `verify` / ты | 🚦 | авто если критерии машинные, иначе пометка/стоп |
-| 5 | `/code-review` (xhigh) → правим | code-review (уже fan-out workflow) | судейство | авто |
+| 4 | смоук по DoR/DoD acceptance-критериям: `test` (полный смоук — бэкенд behavior-скрипты и/или UI); `[machine]` драйвим (UI — chrome-devtools MCP, бэкенд — `test`), `[eyes]` — hard-stop | `test` / chrome-devtools MCP / ты | 🚦 (supervised И checkpoints) | авто если критерии машинные, иначе пометка/стоп |
+| 5 | `/code-review` (xhigh) → правим; **скип если дифф уверенно small ∧ non-sensitive** (см. `review_passes`; при неопределённости размера/чувствительности — fail closed → xhigh), тогда ревью-слой держит только Codex (шаг 7) | code-review (уже fan-out workflow) | судейство | авто |
 | 6 | `requesting-code-review` (субагент) → правим | requesting-code-review | **условно по риску** (`review_passes`) | авто/скип по риску |
 | 7 | `cc-codex-triage:review` до APPROVE → правим | Codex (цикл, судейство) | 🚦 | авто (агент судит сам) |
 | 7.5 | **ре-смоук, если правки 5–7 трогали FE/поведение** | повтор смоука | авто-условно | авто-условно |
@@ -129,7 +130,7 @@ cc-tuner ставится **standalone**; зависимость от superpower
 
 - Точный синтаксис разметки acceptance-критериев в DoR/DoD (что машинно-проверяемо chrome-devtools, что «требует глаза») — поле есть (§4), формат уточняется на этапе плана.
 - Авто-определение, какие правки «трогают FE/поведение» для условного шага 7.5 (по путям из diff vs `test`-конфига).
-- Конкретные risk-правила для условного прохода 6 (порог N файлов; список чувствительных путей) — заданы как идея в §4, точные значения на этапе плана.
+- Базовые risk-правила зафиксированы в v0.4.0 (skip-порог шага 5 ≤ 50 строк / ≤ 5 файлов; sensitive-поверхности; порог шага 6 > 20 файлов); открыто — дальнейшая калибровка порогов и списка чувствительных путей по мере использования.
 - Возможный явный `--resume <id>` поверх run-journal (пока возобновление — чтение журнала вручную).
 
 ## 11. Авторинг: command vs skill (решить на реализации)
