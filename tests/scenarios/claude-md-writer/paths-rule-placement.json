@@ -1,0 +1,47 @@
+{
+  "skills": [
+    "claude-md-writer"
+  ],
+  "tests_reference": "skills/claude-md-writer/SKILL.md#conditional-rules-clauderules",
+  "query": "In my Claude Code project I want the instruction 'validate every endpoint's input and use the standard error envelope' to load ONLY when Claude works with files under src/api/ (TypeScript). It must not sit in always-loaded memory. Tell me exactly which file to create and show its complete content including any frontmatter. Self-contained question — do not read the filesystem.",
+  "baseline_failure": "RED: the agent puts a `paths:` block on CLAUDE.md itself (unsupported — CLAUDE.md loads by directory hierarchy only), or invents frontmatter shape (paths as a plain string / wrong key), or falls back to prose in CLAUDE.md like 'when working with API files...' which still always loads.",
+  "expected_behavior": [
+    "Creates a rules file (e.g. .claude/rules/api.md), NOT CLAUDE.md",
+    "Frontmatter has paths: as a YAML LIST of glob items (e.g. - \"src/api/**/*.ts\")",
+    "States or implies the conditional-loading semantics: the rule loads when Claude reads a matching file"
+  ],
+  "anti_expectation": [
+    "Does NOT move ALL project instructions out of CLAUDE.md — only the path-scoped rule is conditional",
+    "Does NOT claim path-scoped rules can also live on CLAUDE.md via the same frontmatter"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-08",
+    "method": "2 isolated haiku probes answering from model knowledge (no skill), then GREEN with the skill's golden-rules + conditional-rules sections in context",
+    "runs": [
+      {
+        "model": "haiku",
+        "framing": "neutral",
+        "red": true,
+        "note": "hallucinated src/api/.claude.md file, 'no frontmatter needed' — wrong filename AND wrong mechanism"
+      },
+      {
+        "model": "haiku",
+        "framing": "neutral",
+        "red": true,
+        "note": "hallucinated frontmatter keys scope: + languages: — plausible-looking, entirely invented"
+      }
+    ],
+    "verdict": "RED 2/2 — clean reproduce, and the failure is the dangerous kind: confidently-formatted invented config that a user would paste and silently get no conditional loading. This is the doc-verified skill's core value."
+  },
+  "green_check": {
+    "date": "2026-07-08",
+    "runs": [
+      {
+        "model": "haiku",
+        "probe": "GREEN",
+        "pass": true,
+        "note": ".claude/rules/api-validation.md with paths: as quoted YAML list of globs — exact doc-correct shape, explains read-triggered loading"
+      }
+    ]
+  }
+}

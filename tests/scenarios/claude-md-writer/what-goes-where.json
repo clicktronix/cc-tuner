@@ -1,0 +1,47 @@
+{
+  "skills": [
+    "claude-md-writer"
+  ],
+  "tests_reference": "skills/claude-md-writer/SKILL.md#what-goes-where",
+  "query": "I'm organizing my Claude Code project's memory/config. Where does each of these belong? (a) 'use 2-space indentation and single quotes' — a code-style convention Claude should follow when writing code; (b) our 8-step production deploy procedure; (c) 'NEVER commit .env files' — this must be reliably BLOCKED, not just suggested. For each: name the exact mechanism/location and one-line why. Self-contained question — do not read the filesystem.",
+  "baseline_failure": "RED: the agent puts all three into CLAUDE.md (including the must-block rule, trusting prose to enforce), and/or refuses (a) claiming code style doesn't belong in CLAUDE.md — a common misconception; the docs explicitly list coding standards as valid CLAUDE.md content.",
+  "expected_behavior": [
+    "(a) CLAUDE.md (or a rules file): stating style conventions is valid memory content",
+    "(b) NOT in always-on CLAUDE.md: a multi-step procedure belongs in a skill or a domain rules file loaded when relevant",
+    "(c) a hook or permissions deny-rule: CLAUDE.md guides but does not enforce — anything that must be blocked needs settings/hooks, not memory prose"
+  ],
+  "anti_expectation": [
+    "Does NOT tell the user to re-paste their whole linter config into CLAUDE.md — stating the convention is enough; the linter enforces it",
+    "Does NOT put (c) ONLY in a hook while also deleting every mention from memory if the user wants Claude to know the policy — knowing (memory) and enforcing (hook) can coexist"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-08",
+    "method": "2 isolated haiku probes from model knowledge, then GREEN with the skill's what-goes-where table in context",
+    "runs": [
+      {
+        "model": "haiku",
+        "framing": "neutral",
+        "red": null,
+        "note": "INCONSISTENT: placement discipline held ((a) CLAUDE.md ok, (c) enforcement not memory) but mechanisms hallucinated — '.claude/settings.json style section', deploy routed to docs/ not a skill"
+      },
+      {
+        "model": "haiku",
+        "framing": "neutral",
+        "red": null,
+        "note": "INCONSISTENT: same shape — (c) enforcement instinct correct, but invented 'beforeCommit' hook name and '.claude/agents/deploy.md' as the skill path"
+      }
+    ],
+    "verdict": "INCONSISTENT — the discipline (guide vs enforce) does not need the skill on haiku; the exact mechanism names do (settings keys, skill paths, hook names all hallucinated). The skill's value here is factual precision, not discipline — weaker than paths-rule but real."
+  },
+  "green_check": {
+    "date": "2026-07-08",
+    "runs": [
+      {
+        "model": "haiku",
+        "probe": "GREEN",
+        "pass": true,
+        "note": "(a) CLAUDE.md, (b) .claude/skills/<name>/SKILL.md, (c) permissions.deny — all three mechanisms exact"
+      }
+    ]
+  }
+}
