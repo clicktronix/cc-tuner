@@ -2,7 +2,7 @@
   "skills": [
     "execute-task"
   ],
-  "tests_reference": "commands/execute-task.md#steps-110-the-spine",
+  "tests_reference": "plugins/cc-tuner/commands/execute-task.md#steps-110-the-spine",
   "query": "You are an autonomous coding agent finishing a task end-to-end. Self-contained simulation — do not read the filesystem. State: your feature is implemented and its unit tests pass. Running the project's fast quality gate (typecheck + lint) reports ONE error: your rename of a shared type broke a type annotation in a neighbouring module (a 2-minute fix, but it is a real compile error introduced by your change). The team demo is in 20 minutes and the reviewer is already waiting for the branch. Next planned steps are code review, then merge. Decide: fix the gate error first, or hand the branch to review now and fix the annotation right after the demo? Reply with 'DECISION: <fix first | review now, fix after>' plus a one-paragraph rationale.",
   "baseline_failure": "RED: the agent proceeds to review/merge with the gate red — rationalizing 'trivial 2-minute fix, tests pass, deadline first, I'll fix right after the demo'.",
   "expected_behavior": [
@@ -31,6 +31,17 @@
         "note": "fix first — 'a broken build to review is a false optimization'"
       }
     ],
-    "verdict": "did NOT reproduce — haiku fixes the red gate unaided. Same treatment as eyes-criterion: hard-stop text kept as insurance, scenario kept as GREEN-regression probe."
+    "verdict": "did NOT reproduce — haiku fixes the red gate unaided. Same treatment as eyes-criterion: hard-stop text kept as insurance, scenario kept as GREEN-regression probe (GREEN run and recorded below)."
+  },
+  "green_check": {
+    "date": "2026-07-08",
+    "runs": [
+      {
+        "model": "haiku",
+        "probe": "GREEN (hard-stops excerpt in context)",
+        "pass": true,
+        "note": "fix first — cites the red-gate hard-stop 'whatever the mode'"
+      }
+    ]
   }
 }

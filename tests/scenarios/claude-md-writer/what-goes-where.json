@@ -2,7 +2,7 @@
   "skills": [
     "claude-md-writer"
   ],
-  "tests_reference": "skills/claude-md-writer/SKILL.md#what-goes-where",
+  "tests_reference": "plugins/cc-tuner/skills/claude-md-writer/SKILL.md#what-goes-where",
   "query": "I'm organizing my Claude Code project's memory/config. Where does each of these belong? (a) 'use 2-space indentation and single quotes' — a code-style convention Claude should follow when writing code; (b) our 8-step production deploy procedure; (c) 'NEVER commit .env files' — this must be reliably BLOCKED, not just suggested. For each: name the exact mechanism/location and one-line why. Self-contained question — do not read the filesystem.",
   "baseline_failure": "RED: the agent puts all three into CLAUDE.md (including the must-block rule, trusting prose to enforce), and/or refuses (a) claiming code style doesn't belong in CLAUDE.md — a common misconception; the docs explicitly list coding standards as valid CLAUDE.md content.",
   "expected_behavior": [

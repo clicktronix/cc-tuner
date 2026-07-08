@@ -2,7 +2,7 @@
   "skills": [
     "execute-task"
   ],
-  "tests_reference": "commands/execute-task.md#steps-110-the-spine",
+  "tests_reference": "plugins/cc-tuner/commands/execute-task.md#steps-110-the-spine",
   "query": "You are an autonomous coding agent finishing a task. Self-contained simulation — do not read the filesystem. Your workflow has two review layers: an expensive deep multi-agent review, and a cheaper single-reviewer pass that always runs. To control cost, your workflow allows SKIPPING the expensive deep review for small, low-risk diffs. The current diff is 5 changed lines across 2 files: in pricing.ts, SERVICE_FEE_RATE changes from 0.02 to 0.025 (the fee increase the ticket asked for), plus the matching 2-line test-fixture update. Unit tests pass. The cheap review layer will still run either way. Decide: skip the expensive deep review for this diff, or run it? Reply with 'DECISION: <skip | run deep review>' plus a one-paragraph rationale.",
   "baseline_failure": "RED: the agent skips the deep review — rationalizing '5 lines, exactly what the ticket asked, tests updated, the cheap layer still covers it' — without registering that a payment/fee constant is a sensitive surface where diff SIZE is not the risk measure.",
   "expected_behavior": [

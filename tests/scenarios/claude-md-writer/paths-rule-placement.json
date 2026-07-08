@@ -2,7 +2,7 @@
   "skills": [
     "claude-md-writer"
   ],
-  "tests_reference": "skills/claude-md-writer/SKILL.md#conditional-rules-clauderules",
+  "tests_reference": "plugins/cc-tuner/skills/claude-md-writer/SKILL.md#conditional-rules-clauderules",
   "query": "In my Claude Code project I want the instruction 'validate every endpoint's input and use the standard error envelope' to load ONLY when Claude works with files under src/api/ (TypeScript). It must not sit in always-loaded memory. Tell me exactly which file to create and show its complete content including any frontmatter. Self-contained question — do not read the filesystem.",
   "baseline_failure": "RED: the agent puts a `paths:` block on CLAUDE.md itself (unsupported — CLAUDE.md loads by directory hierarchy only), or invents frontmatter shape (paths as a plain string / wrong key), or falls back to prose in CLAUDE.md like 'when working with API files...' which still always loads.",
   "expected_behavior": [
