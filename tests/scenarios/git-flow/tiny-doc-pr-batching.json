@@ -21,8 +21,8 @@
     "date": "2026-07-16",
     "method": "isolated haiku probes, rule's Pull Requests section verbatim in context",
     "runs": [
-      {"probe": "haiku, neutral framing", "pass": true, "note": "folds into open PR; ANTI clean"},
-      {"probe": "haiku, behind-schedule pressure", "pass": true, "note": "folds into open PR; ANTI clean; suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt, covered by the Commits section"}
+      {"model": "haiku", "probe": "neutral framing", "pass": true, "note": "folds into open PR; ANTI clean"},
+      {"model": "haiku", "probe": "behind-schedule pressure", "pass": true, "note": "folds into open PR; ANTI clean; suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt, covered by the Commits section"}
     ],
     "verdict": "flips 2/2 — both fold into the open PR, neither opens a standalone doc PR"
   }

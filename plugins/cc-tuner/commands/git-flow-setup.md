@@ -31,7 +31,8 @@ LOCAL="$ROOT/.claude/rules/git-flow.local.md"
 
 ```bash
 if [ -d "$ROOT/wiki" ]; then PLANS_ROOT="wiki"; else PLANS_ROOT="docs"; fi
-RENDERED=$(sed "s|{{PLANS_ROOT}}|$PLANS_ROOT|g" "$SRC")
+RENDERED=$(sed "s|{{PLANS_ROOT}}|$PLANS_ROOT|g" "$SRC") || { echo "ERROR: failed to render template"; exit 1; }
+[ -n "$RENDERED" ] || { echo "ERROR: rendered template is empty — aborting"; exit 1; }
 ```
 
 When `PLANS_ROOT` is `docs`, tell the user after installing: "plans root is
@@ -52,22 +53,35 @@ When `PLANS_ROOT` is `docs`, tell the user after installing: "plans root is
 
 ## install / update
 
-1. **No existing file** → write it:
+1. **No existing file** → write it fail-closed and atomically (same-dir tmp →
+   `mv`, the statusline-setup pattern) — success is claimed only after every
+   step actually succeeded:
    ```bash
-   mkdir -p "$ROOT/.claude/rules"
-   printf '%s\n' "$RENDERED" > "$DEST"
-   echo "Installed $DEST (plans root: $PLANS_ROOT)"
+   mkdir -p "$ROOT/.claude/rules" || { echo "ERROR: cannot create $ROOT/.claude/rules"; exit 1; }
+   TMP=$(mktemp "$ROOT/.claude/rules/.git-flow.XXXXXX") || { echo "ERROR: mktemp failed"; exit 1; }
+   if printf '%s\n' "$RENDERED" > "$TMP" && [ -s "$TMP" ] && mv "$TMP" "$DEST"; then
+     echo "Installed $DEST (plans root: $PLANS_ROOT)"
+   else
+     rm -f "$TMP"; echo "ERROR: failed to write $DEST"; exit 1
+   fi
    ```
-2. **Existing file, content identical to `$RENDERED`** → "up to date", stop.
+2. **Existing file, content identical to `$RENDERED`** → report "up to date"
+   and **skip only the destination write** — still run steps 5–7 below (a
+   clone that committed the canonical file but git-ignored the deltas file
+   would otherwise never get `git-flow.local.md` or the legacy cleanup).
 3. **Existing file with our marker** (first line contains `cc-tuner:git-flow`)
    but different content → show `diff "$DEST" <(printf '%s\n' "$RENDERED")` to
    the user. Hand-edits would be lost — they belong in `git-flow.local.md`.
-   Ask before overwriting (AskUserQuestion: overwrite / keep). On overwrite,
-   suggest moving any local edits visible in the diff into `$LOCAL`.
+   Ask before overwriting (AskUserQuestion: overwrite / keep). On **overwrite**,
+   write via the same guarded tmp+`mv` writer as branch 1 and suggest moving
+   any local edits visible in the diff into `$LOCAL`. On **keep**, report
+   "kept existing file — not updated" and stop (terminal state; no other
+   changes made).
 4. **Existing file WITHOUT our marker** — a legacy hand-maintained copy (the
    11 pre-plugin copies across marqa/stokli). Show the diff, say this replaces
    the legacy copy with the canonical versioned one, and ask before
-   overwriting. Never overwrite a legacy file silently.
+   overwriting — same overwrite/keep semantics as branch 3 (guarded writer /
+   terminal "kept" state). Never overwrite a legacy file silently.
 5. **Deltas file** — if `$LOCAL` does not exist, create it (plain `if`, not
    `|| ... &&` — that chain would echo "Created" even when the file already
    exists, because `(a || b) && c` runs `c` on the short-circuit path too):
@@ -92,4 +106,7 @@ When `PLANS_ROOT` is `docs`, tell the user after installing: "plans root is
 
 - [ ] `$DEST` starts with the `cc-tuner:git-flow` marker line.
 - [ ] `grep '{{PLANS_ROOT}}' "$DEST"` finds nothing (token substituted).
-- [ ] Re-running the command reports "up to date" and writes nothing.
+- [ ] Re-running the command reports "up to date" and writes nothing to `$DEST`
+      (it may still create a missing `$LOCAL` — that is by design, branch 2).
+- [ ] A failed render/mkdir/write reports ERROR and exits non-zero — no
+      success message is ever printed for an operation that did not happen.

@@ -22,8 +22,8 @@
     "date": "2026-07-16",
     "method": "isolated haiku probes, skill's Board recipes section verbatim in context",
     "runs": [
-      {"probe": "haiku, neutral framing", "pass": true, "note": "one issue per finding, --project by title, field-list once + item-edit; ANTI clean"},
-      {"probe": "haiku, user-waiting pressure", "pass": true, "note": "same shape under pressure; ANTI clean"}
+      {"model": "haiku", "probe": "neutral framing", "pass": true, "note": "one issue per finding, --project by title, field-list once + item-edit; ANTI clean"},
+      {"model": "haiku", "probe": "user-waiting pressure", "pass": true, "note": "same shape under pressure; ANTI clean"}
     ],
     "verdict": "flips 2/2 — one issue per finding, --project by title, field-list once + item-edit Status/Priority"
   }

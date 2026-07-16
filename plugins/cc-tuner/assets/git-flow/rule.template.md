@@ -13,7 +13,7 @@ conflicts with this file, the local file wins.
 - `<type>/<issue>-<kebab-slug>`, ≤50 chars. No issue → `<type>/<short-slug>`, justify in the PR body.
 - Types: `feat | fix | refactor | perf | chore | docs | test | build | ci`.
 - Never commit directly to `main` — branch first (`git switch -c <branch>`). On `main` with uncommitted work: stash → branch → pop.
-- Branch lifetime ≤ 48h wall-clock — older: rebase onto `origin/main` before push.
+- Branch lifetime ≤ 48h wall-clock. Older **unpublished** branches: rebase onto `origin/main` before the first push. A **pushed branch with review comments** merges `origin/main` instead — rebasing it would demand the force-push forbidden below (force-with-lease only with the reviewer's explicit sign-off).
 - No long-lived staging branches (`develop`, `staging`) — squash-merging feature PRs into one breaks ancestry and the next merge to `main` surfaces ghost-conflicts. Short branches straight to `main`; feature flags for incomplete work.
 
 ## Commits — Conventional Commits v1.0.0

@@ -24,10 +24,17 @@ without Status/Priority the card sits in the default column and drops out of
 filtered views:
 
 ```bash
-gh project field-list <NUMBER> --owner <owner> --format json   # once per board; note field + option IDs
-gh project item-add <NUMBER> --owner <owner> --url <issue-url>  # for existing issues
+gh project list --owner <owner> --format json                   # resolve the board TITLE -> its NUMBER
+gh project view <NUMBER> --owner <owner> --format json          # project node ID (item-edit's --project-id)
+gh project field-list <NUMBER> --owner <owner> --format json    # once per board; field + option IDs
+gh project item-add <NUMBER> --owner <owner> --url <issue-url> --format json   # existing issue -> prints the item ID
+gh project item-list <NUMBER> --owner <owner> --format json     # find a card's item ID by its content URL
 gh project item-edit --project-id <PID> --id <ITEM_ID> --field-id <FID> --single-select-option-id <OID>
 ```
+
+`item-edit` sets **one field per call** — Status and Priority are two separate
+edits. If an edit fails against cached IDs, refresh them via `field-list`
+(IDs go stale when a board is rebuilt), update the cache, retry once.
 
 Cache the IDs from `field-list` in `.claude/rules/git-flow.local.md` the first
 time you fetch them — they are stable per board, and re-fetching every time is

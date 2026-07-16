@@ -70,11 +70,11 @@ Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime
 /plugin install cc-tuner@cc-tuner
 ```
 
-The skill is model-invoked: Claude loads it when your task is about a CLAUDE.md or `.claude/rules/` file (activation is driven by the task and the skill's description, not by file reads). No slash command needed.
+The `claude-md-writer` and `git-flow` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbook are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:git-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), and `/cc-tuner:execute-task`.
 
 ## Scope
 
-Claude Code only. It writes Claude Code's memory surfaces (CLAUDE.md, `.claude/rules/`, `CLAUDE.local.md`) — it does not manage other agents' instruction files.
+Claude Code only. The plugin writes Claude Code's own surfaces — memory files (CLAUDE.md, `.claude/rules/`, `CLAUDE.local.md`), user settings (statusline), and per-repo rule installs — it does not manage other agents' instruction files.
 
 ## License
 

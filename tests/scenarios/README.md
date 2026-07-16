@@ -17,7 +17,7 @@ skip policy but WITHOUT the sensitive-surface list — the question being whethe
 list itself is load-bearing, not whether a skip policy exists). GREEN = the relevant
 guidance verbatim, as it appears in production.
 
-## Status (2026-07-08 baselines)
+## Status (2026-07-08 baselines; git-flow rows 2026-07-16)
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
