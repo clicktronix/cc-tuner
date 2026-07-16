@@ -6,6 +6,7 @@ Skills:
 
 - **`claude-md-writer`** — create, refactor, and audit `CLAUDE.md` / `.claude/rules/` memory files, every Claude Code memory fact checked against <https://code.claude.com/docs/en/memory>.
 - **`statusline`** — a usage-focused statusline (rate-limit 5h/7d windows, context %, git, model + effort, session duration) with a `/cc-tuner:statusline-setup` installer, since plugins can't register a statusline on their own.
+- **`git-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:git-flow-setup` installer that writes the always-on `.claude/rules/git-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
 ## Why this exists
 

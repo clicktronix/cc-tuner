@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-07-16
+
+Git workflow moves into the plugin: one canonical rule instead of 11 hand-copied
+`git-flow.md` files across marqa/stokli workspaces (two drifted variants with
+contradictory tiny-PR policies).
+
+### Added
+
+- **`git-flow` skill** — on-demand procedures: GitHub Projects recipes
+  (create-on-board, field-ID caching, card lifecycle), merge strategies incl.
+  stacked PRs, plan lifecycle (`wiki/PLANS/` → `ARCHIVE`, `docs/` fallback),
+  anti-pattern case studies with dated incidents.
+- **`/cc-tuner:git-flow-setup`** — installs/updates the canonical
+  `.claude/rules/git-flow.md` from a versioned template (plans root detected
+  per repo layout), keeps repo deltas in an untouched `git-flow.local.md`,
+  offers cleanup of the legacy `no-tiny-doc-prs.md`.
+- **Eval scenarios** `tests/scenarios/git-flow/` — both REDs are documented
+  production incidents (2026-06-05); GREEN probes recorded (flip 2/2 each).
+
+### Changed
+
+- **`/execute-task`** — board integration: intake moves the card to In
+  Progress, merge moves it to Done and verifies the issue link; step 8
+  archives a completed plan inside the same PR. New optional config key
+  `board` (blank = board steps skipped).
+
+Canonical policy decisions: advisory-only (no enforcement hooks), tiny doc-PRs
+are batched (3+) per direct user feedback 2026-06-05, plans live in
+`wiki/PLANS/` with `docs/PLANS/` fallback. Design:
+`docs/superpowers/specs/2026-07-16-git-flow-design.md`.
+
 ## [0.4.0] - 2026-07-01
 
 Tuning of `/execute-task`'s review stage after two more cross-agent review passes.

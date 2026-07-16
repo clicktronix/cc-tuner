@@ -1,7 +1,7 @@
 # `cc-tuner:git-flow` — скилл + setup-команда — дизайн
 
 - **Дата:** 2026-07-16
-- **Статус:** утверждено, ждёт имплементации (целевая версия v0.5.0)
+- **Статус:** реализовано (v0.5.0)
 - **Где живёт:** плагин **cc-tuner** (`plugins/cc-tuner/skills/git-flow/`, `plugins/cc-tuner/commands/git-flow-setup.md`, `plugins/cc-tuner/assets/git-flow/`)
 - **Зависит от:** ничего внешнего; интеграция с `/cc-tuner:execute-task` — опциональная (шаги доски скипаются без конфига)
 

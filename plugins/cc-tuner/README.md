@@ -43,6 +43,18 @@ The 5h/7d data uses Claude Code's **unofficial** OAuth usage endpoint — it deg
 silently if that ever breaks. The OAuth token is read locally and only sent to
 `api.anthropic.com`.
 
+### `git-flow`
+
+Canonical git workflow — branch naming, Conventional Commits (incl. breaking
+changes), PR verification gates, GitHub Projects board recipes (create-on-board,
+field-ID caching, card lifecycle), plan lifecycle (`wiki/PLANS/` → `ARCHIVE`,
+`docs/` fallback), and anti-pattern case studies with dated incidents.
+
+The always-on core installs per repo via `/cc-tuner:git-flow-setup` (plugins
+can't ship `.claude/rules/*`): a versioned template with the plans root detected
+from the repo layout, repo-specific deltas in an untouched `git-flow.local.md`,
+and optional cleanup of legacy hand-copied rule files.
+
 ## /execute-task
 
 A task-lifecycle playbook that walks the main agent through the full development cycle: intake → plan → implement → review → CI/CD → merge. Choose an autonomy level at start time (`brainstorm-only`, `checkpoints`, or `supervised`) to control how often the agent pauses for human input. Hard-stops are built in at each gate — dirty tree, red CI, human-eye acceptance, and CD/merge — so the agent can't silently skip them.
