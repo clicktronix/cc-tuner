@@ -24,7 +24,9 @@ contradictory tiny-PR policies).
 ### Changed
 
 - **`/execute-task`** — board integration: intake moves the card to In
-  Progress, merge moves it to Done and verifies the issue link; step 8
+  Progress (journaling the prior status for rollback); after a verified
+  MERGED result, a `Closes`/`Fixes` link moves the card to Done while a
+  partial `Refs` link keeps it In Progress; step 8
   archives a completed plan inside the same PR. New optional config key
   `board` (blank = board steps skipped).
 

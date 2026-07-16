@@ -30,11 +30,14 @@ gh project field-list <NUMBER> --owner <owner> --limit 100 --format json   # onc
 gh project item-add <NUMBER> --owner <owner> --url <issue-url> --format json   # existing issue -> prints the item ID
 gh project item-list <NUMBER> --owner <owner> --limit 500 --format json    # find a card's item ID by its content URL
 gh project item-edit --project-id <PID> --id <ITEM_ID> --field-id <FID> --single-select-option-id <OID>
+gh project item-edit --project-id <PID> --id <ITEM_ID> --field-id <FID> --clear   # restore a field to unset
 ```
 
 Always pass `--limit` on the `list`/`field-list`/`item-list` calls — they
 default to **30 rows**, so on any active board a card beyond the first 30
-silently disappears from the lookup and the lifecycle skips it.
+silently disappears from the lookup and the lifecycle skips it. If a lookup
+returns exactly its `--limit` rows, treat the result as possibly truncated:
+retry with a larger limit before concluding "not found".
 
 `item-edit` sets **one field per call** — Status and Priority are two separate
 edits. If an edit fails against cached IDs, refresh them via `field-list`
