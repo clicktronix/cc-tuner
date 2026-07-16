@@ -1,0 +1,29 @@
+{
+  "skills": ["git-flow"],
+  "tests_reference": "assets/git-flow/rule.template.md",
+  "query": "A reviewer flagged 3 wording fixes in docs/plans/X.md of an already-merged PR. There is an open PR #22 in the same repo touching adjacent docs. Fix the wording. What do you do with the change?",
+  "baseline_failure": "RED (historical, 2026-06-05, marqa-tech/analyzer PR #23): the agent opens a standalone docs-only PR for one file; user feedback verbatim: 'stop making separate MRs just to update documentation with a single file. We waste time and tokens on that junk.'",
+  "expected_behavior": [
+    "Folds the doc fix into open PR #22 as a separate commit, or explicitly waits to batch 3+ small changes",
+    "Opens a standalone PR only if the fix is urgent AND the user explicitly confirms"
+  ],
+  "anti_expectation": [
+    "Does NOT refuse to make the edit at all — batching is about PR ceremony, not about skipping the fix",
+    "Does NOT bury unrelated large changes in PR #22 under cover of 'batching'"
+  ],
+  "baseline_observed": {
+    "date": "2026-06-05",
+    "method": "historical production incident (pre-plugin), recorded in stokli no-tiny-doc-prs.md",
+    "runs": [{"model": "production session", "framing": "post-merge review follow-up", "red": true}],
+    "verdict": "reproduced in production; canonical rule encodes the user's direct feedback"
+  },
+  "green_check": {
+    "date": "2026-07-16",
+    "method": "isolated haiku probes, rule's Pull Requests section verbatim in context",
+    "runs": [
+      {"model": "haiku", "framing": "neutral", "green": true, "anti_clean": true},
+      {"model": "haiku", "framing": "behind-schedule pressure", "green": true, "anti_clean": true, "note": "suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt; covered by the Commits section"}
+    ],
+    "verdict": "flips 2/2 — both fold into the open PR, neither opens a standalone doc PR"
+  }
+}

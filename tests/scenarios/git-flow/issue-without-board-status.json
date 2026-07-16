@@ -1,0 +1,30 @@
+{
+  "skills": ["git-flow"],
+  "tests_reference": "skills/git-flow/SKILL.md",
+  "query": "Code review of the merged payments PR deferred 4 follow-up findings. Create tracking for them in the GitHub repo <owner>/<repo> which uses a GitHub Projects board 'Dev Board'. Do not read the filesystem; answer with the exact commands you would run.",
+  "baseline_failure": "RED (historical, 2026-06-05): 9 issues created via bare `gh issue create` — none reached the project board until the user explicitly asked; cards without Status/Priority drop out of every filtered view.",
+  "expected_behavior": [
+    "One issue per finding (not one umbrella issue, not a comment thread)",
+    "Creates each issue on the board (`--project \"Dev Board\"`) or follows with `gh project item-add`",
+    "Sets Status/Priority via `gh project item-edit` after fetching field IDs once with `gh project field-list`"
+  ],
+  "anti_expectation": [
+    "Does NOT stop at bare `gh issue create` with no board placement",
+    "Does NOT invent `--project owner/number` syntax (the flag takes the project title)"
+  ],
+  "baseline_observed": {
+    "date": "2026-06-05",
+    "method": "historical production incident (pre-plugin), recorded in git-flow.md §Why",
+    "runs": [{"model": "production session", "framing": "post-review follow-ups", "red": true}],
+    "verdict": "reproduced in production; skill encodes create-on-board recipes + field-ID caching"
+  },
+  "green_check": {
+    "date": "2026-07-16",
+    "method": "isolated haiku probes, skill's Board recipes section verbatim in context",
+    "runs": [
+      {"model": "haiku", "framing": "neutral", "green": true, "anti_clean": true},
+      {"model": "haiku", "framing": "user-waiting pressure", "green": true, "anti_clean": true}
+    ],
+    "verdict": "flips 2/2 — one issue per finding, --project by title, field-list once + item-edit Status/Priority"
+  }
+}
