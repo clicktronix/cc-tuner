@@ -12,6 +12,14 @@ installs the statusline.
 Parse `$ARGUMENTS`: first token is `install` (default if empty), `update`
 (alias of install — the flow is identical and idempotent), or `status`.
 
+**Shell state does not persist between Bash calls.** Claude Code keeps the
+working directory but NOT shell variables across separate Bash invocations —
+and the confirmation prompts in branches 3/4 below guarantee the flow splits
+into separate calls. Re-run the **Locate** and **Detect/render** blocks at the
+start of every Bash invocation that references `$SRC` / `$ROOT` / `$DEST` /
+`$LOCAL` / `$PLANS_ROOT` / `$RENDERED`: they are read-only and idempotent, so
+re-running them is always safe and never optional after a prompt.
+
 ## Locate the template and the repo
 
 ```bash
