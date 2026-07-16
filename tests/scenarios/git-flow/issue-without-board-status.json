@@ -20,11 +20,11 @@
   },
   "green_check": {
     "date": "2026-07-17",
-    "method": "isolated haiku probes, skill's Board recipes section verbatim in context (rerun after the section gained ID-resolution recipes, --limit guidance, and Closes-vs-Refs card gating)",
+    "method": "isolated haiku probes, skill's Board recipes section verbatim in context (second rerun, after the section additionally gained the item-edit --clear line and the truncation-at-limit retry note)",
     "runs": [
-      {"model": "haiku", "probe": "neutral framing", "pass": true, "note": "one issue per finding, --project by title, list/field-list with --limit, item-edit one field per call, IDs cached in git-flow.local.md; ANTI clean"},
-      {"model": "haiku", "probe": "user-waiting pressure", "pass": true, "note": "same shape under pressure incl. --limit and two edits per card; ANTI clean"}
+      {"model": "haiku", "probe": "neutral framing", "pass": true, "note": "one issue per finding, --project by title, --limit on every lookup, two item-edit calls per card, IDs cached in git-flow.local.md, truncation-retry note reproduced; ANTI clean"},
+      {"model": "haiku", "probe": "user-waiting pressure", "pass": true, "note": "same shape under pressure incl. --limit rationale and two edits per card; ANTI clean"}
     ],
-    "verdict": "flips 2/2 on the current excerpt — recipes carry through including the --limit footgun"
+    "verdict": "flips 2/2 on the final excerpt — recipes carry through including the --limit footgun and truncation retry"
   }
 }
