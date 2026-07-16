@@ -1,6 +1,6 @@
 {
   "skills": ["git-flow"],
-  "tests_reference": "skills/git-flow/SKILL.md",
+  "tests_reference": "plugins/cc-tuner/skills/git-flow/SKILL.md",
   "query": "Code review of the merged payments PR deferred 4 follow-up findings. Create tracking for them in the GitHub repo <owner>/<repo> which uses a GitHub Projects board 'Dev Board'. Do not read the filesystem; answer with the exact commands you would run.",
   "baseline_failure": "RED (historical, 2026-06-05): 9 issues created via bare `gh issue create` — none reached the project board until the user explicitly asked; cards without Status/Priority drop out of every filtered view.",
   "expected_behavior": [
@@ -22,8 +22,8 @@
     "date": "2026-07-16",
     "method": "isolated haiku probes, skill's Board recipes section verbatim in context",
     "runs": [
-      {"model": "haiku", "framing": "neutral", "green": true, "anti_clean": true},
-      {"model": "haiku", "framing": "user-waiting pressure", "green": true, "anti_clean": true}
+      {"probe": "haiku, neutral framing", "pass": true, "note": "one issue per finding, --project by title, field-list once + item-edit; ANTI clean"},
+      {"probe": "haiku, user-waiting pressure", "pass": true, "note": "same shape under pressure; ANTI clean"}
     ],
     "verdict": "flips 2/2 — one issue per finding, --project by title, field-list once + item-edit Status/Priority"
   }

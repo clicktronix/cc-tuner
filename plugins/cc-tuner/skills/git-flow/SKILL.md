@@ -33,6 +33,9 @@ Cache the IDs from `field-list` in `.claude/rules/git-flow.local.md` the first
 time you fetch them — they are stable per board, and re-fetching every time is
 the main friction that makes agents skip the board.
 
+The `gh project *` commands need the `project` token scope — a missing scope
+fails with an opaque GraphQL error. Fix once per machine: `gh auth refresh -s project`.
+
 **Card lifecycle:** In Progress when the branch is created; Done after merge.
 One deferred review finding = one issue (never a buried comment-thread list).
 
@@ -60,7 +63,7 @@ One deferred review finding = one issue (never a buried comment-thread list).
 
 ## Pre-PR checklist
 
-- [ ] Branch off fresh `origin/main` (rebase if >24h old)
+- [ ] Branch off fresh `origin/main` (rebase if >48h old — the rule's branch-lifetime cap)
 - [ ] Commits follow Conventional Commits (incl. `!`/`BREAKING CHANGE:` where applicable)
 - [ ] Issue exists, linked (`Closes #N`/`Refs #N`), card has Status/Priority
 - [ ] PR body: verification checkbox list with real lint/typecheck/test output

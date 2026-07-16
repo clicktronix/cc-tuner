@@ -45,6 +45,10 @@ When `PLANS_ROOT` is `docs`, tell the user after installing: "plans root is
   `$RENDERED` → "up to date". Differs → "outdated or locally modified — run
   `/cc-tuner:git-flow-setup update`" and show `diff` output. Also report whether
   `$LOCAL` exists. Take no other action.
+- Note: the marker version is the plugin version at the template's **last
+  change** — a newer plugin with an unchanged template still reports "up to
+  date" with an older marker. That is expected; comparison is by content, not
+  by version number. Do not "fix" the mismatch.
 
 ## install / update
 
@@ -64,14 +68,19 @@ When `PLANS_ROOT` is `docs`, tell the user after installing: "plans root is
    11 pre-plugin copies across marqa/stokli). Show the diff, say this replaces
    the legacy copy with the canonical versioned one, and ask before
    overwriting. Never overwrite a legacy file silently.
-5. **Deltas file** — if `$LOCAL` does not exist, create it:
+5. **Deltas file** — if `$LOCAL` does not exist, create it (plain `if`, not
+   `|| ... &&` — that chain would echo "Created" even when the file already
+   exists, because `(a || b) && c` runs `c` on the short-circuit path too):
    ```bash
-   [ -f "$LOCAL" ] || printf '%s\n' \
-     "# git-flow — repo-specific deltas" \
-     "" \
-     "<!-- Overrides and additions to git-flow.md live here; /cc-tuner:git-flow-setup never touches this file." \
-     "     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->" \
-     > "$LOCAL" && echo "Created $LOCAL (edit it for repo-specific deltas)"
+   if [ ! -f "$LOCAL" ]; then
+     printf '%s\n' \
+       "# git-flow — repo-specific deltas" \
+       "" \
+       "<!-- Overrides and additions to git-flow.md live here; /cc-tuner:git-flow-setup never touches this file." \
+       "     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->" \
+       > "$LOCAL"
+     echo "Created $LOCAL (edit it for repo-specific deltas)"
+   fi
    ```
 6. **Legacy cleanup** — if `$ROOT/.claude/rules/no-tiny-doc-prs.md` exists,
    tell the user its policy now lives inside the canonical rule (Pull Requests

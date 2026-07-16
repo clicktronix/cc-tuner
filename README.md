@@ -27,15 +27,26 @@ plugins/
   cc-tuner/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
+    assets/
+      execute-task/config.template.md   # per-project /execute-task settings
+      git-flow/rule.template.md         # canonical .claude/rules/git-flow.md template
     commands/
+      execute-task.md               # /cc-tuner:execute-task lifecycle playbook
+      git-flow-setup.md             # /cc-tuner:git-flow-setup rule installer
       statusline-setup.md           # /cc-tuner:statusline-setup installer
+    scripts/
+      execute-task/                 # deterministic bash for /execute-task gates
     skills/
       claude-md-writer/
         SKILL.md                    # corrected canonical skill
         reference.md                # deep examples + verified sources
+      git-flow/
+        SKILL.md                    # board recipes, merge strategies, plan lifecycle
       statusline/
         SKILL.md                    # usage statusline (feature + disclaimers)
         statusline.sh               # the cross-platform statusline script
+docs/superpowers/specs/             # design records
+tests/scenarios/                    # eval scenarios (RED/GREEN baselines)
 CHANGELOG.md
 LICENSE                             # MIT
 ```

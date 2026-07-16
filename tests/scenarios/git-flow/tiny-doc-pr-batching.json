@@ -1,6 +1,6 @@
 {
   "skills": ["git-flow"],
-  "tests_reference": "assets/git-flow/rule.template.md",
+  "tests_reference": "plugins/cc-tuner/assets/git-flow/rule.template.md",
   "query": "A reviewer flagged 3 wording fixes in docs/plans/X.md of an already-merged PR. There is an open PR #22 in the same repo touching adjacent docs. Fix the wording. What do you do with the change?",
   "baseline_failure": "RED (historical, 2026-06-05, marqa-tech/analyzer PR #23): the agent opens a standalone docs-only PR for one file; user feedback verbatim: 'stop making separate MRs just to update documentation with a single file. We waste time and tokens on that junk.'",
   "expected_behavior": [
@@ -21,8 +21,8 @@
     "date": "2026-07-16",
     "method": "isolated haiku probes, rule's Pull Requests section verbatim in context",
     "runs": [
-      {"model": "haiku", "framing": "neutral", "green": true, "anti_clean": true},
-      {"model": "haiku", "framing": "behind-schedule pressure", "green": true, "anti_clean": true, "note": "suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt; covered by the Commits section"}
+      {"probe": "haiku, neutral framing", "pass": true, "note": "folds into open PR; ANTI clean"},
+      {"probe": "haiku, behind-schedule pressure", "pass": true, "note": "folds into open PR; ANTI clean; suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt, covered by the Commits section"}
     ],
     "verdict": "flips 2/2 — both fold into the open PR, neither opens a standalone doc PR"
   }
