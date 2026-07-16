@@ -87,13 +87,16 @@ When `PLANS_ROOT` is `docs`, tell the user after installing: "plans root is
    exists, because `(a || b) && c` runs `c` on the short-circuit path too):
    ```bash
    if [ ! -f "$LOCAL" ]; then
-     printf '%s\n' \
+     if printf '%s\n' \
        "# git-flow — repo-specific deltas" \
        "" \
        "<!-- Overrides and additions to git-flow.md live here; /cc-tuner:git-flow-setup never touches this file." \
        "     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->" \
-       > "$LOCAL"
-     echo "Created $LOCAL (edit it for repo-specific deltas)"
+       > "$LOCAL"; then
+       echo "Created $LOCAL (edit it for repo-specific deltas)"
+     else
+       rm -f "$LOCAL"; echo "ERROR: failed to write $LOCAL"; exit 1
+     fi
    fi
    ```
 6. **Legacy cleanup** — if `$ROOT/.claude/rules/no-tiny-doc-prs.md` exists,

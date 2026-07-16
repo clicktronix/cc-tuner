@@ -71,8 +71,10 @@ plugins/cc-tuner/
    новый коммит вместо `--amend`; WIP-цепочка ок — squash на merge схлопнет.
 5. **PR.** Verification gate: чеклист lint/typecheck/tests с реальным выводом;
    `Closes #N` / `Refs #N`; doc-only мелочь не открывает свой PR (см. §2, tiny-PR политика).
-6. **Merge.** Squash в main + delete branch; карточка → Done; завершённый план →
-   `wiki/ARCHIVE/PLANS/`; follow-up'ы — новые issue на доску.
+6. **Merge.** Squash в main + delete branch; карточка → Done **только если PR
+   полностью закрывает issue** (`Closes`/`Fixes`; частичный `Refs #N` оставляет
+   In Progress); завершённый план → `wiki/ARCHIVE/PLANS/`; follow-up'ы — новые
+   issue на доску.
 
 ## 5. Разделение контента: правило vs скилл
 
@@ -130,7 +132,8 @@ CSO-описание скилла: триггеры — коммиты, ветк
   execute-task не дублируются.
 - **DoD (finishing):** три новых пункта: план (если был) архивируется на шаге 8
   **внутри той же ветки до мержа**; после успешного мержа (шаг 10) проверяется
-  issue-линк PR и карточка двигается в Done. Board-шаги — **never-block**:
+  issue-линк PR: карточка двигается в Done только при `Closes`/`Fixes` (реальный
+  статус PR — MERGED); `Refs #N` оставляет In Progress. Board-шаги — **never-block**:
   провал журналируется, но не «размерживает» и не блокирует завершение
   (доска не должна останавливать доставку кода; уточнено при имплементации,
   реализация следует плану).

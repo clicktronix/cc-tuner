@@ -24,13 +24,17 @@ without Status/Priority the card sits in the default column and drops out of
 filtered views:
 
 ```bash
-gh project list --owner <owner> --format json                   # resolve the board TITLE -> its NUMBER
-gh project view <NUMBER> --owner <owner> --format json          # project node ID (item-edit's --project-id)
-gh project field-list <NUMBER> --owner <owner> --format json    # once per board; field + option IDs
+gh project list --owner <owner> --limit 100 --format json        # resolve the board TITLE -> its NUMBER
+gh project view <NUMBER> --owner <owner> --format json           # project node ID (item-edit's --project-id)
+gh project field-list <NUMBER> --owner <owner> --limit 100 --format json   # once per board; field + option IDs
 gh project item-add <NUMBER> --owner <owner> --url <issue-url> --format json   # existing issue -> prints the item ID
-gh project item-list <NUMBER> --owner <owner> --format json     # find a card's item ID by its content URL
+gh project item-list <NUMBER> --owner <owner> --limit 500 --format json    # find a card's item ID by its content URL
 gh project item-edit --project-id <PID> --id <ITEM_ID> --field-id <FID> --single-select-option-id <OID>
 ```
+
+Always pass `--limit` on the `list`/`field-list`/`item-list` calls — they
+default to **30 rows**, so on any active board a card beyond the first 30
+silently disappears from the lookup and the lifecycle skips it.
 
 `item-edit` sets **one field per call** — Status and Priority are two separate
 edits. If an edit fails against cached IDs, refresh them via `field-list`
@@ -43,8 +47,10 @@ the main friction that makes agents skip the board.
 The `gh project *` commands need the `project` token scope — a missing scope
 fails with an opaque GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
-**Card lifecycle:** In Progress when the branch is created; Done after merge.
-One deferred review finding = one issue (never a buried comment-thread list).
+**Card lifecycle:** In Progress when the branch is created; Done after the
+merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial
+`Refs #N` merge keeps the card In Progress. One deferred review finding = one
+issue (never a buried comment-thread list).
 
 ## Merge strategies
 
@@ -70,7 +76,7 @@ One deferred review finding = one issue (never a buried comment-thread list).
 
 ## Pre-PR checklist
 
-- [ ] Branch off fresh `origin/main` (rebase if >48h old — the rule's branch-lifetime cap)
+- [ ] Branch off fresh `origin/main` (>48h old: unpublished → rebase; published → merge `origin/main` — per the rule's branch-lifetime cap)
 - [ ] Commits follow Conventional Commits (incl. `!`/`BREAKING CHANGE:` where applicable)
 - [ ] Issue exists, linked (`Closes #N`/`Refs #N`), card has Status/Priority
 - [ ] PR body: verification checkbox list with real lint/typecheck/test output

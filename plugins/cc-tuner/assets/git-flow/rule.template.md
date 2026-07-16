@@ -13,7 +13,7 @@ conflicts with this file, the local file wins.
 - `<type>/<issue>-<kebab-slug>`, ≤50 chars. No issue → `<type>/<short-slug>`, justify in the PR body.
 - Types: `feat | fix | refactor | perf | chore | docs | test | build | ci`.
 - Never commit directly to `main` — branch first (`git switch -c <branch>`). On `main` with uncommitted work: stash → branch → pop.
-- Branch lifetime ≤ 48h wall-clock. Older **unpublished** branches: rebase onto `origin/main` before the first push. A **pushed branch with review comments** merges `origin/main` instead — rebasing it would demand the force-push forbidden below (force-with-lease only with the reviewer's explicit sign-off).
+- Branch lifetime ≤ 48h wall-clock. Older than that: **unpublished** branches rebase onto `origin/main` before the first push; **published** branches (pushed, with or without review comments) merge `origin/main` instead — rebasing them would demand the force-push forbidden below. Force-with-lease only with explicit reviewer/user sign-off.
 - No long-lived staging branches (`develop`, `staging`) — squash-merging feature PRs into one breaks ancestry and the next merge to `main` surfaces ghost-conflicts. Short branches straight to `main`; feature flags for incomplete work.
 
 ## Commits — Conventional Commits v1.0.0
@@ -42,7 +42,7 @@ conflicts with this file, the local file wins.
 ## Tasks (GitHub Projects)
 
 - Anything larger than one commit/PR, every deferred review finding, every audit bug → an issue **created on the project board with Status/Priority set** — a bare `gh issue create` leaves the card off every filtered view (recipes: `cc-tuner:git-flow` skill).
-- The card moves with the work: In Progress at start, Done after merge.
+- The card moves with the work: In Progress at start; Done after the merge that **fully completes** the issue (`Closes`/`Fixes`) — a partial `Refs #N` merge keeps it In Progress.
 
 ## Plans
 
