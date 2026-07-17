@@ -101,6 +101,7 @@ USAGE_CACHE_DIR="${TMPDIR:-/tmp}/cc-tuner-statusline-$(id -u 2>/dev/null || echo
 mkdir -p "$USAGE_CACHE_DIR" 2>/dev/null && chmod 700 "$USAGE_CACHE_DIR" 2>/dev/null
 USAGE_CACHE="$USAGE_CACHE_DIR/usage_cache"
 USAGE_CACHE_LOCK="$USAGE_CACHE_DIR/usage_cache.lock"
+USAGE_BACKOFF="$USAGE_CACHE_DIR/usage_backoff"   # epoch until which 429 suppresses refreshes
 USAGE_CACHE_TTL=300
 USAGE_MAX_STALE=1800   # stop showing rate-limit data once it is >30 min old
 
@@ -119,7 +120,7 @@ refresh_usage() {
   # usage endpoint, and pre-compute local reset times (HH:MM) into the cached
   # JSON so the per-render path needs no python at all.
   python3 -c "
-import json, urllib.request, sys, subprocess, re, codecs, os, shutil, time
+import json, urllib.request, urllib.error, sys, subprocess, re, codecs, os, shutil, time
 from datetime import datetime
 
 def get_token():
@@ -157,7 +158,23 @@ if not token:
 req = urllib.request.Request(
     'https://api.anthropic.com/api/oauth/usage',
     headers={'Authorization': f'Bearer {token}', 'anthropic-beta': 'oauth-2025-04-20'})
-data = json.loads(urllib.request.urlopen(req, timeout=5).read())
+try:
+    data = json.loads(urllib.request.urlopen(req, timeout=5).read())
+except urllib.error.HTTPError as e:
+    if e.code == 429:
+        # The endpoint's throttle window EXTENDS on repeated hits (observed
+        # retry-after growing 180s -> 1827s under fixed-interval retries), so
+        # honor it: emit the epoch until which refreshes must pause (clamped
+        # 5..60 min; 15 min when the header is absent) and exit 3 so the
+        # shell records it instead of retrying every TTL.
+        try:
+            ra = int(e.headers.get('retry-after') or 0)
+        except ValueError:
+            ra = 0
+        ra = min(max(ra, 300), 3600) if ra else 900
+        sys.stdout.write(str(int(time.time()) + ra))
+        sys.exit(3)
+    raise
 
 for key in ('five_hour', 'seven_day'):
     node = data.get(key)
@@ -172,10 +189,17 @@ for key in ('five_hour', 'seven_day'):
 data['fetched_at'] = int(time.time())  # consumed by the staleness gate below
 json.dump(data, sys.stdout)
 " > "$tmp" 2>/dev/null
-  if [ $? -eq 0 ] && [ -s "$tmp" ]; then
+  local rc=$?
+  if [ "$rc" -eq 0 ] && [ -s "$tmp" ]; then
     mv "$tmp" "$USAGE_CACHE"
+    rm -f "$USAGE_BACKOFF"
   else
-    rm -f "$tmp"
+    if [ "$rc" -eq 3 ] && [ -s "$tmp" ]; then
+      # 429: tmp holds the retry-after epoch — record it, don't discard it.
+      mv "$tmp" "$USAGE_BACKOFF"
+    else
+      rm -f "$tmp"
+    fi
     # Suppress retries for one TTL even on a fresh install with a dead/slow
     # endpoint — otherwise a missing cache means refresh (+5s timeout) on EVERY
     # render. The staleness gate (fetched_at) still hides the 5h/7d segment.
@@ -187,12 +211,21 @@ json.dump(data, sys.stdout)
   fi
 }
 
-# Refresh when the cache is missing or older than the TTL.
-if [ ! -f "$USAGE_CACHE" ]; then
-  refresh_usage
-else
-  cache_age=$(( $(date +%s) - $(_mtime "$USAGE_CACHE") ))
-  [ "$cache_age" -gt "$USAGE_CACHE_TTL" ] && refresh_usage
+# Refresh when the cache is missing or older than the TTL — unless a 429
+# backoff window is active (fixed-interval retries extend the throttle).
+_now=$(date +%s)
+_backoff_until=0
+if [ -f "$USAGE_BACKOFF" ]; then
+  _backoff_until=$(cat "$USAGE_BACKOFF" 2>/dev/null)
+  case "$_backoff_until" in ''|*[!0-9]*) _backoff_until=0 ;; esac
+fi
+if [ "$_now" -ge "$_backoff_until" ]; then
+  if [ ! -f "$USAGE_CACHE" ]; then
+    refresh_usage
+  else
+    cache_age=$(( _now - $(_mtime "$USAGE_CACHE") ))
+    [ "$cache_age" -gt "$USAGE_CACHE_TTL" ] && refresh_usage
+  fi
 fi
 
 # Progress bar helper. usage: make_bar <percent> <length> -> bar_result, bar_color

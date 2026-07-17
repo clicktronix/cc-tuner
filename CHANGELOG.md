@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.1] - 2026-07-17
+
+### Fixed
+
+- **statusline: honor `retry-after` on HTTP 429 from the usage endpoint.** The
+  unofficial oauth/usage endpoint's throttle window extends on repeated hits
+  (observed `retry-after` growing 180s → 1827s under the old fixed 5-min TTL
+  retries), so the script's own retries could keep the 5h/7d segment hidden
+  indefinitely. On 429 the refresh now records the server's `retry-after`
+  (clamped 5–60 min, 15 min when the header is absent) and suspends refresh
+  attempts for that window; a successful refresh clears it. Everything else
+  (graceful degradation, 30-min staleness gate) is unchanged.
+
 ## [0.5.0] - 2026-07-16
 
 Git workflow moves into the plugin: one canonical rule instead of 11 hand-copied

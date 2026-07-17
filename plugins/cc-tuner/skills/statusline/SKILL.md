@@ -36,6 +36,11 @@ The 5h/7d figures come from Claude Code's OAuth usage endpoint
 > endpoint, token, or dependencies are unavailable, the rate-limit segment is simply
 > dropped and the rest still renders. Mention this caveat to the user when they install.
 
+On HTTP 429 the script honors the server's `retry-after` (clamped 5–60 min, 15 min
+when absent) and suspends refresh attempts for that window — the endpoint's throttle
+extends on repeated hits, so fixed-interval retries would keep it throttled forever.
+The rate-limit segment reappears automatically after the first successful refresh.
+
 The OAuth token is read locally: macOS Keychain (`security find-generic-password -s
 'Claude Code-credentials'`), or `~/.claude/.credentials.json` on Linux/Windows (honoring
 `$CLAUDE_CONFIG_DIR`). The token is only ever sent to `api.anthropic.com`.

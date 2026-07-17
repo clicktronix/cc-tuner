@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Tune Claude Code's own configuration. A home for skills that write and audit Claude Code's config files against the official docs — claude-md-writer for CLAUDE.md / .claude/rules/ memory, a usage statusline, and /execute-task for driving a coding task end-to-end from intake to merge, plus git-flow — canonical branch/commit/PR/board/plan conventions with a /cc-tuner:git-flow-setup rule installer.",
-    "version": "0.5.0"
+    "version": "0.5.1"
   },
   "plugins": [
     {
       "name": "cc-tuner",
       "source": "./plugins/cc-tuner",
       "description": "Audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (/cc-tuner:statusline-setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:execute-task), plus canonical git-flow conventions installed per repo (/cc-tuner:git-flow-setup).",
-      "version": "0.5.0"
+      "version": "0.5.1"
     }
   ]
 }

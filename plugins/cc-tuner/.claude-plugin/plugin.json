@@ -2,7 +2,7 @@
   "name": "cc-tuner",
   "displayName": "CC Tuner",
   "description": "Tune Claude Code's own configuration. Ships claude-md-writer (audit CLAUDE.md / .claude/rules/ memory against the official docs) and a usage statusline (rate-limit + context %, /cc-tuner:statusline-setup). Plus /execute-task, a gated task-lifecycle playbook (requires superpowers + cc-codex-triage); git-flow (canonical branch/commit/PR/board conventions + /cc-tuner:git-flow-setup rule installer).",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "author": {
     "name": "Clicktronix",
     "url": "https://github.com/clicktronix"
