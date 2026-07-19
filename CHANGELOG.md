@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-07-19
+
+Two cost/quality levers: cheaper models for mechanical implementation work,
+and a hard gate against "fixed" frontend changes that were never actually run.
+
+### Added
+
+- **`smoke-verify` Stop-hook gate** (per-repo opt-in via
+  `/cc-tuner:smoke-verify-setup`). A turn that changed files matching the
+  repo's frontend patterns cannot end until the change was exercised for real
+  and attested with one line of evidence (`scripts/smoke-verify/mark.sh
+  verified|skip`). The attestation binds to branch + content fingerprint —
+  editing again re-arms the gate. Fail-open on: no config, no matched
+  changes, malformed state, detached HEAD, and after `cap` blocks (default 3)
+  per unchanged delta. Hook and attestation writer share one fingerprint lib
+  so they can never disagree. New `smoke-verify` skill documents what counts
+  as verification evidence (rendering/running — not typecheck/lint).
+  Regression tests: `tests/smoke-verify/` (17 cases, macOS bash 3.2 + Linux).
+- **`/cc-tuner:delegate`** — free-form task in, tiered fan-out: the main
+  model decomposes and verifies, sonnet/opus subagents implement per the
+  shared tier table `assets/delegate/tiering.md` (mechanical → sonnet,
+  standard → opus, architectural/sensitive → main model; unsure → higher).
+  Verification contract per unit: full diff read + cheap gate + acceptance
+  criteria; one redispatch on failure, then a tier escalation — never a
+  third blind retry.
+
+### Changed
+
+- **execute-task step 3 model tiering** — new `model_tiering` config key
+  (default `on`): implementation units dispatch on the tier table's models;
+  planning, reviews, and acceptance judgment always stay on the main model.
+
 ## [0.5.1] - 2026-07-17
 
 ### Fixed
