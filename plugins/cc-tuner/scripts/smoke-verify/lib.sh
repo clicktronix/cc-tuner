@@ -18,46 +18,56 @@ smoke_sha() {
   else sha256sum | cut -d' ' -f1; fi
 }
 
-smoke_cfg_get() { # $1=key — first match wins; value may contain '='.
-  sed -n "s/^$1=//p" "$SMOKE_CFG" 2>/dev/null | head -1
-}
-
-# Changed files (staged + unstaged + untracked) whose path matches the
-# config's ERE, one porcelain line per file. Renames match on either side;
-# the gate's own state dir is never a trigger.
-smoke_matched_lines() { # $1=patterns-ERE
-  git status --porcelain -uall 2>/dev/null \
-    | grep -vF "$SMOKE_STATE_DIR/" \
-    | grep -vF "$SMOKE_CFG" \
-    | grep -E -- "$1"
+# First match wins; value may contain '='. CRs are stripped so a CRLF-saved
+# config doesn't silently produce a never-matching pattern.
+smoke_cfg_get() { # $1=key
+  sed -n "s/^$1=//p" "$SMOKE_CFG" 2>/dev/null | head -1 | tr -d '\r'
 }
 
 # Path from a porcelain line: strip the 3-char "XY " prefix; renames keep the
-# destination side. Git's own quoting of exotic paths is left as-is — it is
-# stable across runs, which is all the fingerprint needs.
+# destination side (the side that exists in the worktree). Git C-quotes paths
+# with specials ("My Comp.tsx") — surrounding quotes are stripped so `patterns`
+# anchors like \.tsx$ still match; inner escape sequences are left as-is
+# (stable across runs, which is all the fingerprint needs — a path whose
+# escapes don't resolve simply contributes no content bytes, identically in
+# both callers).
 smoke_line_path() { # $1=porcelain line
   local p="${1:3}"
   case "$p" in *" -> "*) p="${p##* -> }";; esac
+  case "$p" in
+    \"*\") p="${p#\"}"; p="${p%\"}";;
+  esac
   printf '%s' "$p"
 }
 
-# Fingerprint of the matched frontend delta: the sorted porcelain lines plus
-# the actual content delta (tracked files via git diff HEAD, untracked via
-# file content). Content is included so "verified, then edited again" re-arms
-# the gate, while a no-op turn (same delta) stays released.
+# Repo-relative paths (one per line) of changed files — staged, unstaged, and
+# untracked — whose PATH matches the config's ERE. Matching is against the
+# extracted path, not the raw porcelain line, so ^ anchors work (`(^|/)app/`
+# matches a top-level app/ dir). The gate's own state dir never triggers it.
+smoke_matched_paths() { # $1=patterns-ERE
+  git status --porcelain -uall 2>/dev/null \
+    | grep -vF "$SMOKE_STATE_DIR/" \
+    | grep -vF "$SMOKE_CFG" \
+    | while IFS= read -r _line; do
+        [ -z "$_line" ] && continue
+        _p="$(smoke_line_path "$_line")"
+        printf '%s' "$_p" | grep -qE -- "$1" && printf '%s\n' "$_p"
+      done
+}
+
+# Fingerprint of the matched frontend delta: the sorted path list plus each
+# path's WORKTREE content (deleted files contribute a marker). Deliberately
+# independent of index state — verification covers what runs, i.e. the
+# worktree, so `git add` after attesting must NOT re-arm the gate; editing a
+# file (content change) must and does.
 smoke_fingerprint() { # $1=patterns-ERE
-  local lines line p
-  lines="$(smoke_matched_lines "$1" | LC_ALL=C sort)"
+  local paths p
+  paths="$(smoke_matched_paths "$1" | LC_ALL=C sort)"
   {
-    printf '%s\n' "$lines"
-    printf '%s\n' "$lines" | while IFS= read -r line; do
-      [ -z "$line" ] && continue
-      p="$(smoke_line_path "$line")"
-      case "$line" in
-        '??'*) cat -- "$p" 2>/dev/null ;;
-        # `diff HEAD` covers both index and worktree deltas in one pass.
-        *)     git diff HEAD -- "$p" 2>/dev/null ;;
-      esac
+    printf '%s\n' "$paths"
+    printf '%s\n' "$paths" | while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if [ -e "$p" ]; then cat -- "$p" 2>/dev/null; else printf 'DELETED:%s\n' "$p"; fi
     done
   } | smoke_sha
 }

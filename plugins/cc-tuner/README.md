@@ -68,12 +68,15 @@ re-run, artifact looked at — and attested with one line of evidence:
 bash <plugin>/scripts/smoke-verify/mark.sh verified 'opened /fit page, labels render'
 ```
 
-The attestation binds to the branch + content fingerprint of the delta, so
-editing again re-arms the gate. Explicit user-authorized skips are recorded
-(`mark.sh skip '<why>'`). Fail-open everywhere: no config, no matched changes,
-malformed state, or `cap` blocks (default 3) on an unchanged delta → the turn
-ends normally. The hook itself is milliseconds of bash — it never runs any
-verification, it only routes the agent to do it.
+The attestation binds to the branch + worktree-content fingerprint of the
+delta, so editing again re-arms the gate (staging/committing identical content
+does not). Explicit user-authorized skips are recorded (`mark.sh skip '<why>'`).
+Fail-open everywhere: no config, no matched changes, malformed counter state,
+or `cap` blocks (default 3) on an unchanged delta → the turn ends normally.
+Scope: the gate fingerprints **uncommitted** changes — attest before
+committing; a change committed mid-turn without attestation escapes it. The
+hook itself is milliseconds of bash — it never runs any verification, it only
+routes the agent to do it.
 
 ## /execute-task
 

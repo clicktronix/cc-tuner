@@ -42,16 +42,22 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/smoke-verify/mark.sh" skip 'user said "пр�
 
 Never attest `verified` on the strength of static checks — that defeats the
 gate's purpose and the evidence line will say so in the audit trail. The
-attestation binds to the exact delta (branch + content fingerprint): editing
-a matched file afterwards re-arms the gate, so verify LAST, after the code
-settles.
+attestation binds to the exact delta (branch + worktree-content fingerprint):
+editing a matched file afterwards re-arms the gate (staging or committing the
+same content does not), so verify after the code settles — and **attest
+BEFORE committing**: the gate only sees the uncommitted delta, so a change
+committed without attestation leaves its scope entirely.
 
 ## Mechanics / limits
 
 - State: `.claude/smoke-verify/state` (attestation), `.claude/smoke-verify/blocks`
   (cap counter) — git-ignored, local-only. Config: `.claude/smoke-verify.cfg`
   (committable team policy).
-- The gate fails open after `cap` blocks (default 3) per unchanged delta,
-  on malformed state, outside git repos, and on detached HEAD.
+- The gate fails open after `cap` blocks (default 3) per unchanged delta, on
+  a malformed blocks counter, outside git repos, and on detached HEAD. (A
+  corrupted attestation file just fails to release — bounded by the cap.)
+- Scope limit: the fingerprint covers **uncommitted** changes only — a change
+  committed mid-turn without attestation is not caught. The discipline is
+  procedural: verify → attest → commit.
 - `bash mark.sh status` shows config, current attestation, and whether the
   gate would block right now.

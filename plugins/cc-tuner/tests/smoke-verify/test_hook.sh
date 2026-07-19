@@ -90,4 +90,49 @@ OUT="$(run_hook)"
 [ -z "$OUT" ] && echo "PASS own-state-ignored" || { echo "FAIL own-state-ignored (out=$OUT)"; fails=1; }
 rm -rf "$T"
 
+# staging identical content after attesting does NOT re-arm (worktree fingerprint)
+mkrepo; cfg
+echo x > "$T/D.tsx"
+( cd "$T" && bash "$MARK" verified 'ran it' >/dev/null 2>&1 && git add D.tsx )
+OUT="$(run_hook)"
+[ -z "$OUT" ] && echo "PASS staging-does-not-rearm" || { echo "FAIL staging-does-not-rearm (out=$OUT)"; fails=1; }
+# ...and committing it does not re-block either (delta left the gate's scope)
+( cd "$T" && git commit -qm add-d )
+OUT="$(run_hook)"
+[ -z "$OUT" ] && echo "PASS committed-out-of-scope" || { echo "FAIL committed-out-of-scope (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# ^ anchors match the PATH, not the porcelain line (top-level app/ dir)
+mkrepo; cfg '(^|/)app/.*\.tsx?$'
+mkdir -p "$T/app"; echo x > "$T/app/route.ts"
+OUT="$(run_hook)"
+printf '%s' "$OUT" | grep -q '"decision":"block"' \
+  && echo "PASS path-anchored-patterns" || { echo "FAIL path-anchored-patterns (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# a path with spaces (git C-quotes it) still triggers and lists cleanly
+mkrepo; cfg
+echo x > "$T/My Comp.tsx"
+OUT="$(run_hook)"
+{ printf '%s' "$OUT" | grep -q '"decision":"block"' && printf '%s' "$OUT" | grep -q 'My Comp.tsx'; } \
+  && echo "PASS quoted-path-triggers" || { echo "FAIL quoted-path-triggers (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# CRLF-saved config still matches (CR stripped from values)
+mkrepo
+mkdir -p "$T/.claude"; printf 'patterns=\\.(tsx)$\r\ncap=3\r\n' > "$T/.claude/smoke-verify.cfg"
+echo x > "$T/E.tsx"
+OUT="$(run_hook)"
+printf '%s' "$OUT" | grep -q '"decision":"block"' \
+  && echo "PASS crlf-config" || { echo "FAIL crlf-config (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# more than 8 matched files -> truncated list with a (+N more) marker
+mkrepo; cfg
+for i in 1 2 3 4 5 6 7 8 9 0; do echo x > "$T/F$i.tsx"; done
+OUT="$(run_hook)"
+printf '%s' "$OUT" | grep -q '(+2 more)' \
+  && echo "PASS file-list-truncation" || { echo "FAIL file-list-truncation (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
 exit $fails

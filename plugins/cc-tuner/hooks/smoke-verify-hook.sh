@@ -53,7 +53,7 @@ PATTERNS="$(smoke_cfg_get patterns)"
 CAP="$(smoke_cfg_get cap)"
 case "$CAP" in ''|*[!0-9]*|0*) CAP=3;; esac  # non-numeric/leading-zero → default
 
-MATCHED="$(smoke_matched_lines "$PATTERNS" || true)"
+MATCHED="$(smoke_matched_paths "$PATTERNS" || true)"
 [ -n "$MATCHED" ] || allow
 
 FP="$(smoke_fingerprint "$PATTERNS")"
@@ -87,9 +87,11 @@ N=$((N + 1))
 printf 'fp=%s\nn=%s\n' "$FP" "$N" > "$SMOKE_BLOCKS.tmp" 2>/dev/null \
   && mv -f "$SMOKE_BLOCKS.tmp" "$SMOKE_BLOCKS" 2>/dev/null || allow
 
-FILES="$(printf '%s\n' "$MATCHED" | while IFS= read -r l; do smoke_line_path "$l"; done | head -8 | tr '\n' ' ')"
+FILES="$(printf '%s\n' "$MATCHED" | head -8 | tr '\n' ' ')"
+TOTAL="$(printf '%s\n' "$MATCHED" | grep -c .)"
+[ "$TOTAL" -gt 8 ] 2>/dev/null && FILES="$FILES(+$((TOTAL - 8)) more) "
 
-REASON="smoke-verify gate (round $N/$CAP): frontend changes are UNVERIFIED: ${FILES}— Verify the change empirically before finishing: exercise the real behavior (open the affected page / run the failing case / screenshot via chrome-devtools MCP), not just typecheck or lint. Then attest with ONE line of evidence: bash \"$MARK\" verified '<what you exercised and saw>'. If the USER explicitly told you to skip verification this turn, attest: bash \"$MARK\" skip '<who said so and why>'. Editing the files again re-arms the gate. See the cc-tuner:smoke-verify skill for what counts as evidence."
+REASON="smoke-verify gate (round $N/$CAP): frontend changes are UNVERIFIED: ${FILES}— Verify the change empirically before finishing: exercise the real behavior (open the affected page / run the failing case / screenshot via chrome-devtools MCP), not just typecheck or lint. Then attest with ONE line of evidence: bash '$MARK' verified '<what you exercised and saw>'. If the USER explicitly told you to skip verification this turn, attest: bash '$MARK' skip '<who said so and why>'. Editing the files again re-arms the gate (staging/committing does not). See the cc-tuner:smoke-verify skill for what counts as evidence."
 REASON="$(printf '%s' "$REASON" | tr -d '"\\' | tr -s '[:cntrl:]' ' ')"
 printf '{"decision":"block","reason":"%s"}\n' "$REASON"
 exit 0

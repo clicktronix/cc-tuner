@@ -10,7 +10,8 @@
 # the Stop hook uses). Re-editing a matched file changes the fingerprint, so
 # a stale attestation never releases the gate for new work.
 #
-# Exit codes: 0 ok; 2 usage; 3 not a repo / no config; 4 nothing to attest.
+# Exit codes: 0 ok; 2 usage; 3 not a repo / no config; 4 nothing to attest;
+# 5 state write failed (the gate would keep blocking — fix permissions first).
 
 set -u
 
@@ -37,7 +38,7 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 if [ "$MODE" = "status" ]; then
   echo "config:   $SMOKE_CFG (patterns=$PATTERNS)"
   if [ -f "$SMOKE_STATE" ]; then cat "$SMOKE_STATE"; else echo "state:    none"; fi
-  MATCHED="$(smoke_matched_lines "$PATTERNS" || true)"
+  MATCHED="$(smoke_matched_paths "$PATTERNS" || true)"
   if [ -n "$MATCHED" ]; then
     FP="$(smoke_fingerprint "$PATTERNS")"
     echo "current delta fp: $FP"
@@ -62,14 +63,16 @@ if [ -z "$NOTE" ]; then
   exit 2
 fi
 
-MATCHED="$(smoke_matched_lines "$PATTERNS" || true)"
+MATCHED="$(smoke_matched_paths "$PATTERNS" || true)"
 if [ -z "$MATCHED" ]; then
   echo "smoke-verify: no matched frontend changes — nothing to attest" >&2
   exit 4
 fi
 FP="$(smoke_fingerprint "$PATTERNS")"
 
-mkdir -p "$SMOKE_STATE_DIR"
+# A silently failed write would leave the hook blocking until cap while this
+# script reports success — so every write failure is loud (exit 5).
+mkdir -p "$SMOKE_STATE_DIR" || { echo "smoke-verify: cannot create $SMOKE_STATE_DIR" >&2; exit 5; }
 # Single-line sanitization: state is KEY=VALUE, a newline in NOTE would corrupt it.
 NOTE="$(printf '%s' "$NOTE" | tr -s '[:cntrl:]' ' ' | cut -c1-500)"
 {
@@ -77,6 +80,7 @@ NOTE="$(printf '%s' "$NOTE" | tr -s '[:cntrl:]' ' ' | cut -c1-500)"
   printf 'fingerprint=%s\n' "$FP"
   printf 'status=%s\n' "$MODE"
   printf 'note=%s\n' "$NOTE"
-} > "$SMOKE_STATE.tmp" && mv -f "$SMOKE_STATE.tmp" "$SMOKE_STATE"
+} > "$SMOKE_STATE.tmp" && mv -f "$SMOKE_STATE.tmp" "$SMOKE_STATE" \
+  || { echo "smoke-verify: cannot write $SMOKE_STATE" >&2; exit 5; }
 rm -f "$SMOKE_BLOCKS" 2>/dev/null
 echo "smoke-verify: attested '$MODE' for branch $BRANCH (fp $(printf '%.16s' "$FP")…)"
