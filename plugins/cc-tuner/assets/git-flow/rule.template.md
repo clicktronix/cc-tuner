@@ -1,4 +1,4 @@
-<!-- cc-tuner:git-flow v0.5.0 — installed by /cc-tuner:git-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in git-flow.local.md next to this file. -->
+<!-- cc-tuner:git-flow v0.6.0 — installed by /cc-tuner:git-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in git-flow.local.md next to this file. -->
 
 # Git flow — branches, commits, PRs, tasks
 
@@ -13,7 +13,8 @@ conflicts with this file, the local file wins.
 - `<type>/<issue>-<kebab-slug>`, ≤50 chars. No issue → `<type>/<short-slug>`, justify in the PR body.
 - Types: `feat | fix | refactor | perf | chore | docs | test | build | ci`.
 - Never commit directly to `main` — branch first (`git switch -c <branch>`). On `main` with uncommitted work: stash → branch → pop.
-- Branch lifetime ≤ 48h wall-clock. Older than that: **unpublished** branches rebase onto `origin/main` before the first push; **published** branches (pushed, with or without review comments) merge `origin/main` instead — rebasing them would demand the force-push forbidden below. Force-with-lease only with explicit reviewer/user sign-off.
+- Branch lifetime ≤ 48h wall-clock. Older than that: **unpublished** branches rebase onto `origin/main` before the first push; **published** branches (pushed, with or without review comments) merge `origin/main` instead — rewriting history others may have reviewed or built on is the harm, and the rewrite would need the force-push forbidden below. Force-with-lease only with explicit reviewer/user sign-off.
+- **A branch whose PR is merged is finished — start a new one.** Squash-merge replaces your commits with one new commit, so the old branch is permanently divergent even though its content is in `main`. Continuing it makes both catch-up moves replay already-merged work: rebase reapplies patches whose result is already there (conflicts), and merge drags the same stale commits into the next PR's diff. Cherry-pick the commits you still need onto a fresh branch off `origin/main`.
 - No long-lived staging branches (`develop`, `staging`) — squash-merging feature PRs into one breaks ancestry and the next merge to `main` surfaces ghost-conflicts. Short branches straight to `main`; feature flags for incomplete work.
 
 ## Commits — Conventional Commits v1.0.0

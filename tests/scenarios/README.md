@@ -28,6 +28,7 @@ guidance verbatim, as it appears in production.
 | execute-task/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
 | git-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
 | git-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
+| git-flow/branch-continued-after-merge | historical incident 2026-07-26 (RED in production) | **not yet probed** | rule added; GREEN run still owed |
 
 Honest read: the execute-task **hard-stops** are not load-bearing for isolated haiku
 probes (the model holds the gates unaided); the **fail-closed review-skip rule** and the

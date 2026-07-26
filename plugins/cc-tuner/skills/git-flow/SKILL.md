@@ -76,6 +76,7 @@ issue (never a buried comment-thread list).
 - **Amend after hook failure** — the commit did not happen; `--amend` rewrites the previous one and loses work. Fix → re-stage → new commit.
 - **First-words branch name** (`001-make-sure-portfolio-...`) — name by feature, not by the prompt's opening words.
 - **Orphan branch** — work finished in a worktree, PR never opened, branch rots. Opening the PR is part of finishing.
+- **Branch continued after its PR merged** — real incident 2026-07-26 (stokli/backend): `fix/portfolio-performance-correctness` merged as PR #213 (squash `5a7d4a71`), then picked up two unrelated `chore:` commits days later. Twelve days on, `main` had moved 35 commits and the branch still showed 5 "unmerged" commits — 3 of them already in `main` under a different SHA. A trial `git rebase origin/main` conflicted in 6 files on the **first** commit, replaying work that was already merged; cherry-picking just the 2 genuinely-new commits onto a fresh branch applied clean. Two tells that a branch is finished, not behind: its PR is `MERGED`, and `git log origin/main..HEAD` lists commits whose subjects you can find in `main` under other SHAs. Cherry-pick forward; do not try to catch the old branch up. (A `fix/` branch carrying `chore:` commits is the same mistake wearing a different hat — one branch, one type.)
 
 ## Pre-PR checklist
 

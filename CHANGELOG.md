@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **git-flow rule: a merged branch is finished.** Added the missing case to
+  the Branches section — squash-merge replaces a branch's commits with one new
+  commit, so continuing that branch leaves it permanently divergent even though
+  its content is in `main`. Both catch-up moves then replay already-merged work:
+  rebase reapplies patches whose result is already there, merge drags the stale
+  commits into the next PR's diff. Cherry-pick forward onto a fresh branch
+  instead. Template marker bumped to `v0.6.0` so `/cc-tuner:git-flow-setup`
+  reinstalls it.
+- **git-flow rule: state the actual harm in the rebase restriction.** The
+  published-branch bullet blamed the force-push; the harm is rewriting history
+  others may have reviewed or built on, and the force-push is the mechanism.
+  Behaviour is unchanged — force-with-lease still needs explicit sign-off — but
+  the reason no longer reads as a tooling quirk.
+- **git-flow skill: new anti-pattern case study** for a branch continued after
+  its PR merged, with the two tells that distinguish "finished" from "behind".
+
 ## [0.5.1] - 2026-07-17
 
 ### Fixed
