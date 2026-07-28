@@ -31,11 +31,14 @@ conflicts with this file, the local file wins.
 - Never `--no-verify` / `--no-gpg-sign`. A failing hook is a signal to diagnose, not silence.
 - Stage explicitly by path — no `git add -A` / `git add .` (sweeps `.env`, credentials, unrelated WIP into commits).
 - One commit = one logical change. A WIP chain is fine during work — squash-on-merge collapses it.
+- After any formatter / `--fix` run, re-run typecheck **and** lint before staging, and read the diff it produced. Autofix rewrites code it does not understand: folding value imports into an `import type` block, moving a trailing comment past a bare `return`. Both break the build silently at staging time.
 
 ## Pull Requests
 
 - Link the issue: `Closes #N` / `Fixes #N` only when the PR fully completes it; `Refs #N` for partial/stacked work. No issue → state why in the body.
 - Verification gate: the PR body carries a checkbox list of this repo's lint/typecheck/test results with real output. "I believe the tests pass" is not evidence.
+- **A regression test must be shown failing against the pre-fix code.** A green test proves nothing about a fix if it was written from the author's model of the bug — it can construct inputs the production path never produces. Cheapest proof: inline the old implementation as a throwaway mutant test, watch it go red, delete it. State in the PR body that this was done.
+- **Scope follows what the branch causes, not which files it touched.** Before deferring a review finding as out of scope, check `git diff <base>...HEAD -- <path>`: a defect the branch makes reachable belongs in this PR even when the cited file is untouched, and a "product decision" in an untouched-looking area may be a branch regression. "Not my file" is a fact, not a rebuttal.
 - Feature → `main`: squash-merge with `--delete-branch`. Never force-push `main` or any branch with open review comments.
 - **No tiny doc-only PRs:** a single-file doc fix folds into an open PR or waits for a batch of 3+ small changes. Standalone only if urgent AND the user explicitly confirms.
 

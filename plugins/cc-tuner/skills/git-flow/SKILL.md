@@ -73,6 +73,9 @@ issue (never a buried comment-thread list).
 - **Long-lived staging branch + squash** — real incident 2026-06-04/05: `perf-quality-audit` squashed to `main` as PR #50, then 8 follow-up PRs (#51–#58) squash-targeted the dead branch; the final merge was impossible and all 8 commits had to be cherry-picked onto a fresh branch (PR #61). Short branches straight to `main`.
 - **Issue off the board** — real incident 2026-06-05: 9 issues created via bare `gh issue create`; none reached the board until an explicit request. Always create with `--project` + set Status/Priority.
 - **Tiny doc-PR spam** — real incident 2026-06-05 (marqa-tech/analyzer PR #23): standalone PR for 3 wording fixes in one file; user: "We waste time and tokens on that junk." Fold into an open PR or batch 3+.
+- **Test that could never fail** — real incident 2026-07-28 (marqa-tech/platform PR #399, round 5 of an agent review loop): a "regression test" for a URL-write race built its second patch from the already-merged state, while every production handler closes over the render snapshot. It passed against the broken implementation, so it could not have caught the defect it was written to guard; the reviewer found the bug instead. Inlining the old implementation as a throwaway mutant showed red/green in under two minutes. Any test written for a fix gets that check.
+- **"Not my file" as a scope rebuttal** — same PR, rounds 2–4: a cross-writer URL race was deferred as pre-existing because the shell file was untouched by the branch — but the branch's two new writers were what made the collision reachable, so it was in scope. Symmetrically, archived rows silently vanishing looked like a product decision to escalate, and `git diff <base>...HEAD` showed the branch had introduced the default that caused it. Provenance of the *defect*, not of the file, decides.
+- **Trusting autofix output** — same PR: `eslint --fix` folded value imports into an `import type` block (build broke on `'AGE_GROUPS' cannot be used as a value`), and prettier moved a comment past a bare `return`, producing an unenclosed-block error. Both appeared only on the next typecheck/lint run, after the commit would otherwise have been staged.
 - **Amend after hook failure** — the commit did not happen; `--amend` rewrites the previous one and loses work. Fix → re-stage → new commit.
 - **First-words branch name** (`001-make-sure-portfolio-...`) — name by feature, not by the prompt's opening words.
 - **Orphan branch** — work finished in a worktree, PR never opened, branch rots. Opening the PR is part of finishing.
@@ -83,6 +86,9 @@ issue (never a buried comment-thread list).
 - [ ] Commits follow Conventional Commits (incl. `!`/`BREAKING CHANGE:` where applicable)
 - [ ] Issue exists, linked (`Closes #N`/`Refs #N`), card has Status/Priority
 - [ ] PR body: verification checkbox list with real lint/typecheck/test output
+- [ ] Every new regression test shown red against the pre-fix code (mutant check), noted in the body
+- [ ] Review findings deferred as "pre-existing" checked with `git diff <base>...HEAD` — the branch does not cause them
+- [ ] Formatter/`--fix` output diffed, with typecheck + lint re-run afterwards
 - [ ] Plan promoted/archived if this PR completes it
 - [ ] No `.env`, credentials, generated files staged
 
@@ -91,4 +97,6 @@ issue (never a buried comment-thread list).
 Every rule reacts to a documented failure, not theoretical hygiene: staging-branch
 ghost-conflicts (2026-06-04), board-less issues (2026-06-05), tiny-PR feedback
 (2026-06-05), amend-after-hook data loss (Claude Code default-instruction failure
-mode). Dates kept so future edits can check whether the failure still reproduces.
+mode), a green-but-useless regression test, a mis-scoped "pre-existing" finding and
+two autofix build breaks (all 2026-07-28, one review loop). Dates kept so future
+edits can check whether the failure still reproduces.

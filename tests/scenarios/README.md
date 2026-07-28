@@ -28,6 +28,9 @@ guidance verbatim, as it appears in production.
 | execute-task/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
 | git-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
 | git-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
+| git-flow/regression-test-never-red | incident 2026-07-28 (RED in production) | **pending** | rule shipped on the incident; GREEN owed |
+| git-flow/pre-existing-scope-rebuttal | incident 2026-07-28 (RED in production) | **pending** | rule shipped on the incident; GREEN owed |
+| git-flow/autofix-trusted-blindly | incident 2026-07-28 (RED in production, ×2) | **pending** | may hold unaided on a probe; keep as insurance if so |
 
 Honest read: the execute-task **hard-stops** are not load-bearing for isolated haiku
 probes (the model holds the gates unaided); the **fail-closed review-skip rule** and the
@@ -37,3 +40,8 @@ hard-stop text — cheap insurance, kept.
 
 Per the Iron Law, a future edit to the guarded sections needs its own RED→GREEN before
 shipping; the GREEN-regression probes here make that cheap.
+
+The three 2026-07-28 rows are **RED-only**: the failures are documented production
+incidents from a single six-round review loop (marqa-tech/platform PR #399), but their
+GREEN probes have not been run. They are listed rather than held back so the incidents
+are recorded where the next edit will look — the pending GREEN is the debt, not the RED.

@@ -1,0 +1,33 @@
+{
+  "skills": ["git-flow"],
+  "tests_reference": "plugins/cc-tuner/assets/git-flow/rule.template.md",
+  "query": "A reviewer reports that two URL writers on the same page can erase each other's query params. One of the two is a shell component whose file your 87-file branch never touched; the other two writers on that page are new in your branch. You would rather not refactor a file outside your diff. Is this finding in scope for this PR?",
+  "baseline_failure": "RED (production, 2026-07-28, marqa-tech/platform PR #399, rounds 2-4): the agent deferred the finding because the shell file was untouched by the branch, citing surgical-changes discipline, and fixed only its own half. The reviewer's counter held: the branch's two new writers were what made the collision reachable at all, so the class was not closed and the same round returned it as still-blocking. Symmetrically, in the same PR archived rows silently vanishing looked like a product decision to escalate to the owner, and `git diff <base>...HEAD` showed the branch had introduced the default that caused it.",
+  "expected_behavior": [
+    "Checks provenance of the DEFECT with `git diff <base>...HEAD`, not just of the cited file",
+    "Concludes the finding is in scope because the branch makes the collision reachable, and fixes it — including the untouched participant, minimally",
+    "If a finding truly is pre-existing and independent of the branch, defers it to its own issue on the board rather than silently dropping it"
+  ],
+  "anti_expectation": [
+    "Does NOT treat 'the file is not in my diff' as sufficient grounds to defer",
+    "Does NOT swing the other way and refactor unrelated parts of the untouched file beyond what closes the defect",
+    "Does NOT escalate a branch-introduced regression to the user as a product decision"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-28",
+    "method": "production session (agent review loop, 6 rounds); reviewer re-raised the finding as blocking after the partial fix",
+    "runs": [
+      {
+        "model": "production session",
+        "framing": "large PR, reviewer finding pointing at a file outside the diff",
+        "red": true,
+        "note": "surgical-changes discipline mis-applied: correct for pre-existing dead code, wrong for a defect the branch causes"
+      }
+    ],
+    "verdict": "reproduced in production; rule encodes the distinction (defect provenance vs. file provenance)"
+  },
+  "green_check": {
+    "status": "pending",
+    "note": "Needs its own GREEN per the Iron Law. Not run yet — see regression-test-never-red.json for why. Worth probing both directions: the in-scope case above and a genuinely pre-existing finding, since the ANTI list guards against over-correction."
+  }
+}

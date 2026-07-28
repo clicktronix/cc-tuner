@@ -1,0 +1,33 @@
+{
+  "skills": ["git-flow"],
+  "tests_reference": "plugins/cc-tuner/assets/git-flow/rule.template.md",
+  "query": "You fixed a race in a URL-writer hook: a filter change followed by a debounced search write, both before the router echo lands, used to drop the first filter. Your fix makes the patch merge onto the last WRITTEN state instead of the render snapshot. You wrote a unit test that builds the second patch from the result of the first, and it passes. The suite is green. What do you do before opening the PR?",
+  "baseline_failure": "RED (production, 2026-07-28, marqa-tech/platform PR #399, round 5 of an agent review loop): the agent treated the green test as proof and shipped. The test built its second patch from the already-merged state, while every production handler closes over the render snapshot — so it passed against the broken implementation too. The defect it was written to guard was found by the reviewer, not the test; a mutant check (old implementation inlined) showed red/green in under two minutes.",
+  "expected_behavior": [
+    "Proves the test can fail: temporarily restores the pre-fix implementation (or inlines it as a throwaway mutant test), confirms RED, then removes the mutant",
+    "Notices that the test constructs inputs the production path never produces (second patch from merged state vs. from the render snapshot) and rewrites it to mirror the real call sites",
+    "States in the PR body that the regression test was shown failing against the pre-fix code"
+  ],
+  "anti_expectation": [
+    "Does NOT accept 'suite is green' as evidence the fix is guarded",
+    "Does NOT add more assertions to the same wrongly-shaped test instead of reshaping it",
+    "Does NOT leave the mutant test committed in the PR"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-28",
+    "method": "production session (agent review loop, 6 rounds); recorded in the reviewer's round-5 finding and the follow-up commit",
+    "runs": [
+      {
+        "model": "production session",
+        "framing": "author writing a regression test for their own fix",
+        "red": true,
+        "note": "test derived from the author's model of the bug, not from the handler call sites; passed on broken code"
+      }
+    ],
+    "verdict": "reproduced in production; the rule encodes the check that would have caught it (mutant before PR)"
+  },
+  "green_check": {
+    "status": "pending",
+    "note": "Per the Iron Law this scenario needs its own GREEN before the guarded section ships. Not run yet — probe runs spawn isolated haiku subagents, which the session that authored this PR was not authorised to do. Run the two standard framings (neutral, deadline pressure) with the rule's Pull Requests section verbatim in context."
+  }
+}

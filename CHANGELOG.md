@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **git-flow: three verification rules, each from a documented 2026-07-28
+  incident** (one six-round agent review loop on marqa-tech/platform PR #399).
+  - *A regression test must be shown failing against the pre-fix code.* A test
+    written for a fix can encode the author's model of the bug instead of the
+    bug: the incident's test built its second patch from the already-merged
+    state while every production handler closes over the render snapshot, so it
+    passed against the broken implementation and the reviewer found the defect
+    the test was meant to guard. A throwaway mutant proves red/green in minutes.
+  - *Scope follows what the branch causes, not which files it touched.* The
+    incident deferred a cross-writer race because the cited file was outside the
+    diff — while the branch's own new writers were what made the collision
+    reachable; symmetrically a "product decision" turned out to be a
+    branch-introduced default. `git diff <base>...HEAD` decides both.
+  - *Autofix output is a change, not a result.* `eslint --fix` folded value
+    imports into an `import type` block (build broke) and the formatter moved a
+    comment past a bare `return` (new lint error) — both invisible in the
+    fixer's own zero-error report.
+
+  Rules land in `assets/git-flow/rule.template.md` (Commits, Pull Requests),
+  case studies and three new pre-PR checklist items in the `git-flow` skill.
+  RED scenarios recorded in `tests/scenarios/git-flow/`; their GREEN probes are
+  **owed** and marked pending in `tests/scenarios/README.md`.
+
 ## [0.5.1] - 2026-07-17
 
 ### Fixed
