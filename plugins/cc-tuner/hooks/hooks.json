@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/smoke-verify-hook.sh",
+            "timeout": 30,
+            "statusMessage": "cc-tuner: checking smoke-verify gate"
+          }
+        ]
+      }
+    ]
+  }
+}

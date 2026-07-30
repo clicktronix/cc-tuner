@@ -7,6 +7,9 @@ Skills:
 - **`claude-md-writer`** — create, refactor, and audit `CLAUDE.md` / `.claude/rules/` memory files, every Claude Code memory fact checked against <https://code.claude.com/docs/en/memory>.
 - **`statusline`** — a usage-focused statusline (rate-limit 5h/7d windows, context %, git, model + effort, session duration) with a `/cc-tuner:statusline-setup` installer, since plugins can't register a statusline on their own.
 - **`git-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:git-flow-setup` installer that writes the always-on `.claude/rules/git-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
+- **`smoke-verify`** — an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`): frontend changes can't end a turn until they were exercised for real (rendered/run, not just typechecked) and attested with evidence.
+
+Commands beyond the installers: **`/cc-tuner:execute-task`** (gated task-lifecycle playbook, now with model tiering) and **`/cc-tuner:delegate`** (tiered cheap-model fan-out — the main model plans and verifies, sonnet/opus subagents implement).
 
 ## Why this exists
 
@@ -28,20 +31,30 @@ plugins/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
     assets/
+      delegate/tiering.md               # shared model-tier table (/delegate + execute-task step 3)
       execute-task/config.template.md   # per-project /execute-task settings
       git-flow/rule.template.md         # canonical .claude/rules/git-flow.md template
+      smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     commands/
+      delegate.md                   # /cc-tuner:delegate tiered fan-out
       execute-task.md               # /cc-tuner:execute-task lifecycle playbook
       git-flow-setup.md             # /cc-tuner:git-flow-setup rule installer
+      smoke-verify-setup.md         # /cc-tuner:smoke-verify-setup gate opt-in
       statusline-setup.md           # /cc-tuner:statusline-setup installer
+    hooks/
+      hooks.json                    # Stop hook registration
+      smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
       execute-task/                 # deterministic bash for /execute-task gates
+      smoke-verify/                 # fingerprint lib + attestation writer (mark.sh)
     skills/
       claude-md-writer/
         SKILL.md                    # corrected canonical skill
         reference.md                # deep examples + verified sources
       git-flow/
         SKILL.md                    # board recipes, merge strategies, plan lifecycle
+      smoke-verify/
+        SKILL.md                    # what counts as verification evidence + attesting
       statusline/
         SKILL.md                    # usage statusline (feature + disclaimers)
         statusline.sh               # the cross-platform statusline script

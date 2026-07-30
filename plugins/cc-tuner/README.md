@@ -55,6 +55,29 @@ can't ship `.claude/rules/*`): a versioned template with the plans root detected
 from the repo layout, repo-specific deltas in an untouched `git-flow.local.md`,
 and optional cleanup of legacy hand-copied rule files.
 
+### `smoke-verify`
+
+A per-repo opt-in Stop-hook gate against the top regression source in agentic
+coding: fix commits that pass typecheck/lint but were never actually run. In a
+repo that opted in via `/cc-tuner:smoke-verify-setup`, a turn that changed
+frontend files (configurable regex in `.claude/smoke-verify.cfg`) cannot end
+until the change was **exercised for real** — page rendered, failing case
+re-run, artifact looked at — and attested with one line of evidence:
+
+```
+bash <plugin>/scripts/smoke-verify/mark.sh verified 'opened /fit page, labels render'
+```
+
+The attestation binds to the branch + worktree-content fingerprint of the
+delta, so editing again re-arms the gate (staging/committing identical content
+does not). Explicit user-authorized skips are recorded (`mark.sh skip '<why>'`).
+Fail-open everywhere: no config, no matched changes, malformed counter state,
+or `cap` blocks (default 3) on an unchanged delta → the turn ends normally.
+Scope: the gate fingerprints **uncommitted** changes — attest before
+committing; a change committed mid-turn without attestation escapes it. The
+hook itself is milliseconds of bash — it never runs any verification, it only
+routes the agent to do it.
+
 ## /execute-task
 
 A task-lifecycle playbook that walks the main agent through the full development cycle: intake → plan → implement → review → CI/CD → merge. Choose an autonomy level at start time (`brainstorm-only`, `checkpoints`, or `supervised`) to control how often the agent pauses for human input. Hard-stops are built in at each gate — dirty tree, red CI, human-eye acceptance, and CD/merge — so the agent can't silently skip them.
@@ -63,6 +86,12 @@ Use it whenever you want a structured, reviewable workflow instead of a free-for
 
 Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime via prereq-check; cc-tuner installs and works standalone without them).
 
+With `model_tiering: on` in the project config, step 3 dispatches implementation subagents on cheaper models per `assets/delegate/tiering.md` — mechanical units on sonnet, standard units on opus, architectural/sensitive ones on the main model — while planning, reviews, and acceptance always stay on the main model, and every delegated diff is verified before acceptance.
+
+## /delegate
+
+The economical middle ground between doing everything on the main model and the full `/execute-task` lifecycle: `/cc-tuner:delegate <free-form task>` has the main model decompose the task, classify each unit per `assets/delegate/tiering.md`, fan implementation out to sonnet/opus subagents (worktree isolation for parallel edits), and verify every returned diff itself (full diff read + cheap gate + acceptance criteria; failed units get one redispatch, then a tier escalation). No gates, journal, or board — hygiene rules (surgical staging, no outward-facing actions, sensitive surfaces never below the main model) still apply.
+
 ## Install
 
 ```
@@ -70,7 +99,7 @@ Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime
 /plugin install cc-tuner@cc-tuner
 ```
 
-The `claude-md-writer` and `git-flow` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbook are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:git-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), and `/cc-tuner:execute-task`.
+The `claude-md-writer`, `git-flow`, and `smoke-verify` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:git-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:execute-task`, and `/cc-tuner:delegate`.
 
 ## Scope
 
