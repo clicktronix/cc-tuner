@@ -33,12 +33,12 @@ plugins/
     assets/
       delegate/tiering.md               # shared model-tier table (/delegate + execute-task step 3)
       execute-task/config.template.md   # per-project /execute-task settings
-      task-flow/rule.template.md         # canonical .claude/rules/task-flow.md template
+      task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     commands/
       delegate.md                   # /cc-tuner:delegate tiered fan-out
       execute-task.md               # /cc-tuner:execute-task lifecycle playbook
-      task-flow-setup.md             # /cc-tuner:task-flow-setup rule installer
+      task-flow-setup.md            # /cc-tuner:task-flow-setup rule installer
       smoke-verify-setup.md         # /cc-tuner:smoke-verify-setup gate opt-in
       statusline-setup.md           # /cc-tuner:statusline-setup installer
     hooks/

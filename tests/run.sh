@@ -77,9 +77,36 @@ for s in "$PLUGIN"/skills/*/SKILL.md; do
 done
 ok "skill bodies within 500 lines"
 
-# --- 6. relative markdown links resolve --------------------------------------------------------
+# --- 6. eval scenarios point at files that exist ------------------------------------------------
+# The git-flow -> task-flow rename left two scenarios referencing a path that no longer existed, and
+# nothing failed. tests_reference is the scenario's claim about what it tests; a dangling one means
+# the recorded RED/GREEN evidence describes a file nobody can read.
+dangling=0
+scen=0
+for f in "$ROOT"/tests/scenarios/*/*.json; do
+  [ -f "$f" ] || continue
+  scen=$((scen + 1))
+  ref="$(jq -r '.tests_reference // empty' "$f")"
+  [ -n "$ref" ] || { bad "${f#$ROOT/} has no tests_reference"; dangling=$((dangling + 1)); continue; }
+  path="${ref%%#*}"
+  [ -e "$ROOT/$path" ] || { bad "${f#$ROOT/} references missing $path"; dangling=$((dangling + 1)); continue; }
+  # A `path#anchor` reference also has to name a heading that is still there — a renamed section is
+  # the same dangling-pointer failure as a renamed file, just quieter.
+  case "$ref" in
+    *"#"*)
+      anchor="${ref#*#}"
+      grep '^#\{1,6\} ' "$ROOT/$path" \
+        | sed -e 's/^#* //' -e 's/[^A-Za-z0-9 -]//g' -e 's/ /-/g' \
+        | tr 'A-Z' 'a-z' | grep -qx "$anchor" \
+        || { bad "${f#$ROOT/} references missing anchor #$anchor in $path"; dangling=$((dangling + 1)); }
+      ;;
+  esac
+done
+[ "$dangling" -eq 0 ] && ok "scenario tests_reference paths resolve ($scen scenarios)"
+
+# --- 7. relative markdown links resolve --------------------------------------------------------
 broken=0
-for f in $(find "$PLUGIN" "$ROOT/docs" -name '*.md' 2>/dev/null); do
+for f in $(find "$PLUGIN" "$ROOT/docs" -maxdepth 99 -name '*.md' 2>/dev/null; find "$ROOT" -maxdepth 1 -name '*.md'); do
   targets="$(grep -oE '\]\([^)#[:space:]]+\.md' "$f" 2>/dev/null | sed 's/^](//')"
   for target in $targets; do
     case "$target" in http*|\$*) continue ;; esac

@@ -123,9 +123,9 @@ the notes; that is the actual cost of an off-format commit.
 ## Plan lifecycle
 
 1. Draft where superpowers scratches them: `docs/superpowers/plans/` (git-ignored).
-2. Worth keeping → promote to `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md` (the installed rule names the
-   root for this repo: `wiki/` or `docs/`). Minimum header: `Goal:`, `Architecture:`, then tasks with
-   file paths.
+2. Worth keeping → promote to `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`. The plans root is `wiki/`
+   when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
+   Minimum header: `Goal:`, `Architecture:`, then tasks with file paths.
 3. First paragraph links the tracking issue; the issue body links the plan back.
 4. Completed → move to `<plans-root>/ARCHIVE/PLANS/` **in the same PR that completes the work** —
    never as a standalone doc PR.

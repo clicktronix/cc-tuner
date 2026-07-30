@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
   always-on: the 48-hour branch-lifetime cap with its rebase-versus-merge decision tree, and the
   tiny-doc-PR policy — the latter survives as a case study in the skill, since it encodes real user
   feedback but is a judgement call rather than an invariant.
+- **`/cc-tuner:task-flow-setup` no longer detects a plans root.** With plan lifecycle moved to the
+  skill, the template has no `{{PLANS_ROOT}}` token left to substitute, so the rule installs verbatim
+  and the "re-run me after migrating docs to `wiki/`" advice is gone with it. The skill resolves the
+  root (`wiki/` if present, else `docs/`) when it actually needs it.
 - **PR bodies link the CI run instead of pasting its output.** The old rule demanded a checkbox list
   carrying "real output", which is why measured PR bodies run to 4,137 characters on average in one
   repo, with 9 of 15 over 4,000 and a 15,966-character outlier in another. The output is already in
@@ -36,6 +40,10 @@ All notable changes to this project are documented in this file.
   commit is a commit missing from the notes.
 - **Stale-base anti-pattern**: a branch whose work was squash-merged reads as "ahead" while its base
   is behind, and the conflicts surface only at merge time.
+- **`tests/run.sh` validates eval-scenario references.** Every scenario's `tests_reference` has to
+  name a file that exists, and a `path#anchor` reference has to name a heading that is still there.
+  This rename produced two dangling references and nothing failed. Root-level `*.md` files are now
+  in the markdown-link check too; previously only `plugins/` and `docs/` were.
 
 ## [0.6.0] - 2026-07-19
 
@@ -95,20 +103,20 @@ and a hard gate against "fixed" frontend changes that were never actually run.
 ## [0.5.0] - 2026-07-16
 
 Git workflow moves into the plugin: one canonical rule instead of 11 hand-copied
-`task-flow.md` files across marqa/stokli workspaces (two drifted variants with
+`git-flow.md` files across marqa/stokli workspaces (two drifted variants with
 contradictory tiny-PR policies).
 
 ### Added
 
-- **`task-flow` skill** — on-demand procedures: GitHub Projects recipes
+- **`git-flow` skill** — on-demand procedures: GitHub Projects recipes
   (create-on-board, field-ID caching, card lifecycle), merge strategies incl.
   stacked PRs, plan lifecycle (`wiki/PLANS/` → `ARCHIVE`, `docs/` fallback),
   anti-pattern case studies with dated incidents.
-- **`/cc-tuner:task-flow-setup`** — installs/updates the canonical
-  `.claude/rules/task-flow.md` from a versioned template (plans root detected
-  per repo layout), keeps repo deltas in an untouched `task-flow.local.md`,
+- **`/cc-tuner:git-flow-setup`** — installs/updates the canonical
+  `.claude/rules/git-flow.md` from a versioned template (plans root detected
+  per repo layout), keeps repo deltas in an untouched `git-flow.local.md`,
   offers cleanup of the legacy `no-tiny-doc-prs.md`.
-- **Eval scenarios** `tests/scenarios/task-flow/` — both REDs are documented
+- **Eval scenarios** `tests/scenarios/git-flow/` — both REDs are documented
   production incidents (2026-06-05); GREEN probes recorded (flip 2/2 each).
 
 ### Changed
@@ -123,7 +131,7 @@ contradictory tiny-PR policies).
 Canonical policy decisions: advisory-only (no enforcement hooks), tiny doc-PRs
 are batched (3+) per direct user feedback 2026-06-05, plans live in
 `wiki/PLANS/` with `docs/PLANS/` fallback. Design:
-`docs/superpowers/specs/2026-07-16-task-flow-design.md`.
+`docs/superpowers/specs/2026-07-16-git-flow-design.md`.
 
 ## [0.4.0] - 2026-07-01
 
