@@ -1,6 +1,6 @@
 {
-  "skills": ["git-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/git-flow/SKILL.md",
+  "skills": ["task-flow"],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
   "query": "Code review of the merged payments PR deferred 4 follow-up findings. Create tracking for them in the GitHub repo <owner>/<repo> which uses a GitHub Projects board 'Dev Board'. Do not read the filesystem; answer with the exact commands you would run.",
   "baseline_failure": "RED (historical, 2026-06-05): 9 issues created via bare `gh issue create` — none reached the project board until the user explicitly asked; cards without Status/Priority drop out of every filtered view.",
   "expected_behavior": [

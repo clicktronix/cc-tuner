@@ -2,6 +2,49 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-07-31
+
+### Changed
+
+- **Breaking.** Renamed the `git-flow` skill, rule and setup command to `task-flow`. The old name is
+  the name of Vincent Driessen's branching model, with its `develop` and `release` branches — the one
+  thing the rule explicitly forbids. The scope had also outgrown git: the board, epics, worktrees and
+  release notes are not git operations. `/cc-tuner:task-flow-setup` migrates a repo on the old name,
+  moving `git-flow.local.md` to `task-flow.local.md` so cached board field IDs survive, and removing
+  the superseded `git-flow.md`.
+- **The rule now carries invariants only.** Nine prohibitions across 52 lines became five: the ones
+  whose violation loses work, leaks secrets or breaks history. Everything procedural moved into the
+  skill, which loads when needed instead of sitting in every session's context. Dropped from
+  always-on: the 48-hour branch-lifetime cap with its rebase-versus-merge decision tree, and the
+  tiny-doc-PR policy — the latter survives as a case study in the skill, since it encodes real user
+  feedback but is a judgement call rather than an invariant.
+- **`/cc-tuner:task-flow-setup` no longer detects a plans root.** With plan lifecycle moved to the
+  skill, the template has no `{{PLANS_ROOT}}` token left to substitute, so the rule installs verbatim
+  and the "re-run me after migrating docs to `wiki/`" advice is gone with it. The skill resolves the
+  root (`wiki/` if present, else `docs/`) when it actually needs it.
+- **PR bodies link the CI run instead of pasting its output.** The old rule demanded a checkbox list
+  carrying "real output", which is why measured PR bodies run to 4,137 characters on average in one
+  repo, with 9 of 15 over 4,000 and a 15,966-character outlier in another. The output is already in
+  the CI logs; in the body it buries the part a human has to read.
+
+### Added
+
+- **Epics and sub-issues** in the skill. An epic is an issue whose type is `Epic` — Issue Types are
+  org-level and render as a filterable badge, so no title-prefix convention is needed. Decomposition
+  uses native sub-issues, which give the parent a real progress bar. Branch and PR attach to the
+  sub-issue; the epic closes when its children do.
+- **Post-merge cleanup procedure**: sync local `main` with `--ff-only`, remove the merged branch's
+  worktree, prune stale registrations, delete merged local branches, prune remote-tracking refs.
+  Previously absent entirely, while worktree-per-task is the working mode.
+- **Release-notes guidance**: `release-please` versus `.github/release.yml`, and why an off-format
+  commit is a commit missing from the notes.
+- **Stale-base anti-pattern**: a branch whose work was squash-merged reads as "ahead" while its base
+  is behind, and the conflicts surface only at merge time.
+- **`tests/run.sh` validates eval-scenario references.** Every scenario's `tests_reference` has to
+  name a file that exists, and a `path#anchor` reference has to name a heading that is still there.
+  This rename produced two dangling references and nothing failed. Root-level `*.md` files are now
+  in the markdown-link check too; previously only `plugins/` and `docs/` were.
+
 ## [0.6.0] - 2026-07-19
 
 Two cost/quality levers: cheaper models for mechanical implementation work,

@@ -43,16 +43,16 @@ The 5h/7d data uses Claude Code's **unofficial** OAuth usage endpoint — it deg
 silently if that ever breaks. The OAuth token is read locally and only sent to
 `api.anthropic.com`.
 
-### `git-flow`
+### `task-flow`
 
 Canonical git workflow — branch naming, Conventional Commits (incl. breaking
 changes), PR verification gates, GitHub Projects board recipes (create-on-board,
 field-ID caching, card lifecycle), plan lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 `docs/` fallback), and anti-pattern case studies with dated incidents.
 
-The always-on core installs per repo via `/cc-tuner:git-flow-setup` (plugins
+The always-on core installs per repo via `/cc-tuner:task-flow-setup` (plugins
 can't ship `.claude/rules/*`): a versioned template with the plans root detected
-from the repo layout, repo-specific deltas in an untouched `git-flow.local.md`,
+from the repo layout, repo-specific deltas in an untouched `task-flow.local.md`,
 and optional cleanup of legacy hand-copied rule files.
 
 ### `smoke-verify`
@@ -99,7 +99,7 @@ The economical middle ground between doing everything on the main model and the 
 /plugin install cc-tuner@cc-tuner
 ```
 
-The `claude-md-writer`, `git-flow`, and `smoke-verify` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:git-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:execute-task`, and `/cc-tuner:delegate`.
+The `claude-md-writer`, `task-flow`, and `smoke-verify` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:task-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:execute-task`, and `/cc-tuner:delegate`.
 
 ## Scope
 
