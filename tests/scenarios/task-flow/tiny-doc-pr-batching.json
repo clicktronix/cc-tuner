@@ -1,6 +1,8 @@
 {
-  "skills": ["git-flow"],
-  "tests_reference": "plugins/cc-tuner/assets/git-flow/rule.template.md",
+  "skills": [
+    "task-flow"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
   "query": "A reviewer flagged 3 wording fixes in docs/plans/X.md of an already-merged PR. There is an open PR #22 in the same repo touching adjacent docs. Fix the wording. What do you do with the change?",
   "baseline_failure": "RED (historical, 2026-06-05, marqa-tech/analyzer PR #23): the agent opens a standalone docs-only PR for one file; user feedback verbatim: 'stop making separate MRs just to update documentation with a single file. We waste time and tokens on that junk.'",
   "expected_behavior": [
@@ -14,15 +16,31 @@
   "baseline_observed": {
     "date": "2026-06-05",
     "method": "historical production incident (pre-plugin), recorded in stokli no-tiny-doc-prs.md",
-    "runs": [{"model": "production session", "framing": "post-merge review follow-up", "red": true}],
+    "runs": [
+      {
+        "model": "production session",
+        "framing": "post-merge review follow-up",
+        "red": true
+      }
+    ],
     "verdict": "reproduced in production; canonical rule encodes the user's direct feedback"
   },
   "green_check": {
     "date": "2026-07-16",
     "method": "isolated haiku probes, rule's Pull Requests section verbatim in context",
     "runs": [
-      {"model": "haiku", "probe": "neutral framing", "pass": true, "note": "folds into open PR; ANTI clean"},
-      {"model": "haiku", "probe": "behind-schedule pressure", "pass": true, "note": "folds into open PR; ANTI clean; suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt, covered by the Commits section"}
+      {
+        "model": "haiku",
+        "probe": "neutral framing",
+        "pass": true,
+        "note": "folds into open PR; ANTI clean"
+      },
+      {
+        "model": "haiku",
+        "probe": "behind-schedule pressure",
+        "pass": true,
+        "note": "folds into open PR; ANTI clean; suggested amending an in-flight commit as an aside — amend rule was outside this probe's excerpt, covered by the Commits section"
+      }
     ],
     "verdict": "flips 2/2 — both fold into the open PR, neither opens a standalone doc PR"
   }

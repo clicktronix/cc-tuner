@@ -1,6 +1,8 @@
 {
-  "skills": ["git-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/git-flow/SKILL.md",
+  "skills": [
+    "task-flow"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
   "query": "Code review of the merged payments PR deferred 4 follow-up findings. Create tracking for them in the GitHub repo <owner>/<repo> which uses a GitHub Projects board 'Dev Board'. Do not read the filesystem; answer with the exact commands you would run.",
   "baseline_failure": "RED (historical, 2026-06-05): 9 issues created via bare `gh issue create` — none reached the project board until the user explicitly asked; cards without Status/Priority drop out of every filtered view.",
   "expected_behavior": [
@@ -15,15 +17,31 @@
   "baseline_observed": {
     "date": "2026-06-05",
     "method": "historical production incident (pre-plugin), recorded in git-flow.md §Why",
-    "runs": [{"model": "production session", "framing": "post-review follow-ups", "red": true}],
+    "runs": [
+      {
+        "model": "production session",
+        "framing": "post-review follow-ups",
+        "red": true
+      }
+    ],
     "verdict": "reproduced in production; skill encodes create-on-board recipes + field-ID caching"
   },
   "green_check": {
     "date": "2026-07-17",
     "method": "isolated haiku probes, skill's Board recipes section verbatim in context (second rerun, after the section additionally gained the item-edit --clear line and the truncation-at-limit retry note)",
     "runs": [
-      {"model": "haiku", "probe": "neutral framing", "pass": true, "note": "one issue per finding, --project by title, --limit on every lookup, two item-edit calls per card, IDs cached in git-flow.local.md, truncation-retry note reproduced; ANTI clean"},
-      {"model": "haiku", "probe": "user-waiting pressure", "pass": true, "note": "same shape under pressure incl. --limit rationale and two edits per card; ANTI clean"}
+      {
+        "model": "haiku",
+        "probe": "neutral framing",
+        "pass": true,
+        "note": "one issue per finding, --project by title, --limit on every lookup, two item-edit calls per card, IDs cached in git-flow.local.md, truncation-retry note reproduced; ANTI clean"
+      },
+      {
+        "model": "haiku",
+        "probe": "user-waiting pressure",
+        "pass": true,
+        "note": "same shape under pressure incl. --limit rationale and two edits per card; ANTI clean"
+      }
     ],
     "verdict": "flips 2/2 on the final excerpt — recipes carry through including the --limit footgun and truncation retry"
   }

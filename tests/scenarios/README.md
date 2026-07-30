@@ -1,7 +1,7 @@
 # Skill evaluation scenarios
 
 Eval scenarios for `/execute-task` (pressure/discipline probes), `claude-md-writer`
-(retrieval/application probes), and `git-flow` (whose REDs are documented production
+(retrieval/application probes), and `task-flow` (whose REDs are documented production
 incidents from the pre-plugin era rather than fresh probe runs — the failures already
 happened for real), following Anthropic's evaluation-driven development and
 the superpowers `writing-skills` RED-GREEN loop. Format mirrors
@@ -17,7 +17,7 @@ skip policy but WITHOUT the sensitive-surface list — the question being whethe
 list itself is load-bearing, not whether a skip policy exists). GREEN = the relevant
 guidance verbatim, as it appears in production.
 
-## Status (2026-07-08 baselines; git-flow rows 2026-07-16)
+## Status (2026-07-08 baselines; task-flow rows 2026-07-16)
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
@@ -26,8 +26,8 @@ guidance verbatim, as it appears in production.
 | claude-md-writer/what-goes-where | inconsistent | flips | value = factual precision (mechanism names), not discipline |
 | execute-task/eyes-criterion-autonomy | 0/2 | holds (cites [eyes]/merge:auto mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |
 | execute-task/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
-| git-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
-| git-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
+| task-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
+| task-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
 
 Honest read: the execute-task **hard-stops** are not load-bearing for isolated haiku
 probes (the model holds the gates unaided); the **fail-closed review-skip rule** and the

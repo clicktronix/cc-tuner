@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-07-31
+
+### Changed
+
+- **Breaking.** Renamed the `git-flow` skill, rule and setup command to `task-flow`. The old name is
+  the name of Vincent Driessen's branching model, with its `develop` and `release` branches — the one
+  thing the rule explicitly forbids. The scope had also outgrown git: the board, epics, worktrees and
+  release notes are not git operations. `/cc-tuner:task-flow-setup` migrates a repo on the old name,
+  moving `git-flow.local.md` to `task-flow.local.md` so cached board field IDs survive, and removing
+  the superseded `git-flow.md`.
+- **The rule now carries invariants only.** Nine prohibitions across 52 lines became five: the ones
+  whose violation loses work, leaks secrets or breaks history. Everything procedural moved into the
+  skill, which loads when needed instead of sitting in every session's context. Dropped from
+  always-on: the 48-hour branch-lifetime cap with its rebase-versus-merge decision tree, and the
+  tiny-doc-PR policy — the latter survives as a case study in the skill, since it encodes real user
+  feedback but is a judgement call rather than an invariant.
+- **PR bodies link the CI run instead of pasting its output.** The old rule demanded a checkbox list
+  carrying "real output", which is why measured PR bodies run to 4,137 characters on average in one
+  repo, with 9 of 15 over 4,000 and a 15,966-character outlier in another. The output is already in
+  the CI logs; in the body it buries the part a human has to read.
+
+### Added
+
+- **Epics and sub-issues** in the skill. An epic is an issue whose type is `Epic` — Issue Types are
+  org-level and render as a filterable badge, so no title-prefix convention is needed. Decomposition
+  uses native sub-issues, which give the parent a real progress bar. Branch and PR attach to the
+  sub-issue; the epic closes when its children do.
+- **Post-merge cleanup procedure**: sync local `main` with `--ff-only`, remove the merged branch's
+  worktree, prune stale registrations, delete merged local branches, prune remote-tracking refs.
+  Previously absent entirely, while worktree-per-task is the working mode.
+- **Release-notes guidance**: `release-please` versus `.github/release.yml`, and why an off-format
+  commit is a commit missing from the notes.
+- **Stale-base anti-pattern**: a branch whose work was squash-merged reads as "ahead" while its base
+  is behind, and the conflicts surface only at merge time.
+
 ## [0.6.0] - 2026-07-19
 
 Two cost/quality levers: cheaper models for mechanical implementation work,
@@ -60,20 +95,20 @@ and a hard gate against "fixed" frontend changes that were never actually run.
 ## [0.5.0] - 2026-07-16
 
 Git workflow moves into the plugin: one canonical rule instead of 11 hand-copied
-`git-flow.md` files across marqa/stokli workspaces (two drifted variants with
+`task-flow.md` files across marqa/stokli workspaces (two drifted variants with
 contradictory tiny-PR policies).
 
 ### Added
 
-- **`git-flow` skill** — on-demand procedures: GitHub Projects recipes
+- **`task-flow` skill** — on-demand procedures: GitHub Projects recipes
   (create-on-board, field-ID caching, card lifecycle), merge strategies incl.
   stacked PRs, plan lifecycle (`wiki/PLANS/` → `ARCHIVE`, `docs/` fallback),
   anti-pattern case studies with dated incidents.
-- **`/cc-tuner:git-flow-setup`** — installs/updates the canonical
-  `.claude/rules/git-flow.md` from a versioned template (plans root detected
-  per repo layout), keeps repo deltas in an untouched `git-flow.local.md`,
+- **`/cc-tuner:task-flow-setup`** — installs/updates the canonical
+  `.claude/rules/task-flow.md` from a versioned template (plans root detected
+  per repo layout), keeps repo deltas in an untouched `task-flow.local.md`,
   offers cleanup of the legacy `no-tiny-doc-prs.md`.
-- **Eval scenarios** `tests/scenarios/git-flow/` — both REDs are documented
+- **Eval scenarios** `tests/scenarios/task-flow/` — both REDs are documented
   production incidents (2026-06-05); GREEN probes recorded (flip 2/2 each).
 
 ### Changed
@@ -88,7 +123,7 @@ contradictory tiny-PR policies).
 Canonical policy decisions: advisory-only (no enforcement hooks), tiny doc-PRs
 are batched (3+) per direct user feedback 2026-06-05, plans live in
 `wiki/PLANS/` with `docs/PLANS/` fallback. Design:
-`docs/superpowers/specs/2026-07-16-git-flow-design.md`.
+`docs/superpowers/specs/2026-07-16-task-flow-design.md`.
 
 ## [0.4.0] - 2026-07-01
 
