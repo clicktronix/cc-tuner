@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Repository validation for cc-tuner. Runs the plugin's bash suites and the manifest invariants that
+# a released plugin has to hold. bash 3.2 compatible on purpose: the smoke-verify gate claims macOS
+# support, so its own CI must run on the same shell macOS ships.
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGIN="$ROOT/plugins/cc-tuner"
+fails=0
+
+say() { printf '%s\n' "$1"; }
+ok() { say "ok   $1"; }
+bad() { say "FAIL $1"; fails=1; }
+
+command -v jq >/dev/null 2>&1 || { say "FATAL: jq is required"; exit 1; }
+
+# --- 1. bash suites -----------------------------------------------------------------------------
+# 412 lines of regression tests shipped in 0.6.0 with nothing running them. That is the gap this
+# runner closes; the suites themselves already passed.
+suites=0
+for t in "$PLUGIN"/tests/*/test_*.sh; do
+  [ -f "$t" ] || continue
+  suites=$((suites + 1))
+  rel="${t#$ROOT/}"
+  if out="$(bash "$t" 2>&1)"; then
+    ok "$rel"
+  else
+    bad "$rel"
+    printf '%s\n' "$out" | grep -i '^FAIL' | sed 's/^/       /'
+  fi
+done
+[ "$suites" -gt 0 ] || bad "no test suites found under plugins/cc-tuner/tests/"
+
+# --- 2. JSON validity ---------------------------------------------------------------------------
+json_count=0
+for f in "$ROOT"/.claude-plugin/marketplace.json "$PLUGIN"/.claude-plugin/plugin.json \
+         "$PLUGIN"/hooks/hooks.json "$ROOT"/tests/scenarios/*/*.json; do
+  [ -f "$f" ] || continue
+  json_count=$((json_count + 1))
+  jq empty "$f" >/dev/null 2>&1 || bad "invalid JSON: ${f#$ROOT/}"
+done
+ok "json parses ($json_count files)"
+
+# --- 3. version consistency ---------------------------------------------------------------------
+# The 0.6.0 branch shipped plugin.json at 0.6.0 and marketplace.json at 0.5.1, so /plugin would have
+# advertised a version the plugin did not claim. Every version field has to agree.
+plugin_v="$(jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json")"
+market_meta_v="$(jq -r '.metadata.version' "$ROOT/.claude-plugin/marketplace.json")"
+market_plug_v="$(jq -r '.plugins[0].version' "$ROOT/.claude-plugin/marketplace.json")"
+if [ "$plugin_v" = "$market_meta_v" ] && [ "$plugin_v" = "$market_plug_v" ]; then
+  ok "versions agree ($plugin_v)"
+else
+  bad "version mismatch: plugin.json=$plugin_v metadata=$market_meta_v plugins[0]=$market_plug_v"
+fi
+
+# CHANGELOG has to carry the version being shipped, or the release notes describe something else.
+grep -q "^## \[$plugin_v\]" "$ROOT/CHANGELOG.md" \
+  && ok "CHANGELOG has a [$plugin_v] section" \
+  || bad "CHANGELOG has no [$plugin_v] section"
+
+# --- 4. ${CLAUDE_PLUGIN_ROOT} paths exist -------------------------------------------------------
+# A command that points at a script the plugin does not ship fails at the user's first invocation.
+missing=0
+refs="$(grep -rhoE '\$\{CLAUDE_PLUGIN_ROOT\}/[A-Za-z0-9_./-]+' "$PLUGIN" 2>/dev/null | sort -u)"
+for ref in $refs; do
+  rel="${ref#\$\{CLAUDE_PLUGIN_ROOT\}/}"
+  [ -e "$PLUGIN/$rel" ] || { bad "\${CLAUDE_PLUGIN_ROOT}/$rel does not exist"; missing=$((missing + 1)); }
+done
+[ "$missing" -eq 0 ] && ok "plugin-root references resolve ($(printf '%s\n' "$refs" | grep -c . ) refs)"
+
+# --- 5. SKILL.md size -------------------------------------------------------------------------
+# Claude Code guidance: keep a skill body under 500 lines so activation stays cheap.
+for s in "$PLUGIN"/skills/*/SKILL.md; do
+  [ -f "$s" ] || continue
+  n="$(grep -c '' "$s")"
+  [ "$n" -le 500 ] || bad "${s#$ROOT/} is $n lines; keep it <= 500"
+done
+ok "skill bodies within 500 lines"
+
+# --- 6. relative markdown links resolve --------------------------------------------------------
+broken=0
+for f in $(find "$PLUGIN" "$ROOT/docs" -name '*.md' 2>/dev/null); do
+  targets="$(grep -oE '\]\([^)#[:space:]]+\.md' "$f" 2>/dev/null | sed 's/^](//')"
+  for target in $targets; do
+    case "$target" in http*|\$*) continue ;; esac
+    [ -e "$(dirname "$f")/$target" ] || { bad "${f#$ROOT/} links missing $target"; broken=$((broken + 1)); }
+  done
+done
+[ "$broken" -eq 0 ] && ok "markdown links resolve"
+
+# ------------------------------------------------------------------------------------------------
+if [ "$fails" -eq 0 ]; then
+  say "cc-tuner validate ok"
+else
+  say "cc-tuner validate FAILED"
+fi
+exit $fails

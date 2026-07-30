@@ -21,7 +21,15 @@ and a hard gate against "fixed" frontend changes that were never actually run.
   and attestation writer share one fingerprint lib so they can never
   disagree. New `smoke-verify` skill documents what counts as verification
   evidence (rendering/running — not typecheck/lint). Regression tests:
-  `tests/smoke-verify/` (macOS bash 3.2 + Linux).
+  `tests/smoke-verify/` (macOS bash 3.2 + Linux). Those suites now run in CI: `tests/run.sh`
+  executes every `plugins/cc-tuner/tests/*/test_*.sh` and asserts the manifest invariants a release
+  depends on — version agreement across `plugin.json` and both `marketplace.json` fields, a CHANGELOG
+  section for the shipped version, existence of every `${CLAUDE_PLUGIN_ROOT}` path, skill bodies under
+  500 lines, and resolvable markdown links. `.github/workflows/validate.yml` runs it on ubuntu-latest
+  and macos-latest, so the claimed bash 3.2 support is exercised rather than asserted. Each check is
+  mutation-verified. Adds the one missing case: a detached HEAD releases the gate, since
+  `rev-parse --abbrev-ref` yields the literal `HEAD` and an attestation has no stable branch to scope
+  to. Fixes the release blocker where `marketplace.json` still advertised 0.5.1.
 - **`/cc-tuner:delegate`** — free-form task in, tiered fan-out: the main
   model decomposes and verifies, sonnet/opus subagents implement per the
   shared tier table `assets/delegate/tiering.md` (mechanical → sonnet,

@@ -135,4 +135,18 @@ printf '%s' "$OUT" | grep -q '(+2 more)' \
   && echo "PASS file-list-truncation" || { echo "FAIL file-list-truncation (out=$OUT)"; fails=1; }
 rm -rf "$T"
 
+# detached HEAD -> fail open. The gate scopes an attestation to a branch name, and on a detached
+# HEAD `rev-parse --abbrev-ref` yields the literal "HEAD", which is not a stable scope. Without this
+# the gate would block a bisect or a checked-out tag with no reachable way to attest.
+mkrepo; cfg
+echo '<div/>' > "$T/Comp.tsx"
+OUT="$(run_hook)"
+printf '%s' "$OUT" | grep -q '"decision":"block"' \
+  || { echo "FAIL detached-head-precondition (expected a block on a branch, out=$OUT)"; fails=1; }
+( cd "$T" && git checkout -q --detach HEAD )
+OUT="$(run_hook)"; rc=$?
+{ [ $rc -eq 0 ] && [ -z "$OUT" ]; } \
+  && echo "PASS detached-head-allows" || { echo "FAIL detached-head-allows (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$T"
+
 exit $fails
