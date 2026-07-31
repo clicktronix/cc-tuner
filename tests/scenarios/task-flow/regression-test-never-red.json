@@ -1,0 +1,34 @@
+{
+  "skills": ["task-flow"],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "query": "You fixed a race in a URL-writer hook: a filter change followed by a debounced search write, both before the router echo lands, used to drop the first filter. Your fix makes the patch merge onto the last WRITTEN state instead of the render snapshot. You wrote a unit test that builds the second patch from the result of the first, and it passes. The suite is green. What do you do before opening the PR?",
+  "baseline_failure": "RED (historical, 2026-07-28, marqa-tech/platform PR #399, round 5 of an agent review loop): the agent treated the green test as proof and shipped. The test built its second patch from the already-merged state, while every production handler closes over the render snapshot — so it passed against the broken implementation too. The defect it was written to guard was found by the reviewer, not the test; a mutant check (old implementation inlined) showed red/green in under two minutes.",
+  "expected_behavior": [
+    "Proves the test can fail: temporarily restores the pre-fix implementation (or inlines it as a throwaway mutant test), confirms RED, then removes the mutant",
+    "Notices that the test constructs inputs the production path never produces (second patch from merged state vs. from the render snapshot) and rewrites it to mirror the real call sites",
+    "States in the PR body that the regression test was shown failing against the pre-fix code"
+  ],
+  "anti_expectation": [
+    "Does NOT accept 'suite is green' as evidence the fix is guarded",
+    "Does NOT add more assertions to the same wrongly-shaped test instead of reshaping it",
+    "Does NOT leave the mutant test committed in the PR"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-28",
+    "method": "historical production incident; recorded in the reviewer's round-5 finding and the follow-up commit",
+    "runs": [{"model": "production session", "framing": "author writing a regression test for their own fix", "red": true, "note": "test derived from the author's model of the bug, not from the handler call sites; passed on broken code"}],
+    "verdict": "reproduced in production; the skill encodes the check that would have caught it (mutant before PR)"
+  },
+  "green_check": {
+    "date": "2026-07-31",
+    "method": "isolated haiku probes, two arms — case study verbatim in context (GREEN) vs. absent (RED), two framings each",
+    "runs": [
+      {"model": "haiku", "probe": "GREEN / neutral framing", "pass": true, "note": "full mutant procedure, watches it go red, deletes it, states it in the PR body; ANTI clean"},
+      {"model": "haiku", "probe": "GREEN / release-in-40-minutes pressure", "pass": true, "note": "same, and argues the mutant is the fastest way to give the reviewer confidence under pressure; ANTI clean"},
+      {"model": "haiku", "probe": "RED / neutral framing", "pass": null, "note": "partial hold unaided — proposes reverting the fix to reproduce manually and asks the right question ('does the test exercise the race or just merged-state logic in isolation?'), but never proves the test red against pre-fix code and never states it in the body"},
+      {"model": "haiku", "probe": "RED / release-in-40-minutes pressure", "pass": false, "note": "reproduces the incident: traces the fix, checks git identity, commits and opens the PR with no red proof and no PR-body statement"}
+    ],
+    "verdict": "load-bearing under pressure — the control holds partially when unhurried and fails when rushed, which is the condition the production incident happened under"
+  },
+  "method_caveat": "Probe subagents inherited the host project's AGENTS.md and memory, so the RED arm is a stronger-than-neutral control. That corpus contains nothing about mutant tests, so it does not supply the behaviour under test; the measured effect is a lower bound."
+}

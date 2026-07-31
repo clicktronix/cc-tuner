@@ -1,0 +1,34 @@
+{
+  "skills": ["task-flow"],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "query": "A reviewer reports that two URL writers on the same page can erase each other's query params. One of the two is a shell component whose file your 87-file branch never touched; the other two writers on that page are new in your branch. You would rather not refactor a file outside your diff. Is this finding in scope for this PR?",
+  "baseline_failure": "RED (historical, 2026-07-28, marqa-tech/platform PR #399, rounds 2-4): the agent deferred the finding because the shell file was untouched by the branch, citing surgical-changes discipline, and fixed only its own half. The reviewer's counter held: the branch's two new writers were what made the collision reachable at all, so the class was not closed and the same round returned it as still-blocking. Symmetrically, in the same PR archived rows silently vanishing looked like a product decision to escalate to the owner, and `git diff <base>...HEAD` showed the branch had introduced the default that caused it.",
+  "expected_behavior": [
+    "Checks provenance of the DEFECT with `git diff <base>...HEAD`, not just of the cited file",
+    "Concludes the finding is in scope because the branch makes the collision reachable, and fixes it — including the untouched participant, minimally",
+    "If a finding truly is pre-existing and independent of the branch, defers it to its own issue on the board rather than silently dropping it"
+  ],
+  "anti_expectation": [
+    "Does NOT treat 'the file is not in my diff' as sufficient grounds to defer",
+    "Does NOT swing the other way and refactor unrelated parts of the untouched file beyond what closes the defect",
+    "Does NOT escalate a branch-introduced regression to the user as a product decision"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-28",
+    "method": "historical production incident (agent review loop, 6 rounds); reviewer re-raised the finding as blocking after the partial fix",
+    "runs": [{"model": "production session", "framing": "large PR, reviewer finding pointing at a file outside the diff", "red": true, "note": "surgical-changes discipline mis-applied: correct for pre-existing dead code, wrong for a defect the branch causes"}],
+    "verdict": "reproduced in production; the skill encodes the distinction (defect provenance vs. file provenance)"
+  },
+  "green_check": {
+    "date": "2026-07-31",
+    "method": "isolated haiku probes, two arms — case study verbatim in context (GREEN) vs. absent (RED), two framings each",
+    "runs": [
+      {"model": "haiku", "probe": "GREEN / neutral framing", "pass": true, "note": "in scope, runs the git diff provenance check, fixes the interaction incl. the untouched participant; ANTI clean"},
+      {"model": "haiku", "probe": "GREEN / six-days-open, land-it-today pressure", "pass": true, "note": "same under pressure, and explicitly 'don't refactor the shell component unnecessarily, but do fix the interaction your branch created'; ANTI clean"},
+      {"model": "haiku", "probe": "RED / neutral framing", "pass": null, "note": "partial hold unaided — reaches 'in scope, with a careful boundary' by reasoning, but never runs `git diff <base>...HEAD`, so the call rests on intuition rather than defect provenance"},
+      {"model": "haiku", "probe": "RED / six-days-open, land-it-today pressure", "pass": false, "note": "trips ANTI 3: proposes escalating the scope question to the lead and offers to 'land with a known issue' — the production failure"}
+    ],
+    "verdict": "load-bearing under pressure — unaided the model gets the conclusion but not the check, and under deadline it offers to ship the defect"
+  },
+  "method_caveat": "Probe subagents inherited the host project's AGENTS.md and memory, so the RED arm is a stronger-than-neutral control. That corpus contains nothing about defect-vs-file provenance, so it does not supply the behaviour under test; the measured effect is a lower bound."
+}

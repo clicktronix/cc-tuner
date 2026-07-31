@@ -1,0 +1,34 @@
+{
+  "skills": ["task-flow"],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "query": "Branch `fix/portfolio-performance-correctness` was opened for PR #213, which was squash-merged into main 12 days ago. Two unrelated `chore:` commits were pushed to the same branch three days after that merge and never opened a PR. `git log origin/main..HEAD` now lists 5 commits and the branch is 35 commits behind main. Get those two chore commits into main.",
+  "baseline_failure": "RED (historical, 2026-07-26, stokli/backend): the agent reads `git log origin/main..HEAD` showing 5 commits, concludes the branch is simply behind, and reaches for rebase or merge to catch it up. A trial `git rebase origin/main` conflicted in 6 files on the FIRST commit — replaying portfolio work whose squashed result (`5a7d4a71`) was already in main. Merging main in instead would carry the same 3 stale commits into the next PR's diff.",
+  "expected_behavior": [
+    "Recognises the branch is finished, not behind: its PR is MERGED, and 3 of the 5 'unmerged' commits are already in main under a different SHA via the squash",
+    "Cherry-picks only the 2 genuinely-new chore commits onto a fresh branch cut from origin/main, and opens a PR for them",
+    "Notes that a `fix/` branch carrying `chore:` commits was itself the wrong home for that work"
+  ],
+  "anti_expectation": [
+    "Does NOT rebase or merge the old branch to 'catch it up' — both replay already-merged commits",
+    "Does NOT force-push the old branch to reshape its history",
+    "Does NOT conclude the work is already merged and drop it — the 2 chore commits are genuinely absent from main"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-26",
+    "method": "historical production incident; rebase and cherry-pick both trialled in throwaway detached worktrees",
+    "runs": [{"model": "production session", "framing": "user asked whether the branch was merged", "red": true, "note": "`git rebase origin/main` -> CONFLICT in history_service.py, service.py and 4 test files on commit c7f6a1ae; `git cherry-pick b7ad90c5 b6339076` onto origin/main -> clean, 0 conflicts"}],
+    "verdict": "reproduced in production; no guidance covered a branch continued past its own merge, so neither the staleness nor the published-branch case applied"
+  },
+  "green_check": {
+    "date": "2026-07-31",
+    "method": "isolated haiku probes, two arms — case study verbatim in context (GREEN) vs. absent (RED), two framings each",
+    "runs": [
+      {"model": "haiku", "probe": "GREEN / neutral framing", "pass": true, "note": "names the 3 already-merged commits, cherry-picks the 2 new onto a fresh branch off main, opens a PR; ANTI clean"},
+      {"model": "haiku", "probe": "GREEN / release-blocked pressure", "pass": true, "note": "same, calls the old commits 'ghost commits' and explains why rebase would conflict; ANTI clean"},
+      {"model": "haiku", "probe": "RED / neutral framing", "pass": true, "note": "DID NOT REPRODUCE — reaches cherry-pick-onto-fresh-branch unaided and explains that a rebase would reintroduce the squashed work"},
+      {"model": "haiku", "probe": "RED / release-blocked pressure", "pass": true, "note": "DID NOT REPRODUCE — correct action, but selects the 2 commits by their `chore:` subject rather than by diagnosing which are already in main; the query hands it that discriminator"}
+    ],
+    "verdict": "did NOT reproduce on the probe, 4/4 correct in both arms. The scenario's own query telegraphs the answer — it states that the PR was squash-merged, that the two commits are 'unrelated chore:' ones, and that 5 minus 2 is the split. In production the agent saw raw `git log` output and had to derive all of that. Kept as insurance alongside the execute-task hard-stops: the production failure is documented and expensive (6-file conflict, live risk of reverting newer main), and the case study's contribution is the DIAGNOSIS (the two tells), which this probe never has to perform. A probe that withholds the framing would be the honest re-test."
+  },
+  "method_caveat": "Probe subagents inherited the host project's AGENTS.md and memory, so the RED arm is a stronger-than-neutral control. Here that matters more than for the other three: the corpus carries commit-convention and branch-hygiene rules that push toward the right answer."
+}

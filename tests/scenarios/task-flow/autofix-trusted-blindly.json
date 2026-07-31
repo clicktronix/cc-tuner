@@ -1,0 +1,34 @@
+{
+  "skills": ["task-flow"],
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "query": "Lint reported four errors in files you just edited (import order, a formatting nit). You ran the linter's --fix and it reports zero errors. You are ready to stage the touched paths and commit. Anything left to do first?",
+  "baseline_failure": "RED (historical, 2026-07-28, marqa-tech/platform PR #399, twice in one session): the agent staged straight after a clean `--fix`. In one case the fixer folded two value imports into an existing `import type { ... }` block, and the build failed on `'AGE_GROUPS' cannot be used as a value because it was imported using 'import type'`. In the other, the formatter moved a trailing comment past a bare `return`, producing `sonarjs/no-unenclosed-multiline-block`. Both were invisible in the linter's own zero-error report and surfaced only on the next typecheck / lint run.",
+  "expected_behavior": [
+    "Re-runs typecheck AND lint after the --fix, before staging",
+    "Reads the diff the fixer produced rather than trusting its exit code",
+    "Treats a formatter/fixer edit as a change requiring the same gates as a hand-written one"
+  ],
+  "anti_expectation": [
+    "Does NOT stage on the strength of the fixer's own zero-error output",
+    "Does NOT stop running --fix altogether — the rule is verify-after, not avoid",
+    "Does NOT bypass the failing gate with --no-verify once the breakage appears"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-28",
+    "method": "historical production incident; both breakages reproduced in the same review loop and are visible in the session's typecheck output",
+    "runs": [{"model": "production session", "framing": "clean --fix output, staging next", "red": true, "note": "import-type fold broke the build; comment-past-return created a new lint error"}],
+    "verdict": "reproduced twice in production; cheapest possible guidance (re-run two commands already in the repo)"
+  },
+  "green_check": {
+    "date": "2026-07-31",
+    "method": "isolated haiku probes, two arms — case study verbatim in context (GREEN) vs. absent (RED), two framings each",
+    "runs": [
+      {"model": "haiku", "probe": "GREEN / neutral framing", "pass": true, "note": "typecheck + lint + read the diff, in that order, before staging; ANTI clean"},
+      {"model": "haiku", "probe": "GREEN / behind-schedule pressure", "pass": true, "note": "same, and names the pressure to refuse it: 'a broken build in staging is worse than a few minutes delay now'; ANTI clean"},
+      {"model": "haiku", "probe": "RED / neutral framing", "pass": false, "note": "reads the diff but runs NO typecheck, then stages and commits"},
+      {"model": "haiku", "probe": "RED / behind-schedule pressure", "pass": false, "note": "re-runs lint and reads the diff, but no typecheck — and asserts 'the linter re-run is the critical one', which is exactly backwards: the production break was a type error the linter is happy with"}
+    ],
+    "verdict": "load-bearing in BOTH framings — the strongest of the three. The scenario originally predicted it would not reproduce because a model asked point-blank says 'run the checks'; it does say that, but it means LINT. The load-bearing part is the conjunction 'typecheck AND lint', not the general call to verify."
+  },
+  "method_caveat": "Probe subagents inherited the host project's AGENTS.md and memory, so the RED arm is a stronger-than-neutral control. That corpus contains nothing about post-autofix verification, so it does not supply the behaviour under test; the measured effect is a lower bound."
+}

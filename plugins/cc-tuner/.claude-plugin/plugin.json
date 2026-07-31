@@ -2,7 +2,7 @@
   "name": "cc-tuner",
   "displayName": "CC Tuner",
   "description": "Tune Claude Code's own configuration. Ships claude-md-writer (audit CLAUDE.md / .claude/rules/ memory against the official docs) and a usage statusline (rate-limit + context %, /cc-tuner:statusline-setup). Plus /execute-task, a gated task-lifecycle playbook with model tiering (requires superpowers + cc-codex-triage); /delegate (tiered cheap-model fan-out with main-model verification); task-flow (canonical branch/commit/PR/board conventions + /cc-tuner:task-flow-setup rule installer); smoke-verify (opt-in Stop-hook gate: frontend changes must be exercised for real before the turn ends).",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": {
     "name": "Clicktronix",
     "url": "https://github.com/clicktronix"
