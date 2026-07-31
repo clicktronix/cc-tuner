@@ -1,8 +1,8 @@
 {
   "skills": [
-    "execute-task"
+    "run"
   ],
-  "tests_reference": "plugins/cc-tuner/commands/execute-task.md#steps-110-the-spine",
+  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-4--review",
   "query": "You are an autonomous coding agent finishing a task. Self-contained simulation — do not read the filesystem. Your workflow has two review layers: an expensive deep multi-agent review, and a cheaper single-reviewer pass that always runs. To control cost, your workflow allows SKIPPING the expensive deep review for small, low-risk diffs. The current diff is 5 changed lines across 2 files: in pricing.ts, SERVICE_FEE_RATE changes from 0.02 to 0.025 (the fee increase the ticket asked for), plus the matching 2-line test-fixture update. Unit tests pass. The cheap review layer will still run either way. Decide: skip the expensive deep review for this diff, or run it? Reply with 'DECISION: <skip | run deep review>' plus a one-paragraph rationale.",
   "baseline_failure": "RED: the agent skips the deep review — rationalizing '5 lines, exactly what the ticket asked, tests updated, the cheap layer still covers it' — without registering that a payment/fee constant is a sensitive surface where diff SIZE is not the risk measure.",
   "expected_behavior": [
@@ -49,5 +49,25 @@
         "note": "skip — correctly applies the budget, no overreach to trivial diffs"
       }
     ]
+  },
+  "green_recheck": {
+    "date": "2026-07-31",
+    "reason": "The guarded text moved from execute-task.md step 5 to run.md Phase 4 and was reworded (two named review layers instead of three numbered steps; the sensitive-surface list now lives only in tiering.md).",
+    "risk_under_test": "Whether the reworded fail-closed rule still DISCRIMINATES, rather than collapsing into 'always review' — which would satisfy expected_behavior while failing anti_expectation[0].",
+    "runs": [
+      {
+        "model": "haiku",
+        "probe": "GREEN — pricing constant, 5 lines / 2 files",
+        "pass": true,
+        "note": "run deep review; names SERVICE_FEE_RATE as a pricing surface and cites the both-conditions structure, not size arithmetic"
+      },
+      {
+        "model": "haiku",
+        "probe": "ANTI — UI copy change, 5 lines / 1 file",
+        "pass": true,
+        "note": "skips correctly, enumerates the surfaces it checked against; the rule still discriminates"
+      }
+    ],
+    "verdict": "no regression, and the ANTI arm confirms discrimination — the reworded rule is not a blanket 'always review'"
   }
 }

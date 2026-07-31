@@ -9,9 +9,19 @@ missing=0
 
 have() { compgen -G "$1" >/dev/null 2>&1; }  # quoted glob check — safe with spaces in the path
 
-if ! have "$CACHE/cache/*/superpowers/*/skills/brainstorming/SKILL.md"; then
-  echo "MISSING: superpowers (skills: brainstorming, writing-plans, subagent-driven-development, requesting-code-review)" >&2
-  echo "  install: /plugin install superpowers@superpowers-marketplace" >&2
+# mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run
+# phase 4 runs `/mattpocock-skills:code-review`. This replaced the old superpowers requirement, which
+# gated skills (brainstorming, writing-plans, subagent-driven-development, requesting-code-review)
+# that neither command invokes any more — blocking runs that did not need it while letting the
+# dependency they DO need go unchecked until phase 4 of an unattended run.
+if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/productivity/grilling/SKILL.md"; then
+  echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
+  echo "  install: /plugin marketplace add mattpocock/mattpocock-skills && /plugin install mattpocock-skills@mattpocock-skills" >&2
+  missing=1
+fi
+if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/engineering/code-review/SKILL.md"; then
+  echo "MISSING: mattpocock-skills code-review skill (run phase 4 review layer)" >&2
+  echo "  install: /plugin install mattpocock-skills@mattpocock-skills (or update it — the skill moved)" >&2
   missing=1
 fi
 if ! have "$CACHE/cache/*/cc-codex-triage/*/commands/review.md"; then

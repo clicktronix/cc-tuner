@@ -49,6 +49,16 @@ their own idempotency and confirmation prompts, so never reimplement their steps
   say so rather than installing a gate that will never fire.
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer it once; if doctor already
   reported the script installed, skip silently.
+- **Repo-level run defaults** — optional, and only worth it for a repo you will run `/cc-tuner:run`
+  against more than once. It saves every spec repeating the same `ci` / `cheap_gate` / `test` commands:
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/config-init.sh" \
+       "${CLAUDE_PLUGIN_ROOT}/assets/execute-task/config.template.md"
+  ```
+  Exit 2 means it scaffolded `.claude/execute-task.md` and the commands still need filling in — do that
+  with the user, from what the repo's `package.json` / `Makefile` actually offers, rather than leaving
+  placeholders. Exit 0 means one already existed and was left untouched. A spec's own **Run config**
+  always overrides this file, so skipping it costs nothing but repetition.
 
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 

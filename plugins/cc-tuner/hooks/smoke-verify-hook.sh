@@ -91,7 +91,12 @@ FILES="$(printf '%s\n' "$MATCHED" | head -8 | tr '\n' ' ')"
 TOTAL="$(printf '%s\n' "$MATCHED" | grep -c .)"
 [ "$TOTAL" -gt 8 ] 2>/dev/null && FILES="$FILES(+$((TOTAL - 8)) more) "
 
-REASON="smoke-verify gate (round $N/$CAP): frontend changes are UNVERIFIED: ${FILES}— Verify the change empirically before finishing: exercise the real behavior (open the affected page / run the failing case / screenshot via chrome-devtools MCP), not just typecheck or lint. Then attest with ONE line of evidence: bash '$MARK' verified '<what you exercised and saw>'. If the USER explicitly told you to skip verification this turn, attest: bash '$MARK' skip '<who said so and why>'. Editing the files again re-arms the gate (staging/committing does not). See the cc-tuner:smoke-verify skill for what counts as evidence."
+# The block text carries the whole standard, deliberately. It used to end with 'see the
+# cc-tuner:smoke-verify skill for what counts as evidence' — a pointer the agent had to choose to
+# follow, at the one moment it is being told to stop. Everything load-bearing is inlined now, above
+# all the DOES NOT COUNT list: the gate's entire purpose is rejecting static checks as proof, so an
+# agent that never reads the list is an agent that attests on a green typecheck.
+REASON="smoke-verify gate (round $N/$CAP): frontend changes are UNVERIFIED: ${FILES}— Exercise the real behavior before finishing. COUNTS (any one, against the actual change): open the affected page or flow via chrome-devtools MCP (navigate, interact, screenshot) and confirm the changed behavior; run the exact failing case or affected test file and show it passing; render the real artifact (PDF, email preview, storybook story) and look at it. DOES NOT COUNT: typecheck, lint, a full-suite run that was already green before the change, the diff looks correct, or re-reading the code. Then attest with ONE line of concrete evidence — what you exercised and what it showed: bash '$MARK' verified '<what you exercised and saw>'. ATTEST BEFORE COMMITTING: the gate only sees the uncommitted delta, so committing without attesting takes the change out of scope entirely. Editing a matched file again re-arms the gate (staging or committing the same content does not), so verify after the code settles. If the USER explicitly told you to skip verification this turn, attest: bash '$MARK' skip '<who said so and why>'. Never attest verified on the strength of static checks — the evidence line is the audit trail and it will say so."
 REASON="$(printf '%s' "$REASON" | tr -d '"\\' | tr -s '[:cntrl:]' ' ')"
 printf '{"decision":"block","reason":"%s"}\n' "$REASON"
 exit 0

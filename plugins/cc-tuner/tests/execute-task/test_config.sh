@@ -9,7 +9,9 @@ T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
 ( cd "$T" && git init -q ) || { echo "FATAL: fixture setup failed"; exit 1; }
 # missing -> created from template, exit EXACTLY 2 (the STOP-and-fill signal)
 CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
-if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] && grep -q "execute-task config" "$T/.claude/execute-task.md"; then
+# Assert on a FIELD, not the title: a title is prose and gets reworded, while `cheap_gate` is the
+# thing the file exists to carry, so this pins that the scaffold really came from the template.
+if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] && grep -q "cheap_gate" "$T/.claude/execute-task.md"; then
   echo "PASS scaffold-created"; else echo "FAIL scaffold-created (rc=$rc, want 2)"; fails=1; fi
 # present -> left untouched (sentinel preserved), exit EXACTLY 0 (proceed signal)
 echo "SENTINEL" > "$T/.claude/execute-task.md"
