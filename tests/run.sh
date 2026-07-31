@@ -34,7 +34,8 @@ done
 # --- 2. JSON validity ---------------------------------------------------------------------------
 json_count=0
 for f in "$ROOT"/.claude-plugin/marketplace.json "$PLUGIN"/.claude-plugin/plugin.json \
-         "$PLUGIN"/hooks/hooks.json "$ROOT"/tests/scenarios/*/*.json; do
+         "$PLUGIN"/hooks/hooks.json "$ROOT"/release-please-config.json \
+         "$ROOT"/.release-please-manifest.json "$ROOT"/tests/scenarios/*/*.json; do
   [ -f "$f" ] || continue
   json_count=$((json_count + 1))
   jq empty "$f" >/dev/null 2>&1 || bad "invalid JSON: ${f#$ROOT/}"
@@ -76,6 +77,40 @@ for s in "$PLUGIN"/skills/*/SKILL.md; do
   [ "$n" -le 500 ] || bad "${s#$ROOT/} is $n lines; keep it <= 500"
 done
 ok "skill bodies within 500 lines"
+
+# --- 5b. release-please config points at fields that actually exist -----------------------------
+# release-please owns the version bump now. If one of its extra-file targets goes stale — a renamed
+# path, a restructured manifest — it bumps the others and silently skips that one, which is exactly
+# the 0.6.0 failure (plugin.json 0.6.0, marketplace.json 0.5.1) with an automated cause.
+RP="$ROOT/release-please-config.json"
+if [ -f "$RP" ]; then
+  manifest_v="$(jq -r '.["."] // empty' "$ROOT/.release-please-manifest.json" 2>/dev/null)"
+  if [ "$manifest_v" = "$plugin_v" ]; then
+    ok "release-please manifest agrees ($manifest_v)"
+  else
+    bad "release-please manifest says '$manifest_v', plugin.json says '$plugin_v'"
+  fi
+  rp_n=0
+  # here-doc, not a pipe: `bad` has to set `fails` in THIS shell, and a pipeline would subshell it.
+  while IFS="$(printf '\t')" read -r rp_path rp_jsonpath; do
+    [ -n "$rp_path" ] || continue
+    rp_n=$((rp_n + 1))
+    if [ ! -f "$ROOT/$rp_path" ]; then
+      bad "release-please extra-file does not exist: $rp_path"
+      continue
+    fi
+    # The jsonpath forms used here ($.a.b, $.a[0].b) are also valid jq paths once `$` is dropped.
+    # A fancier JSONPath would make jq error out — loudly, which is the point.
+    got="$(jq -r "${rp_jsonpath#\$}" "$ROOT/$rp_path" 2>/dev/null)"
+    if [ "$got" = "$plugin_v" ]; then :; else
+      bad "release-please $rp_path $rp_jsonpath resolves to '$got', expected '$plugin_v'"
+    fi
+  done <<RPEOF
+$(jq -r '.packages["."]["extra-files"][] | select(.type == "json") | [.path, .jsonpath] | @tsv' "$RP")
+RPEOF
+  [ "$rp_n" -gt 0 ] && ok "release-please version targets resolve ($rp_n fields)" \
+                    || bad "release-please config declares no json extra-files"
+fi
 
 # --- 6. eval scenarios point at files that exist ------------------------------------------------
 # The git-flow -> task-flow rename left two scenarios referencing a path that no longer existed, and
