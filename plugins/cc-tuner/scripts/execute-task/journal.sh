@@ -41,18 +41,40 @@ case "$SUB" in
     [ -f "$JOURNAL" ] || { echo "journal not found: $JOURNAL (run preflight first)" >&2; exit 1; }
     N="${3:-20}"
     case "$N" in ''|*[!0-9]*) echo "resume: line count must be a non-negative integer, got '$N'" >&2; exit 1 ;; esac
-    # Header = everything before the first '## log'. Printed in full: it carries the
-    # base SHA and target branch, which is what a resuming agent needs to not
-    # rebase onto the wrong thing.
-    sed -n '1,/^## log$/p' "$JOURNAL"
-    # Then the tail of the log. `sed` after the marker, not `tail` on the file, so
-    # a long header can never crowd the log entries out of the window.
-    LOG="$(sed -n '/^## log$/,$p' "$JOURNAL" | sed '1d')"
-    TOTAL="$(printf '%s\n' "$LOG" | grep -c '' )"
-    if [ "$N" -gt 0 ] && [ "$TOTAL" -gt "$N" ]; then
-      echo "...(earlier $((TOTAL - N)) entries omitted — 'journal.sh read' for the full record)"
+    # Clamp before any arithmetic: a 21-digit value passes the digits-only check above and
+    # then overflows `[`, which drops the entire log and reports an error instead — and a
+    # merely huge one gets `tail` OOM-killed on BSD. Bounded output is the whole promise.
+    [ "${#N}" -le 7 ] || N=9999999
+    # Header = everything before the first '## log'. Printed in full: it carries the base
+    # SHA and target branch, which is what stops a resuming agent rebasing onto the wrong
+    # thing. A journal with no marker (hand-edited, or from another tool) would make the
+    # sed range run to EOF and print the file unbounded, so fall back to a plain tail.
+    if grep -q '^## log$' "$JOURNAL"; then
+      sed -n '1,/^## log$/p' "$JOURNAL"
+      # `preflight.sh` records a re-run by APPENDING a '## restarted:' line, which lands
+      # inside the log region — so the header above still shows the ORIGINAL base SHA.
+      # Surface the latest restart explicitly: a resumed run acting on the first run's
+      # base SHA is exactly the mistake the header exists to prevent.
+      LAST_RESTART="$(grep '^## restarted:' "$JOURNAL" | tail -1)"
+      [ -n "$LAST_RESTART" ] && printf '%s\n' "$LAST_RESTART  <- current base, supersedes the header above"
+      # Tail of the log via sed after the marker, not `tail` on the file, so a long header
+      # can never crowd the log entries out of the window.
+      LOG="$(sed -n '/^## log$/,$p' "$JOURNAL" | sed '1d')"
+    else
+      LOG="$(cat "$JOURNAL")"
     fi
+    # grep -c '' counts LINES, so blanks and '## restarted:' markers count too — the number
+    # is an upper bound on entries, not an exact count. It also returns 1 for an empty LOG,
+    # because printf emits a trailing newline; harmless only while the -gt 0 guard below
+    # hides that case, so do not remove the guard without revisiting this.
+    TOTAL="$(printf '%s\n' "$LOG" | grep -c '')"
+    if [ "$N" -gt 0 ] && [ "$TOTAL" -gt "$N" ]; then
+      echo "...(earlier $((TOTAL - N)) lines omitted — 'journal.sh read' for the full record)"
+    fi
+    # Explicit exit: with `[ "$N" -gt 0 ] && ...` as the branch's last command, n=0 made the
+    # whole script exit 1 on a request it had just accepted as valid.
     [ "$N" -gt 0 ] && printf '%s\n' "$LOG" | tail -n "$N"
+    exit 0
     ;;
   *) echo "unknown subcommand: $SUB (use append|path|read|resume)" >&2; exit 1 ;;
 esac

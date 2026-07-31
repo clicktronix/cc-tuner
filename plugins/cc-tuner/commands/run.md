@@ -1,7 +1,7 @@
 ---
 description: Execute a spec end to end — branch, implement, review, CI, merge. Without --auto it stops between phases for you; with --auto it runs unattended and merges on green CI. Use for "выполни спеку", "run this spec", "ship it".
 argument-hint: '[--auto] <path-to-spec>'
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, AskUserQuestion, WebFetch, WebSearch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, SlashCommand, TodoWrite, AskUserQuestion, WebFetch, WebSearch, mcp__chrome-devtools
 disable-model-invocation: true
 ---
 
@@ -19,13 +19,19 @@ spec is the worst outcome available here.
 **Read the journal at the top of every phase, before doing anything else.**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume "$RUN_ID"
+# Substitute the literal run-id — NOT $RUN_ID. A shell variable set in phase 0 is gone by
+# phase 1: every Bash call is a fresh shell. This snippet failing with "run-id required" is
+# the same class of bug this whole mechanism exists to fix, so use the literal.
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
 ```
 
 This is not bookkeeping. Your context will be compacted mid-run; when it is, this command file comes
 back (it is re-read) but everything you learned about *where you got to* does not. The journal is the
 only thing that survives, and it survives only if you read it. An unread journal is why the previous
 version of this command lost its place and started over or stalled.
+
+Each phase below opens with that command, spelled out, for exactly that reason: one statement of
+the rule up here loses to a hundred lines of intervening instruction.
 
 So: `resume` at the top of each phase, `append` at the end of it, and append anything a later phase
 would otherwise have to re-derive — the PR number, the base SHA, which acceptance criteria already
@@ -36,14 +42,15 @@ before": shell state does not survive between Bash calls either.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh" || exit 1
-RUN_ID="<spec-slug>"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/preflight.sh" "$RUN_ID" <target-branch>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/preflight.sh" <run-id> <target-branch>   # run-id = the spec slug
 ```
 
 `prereq-check.sh` failing is terminal — the review phases need those plugins. `preflight.sh` exits 2 on
 a dirty tree, which is also terminal: an unattended run must not commit someone else's work in progress.
 
-Read the spec. Journal its path, the acceptance criteria verbatim, and the run config. **Refuse to
+Read the spec. Journal its path, the acceptance criteria verbatim, and the run config. Where the spec's
+**Run config** leaves a field blank, fall back to `.claude/execute-task.md` if the repo has one (the
+repo-level defaults for `ci` / `cheap_gate` / `test`); the spec always wins where both specify. **Refuse to
 start `--auto` when the spec is not auto-ready**: a bare `[eyes]` criterion, a blank `ci`, or work
 spanning more than one PR. Say which, and offer the HITL run instead. Do not silently degrade `--auto`
 into something that will stop halfway.
@@ -52,6 +59,10 @@ Then create the branch per the task-flow invariants and move the card to In Prog
 prior Status first.
 
 ## Phase 1 — implement
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
+```
 
 Fork per unit of work rather than holding all of it in one context. Independent units go wide with
 worktree isolation; dependent ones go in order. Journal each unit as it lands.
@@ -70,6 +81,10 @@ untrustworthy.
 
 ## Phase 2 — cheap gate
 
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
+```
+
 Run the spec's `cheap_gate` (types, lint, unit). Red is a hard stop in every mode — fix before going
 on. Do not proceed with a red gate on the theory that a later phase will catch it.
 
@@ -78,17 +93,34 @@ fixer's own clean report is not evidence; this is a documented build break, not 
 
 ## Phase 3 — acceptance
 
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
+```
+
 Drive every `[machine]` criterion for real, by the exact check the spec names. Running the test suite
 is not the same as verifying the criteria, and a criterion you did not drive is a criterion you cannot
 tick.
 
-An `[eyes]` criterion is a hard stop in every mode, `--auto` included — that is what the spec's waiver
-decision was about. Stop, show what you have, and say what needs looking at.
+`[eyes]` criteria resolve three ways, per what the spec recorded — this must match the never-waives
+list below, so read it as one rule stated twice:
+
+- **machine replacement stated** → drive the replacement check. It is a `[machine]` criterion wearing
+  an `[eyes]` label; treat it as one.
+- **waiver recorded** → journal it as waived, with the date and who waived it, and continue.
+- **neither** → hard stop in every mode, `--auto` included. Stop, show what you have, say what needs
+  looking at. A spec should never reach `/run` in this state; phase 0 refuses `--auto` for it.
+
+Also run the spec's `test` (the full suite) once here. The per-criterion checks are the acceptance
+bar; `test` is the regression net for everything the spec did not think to name.
 
 Journal each criterion's result individually. After a compaction this is the only record of which ones
 already passed, and re-driving all of them is expensive.
 
 ## Phase 4 — review
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
+```
 
 - **Built-in `/code-review`** at `xhigh`, and **`/mattpocock-skills:code-review`**. Skip the built-in
   only for a diff that is both small (≤ 50 changed lines, ≤ 5 files) and touches none of the sensitive
@@ -104,13 +136,28 @@ working code.
 Journal each finding as confirmed-and-fixed, refuted-with-evidence, or deferred-to-an-issue. One
 deferred finding is one issue on the board, never a buried comment thread.
 
+### Re-verify after fixing
+
+If the fixes from this phase touched behaviour or frontend code, **re-drive the affected acceptance
+criteria and re-run the cheap gate**. The criteria were verified against code that has since changed
+under them; CI at phase 6 is a coarser net and runs later. This is the same rule as re-running
+typecheck after `--fix`, applied to review fixes.
+
 ## Phase 5 — reconcile
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
+```
 
 Tick the spec's criteria and tasks. Journal shipped versus deferred. If the spec is complete, move it
 to `<plans-root>/ARCHIVE/PLANS/` **in this branch** — plan archival rides the PR that completes the
 work, never a standalone doc PR.
 
 ## Phase 6 — land
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <run-id>
+```
 
 1. Capture the PR number **while still on the feature branch** and journal the literal value:
    `gh pr view --json number --jq .number`. After a `--delete-branch` merge you are on the base branch
@@ -124,6 +171,8 @@ work, never a standalone doc PR.
 4. Merge: `--auto` merges on green CI without asking. Without `--auto`, stop for confirmation.
 5. Confirm the PR actually reads `MERGED` (`gh pr merge` can enqueue without merging), then sync the
    card: `Closes`/`Fixes` → Done; `Refs` → leave In Progress and journal the follow-up.
+   **Board and PR-lookup failures are journaled, never terminal** — they cannot un-merge anything, and
+   an `--auto` run must not report failure because `gh` hiccuped after the merge landed.
 6. Clean up per the task-flow skill: `git switch main && git pull --ff-only`, remove the merged
    branch's worktree, prune, delete merged branches.
 
@@ -144,7 +193,7 @@ Report against the spec: which criteria passed and how they were checked, what w
 it is tracked, what you skipped and why. Link the CI run rather than pasting its output.
 
 If the run stopped early, say where and what unblocks it. The journal path is part of the report —
-`journal.sh read "$RUN_ID"` is how the next session picks this up without starting over.
+`journal.sh read <run-id>` is how the next session picks this up without starting over.
 
 ## Verification
 

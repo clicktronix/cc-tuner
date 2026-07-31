@@ -49,13 +49,15 @@ OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 3 2>&1)"
   && ! printf '%s' "$OUT" | grep -q 'entry 5'; } \
   && echo "PASS resume-bounded" || { echo "FAIL resume-bounded (out=$OUT)"; fails=1; }
 
-# truncation must be announced -- a silently clipped journal reads as a complete one
-printf '%s' "$OUT" | grep -q 'entries omitted' \
+# truncation must be announced -- a silently clipped journal reads as a complete one.
+# "lines", not "entries": the count is grep -c '' over the log region, so blanks and
+# '## restarted:' markers are included. It is an upper bound, and says so.
+printf '%s' "$OUT" | grep -q 'lines omitted' \
   && echo "PASS resume-announces-truncation" || { echo "FAIL resume-announces-truncation (out=$OUT)"; fails=1; }
 
 # a full-length resume omits nothing and says nothing about omitting
 OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 500 2>&1)"
-{ printf '%s' "$OUT" | grep -q 'entry 1' && ! printf '%s' "$OUT" | grep -q 'entries omitted'; } \
+{ printf '%s' "$OUT" | grep -q 'entry 1' && ! printf '%s' "$OUT" | grep -q 'omitted'; } \
   && echo "PASS resume-full" || { echo "FAIL resume-full (out=$OUT)"; fails=1; }
 
 # a non-numeric line count is rejected rather than silently treated as a default
@@ -65,5 +67,37 @@ CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 banana >/dev/null 2>&1; rc=$?
 # unknown subcommand still rejected
 CLAUDE_PROJECT_DIR="$T" bash "$J" frobnicate run1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && echo "PASS unknown-subcommand" || { echo "FAIL unknown-subcommand (rc=$rc)"; fails=1; }
+
+# a successful resume must EXIT 0. Exit codes are a contract here (preflight 2 = dirty tree,
+# guard 3 = artifacts), so a success path reporting failure corrupts a real signal.
+CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 3 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && echo "PASS resume-exit-zero" || { echo "FAIL resume-exit-zero (rc=$rc)"; fails=1; }
+
+# n=0 is accepted by the validator, so it must also succeed: header only, no log, exit 0
+OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 0 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'base SHA' && ! printf '%s' "$OUT" | grep -q 'entry 8'; } \
+  && echo "PASS resume-zero-succeeds" || { echo "FAIL resume-zero-succeeds (rc=$rc out=$OUT)"; fails=1; }
+
+# an n too large for `[` to compare must still print the log, not drop it
+OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 999999999999999999999 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'entry 8'; } \
+  && echo "PASS resume-huge-n-clamped" || { echo "FAIL resume-huge-n-clamped (rc=$rc out=$OUT)"; fails=1; }
+
+# a journal with no '## log' marker must stay BOUNDED — the sed range would otherwise run to
+# EOF and print the whole file, breaking the promise that resume is safe to call every phase
+printf 'a\nb\nc\nd\ne\nf\n' > "$T/.claude/execute-task-runs/nomarker.md"
+OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume nomarker 2 2>&1)"
+{ printf '%s' "$OUT" | grep -q '^f$' && ! printf '%s' "$OUT" | grep -q '^a$'; } \
+  && echo "PASS resume-no-marker-bounded" || { echo "FAIL resume-no-marker-bounded (out=$OUT)"; fails=1; }
+
+# THE resume case: a restarted run. preflight appends '## restarted: ... base <NEW SHA>' into the
+# log region, so the header still shows the ORIGINAL base SHA. resume must surface the current one
+# or a resumed run rebases onto the base of the first run -- the exact mistake the header prevents.
+( cd "$T" && echo second > f2 && git add f2 && git commit -qm second ) >/dev/null 2>&1
+NEWSHA="$( cd "$T" && git rev-parse HEAD )"
+CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main >/dev/null 2>&1
+OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 1 2>&1)"
+{ printf '%s' "$OUT" | grep -q "$NEWSHA" && printf '%s' "$OUT" | grep -q 'supersedes'; } \
+  && echo "PASS resume-surfaces-restart-base" || { echo "FAIL resume-surfaces-restart-base (want $NEWSHA in: $OUT)"; fails=1; }
 rm -rf "$T"
 exit $fails

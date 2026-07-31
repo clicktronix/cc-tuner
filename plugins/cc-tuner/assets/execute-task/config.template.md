@@ -1,18 +1,25 @@
-# execute-task config
+# run config (repo-level defaults)
 
-Per-project settings for `/cc-tuner:run`. A spec's own **Run config** block takes precedence; this file is the fallback for repos driven without a spec. The agent reads this file
-directly. Fill in the commands for THIS repo; leave a field blank if N/A.
+Repo-level defaults for `/cc-tuner:run`, so every spec does not have to repeat the same commands. A
+spec's own **Run config** block always wins where both specify; this file fills the blanks. Phase 0
+reads it. Leave a field out if it does not apply.
 
-- **test**: how to run the full test/smoke suite (incl. UI, e.g. `manual: open http://localhost:3000`)
-- **cheap_gate**: fast gate for step 3.5 — types/lint/unit only (e.g. `npm run typecheck && npm run lint`)
-- **ci**: CI/checks command; whether manual and how to trigger (e.g. `gh workflow run ci.yml`)
-- **cd**: deploy/publish/migrate command (outward-facing, step 9b). Blank = none.
-- **branch**: branch policy — create a feature branch? name pattern? require a clean tree? (default: create `task/<id>`, require clean)
-- **merge**: squash|merge, target branch, and `auto` (zero-touch) or confirm (default: squash into the default branch, confirm)
+Everything about *this task* — acceptance criteria, scope, waivers, whether the run may go `--auto` —
+belongs in the spec, not here. This file is only the repo's stable facts.
+
+- **cheap_gate**: the fast gate for phase 2 — types/lint/unit only (e.g. `npm run typecheck && npm run lint`)
+- **test**: the full suite for phase 3, including UI (e.g. `npm test`, or `manual: open http://localhost:3000`)
+- **ci**: CI/checks command, and how to trigger it if it is manual (e.g. `gh workflow run ci.yml`)
+- **cd**: deploy/publish/migrate command. Outward-facing, so `--auto` stops before it in every case. Blank = none.
+- **merge**: `squash` | `merge`, and the target branch (default: squash into the default branch)
 - **tracker**: how to fetch the issue — `gh` | `glab` | `none`
-- **board**: GitHub Project for task cards — title + owner (e.g. `"Dev Board", owner clicktronix`). Blank = board steps in 1/10 are skipped (journaled). Cache field IDs in `.claude/rules/task-flow.local.md` per the task-flow skill.
-- **dor_dod**: DoR/DoD template + acceptance criteria. Mark each criterion `[machine]` (chrome-devtools-checkable) or `[eyes]` (human hard-stop).
-- **allow_unverified_manual**: `true` to finish with an unmet `[eyes]` criterion (default `false`; `merge: auto` does NOT override this)
-- **review_passes**: which review layers run. Codex `/review` always. `/code-review` (xhigh) runs unless the diff is **small and non-sensitive** — ≤ 50 changed lines (added + removed) AND ≤ 5 files AND touching none of the sensitive surfaces (auth / secrets / crypto, migrations or destructive data ops, public API, money / payments / pricing, infra / CI / deploy config, security-relevant input handling — injection/SSRF/path-traversal guards, not ordinary form validation) — then it's skipped (Codex covers small diffs). A sensitive-surface touch — or any diff whose size or sensitivity you can't confirm — always gets xhigh (fail closed; skip needs positive confirmation of both). Tune the small-diff budget here. requesting-code-review runs when the diff touches auth / migrations / public API, or > 20 files.
-- **effort_tiering**: `on` | `off` (default `on`) — phase 1 picks each implementation unit's reasoning effort per `assets/tiering/tiering.md` (mechanical `low`, standard `medium`, hard `high`, sensitive `xhigh` and never delegated blind). Planning, reviews and acceptance judgement always stay on the main agent at full effort.
-- **autonomy**: default mode — `brainstorm-only` | `checkpoints` | `supervised`
+- **board**: GitHub Project for task cards — title + owner (e.g. `"Dev Board", owner clicktronix`).
+  Blank = the board steps are skipped and journaled. Cache field IDs in `.claude/rules/task-flow.local.md`
+  per the `cc-tuner:task-flow` skill.
+- **effort_tiering**: `on` | `off` (default `on`) — phase 1 picks each implementation unit's reasoning
+  effort per `assets/tiering/tiering.md`. Planning, reviews and acceptance judgement always stay on the
+  main agent at full effort.
+- **small_diff_budget**: the phase-4 review-skip budget (default: ≤ 50 changed lines AND ≤ 5 files).
+  The **sensitive-surface list lives in `assets/tiering/tiering.md` and only there** — a second copy is
+  a security list that goes quietly out of date. Any sensitive-surface touch runs the full review
+  regardless of size, and an unconfirmable size or surface fails closed into running it.

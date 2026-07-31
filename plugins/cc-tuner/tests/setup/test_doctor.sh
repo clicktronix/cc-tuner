@@ -26,9 +26,13 @@ mkenv() { # builds $STUB (PATH) + $CACHE (plugins) + $H (home) + $R (repo)
 }
 tool() { ln -s "$(command -v "$1")" "$STUB/$1" 2>/dev/null || true; }   # expose a real tool
 ghstub() { printf '#!/bin/sh\n[ "$1" = auth ] || exit 0\ncat <<EOF\n  - Token scopes: %s\nEOF\n' "$1" > "$STUB/gh"; chmod +x "$STUB/gh"; }
-plugins_ok() {
-  mkdir -p "$CACHE/cache/m/superpowers/1/skills/brainstorming" "$CACHE/cache/m/cc-codex-triage/1/commands"
-  touch "$CACHE/cache/m/superpowers/1/skills/brainstorming/SKILL.md" "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
+plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grilling + code-review) + cc-codex-triage
+  mkdir -p "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling" \
+           "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review" \
+           "$CACHE/cache/m/cc-codex-triage/1/commands"
+  touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
+        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md" \
+        "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
 }
 run() { ( cd "${1:-$R}" && PATH="$STUB" CLAUDE_PLUGIN_CACHE="$CACHE" CC_TUNER_HOME="$H" \
           bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
@@ -65,8 +69,8 @@ rm -rf "$T"
 # --- companion plugins absent -> MISS lines carrying the install hints ---------------------------
 mkenv; tool git; tool jq; ghstub "'project'"        # no plugins_ok
 OUT="$(run)"; rc=$?
-check "plugins-missing-flagged" "MISS superpowers"                 "$OUT"
-check "plugins-missing-hint"    "/plugin install superpowers"      "$OUT"
+check "plugins-missing-flagged" "MISS mattpocock-skills"            "$OUT"
+check "plugins-missing-hint"    "/plugin install mattpocock-skills" "$OUT"
 [ $rc -eq 1 ] && echo "PASS plugins-missing-rc1" || { echo "FAIL plugins-missing-rc1 (rc=$rc)"; fails=1; }
 rm -rf "$T"
 

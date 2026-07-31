@@ -1,7 +1,7 @@
 ---
 description: Turn a rough task into a spec /cc-tuner:run can execute unattended — grilled requirements, acceptance criteria that a machine can check, and the config the run needs. Use for "напиши спеку", "spec this out", or before any --auto run.
 argument-hint: '<issue number | URL | free-text description>'
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion, WebFetch, WebSearch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TodoWrite, AskUserQuestion, WebFetch, WebSearch
 disable-model-invocation: true
 ---
 
@@ -37,9 +37,14 @@ the user's attention on your laziness.
 
 ## 2. Grill
 
-Invoke `mattpocock-skills:grill-with-docs`. It interviews one question at a time down the decision
-tree, pulling current library docs as it goes, which is what keeps the answers anchored to how the
-dependencies actually behave now rather than to how anyone remembers them.
+Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for the vocabulary. That
+pair is what `grill-with-docs` is — its body is one line delegating to them — and it is the pair you
+can actually call: `grill-with-docs` ships with `disable-model-invocation: true`, so it never reaches
+the skill list and is only reachable when a human types it.
+
+Grilling interviews one question at a time down the decision tree. Pull current docs via Context7 as
+you go, so answers are anchored to how the dependencies behave now rather than to how anyone remembers
+them.
 
 Grill until the answers stop changing your draft — not until the questions run out. Two signals you
 stopped too early: you are about to write "TBD" or "as appropriate" anywhere, or you cannot state what

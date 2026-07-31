@@ -112,6 +112,25 @@ RPEOF
                     || bad "release-please config declares no json extra-files"
 fi
 
+# --- 5c. no live references to removed surfaces --------------------------------------------------
+# The spec/run split deleted three commands and a skill. Nothing failed when a shipped file still
+# named one — the dangling-reference checks cover ${CLAUDE_PLUGIN_ROOT} paths, markdown links and
+# scenario anchors, but not prose that tells a user to run a command that no longer exists.
+# CHANGELOG and docs/superpowers/ are history and are meant to keep the old names.
+# A line that says the thing was replaced/removed/old is documenting history, which is wanted; an
+# unqualified mention is an instruction to run something that no longer exists. Only the latter fails.
+# This found config-init.sh telling users to "re-run /cc-tuner:execute-task" the first time it ran.
+removed_hits=0
+for pat in '/cc-tuner:execute-task' '/cc-tuner:delegate' 'assets/delegate' 'skills/smoke-verify'; do
+  for f in $(grep -rlF "$pat" "$PLUGIN" "$ROOT/README.md" 2>/dev/null || true); do
+    if grep -F "$pat" "$f" | grep -qvE 'replace|removed|old |superseded|predates|no longer'; then
+      bad "${f#$ROOT/} still instructs the use of '$pat' (removed)"
+      removed_hits=$((removed_hits + 1))
+    fi
+  done
+done
+[ "$removed_hits" -eq 0 ] && ok "no references to removed commands or skills"
+
 # --- 6. eval scenarios point at files that exist ------------------------------------------------
 # The git-flow -> task-flow rename left two scenarios referencing a path that no longer existed, and
 # nothing failed. tests_reference is the scenario's claim about what it tests; a dangling one means
