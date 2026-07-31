@@ -9,6 +9,8 @@ Skills:
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:task-flow-setup` installer that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 - **`smoke-verify`** — an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`): frontend changes can't end a turn until they were exercised for real (rendered/run, not just typechecked) and attested with evidence.
 
+Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
+
 Commands beyond the installers: **`/cc-tuner:execute-task`** (gated task-lifecycle playbook, now with model tiering) and **`/cc-tuner:delegate`** (tiered cheap-model fan-out — the main model plans and verifies, sonnet/opus subagents implement).
 
 ## Why this exists
@@ -38,6 +40,7 @@ plugins/
     commands/
       delegate.md                   # /cc-tuner:delegate tiered fan-out
       execute-task.md               # /cc-tuner:execute-task lifecycle playbook
+      setup.md                      # /cc-tuner:setup env check + installer orchestration
       task-flow-setup.md            # /cc-tuner:task-flow-setup rule installer
       smoke-verify-setup.md         # /cc-tuner:smoke-verify-setup gate opt-in
       statusline-setup.md           # /cc-tuner:statusline-setup installer
@@ -46,6 +49,7 @@ plugins/
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
       execute-task/                 # deterministic bash for /execute-task gates
+      setup/doctor.sh               # environment checks behind /cc-tuner:setup
       smoke-verify/                 # fingerprint lib + attestation writer (mark.sh)
     skills/
       claude-md-writer/
@@ -59,10 +63,28 @@ plugins/
         SKILL.md                    # usage statusline (feature + disclaimers)
         statusline.sh               # the cross-platform statusline script
 docs/superpowers/specs/             # design records
+tests/run.sh                        # repo validation (also the CI entry point)
 tests/scenarios/                    # eval scenarios (RED/GREEN baselines)
-CHANGELOG.md
+release-please-config.json          # what a release bumps
+CHANGELOG.md                        # generated from commits since 0.9.0
 LICENSE                             # MIT
 ```
+
+## Releasing
+
+Versions are bumped by [release-please](https://github.com/googleapis/release-please), not by hand.
+Push Conventional Commits to `main` and it maintains one open release PR that bumps the version and
+writes the `CHANGELOG.md` entry; merging that PR tags the release. **Do not hand-edit the version** —
+it lives in three places (`marketplace.json` twice, `plugin.json` once) and 0.6.0 shipped with two of
+them disagreeing, which is why this is automated and why `tests/run.sh` asserts that every field
+release-please is configured to touch actually resolves.
+
+One thing stays manual: the `v0.x.y` marker at the top of `assets/task-flow/rule.template.md`. It
+means "the plugin version when this template last changed", so bumping it every release would make
+every installed copy report itself outdated and invite a pointless rewrite. Bump it only when the
+template's content changes.
+
+Entries up to 0.8.0 were written by hand and are left as they are.
 
 ## License
 

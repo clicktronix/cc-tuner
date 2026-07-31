@@ -1,0 +1,21 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+# Needed for the action to open and maintain its release PR. The repository setting
+# Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests"
+# must also be on, or the action fails with a permissions error that does not mention it.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
