@@ -56,6 +56,13 @@ prior Status first.
 Fork per unit of work rather than holding all of it in one context. Independent units go wide with
 worktree isolation; dependent ones go in order. Journal each unit as it lands.
 
+Pick each unit's **reasoning effort** per `${CLAUDE_PLUGIN_ROOT}/assets/tiering/tiering.md` (Read it —
+it is also the source of the sensitive-surface list phase 4 needs). Mechanical typing runs `low`,
+ordinary module work `medium`, anything with the approach still undecided `high`; a sensitive surface
+is `xhigh` and you read the whole diff yourself regardless. When torn between two tiers take the
+higher one. Every delegated unit passes that file's verification contract — full diff read, cheap
+gate, acceptance check — before you accept it.
+
 The spec's Tasks list is the scope. Something outside it that looks necessary is a **finding, not a
 licence**: journal it, finish the spec's scope, and raise it at the end. In `--auto` that is the whole
 protocol — an unattended run that expands its own scope is the failure mode that makes autonomy
@@ -85,7 +92,7 @@ already passed, and re-driving all of them is expensive.
 
 - **Built-in `/code-review`** at `xhigh`, and **`/mattpocock-skills:code-review`**. Skip the built-in
   only for a diff that is both small (≤ 50 changed lines, ≤ 5 files) and touches none of the sensitive
-  surfaces in `${CLAUDE_PLUGIN_ROOT}/assets/delegate/tiering.md` — Read it rather than recalling it.
+  surfaces in `${CLAUDE_PLUGIN_ROOT}/assets/tiering/tiering.md` — Read it rather than recalling it.
   **Fail closed:** if you cannot compute the diff size, or cannot confirm a surface is non-sensitive,
   run the review. Skipping needs positive confirmation of both.
 - **cc-codex-triage `/review`** to APPROVE.

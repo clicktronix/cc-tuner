@@ -33,6 +33,20 @@ OUT="$(run_hook)"; rc=$?
 { [ $rc -eq 0 ] && printf '%s' "$OUT" | grep -q '"decision":"block"' && printf '%s' "$OUT" | grep -q 'round 1/3'; } \
   && echo "PASS fe-change-blocks" || { echo "FAIL fe-change-blocks (out=$OUT)"; fails=1; }
 
+# the block text must carry the standard itself, not a pointer to a skill. The DOES NOT COUNT list
+# is the load-bearing half: the gate exists to reject static checks as proof, so an agent that only
+# reads the block message still has to be told that a green typecheck is not evidence.
+{ printf '%s' "$OUT" | grep -q 'DOES NOT COUNT' \
+  && printf '%s' "$OUT" | grep -q 'typecheck' \
+  && printf '%s' "$OUT" | grep -q 'already green' \
+  && printf '%s' "$OUT" | grep -q 'ATTEST BEFORE COMMITTING' \
+  && printf '%s' "$OUT" | grep -q 'chrome-devtools'; } \
+  && echo "PASS block-text-is-self-contained" || { echo "FAIL block-text-is-self-contained (out=$OUT)"; fails=1; }
+
+# ...and must NOT punt to a skill that no longer ships
+printf '%s' "$OUT" | grep -q 'smoke-verify skill' \
+  && { echo "FAIL block-text-points-at-removed-skill"; fails=1; } || echo "PASS block-text-has-no-skill-pointer"
+
 # verified attestation for the same delta -> allow
 ( cd "$T" && bash "$MARK" verified 'rendered Comp in browser' >/dev/null 2>&1 )
 OUT="$(run_hook)"

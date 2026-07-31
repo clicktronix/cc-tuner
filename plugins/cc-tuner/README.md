@@ -107,10 +107,6 @@ per-criterion results — because shell state does not survive between Bash call
 Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).
 
-## /delegate
-
-The economical middle ground between doing everything on the main model and the full `/spec` + `/run` lifecycle: `/cc-tuner:delegate <free-form task>` has the main model decompose the task, classify each unit per `assets/delegate/tiering.md`, fan implementation out to sonnet/opus subagents (worktree isolation for parallel edits), and verify every returned diff itself (full diff read + cheap gate + acceptance criteria; failed units get one redispatch, then a tier escalation). No gates, journal, or board — hygiene rules (surgical staging, no outward-facing actions, sensitive surfaces never below the main model) still apply.
-
 ## Install
 
 ```
@@ -118,7 +114,7 @@ The economical middle ground between doing everything on the main model and the 
 /plugin install cc-tuner@cc-tuner
 ```
 
-The `claude-md-writer`, `task-flow`, and `smoke-verify` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:task-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:spec`, `/cc-tuner:run`, and `/cc-tuner:delegate`.
+The `claude-md-writer` and `task-flow` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:task-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:spec`, and `/cc-tuner:run`.
 
 ## Scope
 

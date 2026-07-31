@@ -6,14 +6,13 @@ Skills:
 
 - **`claude-md-writer`** — create, refactor, and audit `CLAUDE.md` / `.claude/rules/` memory files, every Claude Code memory fact checked against <https://code.claude.com/docs/en/memory>.
 - **`statusline`** — a usage-focused statusline (rate-limit 5h/7d windows, context %, git, model + effort, session duration) with a `/cc-tuner:statusline-setup` installer, since plugins can't register a statusline on their own.
+- **`smoke-verify`** — not a skill: an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`). Frontend changes can't end a turn until they were exercised for real and attested with evidence. The whole standard lives in the block message the agent actually receives, rather than in a skill it has to choose to load.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:task-flow-setup` installer that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
-- **`smoke-verify`** — an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`): frontend changes can't end a turn until they were exercised for real (rendered/run, not just typechecked) and attested with evidence.
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
 
 The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking — grills the requirements, writes acceptance criteria a machine can check — and **`/cc-tuner:run [--auto] <spec>`** executes without asking anything. Interrogation and execution want opposite things; one wants your attention, the other wants your absence.
 
-Also: **`/cc-tuner:delegate`** (tiered cheap-model fan-out — the main model plans and verifies, sonnet/opus subagents implement).
 
 ## Why this exists
 
@@ -35,12 +34,11 @@ plugins/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
     assets/
-      delegate/tiering.md               # tier table + the sensitive-surface list (/delegate, /run phase 4)
+      tiering/tiering.md                # effort tiers + THE sensitive-surface list (/run phases 1 and 4)
       execute-task/config.template.md   # per-project run settings (superseded by a spec's Run config)
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     commands/
-      delegate.md                   # /cc-tuner:delegate tiered fan-out
       run.md                        # /cc-tuner:run [--auto] <spec> executor
       setup.md                      # /cc-tuner:setup env check + installer orchestration
       spec.md                       # /cc-tuner:spec interactive spec writer
@@ -60,8 +58,6 @@ plugins/
         reference.md                # deep examples + verified sources
       task-flow/
         SKILL.md                    # board recipes, merge strategies, plan lifecycle
-      smoke-verify/
-        SKILL.md                    # what counts as verification evidence + attesting
       statusline/
         SKILL.md                    # usage statusline (feature + disclaimers)
         statusline.sh               # the cross-platform statusline script
