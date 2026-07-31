@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0](https://github.com/clicktronix/cc-tuner/compare/v0.8.0...v0.9.0) (2026-07-31)
+
+
+### Features
+
+* /cc-tuner:setup entry point + release-please for versioning ([#8](https://github.com/clicktronix/cc-tuner/issues/8)) ([d8f3f73](https://github.com/clicktronix/cc-tuner/commit/d8f3f73a1443012f9e102dc5a8f6ff922ba5bffb))
+
+
+### Bug Fixes
+
+* **claude-md-writer:** refresh against current memory docs, correct the /memory claim ([#10](https://github.com/clicktronix/cc-tuner/issues/10)) ([0cb3c7c](https://github.com/clicktronix/cc-tuner/commit/0cb3c7cfdb06ee502beb852a08ba3203f4a76f8b))
+
 ## [0.8.0] - 2026-07-31
 
 Ports two PRs (#2, #3) that were authored against the pre-rename `git-flow` files and stranded when
