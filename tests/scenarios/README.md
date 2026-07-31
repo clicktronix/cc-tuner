@@ -59,3 +59,9 @@ batch trustworthy without the asterisk.
 
 Per the Iron Law, a future edit to the guarded sections needs its own RED→GREEN before
 shipping; the GREEN-regression probes here make that cheap.
+
+Exercised in 0.9.0: the `claude-md-writer` docs refresh edited both guarded sections, so both were
+re-probed and carry a `green_recheck` block naming the **risk under test** — for
+`paths-rule-placement`, whether the newly added "a skill with `paths`" routing option would pull the
+answer away from a rules file. It did not. Recording the risk rather than just the pass is what makes
+the re-check readable later: a bare "still passes" does not say what was nearly broken.
