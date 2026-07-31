@@ -12,12 +12,12 @@ disable-model-invocation: true
 You (the main, expensive model) do the thinking — decomposition, dispatch
 prompts, verification, judgment. Subagents do the typing on the cheapest
 model that fits each unit. This is the economical middle ground between
-doing everything yourself and the full `/cc-tuner:execute-task` lifecycle:
+doing everything yourself and the full `/cc-tuner:run` lifecycle:
 no gates, no journal, no board — just tiered fan-out with verification.
 
 ## Steps
 
-1. **Context.** If `.claude/execute-task.md` exists, Read it — reuse its
+1. **Context.** If `.claude/execute-task.md` exists (the run config), Read it — reuse its
    `cheap_gate` and `test` commands. Otherwise derive a cheap gate from the
    repo (e.g. `package.json` scripts, `pyproject.toml` tooling) and say which
    you'll use. If the task in `$ARGUMENTS` is genuinely ambiguous about WHAT

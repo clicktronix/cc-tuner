@@ -11,7 +11,9 @@ Skills:
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
 
-Commands beyond the installers: **`/cc-tuner:execute-task`** (gated task-lifecycle playbook, now with model tiering) and **`/cc-tuner:delegate`** (tiered cheap-model fan-out — the main model plans and verifies, sonnet/opus subagents implement).
+The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking — grills the requirements, writes acceptance criteria a machine can check — and **`/cc-tuner:run [--auto] <spec>`** executes without asking anything. Interrogation and execution want opposite things; one wants your attention, the other wants your absence.
+
+Also: **`/cc-tuner:delegate`** (tiered cheap-model fan-out — the main model plans and verifies, sonnet/opus subagents implement).
 
 ## Why this exists
 
@@ -33,14 +35,15 @@ plugins/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
     assets/
-      delegate/tiering.md               # shared model-tier table (/delegate + execute-task step 3)
-      execute-task/config.template.md   # per-project /execute-task settings
+      delegate/tiering.md               # tier table + the sensitive-surface list (/delegate, /run phase 4)
+      execute-task/config.template.md   # per-project run settings (superseded by a spec's Run config)
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     commands/
       delegate.md                   # /cc-tuner:delegate tiered fan-out
-      execute-task.md               # /cc-tuner:execute-task lifecycle playbook
+      run.md                        # /cc-tuner:run [--auto] <spec> executor
       setup.md                      # /cc-tuner:setup env check + installer orchestration
+      spec.md                       # /cc-tuner:spec interactive spec writer
       task-flow-setup.md            # /cc-tuner:task-flow-setup rule installer
       smoke-verify-setup.md         # /cc-tuner:smoke-verify-setup gate opt-in
       statusline-setup.md           # /cc-tuner:statusline-setup installer
@@ -48,7 +51,7 @@ plugins/
       hooks.json                    # Stop hook registration
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
-      execute-task/                 # deterministic bash for /execute-task gates
+      execute-task/                 # deterministic bash for /run gates (dir name predates the split)
       setup/doctor.sh               # environment checks behind /cc-tuner:setup
       smoke-verify/                 # fingerprint lib + attestation writer (mark.sh)
     skills/

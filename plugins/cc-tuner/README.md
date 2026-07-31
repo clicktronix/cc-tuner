@@ -78,19 +78,38 @@ committing; a change committed mid-turn without attestation escapes it. The
 hook itself is milliseconds of bash — it never runs any verification, it only
 routes the agent to do it.
 
-## /execute-task
+## /spec and /run
 
-A task-lifecycle playbook that walks the main agent through the full development cycle: intake → plan → implement → review → CI/CD → merge. Choose an autonomy level at start time (`brainstorm-only`, `checkpoints`, or `supervised`) to control how often the agent pauses for human input. Hard-stops are built in at each gate — dirty tree, red CI, human-eye acceptance, and CD/merge — so the agent can't silently skip them.
+The task loop, split in two on purpose.
 
-Use it whenever you want a structured, reviewable workflow instead of a free-form "implement this" prompt. Five bundled bash scripts handle the deterministic git/fs work (prereq-check, config-init, preflight, journal, guard-artifacts); per-project settings and overrides live in `.claude/execute-task.md`.
+`/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, the issue and the code
+before it asks anything, grills the requirements via `mattpocock-skills:grill-with-docs`, and writes a
+spec whose acceptance criteria each name the command or MCP step that decides them. Every `[eyes]`
+criterion has to carry a machine replacement or a recorded waiver — an `[eyes]` criterion is a stop an
+unattended run cannot clear, so leaving one bare just moves the failure later. The spec ends with an
+explicit statement of whether it is `--auto`-ready, and why not when it isn't.
 
-Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime via prereq-check; cc-tuner installs and works standalone without them).
+`/cc-tuner:run [--auto] <spec>` executes it and asks nothing. Without `--auto` it stops between
+phases; with `--auto` it runs unattended and merges on green CI. `--auto` never waives a red gate, a
+red CI, a bare `[eyes]` criterion, scope beyond the spec, or **anything outward-facing past the
+merge** — a deploy or a publish still stops.
 
-With `model_tiering: on` in the project config, step 3 dispatches implementation subagents on cheaper models per `assets/delegate/tiering.md` — mechanical units on sonnet, standard units on opus, architectural/sensitive ones on the main model — while planning, reviews, and acceptance always stay on the main model, and every delegated diff is verified before acceptance.
+These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipeline and could do
+neither well: its intake step was marked "human gate, always", so full autonomy was structurally
+impossible, while the interactive work was compressed into one step of ten.
+
+The other half of that fix is that **the run journal is now read, not just written**. It had eight
+append call sites and no way to get anything back, which is why a long run lost its place: after a
+compaction the playbook returns (it is re-read from the command file) but the progress does not.
+`/run` opens every phase with `journal.sh resume`, and journals literal values — PR number, base SHA,
+per-criterion results — because shell state does not survive between Bash calls either.
+
+Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
+cc-tuner installs and works standalone without them).
 
 ## /delegate
 
-The economical middle ground between doing everything on the main model and the full `/execute-task` lifecycle: `/cc-tuner:delegate <free-form task>` has the main model decompose the task, classify each unit per `assets/delegate/tiering.md`, fan implementation out to sonnet/opus subagents (worktree isolation for parallel edits), and verify every returned diff itself (full diff read + cheap gate + acceptance criteria; failed units get one redispatch, then a tier escalation). No gates, journal, or board — hygiene rules (surgical staging, no outward-facing actions, sensitive surfaces never below the main model) still apply.
+The economical middle ground between doing everything on the main model and the full `/spec` + `/run` lifecycle: `/cc-tuner:delegate <free-form task>` has the main model decompose the task, classify each unit per `assets/delegate/tiering.md`, fan implementation out to sonnet/opus subagents (worktree isolation for parallel edits), and verify every returned diff itself (full diff read + cheap gate + acceptance criteria; failed units get one redispatch, then a tier escalation). No gates, journal, or board — hygiene rules (surgical staging, no outward-facing actions, sensitive surfaces never below the main model) still apply.
 
 ## Install
 
@@ -99,7 +118,7 @@ The economical middle ground between doing everything on the main model and the 
 /plugin install cc-tuner@cc-tuner
 ```
 
-The `claude-md-writer`, `task-flow`, and `smoke-verify` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:task-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:execute-task`, and `/cc-tuner:delegate`.
+The `claude-md-writer`, `task-flow`, and `smoke-verify` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:task-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:spec`, `/cc-tuner:run`, and `/cc-tuner:delegate`.
 
 ## Scope
 

@@ -1,6 +1,6 @@
 # execute-task config
 
-Per-project settings for `/cc-tuner:execute-task`. The agent reads this file
+Per-project settings for `/cc-tuner:run`. A spec's own **Run config** block takes precedence; this file is the fallback for repos driven without a spec. The agent reads this file
 directly. Fill in the commands for THIS repo; leave a field blank if N/A.
 
 - **test**: how to run the full test/smoke suite (incl. UI, e.g. `manual: open http://localhost:3000`)

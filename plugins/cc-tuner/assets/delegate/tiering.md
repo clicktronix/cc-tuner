@@ -1,6 +1,6 @@
 # Model tiering — shared classification table
 
-Read by `/cc-tuner:delegate` and by `/cc-tuner:execute-task` step 3 (when the
+Read by `/cc-tuner:delegate` and by `/cc-tuner:run` phase 4 (when the
 config's `model_tiering` is on). Purpose: the main (expensive) model plans,
 verifies, and reviews; implementation units run on the cheapest model that
 can do them well. When in doubt between two tiers, pick the HIGHER one —

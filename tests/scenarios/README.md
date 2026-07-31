@@ -1,6 +1,7 @@
 # Skill evaluation scenarios
 
-Eval scenarios for `/execute-task` (pressure/discipline probes), `claude-md-writer`
+Eval scenarios for `/run` (pressure/discipline probes; the rows are still labelled
+`execute-task` where that is the version the baseline was measured on), `claude-md-writer`
 (retrieval/application probes), and `task-flow` (whose REDs are documented production
 incidents from the pre-plugin era rather than fresh probe runs — the failures already
 happened for real), following Anthropic's evaluation-driven development and
@@ -59,6 +60,12 @@ batch trustworthy without the asterisk.
 
 Per the Iron Law, a future edit to the guarded sections needs its own RED→GREEN before
 shipping; the GREEN-regression probes here make that cheap.
+
+Exercised again in the spec/run split: all three `task-run` scenarios (formerly `execute-task`) had
+their guarded text moved into `run.md` and reworded, so all three were re-probed. The interesting one
+is `sensitive-small-diff-skip`, where the risk was not "does it still say run the review" but "does it
+still say *skip* when it should" — a rule that collapses into always-review passes the expected
+behaviour and fails the anti-expectation. It was probed from both sides and still discriminates.
 
 Exercised in 0.9.0: the `claude-md-writer` docs refresh edited both guarded sections, so both were
 re-probed and carry a `green_recheck` block naming the **risk under test** — for
