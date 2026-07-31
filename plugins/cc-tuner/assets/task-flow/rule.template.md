@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.7.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.8.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -9,8 +9,9 @@ conflicts with this file, the local file wins.
 
 ## Never
 
-- **Force-push `main`, or any branch with open review comments.** Force-with-lease elsewhere only
-  with explicit sign-off from the user or reviewer.
+- **Force-push `main`, or any branch with open review comments.** The harm is rewriting history
+  others may have reviewed or built on; the force-push is only how it happens. Force-with-lease
+  elsewhere only with explicit sign-off from the user or reviewer.
 - **`--no-verify` / `--no-gpg-sign`.** A failing hook is a signal to diagnose, not to silence.
 - **`git add -A` / `git add .`.** Stage by explicit path; the sweep is how `.env`, credentials, and
   unrelated WIP reach a commit.

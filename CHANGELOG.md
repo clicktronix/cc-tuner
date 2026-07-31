@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0] - 2026-07-31
+
+Ports two PRs (#2, #3) that were authored against the pre-rename `git-flow` files and stranded when
+0.7.0 deleted them. Four verification behaviours, each from a documented production incident, each
+now measured on a two-arm probe rather than shipped on the incident alone.
+
+### Added
+
+- **Four anti-pattern case studies in the `task-flow` skill.**
+  - *Test that could never fail* (2026-07-28) — a regression test built its second patch from the
+    already-merged state while every production handler closes over the render snapshot, so it passed
+    against the broken implementation and could not have caught the defect it guarded. Inlining the
+    old implementation as a throwaway mutant showed red/green in under two minutes.
+  - *"Not my file" as a scope rebuttal* (2026-07-28) — a cross-writer race was deferred as
+    pre-existing because the cited file was outside the diff, while the branch's own new writers were
+    what made the collision reachable. Symmetrically, a "product decision" turned out to be a
+    branch-introduced default. Provenance of the **defect** decides, not provenance of the file.
+  - *Trusting autofix output* (2026-07-28, twice in one session) — `eslint --fix` folded value
+    imports into an `import type` block and the formatter moved a comment past a bare `return`.
+    Neither appeared in the fixer's zero-error report; both surfaced on the next typecheck.
+  - *Branch continued after its PR merged* (2026-07-26) — a squash-merged branch that kept receiving
+    commits reads as "5 commits ahead" while 3 of them are already in `main` under another SHA. A
+    trial rebase conflicted in 6 files on the first commit; cherry-picking the 2 genuinely-new commits
+    onto a fresh branch applied clean. Replaces the thinner *Stale base* entry from 0.7.0.
+- **Two pre-PR checklist items**, folded rather than appended: one covering "nothing is trusted on its
+  own success report" (mutant check + post-autofix typecheck/lint), one for deferrals claimed as
+  pre-existing.
+
+### Changed
+
+- **The force-push invariant now names the harm.** It read as a tooling restriction; the harm is
+  rewriting history others may have reviewed or built on, and the force-push is only the mechanism.
+  Behaviour is unchanged — force-with-lease still needs explicit sign-off.
+- **Eval scenarios carry a measured RED arm.** The four new `task-flow` scenarios were probed in two
+  arms (guidance present vs. withheld) across two framings. `autofix-trusted-blindly` reproduces in
+  both framings; `regression-test-never-red` and `pre-existing-scope-rebuttal` hold unaided when
+  unhurried and fail under deadline; `branch-continued-after-merge` did not reproduce and is kept as
+  insurance, with its own query identified as telegraphing the diagnosis. Each scenario records the
+  method caveat that probe subagents inherited the host project's instructions, making the control
+  stronger than neutral and the measured effects lower bounds.
+
 ## [0.7.0] - 2026-07-31
 
 ### Changed
