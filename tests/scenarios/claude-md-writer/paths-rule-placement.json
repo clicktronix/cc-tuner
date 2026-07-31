@@ -43,5 +43,19 @@
         "note": ".claude/rules/api-validation.md with paths: as quoted YAML list of globs — exact doc-correct shape, explains read-triggered loading"
       }
     ]
+  },
+  "green_recheck": {
+    "date": "2026-07-31",
+    "reason": "The guarded section was edited in 0.9.0: recursive discovery, symlinks, the brace-expansion budget and the unbalanced-[ footgun were added, and the golden rule now says `paths` lives on rules AND skills. The Iron Law requires a re-probe when a guarded section changes.",
+    "risk_under_test": "The new 'a skill with paths' routing option could pull this answer away from a rules file, which would fail expected_behavior[0].",
+    "runs": [
+      {
+        "model": "haiku",
+        "probe": "GREEN, full edited skill body in context",
+        "pass": true,
+        "note": "still routes to .claude/rules/api.md, paths as a quoted YAML list, states read-triggered conditional loading; did NOT mis-route to a skill; ANTI clean"
+      }
+    ],
+    "verdict": "no regression — the constraint-vs-procedure distinction holds the routing"
   }
 }

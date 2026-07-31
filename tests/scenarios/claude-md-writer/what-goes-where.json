@@ -43,5 +43,19 @@
         "note": "(a) CLAUDE.md, (b) .claude/skills/<name>/SKILL.md, (c) permissions.deny — all three mechanisms exact"
       }
     ]
+  },
+  "green_recheck": {
+    "date": "2026-07-31",
+    "reason": "The guarded table gained two rows in 0.9.0 (commands-merged-into-skills, and a paths-scoped skill for area-specific procedures).",
+    "risk_under_test": "Two added rows could blur (b), which must land in a skill rather than a rules file or CLAUDE.md.",
+    "runs": [
+      {
+        "model": "haiku",
+        "probe": "GREEN, full edited skill body in context",
+        "pass": true,
+        "note": "(a) CLAUDE.md/rules, (b) .claude/skills/deploy/SKILL.md, (c) permissions.deny or a hook — all three correct with one-line rationales; ANTI clean on the linter-config trap"
+      }
+    ],
+    "verdict": "no regression"
   }
 }
