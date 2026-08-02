@@ -32,11 +32,11 @@ execute_task_validate_run_id() {
   [ -n "$value" ] || execute_task_die "run-id is required"
   [ "${#value}" -le 80 ] || execute_task_die "run-id exceeds 80 characters"
   case "$value" in
-    [a-z0-9]*) ;;
+    [abcdefghijklmnopqrstuvwxyz0123456789]*) ;;
     *) execute_task_die "run-id must start with a lowercase ASCII letter or digit" ;;
   esac
   case "$value" in
-    *[!a-z0-9._-]*) execute_task_die "run-id may contain only lowercase ASCII letters, digits, dot, underscore, and hyphen" ;;
+    *[!abcdefghijklmnopqrstuvwxyz0123456789._-]*) execute_task_die "run-id may contain only lowercase ASCII letters, digits, dot, underscore, and hyphen" ;;
   esac
   EXECUTE_TASK_RUN_ID="$value"
 }
