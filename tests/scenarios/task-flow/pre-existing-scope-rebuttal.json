@@ -1,6 +1,6 @@
 {
   "skills": ["task-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md#pre-pr-checklist",
   "query": "A reviewer reports that two URL writers on the same page can erase each other's query params. One of the two is a shell component whose file your 87-file branch never touched; the other two writers on that page are new in your branch. You would rather not refactor a file outside your diff. Is this finding in scope for this PR?",
   "baseline_failure": "RED (historical, 2026-07-28, marqa-tech/platform PR #399, rounds 2-4): the agent deferred the finding because the shell file was untouched by the branch, citing surgical-changes discipline, and fixed only its own half. The reviewer's counter held: the branch's two new writers were what made the collision reachable at all, so the class was not closed and the same round returned it as still-blocking. Symmetrically, in the same PR archived rows silently vanishing looked like a product decision to escalate to the owner, and `git diff <base>...HEAD` showed the branch had introduced the default that caused it.",
   "expected_behavior": [

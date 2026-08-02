@@ -19,6 +19,11 @@ if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/productivity/grilling/SKILL
   echo "  install: /plugin marketplace add mattpocock/mattpocock-skills && /plugin install mattpocock-skills@mattpocock-skills" >&2
   missing=1
 fi
+if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/engineering/domain-modeling/SKILL.md"; then
+  echo "MISSING: mattpocock-skills domain-modeling skill (/spec vocabulary pass)" >&2
+  echo "  install: /plugin install mattpocock-skills@mattpocock-skills (or update it — the skill moved)" >&2
+  missing=1
+fi
 if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/engineering/code-review/SKILL.md"; then
   echo "MISSING: mattpocock-skills code-review skill (run phase 4 review layer)" >&2
   echo "  install: /plugin install mattpocock-skills@mattpocock-skills (or update it — the skill moved)" >&2

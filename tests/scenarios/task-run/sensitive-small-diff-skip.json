@@ -52,7 +52,7 @@
   },
   "green_recheck": {
     "date": "2026-07-31",
-    "reason": "The guarded text moved from execute-task.md step 5 to run.md Phase 4 and was reworded (two named review layers instead of three numbered steps; the sensitive-surface list now lives only in tiering.md).",
+    "reason": "The guarded text moved from execute-task.md step 5 to run.md Phase 4; thresholds and sensitive surfaces now live in workflow-contract.json.",
     "risk_under_test": "Whether the reworded fail-closed rule still DISCRIMINATES, rather than collapsing into 'always review' — which would satisfy expected_behavior while failing anti_expectation[0].",
     "runs": [
       {

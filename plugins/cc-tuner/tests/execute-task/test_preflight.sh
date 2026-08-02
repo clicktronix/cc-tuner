@@ -1,79 +1,130 @@
 #!/usr/bin/env bash
 set -u
-S="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)/preflight.sh"
-fails=0
 
-mkrepo() {
-  T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
-  ( cd "$T" && git init -q && git config user.email a@b.c \
-    && git config user.name t && echo x > f && git add f && git commit -qm init ) \
-    || { echo "FATAL: fixture setup failed"; exit 1; }
+SCRIPT="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)/preflight.sh"
+RUNS_REL=".claude/execute-task-runs"
+failures=0
+
+make_repo() {
+  REPO="$(mktemp -d)" || exit 1
+  (
+    cd "$REPO" && git init -q -b main && git config user.email test@example.com \
+      && git config user.name test && printf 'base\n' > file.txt && git add file.txt \
+      && git commit -qm init && git switch -qc task
+  ) || exit 1
 }
 
-# clean tree -> journal created with base SHA, runs dir gitignored
-mkrepo
-OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$S" run1 main 2>/dev/null)"
-SHA="$(cd "$T" && git rev-parse HEAD)"
-if [ -f "$T/.claude/execute-task-runs/run1.md" ] \
-   && grep -qF "$SHA" "$T/.claude/execute-task-runs/run1.md" \
-   && ( cd "$T" && git check-ignore -q .claude/execute-task-runs/run1.md ); then
-  echo "PASS clean-preflight"; else echo "FAIL clean-preflight"; fails=1; fi
-[ "$OUT" = ".claude/execute-task-runs/run1.md" ] \
-  && echo "PASS prints-journal-path" || { echo "FAIL prints-journal-path ($OUT)"; fails=1; }
-rm -rf "$T"
+run_preflight() {
+  CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" "$@"
+}
 
-# dirty tree -> exit exactly 2
-mkrepo
-echo change >> "$T/f"
-CLAUDE_PROJECT_DIR="$T" bash "$S" run2 main >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 2 ] && echo "PASS dirty-blocks" || { echo "FAIL dirty-blocks (rc=$rc, want 2)"; fails=1; }
-rm -rf "$T"
+make_repo
+JOURNAL="$(run_preflight run-1 main --expected-branch task)"
+SHA="$(git -C "$REPO" rev-parse main)"
+if [ -f "$REPO/$JOURNAL" ] \
+  && grep -qxF 'run_id=run-1' "$REPO/$RUNS_REL/run-1.meta" \
+  && grep -qxF 'branch=task' "$REPO/$RUNS_REL/run-1.meta" \
+  && grep -qxF "target_sha=$SHA" "$REPO/$RUNS_REL/run-1.meta" \
+  && (cd "$REPO" && git check-ignore -q "$JOURNAL"); then
+  echo "PASS clean-preflight-owned"
+else
+  echo "FAIL clean-preflight-owned"
+  failures=1
+fi
+rm -rf "$REPO"
 
-# unsafe run-id ('/', '..') -> sanitized, journal stays INSIDE the runs dir
-mkrepo
-OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$S" "DEV-1/../escape" main 2>/dev/null)"
-case "$OUT" in .claude/execute-task-runs/*) echo "PASS runid-sanitized" ;; *) echo "FAIL runid-sanitized ($OUT)"; fails=1 ;; esac
-{ [ -n "$OUT" ] && [ -f "$T/$OUT" ]; } && echo "PASS runid-file-in-dir" || { echo "FAIL runid-file-in-dir"; fails=1; }
-rm -rf "$T"
+make_repo
+printf 'change\n' >> "$REPO/file.txt"
+run_preflight dirty main --expected-branch task >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 2 ] && [ ! -e "$REPO/$RUNS_REL/dirty.md" ]; then
+  echo "PASS dirty-blocks"
+else
+  echo "FAIL dirty-blocks (rc=$rc)"
+  failures=1
+fi
+rm -rf "$REPO"
 
-# linked worktree (.git is a FILE, not a dir) -> ignore-coverage still works
-mkrepo
-WTP="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }; WT="$WTP/wt"
-( cd "$T" && git worktree add -q "$WT" -b wtbranch >/dev/null 2>&1 )
-CLAUDE_PROJECT_DIR="$WT" bash "$S" runwt main >/dev/null 2>&1; rc=$?
-{ [ "$rc" -eq 0 ] && ( cd "$WT" && git check-ignore -q .claude/execute-task-runs/runwt.md ); } \
-  && echo "PASS worktree-ignore" || { echo "FAIL worktree-ignore (rc=$rc)"; fails=1; }
-( cd "$T" && git worktree remove --force "$WT" >/dev/null 2>&1 ); rm -rf "$WTP" "$T"
+make_repo
+mkdir -p "$REPO/packages/app"
+printf 'nested\n' > "$REPO/packages/app/app.txt"
+(cd "$REPO" && git add packages/app/app.txt && git commit -qm "add nested project")
+printf 'dirty outside project\n' >> "$REPO/file.txt"
+CLAUDE_PROJECT_DIR="$REPO/packages/app" bash "$SCRIPT" nested-dirty main --expected-branch task >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 2 ] && [ ! -e "$REPO/packages/app/$RUNS_REL/nested-dirty.md" ]; then
+  echo "PASS repo-wide-dirty-blocks-from-subdirectory"
+else
+  echo "FAIL repo-wide-dirty-blocks-from-subdirectory (rc=$rc)"
+  failures=1
+fi
+rm -rf "$REPO"
 
-# bad CLAUDE_PROJECT_DIR (not a git repo) -> exit 1, never a silent wrong-dir run
-NOGIT="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
-CLAUDE_PROJECT_DIR="$NOGIT" bash "$S" run3 main >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 1 ] && echo "PASS bad-root" || { echo "FAIL bad-root (rc=$rc, want 1)"; fails=1; }
+make_repo
+run_preflight 'same/id' main --expected-branch task >/dev/null 2>&1; slash_rc=$?
+run_preflight 'Run' main --expected-branch task >/dev/null 2>&1; upper_rc=$?
+run_preflight run main --expected-branch task >/dev/null 2>&1; lower_rc=$?
+if [ "$slash_rc" -eq 1 ] && [ "$upper_rc" -eq 1 ] && [ "$lower_rc" -eq 0 ]; then
+  echo "PASS filesystem-colliding-run-ids-rejected"
+else
+  echo "FAIL filesystem-colliding-run-ids-rejected (slash=$slash_rc upper=$upper_rc lower=$lower_rc)"
+  failures=1
+fi
+rm -rf "$REPO"
+
+make_repo
+run_preflight wrong-branch main --expected-branch other >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS expected-branch-enforced" \
+  || { echo "FAIL expected-branch-enforced (rc=$rc)"; failures=1; }
+(cd "$REPO" && git switch -q main)
+run_preflight target-branch main --expected-branch main >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS target-cannot-own-run" \
+  || { echo "FAIL target-cannot-own-run (rc=$rc)"; failures=1; }
+(cd "$REPO" && git switch -q task)
+run_preflight non-branch HEAD --expected-branch task >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS non-branch-target-rejected" \
+  || { echo "FAIL non-branch-target-rejected (rc=$rc)"; failures=1; }
+rm -rf "$REPO"
+
+make_repo
+run_preflight shared-run main --expected-branch task >/dev/null
+(cd "$REPO" && git switch -qc other)
+run_preflight shared-run main --expected-branch other >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS cross-branch-reuse-rejected" \
+  || { echo "FAIL cross-branch-reuse-rejected (rc=$rc)"; failures=1; }
+rm -rf "$REPO"
+
+make_repo
+run_preflight tampered main --expected-branch task >/dev/null
+sed 's/^run_id=.*/run_id=other/' "$REPO/$RUNS_REL/tampered.meta" > "$REPO/$RUNS_REL/tampered.meta.new"
+mv "$REPO/$RUNS_REL/tampered.meta.new" "$REPO/$RUNS_REL/tampered.meta"
+run_preflight tampered main --expected-branch task >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS metadata-run-id-enforced" \
+  || { echo "FAIL metadata-run-id-enforced (rc=$rc)"; failures=1; }
+rm -rf "$REPO"
+
+make_repo
+OUTSIDE="$(mktemp -d)" || exit 1
+ln -s "$OUTSIDE" "$REPO/.claude"
+run_preflight symlink main --expected-branch task >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 1 ] && [ ! -e "$OUTSIDE/execute-task-runs/symlink.md" ]; then
+  echo "PASS symlinked-state-rejected"
+else
+  echo "FAIL symlinked-state-rejected (rc=$rc)"
+  failures=1
+fi
+rm -rf "$OUTSIDE" "$REPO"
+
+NOGIT="$(mktemp -d)" || exit 1
+CLAUDE_PROJECT_DIR="$NOGIT" bash "$SCRIPT" bad-root main --expected-branch task >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS bad-root" || { echo "FAIL bad-root (rc=$rc)"; failures=1; }
 rm -rf "$NOGIT"
 
-# re-run for the same run-id -> prior journal PRESERVED (not truncated), restart marked
-mkrepo
-J="$(CLAUDE_PROJECT_DIR="$T" bash "$S" run1 main 2>/dev/null)"
-printf -- '- [t] prior entry\n' >> "$T/$J"
-CLAUDE_PROJECT_DIR="$T" bash "$S" run1 main >/dev/null 2>&1
-{ grep -qF "prior entry" "$T/$J" && grep -qF "restarted:" "$T/$J"; } \
-  && echo "PASS journal-preserved-on-rerun" || { echo "FAIL journal-preserved-on-rerun"; fails=1; }
-rm -rf "$T"
-
-# anti-false-positive: a real change under a nested src/.claude/execute-task-runs/ path
-# is NOT the operational runs dir -> tree is DIRTY (exit 2), not silently clean
-mkrepo
-( cd "$T" && mkdir -p src/.claude/execute-task-runs && echo c > src/.claude/execute-task-runs/code.py \
-  && git add src/.claude/execute-task-runs/code.py )
-CLAUDE_PROJECT_DIR="$T" bash "$S" run4 main >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 2 ] && echo "PASS substring-not-false-clean" || { echo "FAIL substring-not-false-clean (rc=$rc, want 2)"; fails=1; }
-rm -rf "$T"
-
-# unborn branch (fresh repo, no commits) -> base SHA recorded as (unborn), not a garbled 'HEAD' + stray line
-UB="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }; ( cd "$UB" && git init -qb main )
-JUB="$(CLAUDE_PROJECT_DIR="$UB" bash "$S" run5 main 2>/dev/null)"; rc=$?
-{ [ "$rc" -eq 0 ] && grep -qF "base SHA: (unborn)" "$UB/$JUB" && ! grep -qF "base SHA: HEAD" "$UB/$JUB"; } \
-  && echo "PASS unborn-base-sha" || { echo "FAIL unborn-base-sha (rc=$rc)"; fails=1; }
-rm -rf "$UB"
-
-exit $fails
+exit "$failures"

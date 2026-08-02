@@ -11,7 +11,7 @@ Skills:
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
 
-The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking — grills the requirements, writes acceptance criteria a machine can check — and **`/cc-tuner:run [--auto] <spec>`** executes without asking anything. Interrogation and execution want opposite things; one wants your attention, the other wants your absence.
+The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria; **`/cc-tuner:run [--auto] <spec>`** continues that branch through implementation, PR, CI, and merge. Without `--auto` it stops at phase boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
 
 ## Why this exists
@@ -33,11 +33,13 @@ plugins/
   cc-tuner/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
+    workflow-contract.json          # shared thresholds, sensitive surfaces, order, invariants
     assets/
-      tiering/tiering.md                # effort tiers + THE sensitive-surface list (/run phases 1 and 4)
       execute-task/config.template.md   # per-project run settings (superseded by a spec's Run config)
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
+    references/
+      tiering.md                    # effort-selection guidance; policy stays in the contract
     commands/
       run.md                        # /cc-tuner:run [--auto] <spec> executor
       setup.md                      # /cc-tuner:setup env check + installer orchestration
@@ -58,6 +60,7 @@ plugins/
         reference.md                # deep examples + verified sources
       task-flow/
         SKILL.md                    # board recipes, merge strategies, plan lifecycle
+        references/case-studies.md  # historical failure evidence outside the hot path
       statusline/
         SKILL.md                    # usage statusline (feature + disclaimers)
         statusline.sh               # the cross-platform statusline script
