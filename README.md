@@ -33,11 +33,13 @@ plugins/
   cc-tuner/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
+    workflow-contract.json          # shared thresholds, sensitive surfaces, order, invariants
     assets/
-      tiering/tiering.md                # effort tiers + THE sensitive-surface list (/run phases 1 and 4)
       execute-task/config.template.md   # per-project run settings (superseded by a spec's Run config)
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
+    references/
+      tiering.md                    # effort-selection guidance; policy stays in the contract
     commands/
       run.md                        # /cc-tuner:run [--auto] <spec> executor
       setup.md                      # /cc-tuner:setup env check + installer orchestration
@@ -58,6 +60,7 @@ plugins/
         reference.md                # deep examples + verified sources
       task-flow/
         SKILL.md                    # board recipes, merge strategies, plan lifecycle
+        references/case-studies.md  # historical failure evidence outside the hot path
       statusline/
         SKILL.md                    # usage statusline (feature + disclaimers)
         statusline.sh               # the cross-platform statusline script

@@ -1,6 +1,6 @@
 {
   "skills": ["task-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/references/case-studies.md#tiny-documentation-pr",
   "query": "A reviewer flagged 3 wording fixes in docs/plans/X.md of an already-merged PR. There is an open PR #22 in the same repo touching adjacent docs. Fix the wording. What do you do with the change?",
   "baseline_failure": "RED (historical, 2026-06-05, marqa-tech/analyzer PR #23): the agent opens a standalone docs-only PR for one file; user feedback verbatim: 'stop making separate MRs just to update documentation with a single file. We waste time and tokens on that junk.'",
   "expected_behavior": [

@@ -14,6 +14,7 @@ command owns the questions; `/run` owns delivery.
 
 ```bash
 git rev-parse --show-toplevel || { echo "not a git repo"; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh"
 ```
 
 Read, in order:
@@ -37,10 +38,11 @@ test means the spec is not ready.
 Tag every criterion:
 
 - `[machine]` — an exact command or browser-driving step decides it;
-- `[eyes]` — human judgement is irreducible.
+- `[eyes]` — human judgement is irreducible; name the concrete human verification step.
 
-Every `[eyes]` criterion needs either a machine replacement or a dated user waiver. A bare `[eyes]`
-criterion makes the spec not auto-ready; never leave that discovery to `/run`.
+Every `[eyes]` criterion records its human step, machine replacement (or `none`), and dated waiver (or
+`none`). An item with neither replacement nor waiver is valid only with `auto_ready: no`: HITL `/run`
+will stop for that human step, while `--auto` must reject the spec in Phase 0.
 
 More than one PR, more than one repo, or independently reviewed phases require an epic with sub-issues
 and one spec per sub-issue. Otherwise use one issue and one task branch.
@@ -68,7 +70,7 @@ Write `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and 
 
 ## Acceptance criteria
 - [ ] [machine] <criterion> — checked by: <exact command or MCP step>
-- [ ] [eyes] <criterion> — machine replacement: <check> | WAIVED by <user> on <date>
+- [ ] [eyes] <criterion> — checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>
 
 ## Tasks
 1. <file path> — <change and reason>
@@ -84,17 +86,18 @@ auto_ready: yes|no — <reason when no>
 ci: <exact command or check source>
 cheap_gate: <exact command>
 test: <exact command>
-tracker: gh|glab|none
+tracker: gh|none
 board: <project title + owner | none>
 ```
 
-`auto_ready: yes` is valid only when there is one PR, `ci` is nonblank, and no `[eyes]` criterion lacks
-a replacement or waiver. It records capability, not execution mode; only `/run --auto` requests an
-unattended run.
+`auto_ready: yes` is valid only when there is one PR, `ci` is nonblank, and every `[eyes]` criterion has
+a machine replacement or waiver. It records capability, not execution mode; only `/run --auto`
+requests an unattended run.
 
 Inspect the diff, stage the spec path explicitly, and commit it on the task branch with a Conventional
-Commit. Create or update the issue so it and the spec link to each other. Journal-free spec work ends
-here; the run journal starts in `/run`.
+Commit. When `tracker: gh`, create or update the issue so it and the spec link to each other; with
+`tracker: none`, record why there is no issue. Journal-free spec work ends here; the run journal starts
+in `/run`.
 
 ## 6. Hand off
 
@@ -112,8 +115,8 @@ command so a later session can verify both before editing.
 
 - [ ] Repo, issue, instructions, code, and current docs read before questioning
 - [ ] Every criterion names its deciding command or MCP step
-- [ ] No bare `[eyes]`, `TBD`, or executor-owned product decision
+- [ ] Every `[eyes]` item names its human step, replacement/`none`, and waiver/`none`
 - [ ] One spec maps to one task branch and one PR
 - [ ] `auto_ready` and its reason are explicit
 - [ ] Spec committed on the task branch, never directly on the integration branch
-- [ ] Issue and spec link to each other
+- [ ] Issue and spec link to each other, or `tracker: none` is explained

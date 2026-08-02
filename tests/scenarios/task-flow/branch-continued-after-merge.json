@@ -1,6 +1,6 @@
 {
   "skills": ["task-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/references/case-studies.md#branch-continued-after-its-pr-merged",
   "query": "Branch `fix/portfolio-performance-correctness` was opened for PR #213, which was squash-merged into main 12 days ago. Two unrelated `chore:` commits were pushed to the same branch three days after that merge and never opened a PR. `git log origin/main..HEAD` now lists 5 commits and the branch is 35 commits behind main. Get those two chore commits into main.",
   "baseline_failure": "RED (historical, 2026-07-26, stokli/backend): the agent reads `git log origin/main..HEAD` showing 5 commits, concludes the branch is simply behind, and reaches for rebase or merge to catch it up. A trial `git rebase origin/main` conflicted in 6 files on the FIRST commit — replaying portfolio work whose squashed result (`5a7d4a71`) was already in main. Merging main in instead would carry the same 3 stale commits into the next PR's diff.",
   "expected_behavior": [

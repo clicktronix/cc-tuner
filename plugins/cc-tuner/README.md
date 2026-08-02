@@ -85,15 +85,15 @@ The task loop, split in two on purpose.
 `/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, the issue and the code
 before it asks anything, grills the requirements via `mattpocock-skills:grilling` plus
 `mattpocock-skills:domain-modeling`, and writes a
-spec whose acceptance criteria each name the command or MCP step that decides them. Every `[eyes]`
-criterion has to carry a machine replacement or a recorded waiver — an `[eyes]` criterion is a stop an
-unattended run cannot clear, so leaving one bare just moves the failure later. The spec ends with an
-explicit statement of whether it is `--auto`-ready, and why not when it isn't.
+spec whose acceptance criteria each name the command, tool step, or human verification that decides
+them. Every `[eyes]` criterion records its human step plus a machine replacement or waiver when one
+exists. A genuinely human-only criterion is valid in HITL mode and makes the spec not `--auto`-ready.
+The spec states that readiness explicitly.
 
-`/cc-tuner:run [--auto] <spec>` executes it and asks nothing. Without `--auto` it stops between
+`/cc-tuner:run [--auto] <spec>` executes it. Without `--auto` it stops between
 phases; with `--auto` it runs unattended and merges on green CI. `--auto` never waives a red gate, a
-red CI, a bare `[eyes]` criterion, scope beyond the spec, or **anything outward-facing past the
-merge** — a deploy or a publish still stops.
+red CI, an unresolved `[eyes]` criterion, or scope beyond the spec. After merge it may reconcile only
+the task's board, spec, branches, and worktrees; deploy, publish, and migration remain forbidden.
 
 These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipeline and could do
 neither well: its intake step was marked "human gate, always", so full autonomy was structurally

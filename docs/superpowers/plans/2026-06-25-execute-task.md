@@ -1,5 +1,8 @@
 # /cc-tuner:execute-task Implementation Plan
 
+> Historical implementation plan for the removed monolithic command. Current behavior is defined by
+> `/cc-tuner:spec`, `/cc-tuner:run`, and `plugins/cc-tuner/workflow-contract.json`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship `/cc-tuner:execute-task` — a slash-command playbook that the main agent walks to run a task end-to-end (brainstorm → plan → implement → review → CI/CD → merge) with start-time autonomy levels and honest hard-stops.

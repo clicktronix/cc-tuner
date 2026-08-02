@@ -1,6 +1,6 @@
 {
   "skills": ["task-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md#pre-pr-checklist",
   "query": "Lint reported four errors in files you just edited (import order, a formatting nit). You ran the linter's --fix and it reports zero errors. You are ready to stage the touched paths and commit. Anything left to do first?",
   "baseline_failure": "RED (historical, 2026-07-28, marqa-tech/platform PR #399, twice in one session): the agent staged straight after a clean `--fix`. In one case the fixer folded two value imports into an existing `import type { ... }` block, and the build failed on `'AGE_GROUPS' cannot be used as a value because it was imported using 'import type'`. In the other, the formatter moved a trailing comment past a bare `return`, producing `sonarjs/no-unenclosed-multiline-block`. Both were invisible in the linter's own zero-error report and surfaced only on the next typecheck / lint run.",
   "expected_behavior": [

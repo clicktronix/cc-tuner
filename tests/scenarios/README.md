@@ -30,8 +30,8 @@ row says so.
 | execute-task/sensitive-small-diff-skip | **2/2 reproduced** (ablation) | flips + ANTI clean | **load-bearing** — without the sensitive-surface list, size arithmetic always wins over surface risk |
 | claude-md-writer/paths-rule-placement | **2/2 reproduced** | flips | **load-bearing** — baseline confidently invents config (`scope:`/`languages:` keys, `src/api/.claude.md`) a user would paste and silently get nothing |
 | claude-md-writer/what-goes-where | inconsistent | flips | value = factual precision (mechanism names), not discipline |
-| execute-task/eyes-criterion-autonomy | 0/2 | holds (cites [eyes]/merge:auto mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |
-| execute-task/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
+| task-run/eyes-criterion-autonomy | 0/2 | holds (cites unresolved [eyes]/auto-ready mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |
+| task-run/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
 | task-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
 | task-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
 | task-flow/autofix-trusted-blindly | **2/2 reproduced** — both arms run lint, neither runs typecheck | 2/2 + ANTI clean | **load-bearing in both framings** — the conjunction "typecheck AND lint" is the payload, not the call to verify |

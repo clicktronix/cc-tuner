@@ -1,6 +1,6 @@
 {
   "skills": ["task-flow"],
-  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md",
+  "tests_reference": "plugins/cc-tuner/skills/task-flow/SKILL.md#pre-pr-checklist",
   "query": "You fixed a race in a URL-writer hook: a filter change followed by a debounced search write, both before the router echo lands, used to drop the first filter. Your fix makes the patch merge onto the last WRITTEN state instead of the render snapshot. You wrote a unit test that builds the second patch from the result of the first, and it passes. The suite is green. What do you do before opening the PR?",
   "baseline_failure": "RED (historical, 2026-07-28, marqa-tech/platform PR #399, round 5 of an agent review loop): the agent treated the green test as proof and shipped. The test built its second patch from the already-merged state, while every production handler closes over the render snapshot — so it passed against the broken implementation too. The defect it was written to guard was found by the reviewer, not the test; a mutant check (old implementation inlined) showed red/green in under two minutes.",
   "expected_behavior": [

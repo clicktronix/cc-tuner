@@ -12,9 +12,8 @@ execute_task_init_root
 execute_task_validate_run_id "${1:-}"
 execute_task_prepare_state allow-tracked
 META="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.meta"
-execute_task_assert_regular_or_missing "$META"
-[ -f "$META" ] || execute_task_die "metadata not found for run '$EXECUTE_TASK_RUN_ID'"
-ANCHOR="$(awk -F= '$1 == "target_sha" {print substr($0, index($0, "=") + 1); exit}' "$META")"
+execute_task_assert_run_owner "$META"
+ANCHOR="$(execute_task_read_meta target_sha "$META")"
 [ -n "$ANCHOR" ] || execute_task_die "target SHA missing for run '$EXECUTE_TASK_RUN_ID'"
 if [ "$ANCHOR" != "(unborn)" ]; then
   case "$ANCHOR" in *[!0-9A-Fa-f]*) execute_task_die "invalid stored target SHA" ;; esac

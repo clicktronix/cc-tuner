@@ -1,0 +1,90 @@
+{
+  "name": "clicktronix-development-flow",
+  "version": "1.1.0",
+  "defaults": {
+    "small_diff": {
+      "max_changed_lines": 50,
+      "max_changed_files": 5
+    }
+  },
+  "tracker_values": [
+    "gh",
+    "none"
+  ],
+  "delivery_order": [
+    "stage",
+    "guard",
+    "commit",
+    "push",
+    "pull_request",
+    "current_sha_ci",
+    "merge",
+    "reconcile"
+  ],
+  "sensitive_surfaces": [
+    "authentication, authorization, secrets, and cryptography",
+    "migrations and destructive data operations",
+    "public APIs, persisted schemas, and cross-service contracts",
+    "money, payments, pricing, billing, and entitlements",
+    "infrastructure, CI, deployment, and release configuration",
+    "security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and server-side allowlists"
+  ],
+  "invariants": [
+    {
+      "id": "spec-before-run",
+      "requirement": "Run executes a committed specification and never reconstructs one from chat."
+    },
+    {
+      "id": "one-spec-one-branch-one-pr",
+      "requirement": "Each specification owns one named task branch and one pull request."
+    },
+    {
+      "id": "explicit-auto-readiness",
+      "requirement": "Unattended execution requires auto_ready: yes in the specification."
+    },
+    {
+      "id": "clean-run-baseline",
+      "requirement": "A run starts or restarts only from a clean task worktree."
+    },
+    {
+      "id": "owned-run-state",
+      "requirement": "Every journal read, append, resume, and artifact guard verifies the stored run-id and current branch."
+    },
+    {
+      "id": "resume-before-every-phase",
+      "requirement": "Every phase after phase 0 resumes the persisted journal before any other action."
+    },
+    {
+      "id": "hitl-stops-at-phase-boundaries",
+      "requirement": "Interactive mode stops after phases 0 through 5 and before merge."
+    },
+    {
+      "id": "machine-and-human-acceptance",
+      "requirement": "Every criterion names its machine check or human verification step and records the result."
+    },
+    {
+      "id": "owner-verifies-delegation",
+      "requirement": "The owning agent reads delegated diffs and verifies their scoped gates and acceptance criteria."
+    },
+    {
+      "id": "sensitive-diffs-never-skip-deep-review",
+      "requirement": "A sensitive-surface change receives deep review regardless of diff size."
+    },
+    {
+      "id": "intentional-staging-before-commit",
+      "requirement": "Only explicit task paths are staged, and the staged diff is inspected before commit."
+    },
+    {
+      "id": "ordered-delivery",
+      "requirement": "Delivery follows the declared delivery_order without skipping or reordering gates."
+    },
+    {
+      "id": "current-sha-ci-verification",
+      "requirement": "Required hosted checks are green on the exact current pull-request head SHA."
+    },
+    {
+      "id": "post-merge-reconciliation-only",
+      "requirement": "After merge, only task-lifecycle reconciliation is authorized; deploy, publish, and migration remain forbidden."
+    }
+  ]
+}

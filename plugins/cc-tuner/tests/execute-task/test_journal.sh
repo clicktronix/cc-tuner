@@ -6,9 +6,10 @@ fails=0
 
 T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
 ( cd "$T" && git init -q -b main && git config user.email a@b.c \
-  && git config user.name t && echo x > f && git add f && git commit -qm init ) \
+  && git config user.name t && echo x > f && git add f && git commit -qm init \
+  && git switch -qc task ) \
   || { echo "FATAL: fixture setup failed"; exit 1; }
-CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main --expected-branch task >/dev/null 2>&1
 
 # path
 [ "$(CLAUDE_PROJECT_DIR="$T" bash "$J" path run1)" = ".claude/execute-task-runs/run1.md" ] \
@@ -85,14 +86,14 @@ OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 999999999999999999999 2>&1)
 
 # a journal with no '## log' marker must stay BOUNDED — the sed range would otherwise run to
 # EOF and print the whole file, breaking the promise that resume is safe to call every phase
-CLAUDE_PROJECT_DIR="$T" bash "$P" nomarker main >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$T" bash "$P" nomarker main --expected-branch task >/dev/null 2>&1
 printf 'a\nb\nc\nd\ne\nf\n' > "$T/.claude/execute-task-runs/nomarker.md"
 OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume nomarker 2 2>&1)"
 { printf '%s' "$OUT" | grep -q '^f$' && ! printf '%s' "$OUT" | grep -q '^a$'; } \
   && echo "PASS resume-no-marker-bounded" || { echo "FAIL resume-no-marker-bounded (out=$OUT)"; fails=1; }
 
 # a symlinked journal must not be followed outside the project
-CLAUDE_PROJECT_DIR="$T" bash "$P" linked main >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$T" bash "$P" linked main --expected-branch task >/dev/null 2>&1
 OUTSIDE="$(mktemp)" || exit 1
 rm "$T/.claude/execute-task-runs/linked.md"
 ln -s "$OUTSIDE" "$T/.claude/execute-task-runs/linked.md"
@@ -106,9 +107,25 @@ rm -f "$OUTSIDE"
 # or a resumed run rebases onto the base of the first run -- the exact mistake the header prevents.
 ( cd "$T" && echo second > f2 && git add f2 && git commit -qm second ) >/dev/null 2>&1
 NEWSHA="$( cd "$T" && git rev-parse HEAD )"
-CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main --expected-branch task >/dev/null 2>&1
 OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 1 2>&1)"
 { printf '%s' "$OUT" | grep -q "$NEWSHA" && printf '%s' "$OUT" | grep -q 'supersedes'; } \
   && echo "PASS resume-surfaces-restart-base" || { echo "FAIL resume-surfaces-restart-base (want $NEWSHA in: $OUT)"; fails=1; }
+
+# Every state-consuming operation revalidates branch ownership, not only preflight.
+(cd "$T" && git switch -qc other)
+cross_branch_ok=1
+for operation in "append run1 cross-branch" "read run1" "resume run1"; do
+  # shellcheck disable=SC2086
+  CLAUDE_PROJECT_DIR="$T" bash "$J" $operation >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 1 ] || cross_branch_ok=0
+done
+if [ "$cross_branch_ok" -eq 1 ]; then
+  echo "PASS cross-branch-journal-operations-rejected"
+else
+  echo "FAIL cross-branch-journal-operations-rejected"
+  fails=1
+fi
 rm -rf "$T"
 exit $fails

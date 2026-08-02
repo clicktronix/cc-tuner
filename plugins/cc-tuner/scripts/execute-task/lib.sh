@@ -32,11 +32,11 @@ execute_task_validate_run_id() {
   [ -n "$value" ] || execute_task_die "run-id is required"
   [ "${#value}" -le 80 ] || execute_task_die "run-id exceeds 80 characters"
   case "$value" in
-    [A-Za-z0-9]*) ;;
-    *) execute_task_die "run-id must start with an ASCII letter or digit" ;;
+    [a-z0-9]*) ;;
+    *) execute_task_die "run-id must start with a lowercase ASCII letter or digit" ;;
   esac
   case "$value" in
-    *[!A-Za-z0-9._-]*) execute_task_die "run-id may contain only ASCII letters, digits, dot, underscore, and hyphen" ;;
+    *[!a-z0-9._-]*) execute_task_die "run-id may contain only lowercase ASCII letters, digits, dot, underscore, and hyphen" ;;
   esac
   EXECUTE_TASK_RUN_ID="$value"
 }
@@ -89,4 +89,27 @@ execute_task_assert_regular_or_missing() {
   local path="$1"
   [ ! -L "$path" ] || execute_task_die "refusing symlinked state file: $path"
   [ ! -e "$path" ] || [ -f "$path" ] || execute_task_die "state path is not a regular file: $path"
+}
+
+execute_task_read_meta() {
+  local key="$1" path="$2"
+  awk -F= -v key="$key" '$1 == key {print substr($0, index($0, "=") + 1); exit}' "$path"
+}
+
+execute_task_current_branch() {
+  git symbolic-ref --short HEAD 2>/dev/null || printf '%s\n' '(detached)'
+}
+
+execute_task_assert_run_owner() {
+  local meta="$1" stored_run_id stored_branch current_branch
+  execute_task_assert_regular_or_missing "$meta"
+  [ -f "$meta" ] || execute_task_die "metadata not found for run '$EXECUTE_TASK_RUN_ID'"
+  stored_run_id="$(execute_task_read_meta run_id "$meta")"
+  stored_branch="$(execute_task_read_meta branch "$meta")"
+  current_branch="$(execute_task_current_branch)"
+  [ "$stored_run_id" = "$EXECUTE_TASK_RUN_ID" ] \
+    || execute_task_die "metadata run-id '$stored_run_id' does not match '$EXECUTE_TASK_RUN_ID'"
+  [ -n "$stored_branch" ] || execute_task_die "branch missing for run '$EXECUTE_TASK_RUN_ID'"
+  [ "$stored_branch" = "$current_branch" ] \
+    || execute_task_die "run '$EXECUTE_TASK_RUN_ID' belongs to branch '$stored_branch', not '$current_branch'"
 }

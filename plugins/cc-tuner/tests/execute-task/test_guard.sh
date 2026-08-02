@@ -12,12 +12,12 @@ make_repo() {
   (
     cd "$REPO" && git init -q -b main && git config user.email test@example.com \
       && git config user.name test && printf 'base\n' > file.txt && git add file.txt \
-      && git commit -qm init
+      && git commit -qm init && git switch -qc task
   ) || exit 1
 }
 
 make_repo
-CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" staged main >/dev/null
+CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" staged main --expected-branch task >/dev/null
 (cd "$REPO" && git add -f "$RUNS_REL/staged.md")
 CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" staged >/dev/null 2>&1
 rc=$?
@@ -26,7 +26,7 @@ rc=$?
 rm -rf "$REPO"
 
 make_repo
-CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" history main >/dev/null
+CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" history main --expected-branch task >/dev/null
 (
   cd "$REPO" && git add -f "$RUNS_REL/history.md" \
     && git commit -qm "add local artifact" \
@@ -40,12 +40,21 @@ rc=$?
 rm -rf "$REPO"
 
 make_repo
-CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" normal main >/dev/null
+CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" normal main --expected-branch task >/dev/null
 printf 'change\n' >> "$REPO/file.txt"
 CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" normal >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] && echo "PASS normal-change-allowed" \
   || { echo "FAIL normal-change-allowed (rc=$rc)"; failures=1; }
+rm -rf "$REPO"
+
+make_repo
+CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" wrong-branch main --expected-branch task >/dev/null
+(cd "$REPO" && git switch -qc other)
+CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" wrong-branch >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS cross-branch-guard-rejected" \
+  || { echo "FAIL cross-branch-guard-rejected (rc=$rc)"; failures=1; }
 rm -rf "$REPO"
 
 make_repo

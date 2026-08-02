@@ -28,9 +28,11 @@ tool() { ln -s "$(command -v "$1")" "$STUB/$1" 2>/dev/null || true; }   # expose
 ghstub() { printf '#!/bin/sh\n[ "$1" = auth ] || exit 0\ncat <<EOF\n  - Token scopes: %s\nEOF\n' "$1" > "$STUB/gh"; chmod +x "$STUB/gh"; }
 plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grilling + code-review) + cc-codex-triage
   mkdir -p "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling" \
+           "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling" \
            "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review" \
            "$CACHE/cache/m/cc-codex-triage/1/commands"
   touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
+        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling/SKILL.md" \
         "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md" \
         "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
 }

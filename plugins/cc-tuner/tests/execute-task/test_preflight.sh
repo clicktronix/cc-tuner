@@ -10,72 +10,93 @@ make_repo() {
   (
     cd "$REPO" && git init -q -b main && git config user.email test@example.com \
       && git config user.name test && printf 'base\n' > file.txt && git add file.txt \
-      && git commit -qm init
+      && git commit -qm init && git switch -qc task
   ) || exit 1
 }
 
+run_preflight() {
+  CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" "$@"
+}
+
 make_repo
-JOURNAL="$(CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" run-1 main)"
-SHA="$(cd "$REPO" && git rev-parse HEAD)"
+JOURNAL="$(run_preflight run-1 main --expected-branch task)"
+SHA="$(git -C "$REPO" rev-parse main)"
 if [ -f "$REPO/$JOURNAL" ] \
-  && [ -f "$REPO/$RUNS_REL/run-1.meta" ] \
+  && grep -qxF 'run_id=run-1' "$REPO/$RUNS_REL/run-1.meta" \
+  && grep -qxF 'branch=task' "$REPO/$RUNS_REL/run-1.meta" \
   && grep -qxF "target_sha=$SHA" "$REPO/$RUNS_REL/run-1.meta" \
   && (cd "$REPO" && git check-ignore -q "$JOURNAL"); then
-  echo "PASS clean-preflight"
+  echo "PASS clean-preflight-owned"
 else
-  echo "FAIL clean-preflight"
+  echo "FAIL clean-preflight-owned"
   failures=1
 fi
 rm -rf "$REPO"
 
 make_repo
 printf 'change\n' >> "$REPO/file.txt"
-CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" dirty main >/dev/null 2>&1
+run_preflight dirty main --expected-branch task >/dev/null 2>&1
 rc=$?
-[ "$rc" -eq 2 ] && echo "PASS dirty-blocks" || { echo "FAIL dirty-blocks (rc=$rc)"; failures=1; }
-rm -rf "$REPO"
-
-make_repo
-CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" 'same/id' main >/dev/null 2>&1
-slash_rc=$?
-CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" same-id main >/dev/null 2>&1
-plain_rc=$?
-if [ "$slash_rc" -eq 1 ] && [ "$plain_rc" -eq 0 ]; then
-  echo "PASS colliding-run-id-rejected"
+if [ "$rc" -eq 2 ] && [ ! -e "$REPO/$RUNS_REL/dirty.md" ]; then
+  echo "PASS dirty-blocks"
 else
-  echo "FAIL colliding-run-id-rejected (slash=$slash_rc plain=$plain_rc)"
+  echo "FAIL dirty-blocks (rc=$rc)"
   failures=1
 fi
 rm -rf "$REPO"
 
 make_repo
-CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" shared-run main >/dev/null
-(cd "$REPO" && git switch -qc feature)
-CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" shared-run main >/dev/null 2>&1
+run_preflight 'same/id' main --expected-branch task >/dev/null 2>&1; slash_rc=$?
+run_preflight 'Run' main --expected-branch task >/dev/null 2>&1; upper_rc=$?
+run_preflight run main --expected-branch task >/dev/null 2>&1; lower_rc=$?
+if [ "$slash_rc" -eq 1 ] && [ "$upper_rc" -eq 1 ] && [ "$lower_rc" -eq 0 ]; then
+  echo "PASS filesystem-colliding-run-ids-rejected"
+else
+  echo "FAIL filesystem-colliding-run-ids-rejected (slash=$slash_rc upper=$upper_rc lower=$lower_rc)"
+  failures=1
+fi
+rm -rf "$REPO"
+
+make_repo
+run_preflight wrong-branch main --expected-branch other >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS expected-branch-enforced" \
+  || { echo "FAIL expected-branch-enforced (rc=$rc)"; failures=1; }
+(cd "$REPO" && git switch -q main)
+run_preflight target-branch main --expected-branch main >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS target-cannot-own-run" \
+  || { echo "FAIL target-cannot-own-run (rc=$rc)"; failures=1; }
+(cd "$REPO" && git switch -q task)
+run_preflight non-branch HEAD --expected-branch task >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS non-branch-target-rejected" \
+  || { echo "FAIL non-branch-target-rejected (rc=$rc)"; failures=1; }
+rm -rf "$REPO"
+
+make_repo
+run_preflight shared-run main --expected-branch task >/dev/null
+(cd "$REPO" && git switch -qc other)
+run_preflight shared-run main --expected-branch other >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 1 ] && echo "PASS cross-branch-reuse-rejected" \
   || { echo "FAIL cross-branch-reuse-rejected (rc=$rc)"; failures=1; }
 rm -rf "$REPO"
 
 make_repo
-WORKTREE_PARENT="$(mktemp -d)" || exit 1
-WORKTREE="$WORKTREE_PARENT/wt"
-(cd "$REPO" && git worktree add -q "$WORKTREE" -b worktree-branch)
-CLAUDE_PROJECT_DIR="$WORKTREE" bash "$SCRIPT" worktree main >/dev/null 2>&1
+run_preflight tampered main --expected-branch task >/dev/null
+sed 's/^run_id=.*/run_id=other/' "$REPO/$RUNS_REL/tampered.meta" > "$REPO/$RUNS_REL/tampered.meta.new"
+mv "$REPO/$RUNS_REL/tampered.meta.new" "$REPO/$RUNS_REL/tampered.meta"
+run_preflight tampered main --expected-branch task >/dev/null 2>&1
 rc=$?
-if [ "$rc" -eq 0 ] && (cd "$WORKTREE" && git check-ignore -q "$RUNS_REL/worktree.md"); then
-  echo "PASS linked-worktree-ignore"
-else
-  echo "FAIL linked-worktree-ignore (rc=$rc)"
-  failures=1
-fi
-(cd "$REPO" && git worktree remove --force "$WORKTREE" >/dev/null 2>&1)
-rm -rf "$WORKTREE_PARENT" "$REPO"
+[ "$rc" -eq 1 ] && echo "PASS metadata-run-id-enforced" \
+  || { echo "FAIL metadata-run-id-enforced (rc=$rc)"; failures=1; }
+rm -rf "$REPO"
 
 make_repo
 OUTSIDE="$(mktemp -d)" || exit 1
 ln -s "$OUTSIDE" "$REPO/.claude"
-CLAUDE_PROJECT_DIR="$REPO" bash "$SCRIPT" symlink main >/dev/null 2>&1
+run_preflight symlink main --expected-branch task >/dev/null 2>&1
 rc=$?
 if [ "$rc" -eq 1 ] && [ ! -e "$OUTSIDE/execute-task-runs/symlink.md" ]; then
   echo "PASS symlinked-state-rejected"
@@ -86,21 +107,9 @@ fi
 rm -rf "$OUTSIDE" "$REPO"
 
 NOGIT="$(mktemp -d)" || exit 1
-CLAUDE_PROJECT_DIR="$NOGIT" bash "$SCRIPT" bad-root main >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$NOGIT" bash "$SCRIPT" bad-root main --expected-branch task >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 1 ] && echo "PASS bad-root" || { echo "FAIL bad-root (rc=$rc)"; failures=1; }
 rm -rf "$NOGIT"
-
-UNBORN="$(mktemp -d)" || exit 1
-(cd "$UNBORN" && git init -qb main)
-JOURNAL="$(CLAUDE_PROJECT_DIR="$UNBORN" bash "$SCRIPT" unborn 2>/dev/null)"
-rc=$?
-if [ "$rc" -eq 0 ] && grep -qF "base SHA: (unborn)" "$UNBORN/$JOURNAL"; then
-  echo "PASS unborn-base"
-else
-  echo "FAIL unborn-base (rc=$rc)"
-  failures=1
-fi
-rm -rf "$UNBORN"
 
 exit "$failures"

@@ -1,5 +1,9 @@
 # `/cc-tuner:execute-task` — дизайн
 
+> Historical design record. The shipped command was replaced by `/cc-tuner:spec` +
+> `/cc-tuner:run`; current behavior is defined by those command files and
+> `plugins/cc-tuner/workflow-contract.json`.
+
 - **Дата:** 2026-06-21
 - **Статус:** реализовано (v0.4.0); синхронизировано с шагами 1.5 / 4 / 5 и полем review_passes
 - **Где живёт:** плагин **cc-tuner** (`plugins/cc-tuner/commands/execute-task.md`)

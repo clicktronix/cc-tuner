@@ -22,8 +22,11 @@ At the top of every phase after Phase 0, before any other action:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run-id>
 ```
 
-At its end, append literal values a later phase would otherwise re-derive: spec path, branch, target
-SHA, PR number, per-criterion result, and any skip/defer reason.
+At its end, persist literal values a later phase would otherwise re-derive:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" append <literal-run-id> "<phase result with literal branch/SHA/PR/check values>"
+```
 
 **HITL boundary:** when `--auto` is absent, report the completed phase and exact next phase, then stop
 until the user says to continue. Do not re-litigate the spec. When `--auto` is present, continue without
@@ -31,21 +34,22 @@ asking unless a hard stop fires.
 
 ## Phase 0 — open the run
 
-1. Run the companion-plugin check:
+1. Derive one stable run ID from the spec slug using only lowercase ASCII letters, digits, `.`, `_`,
+   and `-`; keep it unchanged across restarts. Then run the companion-plugin check:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh"
    ```
-2. Read the spec and fill only blank stable-command fields from `.claude/execute-task.md`. The spec wins
-   on every field it supplies.
+2. Read `${CLAUDE_PLUGIN_ROOT}/workflow-contract.json`, then the spec. Fill only blank stable-command
+   fields from `.claude/execute-task.md`; the spec wins on every field it supplies.
 3. Resolve its literal `branch`, `target`, and `auto_ready`. Confirm the current branch equals `branch`,
    is not `target`, and has no already-merged PR. A legacy spec without `branch` may continue only after
    deriving and journaling the task branch unambiguously; never create a second branch blindly.
-4. Refuse `--auto` unless `auto_ready: yes`, `ci` is nonblank, the scope is one PR, and every `[eyes]`
-   item has a machine replacement or waiver. `auto_ready: no` is authoritative even if the other checks
-   appear satisfiable.
+4. Require every `[eyes]` item to name `checked by`, `machine replacement`, and `waiver`. Refuse
+   `--auto` unless `auto_ready: yes`, `ci` is nonblank, the scope is one PR, and every `[eyes]` item has
+   a machine replacement or waiver. `auto_ready: no` is authoritative.
 5. Open the journal on a clean tree:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/preflight.sh" <literal-run-id> <target>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/preflight.sh" <literal-run-id> <literal-target> --expected-branch <literal-branch>
    ```
    Exit 2 is terminal. An unattended run never absorbs unrelated work.
 6. Journal the spec path, full Run config, acceptance criteria verbatim, branch, target, base SHA, and
@@ -60,7 +64,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run
 ```
 
 The spec's Tasks list is the scope. Decompose by independently verifiable units and pick
-reasoning effort from `${CLAUDE_PLUGIN_ROOT}/assets/tiering/tiering.md`. Independent units may run in
+reasoning effort from `${CLAUDE_PLUGIN_ROOT}/references/tiering.md`. Independent units may run in
 isolated worktrees; dependent ones run in order. Before accepting a delegated unit, read its complete
 diff, run the scoped cheap gate, and check its acceptance criteria.
 
@@ -83,12 +87,14 @@ diff and re-run both typecheck and lint. Journal exact commands and results, the
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run-id>
 ```
 
-Drive every `[machine]` criterion by its named command or browser step and run the spec's
-full `test` once as the regression net. Resolve `[eyes]` exactly as recorded:
+Drive every `[machine]` criterion by its named command or browser step and run the spec's full `test`
+once as the regression net. Resolve `[eyes]` exactly as recorded:
 
 - machine replacement → drive it;
 - dated waiver → journal it;
-- neither → stop in every mode.
+- neither in HITL → present the recorded human step and stop; after the user performs it, journal the
+  reported result before continuing;
+- neither in `--auto` → refuse (this should already have fired in Phase 0).
 
 Journal each criterion independently, then apply the HITL boundary.
 
@@ -98,11 +104,11 @@ Journal each criterion independently, then apply the HITL boundary.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run-id>
 ```
 
-Read `${CLAUDE_PLUGIN_ROOT}/assets/tiering/tiering.md` rather than recalling its
-sensitive-surface list.
+Read thresholds and sensitive surfaces from `${CLAUDE_PLUGIN_ROOT}/workflow-contract.json`; use
+`${CLAUDE_PLUGIN_ROOT}/references/tiering.md` only for effort selection.
 
-- Run built-in `/code-review` at `xhigh` unless the complete diff is both ≤50 changed lines, ≤5 files,
-  and confidently non-sensitive.
+- Run built-in `/code-review` at `xhigh` unless the complete diff is within both contract-defined
+  small-diff thresholds and confidently non-sensitive.
 - Run `/mattpocock-skills:code-review` and cc-codex-triage `/review` to APPROVE.
 - Validate every finding against live code. Record it as fixed, refuted with `file:line`, or deferred to
   a board issue.
@@ -110,7 +116,7 @@ sensitive-surface list.
 After review fixes, re-run the cheap gate and affected acceptance paths. Journal the final review state,
 then apply the HITL boundary.
 
-## Phase 5 — reconcile
+## Phase 5 — finalize the branch
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run-id>
@@ -148,10 +154,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run
    number and pushed HEAD SHA:
    ```bash
    git push -u origin <literal-branch>
-   gh pr view --json number,url,headRefOid || gh pr create --body-file <prepared-body-file>
+   gh pr view <literal-branch> --json number,url,headRefOid,baseRefName || gh pr create --base <literal-target> --head <literal-branch> --body-file <prepared-body-file>
    ```
-5. Verify the remote PR head equals that SHA. Run/observe the spec's `ci` against that SHA. A missing,
-   skipped, stale, or red required check is not green.
+5. Verify the PR base equals the literal target and its remote head equals that SHA. Run/observe the
+   spec's `ci` against that SHA. A missing, skipped, stale, or red required check is not green.
 
 In HITL mode, show the PR and CI state and stop before merge. In `--auto`, continue only after all
 required checks on the journaled SHA are green.
@@ -173,16 +179,19 @@ Confirm the PR state is actually `MERGED`; an enqueued merge is not complete. Th
 when possible: `Closes`/`Fixes` → Done, `Refs` → remain In Progress. Board failures after merge are
 journaled, not terminal.
 
-Finally switch to the literal target branch, `git pull --ff-only`, remove only the merged branch's clean
-worktree, prune, and delete merged local/remote-tracking refs according to task-flow. Never hard-code
-`main` when the spec names another target.
+Before leaving the owned task branch, append the `MERGED` state, board result, and literal cleanup plan
+to the journal. Then switch to the literal target branch, `git pull --ff-only`, remove only the merged
+branch's clean worktree, prune, and delete merged local/remote-tracking refs according to task-flow.
+Do not append to the branch-owned journal after switching targets. Never hard-code `main` when the spec
+names another target.
 
 ## What `--auto` never waives
 
 - Red cheap gate, acceptance check, full test, review, or required CI.
-- Bare `[eyes]` criteria or `auto_ready: no`.
+- Unresolved `[eyes]` criteria under `--auto`, or `auto_ready: no`.
 - Scope beyond the spec.
-- Deploy, publish, data migration, or any outward action after merge.
+- Deploy, publish, data migration, or other production action. After merge, only board/spec/branch/
+  worktree reconciliation described in Phase 7 is authorized.
 - Force-push, `--no-verify`, broad staging, unsafe amend, or commit to the target branch.
 
 ## Verification

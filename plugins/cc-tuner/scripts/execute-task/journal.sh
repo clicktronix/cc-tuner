@@ -26,18 +26,18 @@ case "$SUBCOMMAND" in
     MESSAGE="$*"
     [ -n "$MESSAGE" ] || execute_task_die "journal message required"
     [ -f "$JOURNAL" ] || execute_task_die "journal not found: $EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.md"
-    [ -f "$META" ] || execute_task_die "metadata not found for run '$EXECUTE_TASK_RUN_ID'"
+    execute_task_assert_run_owner "$META"
     printf -- '- [%s] %s\n' "$(date -u +%FT%TZ)" "$MESSAGE" >> "$JOURNAL" \
       || execute_task_die "cannot append journal for run '$EXECUTE_TASK_RUN_ID'"
     ;;
   read)
     [ -f "$JOURNAL" ] || execute_task_die "journal not found: $EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.md"
-    [ -f "$META" ] || execute_task_die "metadata not found for run '$EXECUTE_TASK_RUN_ID'"
+    execute_task_assert_run_owner "$META"
     cat "$JOURNAL"
     ;;
   resume)
     [ -f "$JOURNAL" ] || execute_task_die "journal not found: $EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.md"
-    [ -f "$META" ] || execute_task_die "metadata not found for run '$EXECUTE_TASK_RUN_ID'"
+    execute_task_assert_run_owner "$META"
     N="${3:-20}"
     case "$N" in ''|*[!0-9]*) execute_task_die "resume line count must be a non-negative integer, got '$N'" ;; esac
     [ "${#N}" -le 7 ] || N=9999999

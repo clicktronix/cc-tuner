@@ -74,9 +74,9 @@ board.
 The `gh project *` commands need the `project` token scope — a missing scope fails with an opaque
 GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
-**Card lifecycle:** In Progress when the branch is created; Done after the merge that **fully
-completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps the card In Progress.
-One deferred review finding = one issue, never a buried comment-thread list.
+**Card lifecycle:** In Progress when implementation opens after recording the prior status; Done after
+the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
+the card In Progress. One deferred review finding = one issue, never a buried comment-thread list.
 
 ## After the merge
 
@@ -133,54 +133,8 @@ the notes; that is the actual cost of an off-format commit.
 
 ## Anti-patterns (case studies)
 
-- **Long-lived staging branch + squash** — real incident 2026-06-04/05: `perf-quality-audit` squashed
-  to `main` as PR #50, then 8 follow-up PRs (#51–#58) squash-targeted the dead branch; the final merge
-  was impossible and all 8 commits had to be cherry-picked onto a fresh branch (PR #61). Short
-  branches straight to the intended target.
-- **Branch continued after its PR merged** — real incident 2026-07-26 (stokli/backend):
-  `fix/portfolio-performance-correctness` merged as PR #213 (squash `5a7d4a71`), then picked up two
-  unrelated `chore:` commits days later. Twelve days on, `main` had moved 35 commits and the branch
-  still showed 5 "unmerged" ones — 3 of them already in `main` under a different SHA. A trial
-  `git rebase origin/main` conflicted in 6 files on the **first** commit, replaying already-merged
-  work; cherry-picking the 2 genuinely-new commits onto a fresh branch applied clean. Two tells that
-  a branch is **finished** rather than behind: its PR reads `MERGED`, and commits in
-  `git log origin/main..HEAD` have subjects you can find in `main` under other SHAs. Cherry-pick
-  forward; do not try to catch the old branch up — resolving conflicts inside already-merged code can
-  silently revert newer `main` changes. (A `fix/` branch carrying `chore:` commits is the same
-  mistake in another hat — one branch, one type.)
-- **Test that could never fail** — real incident 2026-07-28 (marqa-tech/platform PR #399, round 5 of
-  an agent review loop): a "regression test" for a URL-write race built its second patch from the
-  already-merged state, while every production handler closes over the render snapshot. It passed
-  against the broken implementation, so it could not have caught the defect it was written to guard;
-  the reviewer found the bug instead. Inlining the old implementation as a throwaway mutant showed
-  red/green in under two minutes. A test written for a fix has to be shown failing against the
-  pre-fix code, or it only encodes the author's model of the bug.
-- **"Not my file" as a scope rebuttal** — same PR, rounds 2–4: a cross-writer URL race was deferred
-  as pre-existing because the shell file was untouched by the branch — but the branch's two new
-  writers were what made the collision reachable, so it was in scope. Symmetrically, archived rows
-  silently vanishing looked like a product decision to escalate, and `git diff <base>...HEAD` showed
-  the branch had introduced the default that caused it. Provenance of the **defect** decides, not
-  provenance of the file. A genuinely independent finding still gets an issue on the board, not
-  silence.
-- **Trusting autofix output** — same PR: `eslint --fix` folded value imports into an `import type`
-  block (build broke on `'AGE_GROUPS' cannot be used as a value`), and prettier moved a comment past
-  a bare `return`, producing an unenclosed-block error. Neither appeared in the fixer's own
-  zero-error report; both surfaced on the next **typecheck**. Re-run typecheck and lint after any
-  `--fix`, and read the diff it produced.
-- **Issue off the board** — real incident 2026-06-05: 9 issues created via bare `gh issue create`;
-  none reached the board until an explicit request. Always create with `--project` and set
-  Status/Priority.
-- **Tiny doc-PR spam** — real incident 2026-06-05 (marqa-tech/analyzer PR #23): a standalone PR for
-  three wording fixes in one file, on which the user said "we waste time and tokens on that junk".
-  Fold a single-file doc fix into an open PR, or batch it with others. This is judgement, not an
-  invariant — an urgent fix ships alone — which is why it lives here rather than in the rule.
-- **Amend after hook failure** — the commit did not happen; `--amend` rewrites the previous one and
-  loses work. Fix → re-stage → new commit.
-- **First-words branch name** (`001-make-sure-portfolio-...`) — name by feature, not by the prompt's
-  opening words.
-- **Orphan branch and its worktree** — work finished in a worktree, PR never opened, branch rots and
-  the directory stays on disk. Opening the PR is part of finishing; the cleanup above is the other
-  part.
+For diagnosis examples and their evidence, read the [case studies](references/case-studies.md). The
+operative rules are the procedures and checklist in this file; the examples explain why they exist.
 
 ## Pre-PR checklist
 
@@ -196,12 +150,3 @@ the notes; that is the actual cost of an off-format commit.
       was done is not a transcript — it is the part a reviewer cannot reconstruct from the logs
 - [ ] Plan promoted or archived if this PR completes it
 - [ ] No `.env`, credentials, or generated files staged
-
-## Why
-
-Every entry reacts to a documented failure, not theoretical hygiene: staging-branch ghost-conflicts
-(2026-06-04), board-less issues (2026-06-05), amend-after-hook data loss, PR bodies that grew past
-4,000 characters because the rule asked for pasted command output, a branch continued past its own
-merge (2026-07-26), and a green-but-useless regression test, a mis-scoped "pre-existing" finding and
-two autofix build breaks (all 2026-07-28, one six-round review loop). Dates are kept so a future edit
-can check whether the failure still reproduces.

@@ -32,6 +32,18 @@ if [ -e "$CFG" ]; then
 fi
 [ -f "$TEMPLATE" ] || { echo "template not found: $TEMPLATE" >&2; exit 1; }
 mkdir -p .claude || { echo "execute-task: cannot create .claude/" >&2; exit 1; }
-cp "$TEMPLATE" "$CFG" || { echo "execute-task: failed to write $CFG" >&2; exit 1; }
+TMP="$(mktemp ".claude/.execute-task.XXXXXX")" \
+  || { echo "execute-task: cannot create config temp file" >&2; exit 1; }
+cp "$TEMPLATE" "$TMP" || {
+  rm -f "$TMP"
+  echo "execute-task: failed to prepare $CFG" >&2
+  exit 1
+}
+if ! ln "$TMP" "$CFG" 2>/dev/null; then
+  rm -f "$TMP"
+  echo "execute-task: config appeared or could not be installed: $CFG" >&2
+  exit 1
+fi
+rm -f "$TMP"
 echo "config created: $CFG — edit it for this repo, then run /cc-tuner:run <spec>"
 exit 2

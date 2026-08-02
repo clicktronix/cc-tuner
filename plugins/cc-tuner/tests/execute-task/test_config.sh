@@ -11,7 +11,9 @@ T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
 CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
 # Assert on a FIELD, not the title: a title is prose and gets reworded, while `cheap_gate` is the
 # thing the file exists to carry, so this pins that the scaffold really came from the template.
-if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] && grep -q "cheap_gate" "$T/.claude/execute-task.md"; then
+if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] \
+  && grep -q "cheap_gate" "$T/.claude/execute-task.md" \
+  && ! find "$T/.claude" -name '.execute-task.*' -print -quit | grep -q .; then
   echo "PASS scaffold-created"; else echo "FAIL scaffold-created (rc=$rc, want 2)"; fails=1; fi
 # present -> left untouched (sentinel preserved), exit EXACTLY 0 (proceed signal)
 echo "SENTINEL" > "$T/.claude/execute-task.md"
