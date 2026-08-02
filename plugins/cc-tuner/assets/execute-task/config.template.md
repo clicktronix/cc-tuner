@@ -23,3 +23,6 @@ belongs in the spec, not here. This file is only the repo's stable facts.
   The **sensitive-surface list lives in `assets/tiering/tiering.md` and only there** — a second copy is
   a security list that goes quietly out of date. Any sensitive-surface touch runs the full review
   regardless of size, and an unconfirmable size or surface fails closed into running it.
+
+Task-specific `branch`, `target`, `auto_ready`, acceptance criteria, scope, and waivers belong in the
+committed spec. Repo defaults must never grant unattended authority.

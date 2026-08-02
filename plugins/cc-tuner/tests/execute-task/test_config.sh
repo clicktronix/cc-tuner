@@ -18,5 +18,25 @@ echo "SENTINEL" > "$T/.claude/execute-task.md"
 CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && grep -qx "SENTINEL" "$T/.claude/execute-task.md"; } \
   && echo "PASS scaffold-idempotent" || { echo "FAIL scaffold-idempotent (rc=$rc, want 0)"; fails=1; }
+
+VICTIM="$T/victim"
+printf 'UNCHANGED\n' > "$VICTIM"
+rm "$T/.claude/execute-task.md"
+ln -s "$VICTIM" "$T/.claude/execute-task.md"
+CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 1 ] && grep -qx "UNCHANGED" "$VICTIM"; } \
+  && echo "PASS scaffold-symlink-rejected" || { echo "FAIL scaffold-symlink-rejected (rc=$rc)"; fails=1; }
+
+T_SYMLINK_DIR="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+OUTSIDE_DIR="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+( cd "$T_SYMLINK_DIR" && git init -q && ln -s "$OUTSIDE_DIR" .claude ) \
+  || { echo "FATAL: symlink fixture setup failed"; exit 1; }
+CLAUDE_PROJECT_DIR="$T_SYMLINK_DIR" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$OUTSIDE_DIR/execute-task.md" ]; } \
+  && echo "PASS scaffold-directory-symlink-rejected" \
+  || { echo "FAIL scaffold-directory-symlink-rejected (rc=$rc)"; fails=1; }
+
 rm -rf "$T"
+rm -rf "$T_SYMLINK_DIR"
+rm -rf "$OUTSIDE_DIR"
 exit $fails

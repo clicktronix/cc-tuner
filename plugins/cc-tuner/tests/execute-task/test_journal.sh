@@ -5,7 +5,7 @@ J="$DIR/journal.sh"; P="$DIR/preflight.sh"
 fails=0
 
 T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
-( cd "$T" && git init -q && git config user.email a@b.c \
+( cd "$T" && git init -q -b main && git config user.email a@b.c \
   && git config user.name t && echo x > f && git add f && git commit -qm init ) \
   || { echo "FATAL: fixture setup failed"; exit 1; }
 CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main >/dev/null 2>&1
@@ -85,10 +85,21 @@ OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 999999999999999999999 2>&1)
 
 # a journal with no '## log' marker must stay BOUNDED — the sed range would otherwise run to
 # EOF and print the whole file, breaking the promise that resume is safe to call every phase
+CLAUDE_PROJECT_DIR="$T" bash "$P" nomarker main >/dev/null 2>&1
 printf 'a\nb\nc\nd\ne\nf\n' > "$T/.claude/execute-task-runs/nomarker.md"
 OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume nomarker 2 2>&1)"
 { printf '%s' "$OUT" | grep -q '^f$' && ! printf '%s' "$OUT" | grep -q '^a$'; } \
   && echo "PASS resume-no-marker-bounded" || { echo "FAIL resume-no-marker-bounded (out=$OUT)"; fails=1; }
+
+# a symlinked journal must not be followed outside the project
+CLAUDE_PROJECT_DIR="$T" bash "$P" linked main >/dev/null 2>&1
+OUTSIDE="$(mktemp)" || exit 1
+rm "$T/.claude/execute-task-runs/linked.md"
+ln -s "$OUTSIDE" "$T/.claude/execute-task-runs/linked.md"
+CLAUDE_PROJECT_DIR="$T" bash "$J" append linked "escape" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && [ ! -s "$OUTSIDE" ] \
+  && echo "PASS symlinked-journal-rejected" || { echo "FAIL symlinked-journal-rejected (rc=$rc)"; fails=1; }
+rm -f "$OUTSIDE"
 
 # THE resume case: a restarted run. preflight appends '## restarted: ... base <NEW SHA>' into the
 # log region, so the header still shows the ORIGINAL base SHA. resume must surface the current one

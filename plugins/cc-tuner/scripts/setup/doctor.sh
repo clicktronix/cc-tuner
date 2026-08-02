@@ -56,7 +56,7 @@ fi
 PREREQ="$PLUGIN_ROOT/scripts/execute-task/prereq-check.sh"
 if [ -f "$PREREQ" ]; then
   if out="$(bash "$PREREQ" 2>&1)"; then
-    ok "companion plugins (superpowers, cc-codex-triage)"
+    ok "companion plugins (mattpocock-skills, cc-codex-triage)"
   else
     printf '%s\n' "$out" | while IFS= read -r line; do
       case "$line" in

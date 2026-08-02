@@ -1,44 +1,48 @@
 #!/usr/bin/env bash
-# Pre-outward-facing guard (before CD / merge). Refuse if local-only operational
-# artifacts are staged, already tracked, OR present in branch history (which a
-# non-squash merge would publish); then print the full change set INCLUDING
-# untracked so nothing slips past the review. No git add -A upstream.
-# usage: guard-artifacts.sh [<target-ref>]
-#   <target-ref> (optional): the merge target. When given, also scan
-#   <target-ref>..HEAD history for runs-dir touches (catches add-then-delete).
+# Refuse outward-facing actions when local run artifacts entered Git.
+# Usage: guard-artifacts.sh <run-id>
 set -u
-ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
-git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
+umask 077
 
-BASE="${1:-}"
-# All local-only operational artifacts (journal, screenshots, raw logs) live under
-# this dir. Match it with a git PATHSPEC, not a substring grep, so a real source
-# path that merely contains the marker string does not trip the guard.
-RUNS_DIR=".claude/execute-task-runs"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
+execute_task_init_root
 
-# Fail CLOSED: a git query ERROR (bad index, lock) must not be read as "no artifacts".
-STAGED_BAD="$(git diff --cached --name-only -- "$RUNS_DIR" 2>/dev/null)" \
-  || { echo "execute-task: 'git diff --cached' failed — refusing the outward-facing op" >&2; exit 1; }
-TRACKED_BAD="$(git ls-files -- "$RUNS_DIR" 2>/dev/null)" \
-  || { echo "execute-task: 'git ls-files' failed — refusing the outward-facing op" >&2; exit 1; }
-HIST_BAD=""
-if [ -n "$BASE" ]; then
-  # A target was supplied → it MUST resolve. A typo'd/missing ref must NOT silently
-  # skip the history scan — that would re-open the exact gap this arg exists to close.
-  # (Omitting the arg entirely is the intentional "no history scan" path.)
-  git rev-parse --verify -q "$BASE^{commit}" >/dev/null 2>&1 \
-    || { echo "execute-task: merge target '$BASE' is not a valid ref — refusing (cannot scan history)" >&2; exit 1; }
-  HIST_BAD="$(git log --format='%h %s' "$BASE..HEAD" -- "$RUNS_DIR" 2>/dev/null)" \
-    || { echo "execute-task: 'git log' failed — refusing the outward-facing op" >&2; exit 1; }
+execute_task_validate_run_id "${1:-}"
+execute_task_prepare_state allow-tracked
+META="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.meta"
+execute_task_assert_regular_or_missing "$META"
+[ -f "$META" ] || execute_task_die "metadata not found for run '$EXECUTE_TASK_RUN_ID'"
+ANCHOR="$(awk -F= '$1 == "target_sha" {print substr($0, index($0, "=") + 1); exit}' "$META")"
+[ -n "$ANCHOR" ] || execute_task_die "target SHA missing for run '$EXECUTE_TASK_RUN_ID'"
+if [ "$ANCHOR" != "(unborn)" ]; then
+  case "$ANCHOR" in *[!0-9A-Fa-f]*) execute_task_die "invalid stored target SHA" ;; esac
+  case "${#ANCHOR}" in 40|64) ;; *) execute_task_die "invalid stored target SHA" ;; esac
 fi
 
-if [ -n "$STAGED_BAD" ] || [ -n "$TRACKED_BAD" ] || [ -n "$HIST_BAD" ]; then
-  echo "REFUSE: operational artifacts under $RUNS_DIR/ are staged, committed, or in branch history" >&2
-  echo "(a non-squash merge would publish them). Unstage/uncommit — or rewrite history first:" >&2
-  printf '%s\n' "$STAGED_BAD" "$TRACKED_BAD" "$HIST_BAD" | grep . | sort -u >&2
+STAGED="$(git diff --cached --name-only -- "$EXECUTE_TASK_RUNS_REL" 2>/dev/null)" \
+  || execute_task_die "staged diff query failed"
+TRACKED="$(git ls-files -- "$EXECUTE_TASK_RUNS_REL" 2>/dev/null)" \
+  || execute_task_die "tracked-files query failed"
+HISTORY=""
+if [ "$ANCHOR" = "(unborn)" ]; then
+  if git rev-parse --verify -q 'HEAD^{commit}' >/dev/null 2>&1; then
+    HISTORY="$(git log --format='%h %s' HEAD -- "$EXECUTE_TASK_RUNS_REL" 2>/dev/null)" \
+      || execute_task_die "history query failed"
+  fi
+else
+  git rev-parse --verify -q "$ANCHOR^{commit}" >/dev/null 2>&1 \
+    || execute_task_die "stored target SHA '$ANCHOR' is unavailable"
+  HISTORY="$(git log --format='%h %s' "$ANCHOR..HEAD" -- "$EXECUTE_TASK_RUNS_REL" 2>/dev/null)" \
+    || execute_task_die "history query failed"
+fi
+
+if [ -n "$STAGED" ] || [ -n "$TRACKED" ] || [ -n "$HISTORY" ]; then
+  echo "REFUSE: local run artifacts are staged, tracked, or present in branch history" >&2
+  printf '%s\n' "$STAGED" "$TRACKED" "$HISTORY" | awk 'NF' | sort -u >&2
   exit 3
 fi
 
-echo "== change set to review before the outward-facing op (staged + unstaged + untracked) =="
+echo "== change set before outward-facing action =="
 git status --porcelain -uall

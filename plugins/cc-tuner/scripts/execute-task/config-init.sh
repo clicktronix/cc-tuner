@@ -4,14 +4,31 @@
 # Exit codes: 0 = config already exists (proceed); 2 = freshly created → STOP and
 #   have the user fill it in before re-running; 1 = usage / bad root / no template.
 set -u
+umask 077
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$ROOT" 2>/dev/null || { echo "execute-task: cannot enter repo root '$ROOT'" >&2; exit 1; }
 git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "execute-task: not a git repo at '$ROOT'" >&2; exit 1; }
 TEMPLATE="${1:?usage: config-init.sh <template-path>}"
 CFG=".claude/execute-task.md"
+if [ -L .claude ]; then
+  echo "execute-task: refusing symlinked .claude directory" >&2
+  exit 1
+fi
+if [ -e .claude ] && [ ! -d .claude ]; then
+  echo "execute-task: .claude exists but is not a directory" >&2
+  exit 1
+fi
+if [ -L "$CFG" ]; then
+  echo "execute-task: refusing symlinked config: $CFG" >&2
+  exit 1
+fi
 if [ -f "$CFG" ]; then
   echo "config exists: $CFG"
   exit 0
+fi
+if [ -e "$CFG" ]; then
+  echo "execute-task: config exists but is not a regular file: $CFG" >&2
+  exit 1
 fi
 [ -f "$TEMPLATE" ] || { echo "template not found: $TEMPLATE" >&2; exit 1; }
 mkdir -p .claude || { echo "execute-task: cannot create .claude/" >&2; exit 1; }

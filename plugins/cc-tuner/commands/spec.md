@@ -1,129 +1,119 @@
 ---
-description: Turn a rough task into a spec /cc-tuner:run can execute unattended — grilled requirements, acceptance criteria that a machine can check, and the config the run needs. Use for "напиши спеку", "spec this out", or before any --auto run.
+description: Turn a rough task into a committed spec /cc-tuner:run can execute — grilled requirements, machine-checkable acceptance criteria, task-branch ownership, and explicit auto-readiness. Use for "напиши спеку", "spec this out", or before any --auto run.
 argument-hint: '<issue number | URL | free-text description>'
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TodoWrite, AskUserQuestion, WebFetch, WebSearch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TodoWrite, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 disable-model-invocation: true
 ---
 
 # /cc-tuner:spec
 
-Produces one artifact: a spec document that `/cc-tuner:run` can execute **without asking you
-anything**. This command is where all the asking happens.
+Produce a committed spec that `/cc-tuner:run` can execute without re-opening product decisions. This
+command owns the questions; `/run` owns delivery.
 
-The split exists because the old `/cc-tuner:execute-task` tried to do both and could do neither well:
-its step 1 was marked `🚦 always`, so full autonomy was structurally impossible, while the interactive
-work was squeezed into one step of a ten-step pipeline. Interrogation and execution want opposite
-things — one wants your attention, the other wants your absence.
-
-**A spec is done when a competent stranger could execute it without you in the room.** That is the bar
-to hold yourself to, and the reason not to stop at the first plausible-looking draft.
-
-## 1. Anchor and read what exists
+## 1. Anchor and read
 
 ```bash
 git rev-parse --show-toplevel || { echo "not a git repo"; exit 1; }
 ```
 
-Read, in this order — each can make the next question unnecessary:
+Read, in order:
 
-- `.claude/rules/task-flow.local.md` — board name, cached field IDs, label taxonomy.
-- The issue, if `$ARGUMENTS` names one: `gh issue view <N> --json title,body,labels,projectItems`.
-- The repo's own instructions (`CLAUDE.md`, `AGENTS.md`, `.claude/rules/`) — its conventions are
-  constraints on the spec, not suggestions.
-- The code the task touches. A spec written without reading the code specifies a fantasy.
+- `.claude/rules/task-flow.local.md` for repo-specific board and branch deltas;
+- the issue, when `$ARGUMENTS` names one;
+- `CLAUDE.md`, `AGENTS.md`, and relevant `.claude/rules/`;
+- the code, tests, and consumers the task will touch.
 
-Do not ask about anything you can read. Every question you ask that the repo already answered spends
-the user's attention on your laziness.
+Do not ask for information already present in those sources.
 
 ## 2. Grill
 
-Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for the vocabulary. That
-pair is what `grill-with-docs` is — its body is one line delegating to them — and it is the pair you
-can actually call: `grill-with-docs` ships with `disable-model-invocation: true`, so it never reaches
-the skill list and is only reachable when a human types it.
+Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for vocabulary. Pull
+current dependency documentation through Context7 as questions arise. Ask one question at a time until
+the answers stop changing the draft. A pending `TBD`, "as appropriate", or an unstated first failing
+test means the spec is not ready.
 
-Grilling interviews one question at a time down the decision tree. Pull current docs via Context7 as
-you go, so answers are anchored to how the dependencies behave now rather than to how anyone remembers
-them.
+## 3. Define acceptance and scope
 
-Grill until the answers stop changing your draft — not until the questions run out. Two signals you
-stopped too early: you are about to write "TBD" or "as appropriate" anywhere, or you cannot state what
-the *first* failing test would assert.
+Tag every criterion:
 
-## 3. Write acceptance criteria a machine can check
+- `[machine]` — an exact command or browser-driving step decides it;
+- `[eyes]` — human judgement is irreducible.
 
-Tag every criterion `[machine]` or `[eyes]`.
+Every `[eyes]` criterion needs either a machine replacement or a dated user waiver. A bare `[eyes]`
+criterion makes the spec not auto-ready; never leave that discovery to `/run`.
 
-- `[machine]` — something a command or a browser-driving step can decide. UI flows via chrome-devtools
-  MCP (navigate, click, screenshot), behaviour via the repo's test scripts.
-- `[eyes]` — needs a human to look.
+More than one PR, more than one repo, or independently reviewed phases require an epic with sub-issues
+and one spec per sub-issue. Otherwise use one issue and one task branch.
 
-**Every `[eyes]` criterion must come with a machine replacement or an explicit waiver.** An `[eyes]`
-criterion in a spec destined for `--auto` is a stop the run cannot clear, so a spec full of them is a
-spec that cannot run unattended. When you write one, take the next step: either state the machine
-check that replaces it (a screenshot diff, a computed contrast ratio, an axe-core assertion) or record
-that the user knowingly accepted a hard stop there. Never leave a bare `[eyes]` and let `/run`
-discover it.
+## 4. Create the task branch
 
-Vague criteria are the other failure. "Looks right" is not a criterion. "The empty state renders the
-illustration and the CTA is focusable" is.
+Resolve the integration target from repo policy, falling back to the remote default branch. Fetch it
+and verify the starting point. If currently on the target branch, create the task branch now using the
+task-flow naming rule. If already on a feature branch, confirm it belongs to this task and its PR is not
+already merged. Never commit the spec directly to the integration branch.
 
-## 4. Decide the shape of the work
+The task branch created here is the branch `/run` continues; `/run` must not create a second branch for
+the same spec.
 
-Per the `cc-tuner:task-flow` skill: more than one PR, more than one repo, or phases a human will
-review separately → an epic with sub-issues, and **one spec per sub-issue**. A spec that spans three
-PRs cannot be executed unattended, because the first merge invalidates the base of the rest.
+## 5. Write and commit the spec
 
-Otherwise a plain issue on the board with Status and Priority set.
-
-## 5. Write the spec
-
-To `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md` — `wiki/` if the repo has one, else `docs/`. Structure:
+Write `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise:
 
 ```markdown
 # <title>
 
-**Goal:** one paragraph. What is true after this ships that is not true now.
-**Issue:** #N (link; the issue body links back here)
-**Architecture:** the approach, and the alternatives rejected with the reason.
+**Goal:** <what becomes true>
+**Issue:** #N | none
+**Architecture:** <approach and rejected alternatives>
 
 ## Acceptance criteria
 - [ ] [machine] <criterion> — checked by: <exact command or MCP step>
-- [ ] [eyes] <criterion> — machine replacement: <check> | WAIVED by user <date>
+- [ ] [eyes] <criterion> — machine replacement: <check> | WAIVED by <user> on <date>
 
 ## Tasks
-1. <file path> — <what changes and why>
+1. <file path> — <change and reason>
 
 ## Out of scope
-<the things a reader would otherwise assume are included>
+<explicit boundaries>
 
 ## Run config
-merge: squash|merge · auto: yes|no · ci: <command> · cheap_gate: <command> · test: <command>
+branch: <current task branch>
+target: <integration branch>
+merge: squash|merge
+auto_ready: yes|no — <reason when no>
+ci: <exact command or check source>
+cheap_gate: <exact command>
+test: <exact command>
+tracker: gh|glab|none
+board: <project title + owner | none>
 ```
 
-**Out of scope** is not filler. It is where you record the boundary you and the user agreed on, and
-its absence is how an unattended run turns a two-file change into a refactor.
+`auto_ready: yes` is valid only when there is one PR, `ci` is nonblank, and no `[eyes]` criterion lacks
+a replacement or waiver. It records capability, not execution mode; only `/run --auto` requests an
+unattended run.
 
-Then commit the spec, and create or update the issue so the two point at each other.
+Inspect the diff, stage the spec path explicitly, and commit it on the task branch with a Conventional
+Commit. Create or update the issue so it and the spec link to each other. Journal-free spec work ends
+here; the run journal starts in `/run`.
 
 ## 6. Hand off
 
-Print the spec path and the exact next command:
+Print the spec path and one appropriate next command:
 
-```
-/cc-tuner:run docs/PLANS/2026-07-31-thing.md            # HITL between phases
-/cc-tuner:run --auto docs/PLANS/2026-07-31-thing.md     # unattended, merges on green CI
+```text
+/cc-tuner:run docs/PLANS/2026-07-31-thing.md
+/cc-tuner:run --auto docs/PLANS/2026-07-31-thing.md
 ```
 
-State plainly whether the spec is `--auto`-ready. It is **not** if any criterion is `[eyes]` without a
-waiver, if the run config has a blank `ci`, or if the work needs more than one PR. Saying so here
-costs a sentence; discovering it mid-run costs the run.
+Offer the `--auto` form only when `auto_ready: yes`. State the current branch and target alongside the
+command so a later session can verify both before editing.
 
 ## Verification
 
-- [ ] Every acceptance criterion names the command or MCP step that decides it
-- [ ] No `[eyes]` criterion without a machine replacement or a recorded waiver
-- [ ] No "TBD", no "as appropriate", nothing deferred to the executor's judgement
-- [ ] Spec is committed and the issue links to it both ways
-- [ ] `--auto` readiness stated explicitly, with the reason when the answer is no
-- [ ] Nothing asked that the repo, issue, or code already answered
+- [ ] Repo, issue, instructions, code, and current docs read before questioning
+- [ ] Every criterion names its deciding command or MCP step
+- [ ] No bare `[eyes]`, `TBD`, or executor-owned product decision
+- [ ] One spec maps to one task branch and one PR
+- [ ] `auto_ready` and its reason are explicit
+- [ ] Spec committed on the task branch, never directly on the integration branch
+- [ ] Issue and spec link to each other

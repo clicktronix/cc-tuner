@@ -1,6 +1,6 @@
 ---
 name: task-flow
-description: Use when working a task end to end in the user's repos — creating branches, commits and PRs, managing epics and cards on a GitHub Projects board, cleaning up worktrees after a merge, syncing local main, choosing a merge strategy for stacked PRs, or generating release notes from commits. Companion to the .claude/rules/task-flow.md invariants installed by /cc-tuner:task-flow-setup.
+description: Use when working a task end to end in the user's repos — creating branches, commits and PRs, managing epics and cards on a GitHub Projects board, cleaning up worktrees after a merge, syncing the target branch, choosing a merge strategy for stacked PRs, or generating release notes from commits. Companion to the .claude/rules/task-flow.md invariants installed by /cc-tuner:task-flow-setup.
 ---
 
 # Task Flow — procedures
@@ -84,16 +84,16 @@ Finishing is not the merge — it is the merge plus leaving the machine clean. R
 merged, in the order given:
 
 ```bash
-git switch main && git pull --ff-only          # local main was stale the moment the PR merged
+git switch <target> && git pull --ff-only      # local target was stale the moment the PR merged
 git worktree list                              # any worktree still pointing at the merged branch?
 git worktree remove <path>                     # remove it; --force only when you know the diff is dead
 git worktree prune                             # clears stale registrations for directories already gone
-git branch --merged main | grep -v '^\*\| main$'   # local branches whose work is already in main
+git branch --merged <target>                   # inspect local branches already merged into the target
 git branch -d <branch>                         # -d refuses if unmerged; never reach for -D to win an argument
 git fetch --prune                              # drops remote-tracking refs for branches deleted on the remote
 ```
 
-`--ff-only` is deliberate: if it refuses, local `main` has commits that are not upstream and that is
+`--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
 something to look at, not to paper over with a merge commit.
 
 Do not delete a worktree whose branch never merged — that is the orphan-branch anti-pattern below,
@@ -115,14 +115,15 @@ the notes; that is the actual cost of an off-format commit.
 
 ## Merge strategies
 
-- Feature → `main`: **squash** + `--delete-branch` — linear trunk, WIP chain collapses.
+- Feature → `<target>`: **squash** + `--delete-branch` — linear trunk, WIP chain collapses.
 - Stacked PRs: **merge-commit inside the chain** (preserves ancestry), squash only when the top of
-  the stack lands on `main`. Squashing mid-chain orphans the SHAs of every PR above it.
+  the stack lands on `<target>`. Squashing mid-chain orphans the SHAs of every PR above it.
 - Re-check the base of each stacked PR after the one below merges.
 
 ## Plan lifecycle
 
-1. Draft where superpowers scratches them: `docs/superpowers/plans/` (git-ignored).
+1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
+   plugin path.
 2. Worth keeping → promote to `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`. The plans root is `wiki/`
    when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
    Minimum header: `Goal:`, `Architecture:`, then tasks with file paths.
@@ -135,7 +136,7 @@ the notes; that is the actual cost of an off-format commit.
 - **Long-lived staging branch + squash** — real incident 2026-06-04/05: `perf-quality-audit` squashed
   to `main` as PR #50, then 8 follow-up PRs (#51–#58) squash-targeted the dead branch; the final merge
   was impossible and all 8 commits had to be cherry-picked onto a fresh branch (PR #61). Short
-  branches straight to `main`.
+  branches straight to the intended target.
 - **Branch continued after its PR merged** — real incident 2026-07-26 (stokli/backend):
   `fix/portfolio-performance-correctness` merged as PR #213 (squash `5a7d4a71`), then picked up two
   unrelated `chore:` commits days later. Twelve days on, `main` had moved 35 commits and the branch
@@ -183,7 +184,7 @@ the notes; that is the actual cost of an off-format commit.
 
 ## Pre-PR checklist
 
-- [ ] Branch is based on current `origin/main` (check, do not assume) and its PR is not already merged
+- [ ] Branch is based on current `origin/<target>` (check, do not assume) and its PR is not already merged
 - [ ] Commits follow Conventional Commits, `!`/`BREAKING CHANGE:` where applicable
 - [ ] Issue exists and is linked (`Closes #N` / `Refs #N`); the card has Status and Priority
 - [ ] **Nothing is trusted on its own success report** — a new regression test was shown red against

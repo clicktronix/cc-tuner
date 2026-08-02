@@ -83,7 +83,8 @@ routes the agent to do it.
 The task loop, split in two on purpose.
 
 `/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, the issue and the code
-before it asks anything, grills the requirements via `mattpocock-skills:grill-with-docs`, and writes a
+before it asks anything, grills the requirements via `mattpocock-skills:grilling` plus
+`mattpocock-skills:domain-modeling`, and writes a
 spec whose acceptance criteria each name the command or MCP step that decides them. Every `[eyes]`
 criterion has to carry a machine replacement or a recorded waiver — an `[eyes]` criterion is a stop an
 unattended run cannot clear, so leaving one bare just moves the failure later. The spec ends with an
@@ -104,7 +105,7 @@ compaction the playbook returns (it is re-read from the command file) but the pr
 `/run` opens every phase with `journal.sh resume`, and journals literal values — PR number, base SHA,
 per-criterion results — because shell state does not survive between Bash calls either.
 
-Requires the **superpowers** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
+Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).
 
 ## Install
