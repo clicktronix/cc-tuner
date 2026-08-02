@@ -23,6 +23,7 @@ jobs:
 
       - name: Resolve release PR head
         id: release-pr
+        # In release-please-action v4, prs_created is true when a release PR is created or updated.
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}

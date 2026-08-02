@@ -38,7 +38,7 @@ META="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.meta"
 execute_task_assert_regular_or_missing "$JOURNAL"
 execute_task_assert_regular_or_missing "$META"
 
-if ! DIRTY="$(git status --porcelain -unormal -- . ":(exclude)$EXECUTE_TASK_RUNS_REL" 2>/dev/null)"; then
+if ! DIRTY="$(git status --porcelain -unormal 2>/dev/null)"; then
   execute_task_die "git status failed; refusing to assume a clean tree"
 fi
 if [ -n "$DIRTY" ]; then

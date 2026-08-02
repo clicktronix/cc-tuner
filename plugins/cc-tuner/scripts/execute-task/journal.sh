@@ -11,6 +11,15 @@ execute_task_init_root
 
 SUBCOMMAND="${1:-}"
 execute_task_validate_run_id "${2:-}"
+case "$SUBCOMMAND" in
+  path)
+    echo "$EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.md"
+    exit 0
+    ;;
+  append|read|resume) ;;
+  *) execute_task_die "unknown subcommand '$SUBCOMMAND' (use append|path|read|resume)" ;;
+esac
+
 execute_task_prepare_state
 JOURNAL="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.md"
 META="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.meta"
@@ -18,9 +27,6 @@ execute_task_assert_regular_or_missing "$JOURNAL"
 execute_task_assert_regular_or_missing "$META"
 
 case "$SUBCOMMAND" in
-  path)
-    echo "$EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.md"
-    ;;
   append)
     shift 2
     MESSAGE="$*"
@@ -39,8 +45,9 @@ case "$SUBCOMMAND" in
     [ -f "$JOURNAL" ] || execute_task_die "journal not found: $EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.md"
     execute_task_assert_run_owner "$META"
     N="${3:-20}"
-    case "$N" in ''|*[!0-9]*) execute_task_die "resume line count must be a non-negative integer, got '$N'" ;; esac
-    [ "${#N}" -le 7 ] || N=9999999
+    case "$N" in ''|*[!0123456789]*) execute_task_die "resume line count must be a non-negative integer, got '$N'" ;; esac
+    [ "${#N}" -le 7 ] \
+      || execute_task_die "resume line count must contain at most 7 digits"
     if grep -q '^## log$' "$JOURNAL"; then
       sed -n '1,/^## log$/p' "$JOURNAL"
       LAST_RESTART="$(grep '^## restarted:' "$JOURNAL" | tail -1)"
@@ -56,5 +63,4 @@ case "$SUBCOMMAND" in
     [ "$N" -gt 0 ] && printf '%s\n' "$LOG" | tail -n "$N"
     exit 0
     ;;
-  *) execute_task_die "unknown subcommand '$SUBCOMMAND' (use append|path|read|resume)" ;;
 esac

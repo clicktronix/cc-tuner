@@ -46,6 +46,21 @@ fi
 rm -rf "$REPO"
 
 make_repo
+mkdir -p "$REPO/packages/app"
+printf 'nested\n' > "$REPO/packages/app/app.txt"
+(cd "$REPO" && git add packages/app/app.txt && git commit -qm "add nested project")
+printf 'dirty outside project\n' >> "$REPO/file.txt"
+CLAUDE_PROJECT_DIR="$REPO/packages/app" bash "$SCRIPT" nested-dirty main --expected-branch task >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 2 ] && [ ! -e "$REPO/packages/app/$RUNS_REL/nested-dirty.md" ]; then
+  echo "PASS repo-wide-dirty-blocks-from-subdirectory"
+else
+  echo "FAIL repo-wide-dirty-blocks-from-subdirectory (rc=$rc)"
+  failures=1
+fi
+rm -rf "$REPO"
+
+make_repo
 run_preflight 'same/id' main --expected-branch task >/dev/null 2>&1; slash_rc=$?
 run_preflight 'Run' main --expected-branch task >/dev/null 2>&1; upper_rc=$?
 run_preflight run main --expected-branch task >/dev/null 2>&1; lower_rc=$?

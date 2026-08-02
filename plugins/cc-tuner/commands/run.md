@@ -149,12 +149,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" resume <literal-run
    git diff --cached
    git commit -m "<type>: <imperative summary>"
    ```
-4. Push the task branch with tracking. Find its open PR or create one with the spec goal, issue link,
-   scope summary, verification commands, and remaining limitations. Capture and journal the literal PR
-   number and pushed HEAD SHA:
+4. Push the task branch with tracking. Find its open PR or create one with a literal title plus the
+   spec goal, issue link, scope summary, verification commands, and remaining limitations in the
+   prepared body. Capture and journal the literal PR number and pushed HEAD SHA:
    ```bash
    git push -u origin <literal-branch>
-   gh pr view <literal-branch> --json number,url,headRefOid,baseRefName || gh pr create --base <literal-target> --head <literal-branch> --body-file <prepared-body-file>
+   gh pr view <literal-branch> --json number,url,headRefOid,baseRefName || gh pr create --base <literal-target> --head <literal-branch> --title "<literal-title>" --body-file <prepared-body-file>
    ```
 5. Verify the PR base equals the literal target and its remote head equals that SHA. Run/observe the
    spec's `ci` against that SHA. A missing, skipped, stale, or red required check is not green.

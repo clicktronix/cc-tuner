@@ -4,6 +4,24 @@ DIR="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)"
 J="$DIR/journal.sh"; P="$DIR/preflight.sh"
 fails=0
 
+PATH_REPO="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+(
+  cd "$PATH_REPO" && git init -q -b main && git config user.email a@b.c \
+    && git config user.name t && echo x > f && git add f && git commit -qm init
+) || exit 1
+EXCLUDE_BEFORE="$(cat "$PATH_REPO/.git/info/exclude" 2>/dev/null || true)"
+OUT="$(CLAUDE_PROJECT_DIR="$PATH_REPO" bash "$J" path pure-path 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+  && [ "$OUT" = ".claude/execute-task-runs/pure-path.md" ] \
+  && [ ! -e "$PATH_REPO/.claude" ] \
+  && [ "$(cat "$PATH_REPO/.git/info/exclude" 2>/dev/null || true)" = "$EXCLUDE_BEFORE" ]; then
+  echo "PASS path-has-no-state-side-effect"
+else
+  echo "FAIL path-has-no-state-side-effect (rc=$rc out=$OUT)"
+  fails=1
+fi
+rm -rf "$PATH_REPO"
+
 T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
 ( cd "$T" && git init -q -b main && git config user.email a@b.c \
   && git config user.name t && echo x > f && git add f && git commit -qm init \
@@ -79,10 +97,10 @@ OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 0 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'base SHA' && ! printf '%s' "$OUT" | grep -q 'entry 8'; } \
   && echo "PASS resume-zero-succeeds" || { echo "FAIL resume-zero-succeeds (rc=$rc out=$OUT)"; fails=1; }
 
-# an n too large for `[` to compare must still print the log, not drop it
+# an n too large for safe shell arithmetic is rejected explicitly, not silently rewritten
 OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 999999999999999999999 2>&1)"; rc=$?
-{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'entry 8'; } \
-  && echo "PASS resume-huge-n-clamped" || { echo "FAIL resume-huge-n-clamped (rc=$rc out=$OUT)"; fails=1; }
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'at most 7 digits'; } \
+  && echo "PASS resume-huge-n-rejected" || { echo "FAIL resume-huge-n-rejected (rc=$rc out=$OUT)"; fails=1; }
 
 # a journal with no '## log' marker must stay BOUNDED — the sed range would otherwise run to
 # EOF and print the whole file, breaking the promise that resume is safe to call every phase

@@ -58,6 +58,26 @@ rc=$?
 rm -rf "$REPO"
 
 make_repo
+CLAUDE_PROJECT_DIR="$REPO" bash "$PREFLIGHT" invalid-anchor main --expected-branch task >/dev/null
+sed 's/^target_sha=.*/target_sha=(unborn)/' "$REPO/$RUNS_REL/invalid-anchor.meta" \
+  > "$REPO/$RUNS_REL/invalid-anchor.meta.new"
+mv "$REPO/$RUNS_REL/invalid-anchor.meta.new" "$REPO/$RUNS_REL/invalid-anchor.meta"
+CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" invalid-anchor >/dev/null 2>&1
+unborn_rc=$?
+sed 's/^target_sha=.*/target_sha=gggggggggggggggggggggggggggggggggggggggg/' \
+  "$REPO/$RUNS_REL/invalid-anchor.meta" > "$REPO/$RUNS_REL/invalid-anchor.meta.new"
+mv "$REPO/$RUNS_REL/invalid-anchor.meta.new" "$REPO/$RUNS_REL/invalid-anchor.meta"
+CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" invalid-anchor >/dev/null 2>&1
+non_hex_rc=$?
+if [ "$unborn_rc" -eq 1 ] && [ "$non_hex_rc" -eq 1 ]; then
+  echo "PASS invalid-target-anchors-rejected"
+else
+  echo "FAIL invalid-target-anchors-rejected (unborn=$unborn_rc non_hex=$non_hex_rc)"
+  failures=1
+fi
+rm -rf "$REPO"
+
+make_repo
 CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" missing >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 1 ] && echo "PASS missing-metadata-fails-closed" \

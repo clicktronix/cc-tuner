@@ -8,6 +8,8 @@ RUN="$ROOT/plugins/cc-tuner/commands/run.md"
 CONFIG="$ROOT/plugins/cc-tuner/assets/execute-task/config.template.md"
 CONTRACT="$ROOT/plugins/cc-tuner/workflow-contract.json"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
+# Keep this value identical to codex-tuner and update it only in coordinated contract PRs.
+EXPECTED_SHARED_CONTRACT_SHA256="0b7678974d75ca217bf6958bb49a60c381f228ec1de6845c3ed70186162b8073"
 fails=0
 
 need() {
@@ -19,6 +21,21 @@ need() {
     fails=1
   fi
 }
+
+contract_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+actual_contract_sha256="$(contract_sha256 "$CONTRACT")"
+[ "$actual_contract_sha256" = "$EXPECTED_SHARED_CONTRACT_SHA256" ] \
+  && echo "PASS shared-contract-fingerprint" \
+  || { echo "FAIL shared-contract-fingerprint (got '$actual_contract_sha256')"; fails=1; }
 
 jq -e '
   .name == "clicktronix-development-flow" and
@@ -49,13 +66,18 @@ need "run-loads-tiering-reference" '${CLAUDE_PLUGIN_ROOT}/references/tiering.md'
 need "run-append-command" 'journal.sh" append <literal-run-id>' "$RUN"
 need "run-owned-preflight" '--expected-branch <literal-branch>' "$RUN"
 need "run-explicit-stage" 'git add -- <path-1> <path-2>' "$RUN"
-need "run-explicit-pr-base" 'gh pr create --base <literal-target> --head <literal-branch>' "$RUN"
+need "run-explicit-pr-create" 'gh pr create --base <literal-target> --head <literal-branch> --title "<literal-title>"' "$RUN"
 need "run-current-sha-ci" 'remote head equals that SHA' "$RUN"
 need "run-reconciliation-only" 'only board/spec/branch/' "$RUN"
 need "release-pr-status" 'context=release-pr/validate' "$RELEASE_WORKFLOW"
 need "release-pr-exact-sha" 'ref: ${{ steps.release-pr.outputs.sha }}' "$RELEASE_WORKFLOW"
 need "release-pr-runs-suite" 'run: bash tests/run.sh' "$RELEASE_WORKFLOW"
 need "release-pr-fails-workflow" '[ "$state" = success ]' "$RELEASE_WORKFLOW"
+need "release-pr-create-update-gate" 'prs_created is true when a release PR is created or updated' "$RELEASE_WORKFLOW"
+
+release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" "$RELEASE_WORKFLOW")"
+[ "$release_pr_gate_count" -eq 4 ] && echo "PASS release-pr-gate-count" \
+  || { echo "FAIL release-pr-gate-count (got $release_pr_gate_count, want 4)"; fails=1; }
 
 resume_count="$(grep -cF 'journal.sh" resume <literal-run-id>' "$RUN")"
 [ "$resume_count" -eq 8 ] && echo "PASS resume-count" \
