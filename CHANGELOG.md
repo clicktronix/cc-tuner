@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.0](https://github.com/clicktronix/cc-tuner/compare/v0.9.0...v0.10.0) (2026-08-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* run guards now bind to a journaled run ID and immutable target SHA.
+* spec/run split, effort tiering, /delegate and smoke-verify skill removed ([#11](https://github.com/clicktronix/cc-tuner/issues/11))
+
+### Features
+
+* spec/run split, effort tiering, /delegate and smoke-verify skill removed ([#11](https://github.com/clicktronix/cc-tuner/issues/11)) ([0c97e96](https://github.com/clicktronix/cc-tuner/commit/0c97e96f949e12ffb070e2e3c1ddd47879e85f86))
+
+
+### Bug Fixes
+
+* complete spec-run delivery lifecycle ([f9bd5d6](https://github.com/clicktronix/cc-tuner/commit/f9bd5d6e1cf72802f3727dc2318ab8cfabd3cfb1))
+
 ## [0.9.0](https://github.com/clicktronix/cc-tuner/compare/v0.8.0...v0.9.0) (2026-07-31)
 
 
