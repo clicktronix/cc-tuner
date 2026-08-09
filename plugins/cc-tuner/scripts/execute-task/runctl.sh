@@ -105,6 +105,12 @@ validate_review_spec_path() {
   esac
 }
 
+canonical_review_spec_path() {
+  local value="$1"
+  while [ "${value#./}" != "$value" ]; do value="${value#./}"; done
+  printf '%s\n' "$value"
+}
+
 assert_repo_regular_tracked() {
   local label="$1" value="$2" git_root parent parent_real full
   validate_repo_relative_path "$label" "$value"
@@ -136,7 +142,10 @@ EOF
   candidate_tree="$(jq -r '.candidate.tree_sha // empty' "$STATE")"
   base_sha="$(jq -r '.base_sha' "$STATE")"
   spec_path="$(jq -r '.spec // empty' "$STATE")"
-  fingerprint="${fp_field#fingerprint=}"
+  case "$fp_field" in
+    fingerprint=*) fingerprint="${fp_field#fingerprint=}" ;;
+    *) execute_task_die "Codex required-review marker has an invalid fingerprint field" ;;
+  esac
   [ "$word1" = "CC_CODEX_REQUIRED_REVIEW" ] \
     && [ "$word2" = "APPROVE" ] \
     && [ "$thread_field" = "thread=review-$EXECUTE_TASK_RUN_ID" ] \
@@ -199,7 +208,8 @@ validate_state_shape() {
       .schema_version == 1 and
       .run_id == $run and .branch == $branch and .target_ref == $target and .base_sha == $base and
       (.run_id | id) and (.target_sha | sha) and
-      (.spec == null or (.spec | type == "string" and test("^[a-zA-Z0-9_./-]+$"))) and
+      (.spec == null or (.spec | type == "string" and test("^[a-zA-Z0-9_./-]+$") and
+        (startswith("./") | not))) and
       (.mode == "interactive" or .mode == "auto") and
       (.status == "active" or .status == "blocked" or .status == "completed") and
       (if .status == "blocked" then (.blocked_reason | type == "string" and length > 0)
@@ -228,8 +238,8 @@ validate_state_shape() {
       all(.tasks[];
         keys == ["description", "evidence", "id", "phase", "status", "ui_task_id", "updated_at"] and
         (.id | id) and (.description | type == "string" and length > 0) and
-        (.phase as $task_phase | ["readiness", "planning", "implementation", "testing", "acceptance",
-          "candidate", "review", "delivery"] | index($task_phase) != null) and
+        (.phase as $task_phase | ["implementation", "testing", "acceptance", "candidate", "review",
+          "delivery"] | index($task_phase) != null) and
         (.status as $task_status | ["pending", "in_progress", "blocked", "completed"] |
           index($task_status) != null)) and
       all(.gates[];
@@ -444,13 +454,16 @@ validate_delivery_state() {
 }
 
 validate_phase_completion() {
-  local phase="$1" candidate
+  local phase="$1" candidate required_phase
   assert_phase_tasks_complete "$phase"
   case "$phase" in
     readiness) assert_gate_passed dor ;;
     planning)
-      jq -e 'any(.tasks[]; .phase == "implementation")' "$STATE" >/dev/null 2>&1 \
-        || execute_task_die "planning must create at least one implementation task"
+      for required_phase in implementation testing acceptance candidate review delivery; do
+        jq -e --arg phase "$required_phase" 'any(.tasks[]; .phase == $phase)' \
+          "$STATE" >/dev/null 2>&1 \
+          || execute_task_die "planning must create a '$required_phase' lifecycle task"
+      done
       ;;
     implementation)
       jq -e 'any(.tasks[]; .phase == "implementation")' "$STATE" >/dev/null 2>&1 \
@@ -501,6 +514,7 @@ case "$SUBCOMMAND" in
     assert_no_other_active_run
     [ -f "$JOURNAL" ] || execute_task_die "journal not found for run '$EXECUTE_TASK_RUN_ID'; run preflight first"
     if [ -n "$SPEC" ]; then
+      SPEC="$(canonical_review_spec_path "$SPEC")"
       validate_review_spec_path "$SPEC"
       assert_repo_regular_tracked "spec" "$SPEC"
     fi
@@ -580,7 +594,7 @@ case "$SUBCOMMAND" in
     [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
       || execute_task_die "spec path is immutable after implementation completes"
     OLD_SPEC="$(jq -r '.spec // empty' "$STATE")"
-    NEW_SPEC="$4"
+    NEW_SPEC="$(canonical_review_spec_path "$4")"
     [ -n "$OLD_SPEC" ] || execute_task_die "run has no spec path to relocate"
     validate_repo_relative_path "stored spec" "$OLD_SPEC"
     validate_review_spec_path "$NEW_SPEC"
@@ -640,6 +654,8 @@ case "$SUBCOMMAND" in
           .fix_round = $round |
           .phase = {name: "implementation", status: "in_progress"} |
           .completed_phases = [.completed_phases[] | select(. == "readiness" or . == "planning")] |
+          .tasks |= map(if .phase == "implementation" then . else
+            .status = "pending" | .evidence = null | .updated_at = $updated_at end) |
           .tasks += [{id: $task, phase: "implementation", description: $reason,
             status: "pending", ui_task_id: null, evidence: null, updated_at: $updated_at}] |
           .gates = [.gates[] | select(.id != "testing" and .id != "acceptance" and .id != "dod")] |
@@ -662,7 +678,11 @@ case "$SUBCOMMAND" in
     case "$ACTION" in
       add)
         [ "$#" -ge 5 ] || usage
-        TASK_PHASE="$5"; validate_phase "$TASK_PHASE"
+        TASK_PHASE="$5"
+        case "$TASK_PHASE" in
+          implementation|testing|acceptance|candidate|review|delivery) ;;
+          *) execute_task_die "task phase must be implementation, testing, acceptance, candidate, review, or delivery" ;;
+        esac
         UI_TASK_ID=""
         shift 5
         while [ "$#" -gt 0 ]; do

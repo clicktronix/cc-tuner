@@ -41,7 +41,11 @@
     "spec": {
       "oneOf": [
         { "type": "null" },
-        { "type": "string", "pattern": "^[a-zA-Z0-9_./-]+$" }
+        {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_./-]+$",
+          "not": { "pattern": "^\\./" }
+        }
       ]
     },
     "branch": { "type": "string", "minLength": 1 },
@@ -226,7 +230,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "phase": {
-          "enum": ["readiness", "planning", "implementation", "testing", "acceptance", "candidate", "review", "delivery"]
+          "enum": ["implementation", "testing", "acceptance", "candidate", "review", "delivery"]
         },
         "description": { "type": "string", "minLength": 1 },
         "status": { "enum": ["pending", "in_progress", "blocked", "completed"] },

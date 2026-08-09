@@ -37,6 +37,16 @@ complete_readiness() {
 create_plan() {
   evidence "Implement the scoped behavior and regression test" \
     task run-1 add implement-feature implementation >/dev/null \
+    && evidence "Run targeted, full, static, and runtime verification" \
+      task run-1 add verify-tests testing >/dev/null \
+    && evidence "Prove every acceptance criterion" \
+      task run-1 add verify-acceptance acceptance >/dev/null \
+    && evidence "Stage and commit the tested candidate" \
+      task run-1 add finalize-candidate candidate >/dev/null \
+    && evidence "Complete every exact-candidate review" \
+      task run-1 add review-candidate review >/dev/null \
+    && evidence "Publish, verify CI and DoD, then reconcile" \
+      task run-1 add deliver-candidate delivery >/dev/null \
     && runctl phase run-1 complete planning >/dev/null \
     && runctl phase run-1 enter implementation >/dev/null
 }
@@ -50,9 +60,15 @@ complete_implementation() {
 }
 
 complete_testing_to_candidate() {
-  evidence "targeted/full test commands passed" gate run-1 record testing pass >/dev/null \
+  runctl task run-1 start verify-tests >/dev/null \
+    && evidence "targeted/full test commands passed" \
+      task run-1 complete verify-tests >/dev/null \
+    && evidence "targeted/full test commands passed" gate run-1 record testing pass >/dev/null \
     && runctl phase run-1 complete testing >/dev/null \
     && runctl phase run-1 enter acceptance >/dev/null \
+    && runctl task run-1 start verify-acceptance >/dev/null \
+    && evidence "machine acceptance passed" \
+      task run-1 complete verify-acceptance >/dev/null \
     && evidence "machine acceptance passed" gate run-1 record acceptance pass >/dev/null \
     && runctl phase run-1 complete acceptance >/dev/null \
     && runctl phase run-1 enter candidate >/dev/null
@@ -61,6 +77,9 @@ complete_testing_to_candidate() {
 record_candidate_and_enter_review() {
   SHA="$(git -C "$REPO" rev-parse HEAD)"
   runctl candidate run-1 record "$SHA" >/dev/null \
+    && runctl task run-1 start finalize-candidate >/dev/null \
+    && evidence "tested clean candidate recorded at $SHA" \
+      task run-1 complete finalize-candidate >/dev/null \
     && runctl phase run-1 complete candidate >/dev/null \
     && runctl phase run-1 enter review >/dev/null
 }
@@ -72,7 +91,10 @@ approve_all() {
       review run-1 record "$reviewer" APPROVE "$SHA" >/dev/null || return 1
   done
   evidence "$(codex_approval_marker)" \
-    review run-1 record codex APPROVE "$SHA" >/dev/null
+    review run-1 record codex APPROVE "$SHA" >/dev/null \
+    && runctl task run-1 start review-candidate >/dev/null \
+    && evidence "all required reviews approved $SHA" \
+      task run-1 complete review-candidate >/dev/null
 }
 
 codex_approval_marker() {
@@ -103,6 +125,12 @@ if [ -f "$STATE" ] \
 else
   fail "state-init-idempotent"
 fi
+runctl init run-1 --mode auto --spec ./docs/spec.md >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(jq -r '.spec' "$STATE")" = "docs/spec.md" ]; then
+  pass "spec-path-is-canonicalized"
+else
+  fail "spec-path-is-canonicalized" "rc=$rc spec=$(jq -r '.spec' "$STATE")"
+fi
 
 SCHEMA="$DIR/../../schemas/run-state.schema.json"
 STATE_KEYS="$(jq -c 'keys | sort' "$STATE")"
@@ -112,7 +140,7 @@ SCHEMA_CI_KEYS="$(jq -c '.properties.ci.required | sort' "$SCHEMA")"
 if [ "$STATE_KEYS" = "$SCHEMA_KEYS" ] && [ "$STATE_CI_KEYS" = "$SCHEMA_CI_KEYS" ] \
     && jq -e '
       .properties.required_reviewers.const == ["deep-review","mattpocock","codex"] and
-      (."$defs".task.properties.phase.enum | length) == 8 and
+      (."$defs".task.properties.phase.enum | length) == 6 and
       (.properties.candidate.oneOf | length) == 2 and
       (.properties.ci.oneOf | length) == 3 and
       (.allOf | length) == 2
@@ -187,6 +215,17 @@ rm -rf "$REPO"
 # Specs move from the planning area to the archive while implementation owns mutations. State
 # follows only a staged/committed relocation; a copy that leaves the old tracked path cannot pass.
 make_repo
+complete_readiness || exit 1
+evidence "Impossible late readiness task" task run-1 add late-readiness readiness >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "past-phase-task-is-rejected" \
+  || fail "past-phase-task-is-rejected" "rc=$rc"
+evidence "Implementation only" task run-1 add implement-only implementation >/dev/null
+runctl phase run-1 complete planning >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "planning-requires-full-lifecycle" \
+  || fail "planning-requires-full-lifecycle" "rc=$rc"
+rm -rf "$REPO"
+
+make_repo
 complete_readiness && create_plan || exit 1
 mkdir -p "$REPO/docs/archive"
 cp "$REPO/docs/spec.md" "$REPO/docs/archive/spec-copy.md"
@@ -211,6 +250,9 @@ prepare_candidate || { fail "candidate-fixture"; rm -rf "$REPO"; exit "$fails"; 
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 evidence "deep review approved" review run-1 record deep-review APPROVE "$SHA" >/dev/null
 evidence "mattpocock approved" review run-1 record mattpocock APPROVE "$SHA" >/dev/null
+runctl task run-1 start review-candidate >/dev/null
+evidence "review task completed for gate validation" \
+  task run-1 complete review-candidate >/dev/null
 runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "missing-codex-review-blocks" \
   || fail "missing-codex-review-blocks" "rc=$rc"
@@ -219,6 +261,10 @@ runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
 evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "codex-approval-requires-self-verified-marker" \
   || fail "codex-approval-requires-self-verified-marker" "rc=$rc"
+bad_marker="$(codex_approval_marker | sed 's/fingerprint=/digest=/')"
+evidence "$bad_marker" review run-1 record codex APPROVE "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "codex-approval-requires-fingerprint-label" \
+  || fail "codex-approval-requires-fingerprint-label" "rc=$rc"
 evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
 printf 'post-review mutation\n' >> "$REPO/file.txt"
 runctl can-advance run-1 >/dev/null 2>&1; rc=$?
@@ -237,6 +283,9 @@ SHA="$(git -C "$REPO" rev-parse HEAD)"
 evidence "deep review requested changes" review run-1 record deep-review REQUEST_CHANGES "$SHA" >/dev/null
 evidence "matt approved" review run-1 record mattpocock APPROVE "$SHA" >/dev/null
 evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
+runctl task run-1 start review-candidate >/dev/null
+evidence "review attempt completed with blocking verdict" \
+  task run-1 complete review-candidate >/dev/null
 runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "request-changes-blocks-review" \
   || fail "request-changes-blocks-review" "rc=$rc"
@@ -245,7 +294,8 @@ evidence "same candidate reconsidered" review run-1 record deep-review APPROVE "
   || fail "request-changes-cannot-be-overwritten" "rc=$rc"
 evidence "address deep review findings" phase run-1 fix >/dev/null
 if jq -e '.phase == {name:"implementation",status:"in_progress"} and
-    .candidate.sha == null and all(.reviews[]; .verdict == "PENDING") and .ci.status == "pending"' \
+    .candidate.sha == null and all(.reviews[]; .verdict == "PENDING") and .ci.status == "pending" and
+    any(.tasks[]; .id == "review-candidate" and .status == "pending" and .evidence == null)' \
     "$REPO/$RUNS_REL/run-1.state.json" >/dev/null; then
   pass "review-fix-invalidates-downstream"
 else
@@ -259,9 +309,13 @@ make_repo
 complete_readiness && create_plan && complete_implementation || exit 1
 printf 'tested implementation\n' >> "$REPO/file.txt"
 evidence "tests passed on this worktree" gate run-1 record testing pass >/dev/null
+runctl task run-1 start verify-tests >/dev/null
+evidence "testing task completed" task run-1 complete verify-tests >/dev/null
 runctl phase run-1 complete testing >/dev/null
 runctl phase run-1 enter acceptance >/dev/null
 evidence "acceptance passed" gate run-1 record acceptance pass >/dev/null
+runctl task run-1 start verify-acceptance >/dev/null
+evidence "acceptance task completed" task run-1 complete verify-acceptance >/dev/null
 runctl phase run-1 complete acceptance >/dev/null
 runctl phase run-1 enter candidate >/dev/null
 printf 'untested mutation\n' >> "$REPO/file.txt"
@@ -295,6 +349,9 @@ make_repo
 prepare_candidate && approve_all \
   && runctl phase run-1 complete review >/dev/null \
   && runctl phase run-1 enter delivery >/dev/null || exit 1
+runctl task run-1 start deliver-candidate >/dev/null
+evidence "delivery attempt completed for CI gate validation" \
+  task run-1 complete deliver-candidate >/dev/null
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 WRONG_SHA="$(git -C "$REPO" rev-parse main)"
 evidence "stale CI run" ci run-1 record success "$WRONG_SHA" >/dev/null 2>&1; rc=$?
@@ -348,6 +405,9 @@ runctl phase run-1 complete delivery >/dev/null 2>&1; rc=$?
   || fail "ci-regression-blocks-delivery-at-use-time" "rc=$rc"
 export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
 evidence "DoD verified on candidate" gate run-1 record dod pass --sha "$SHA" >/dev/null
+runctl task run-1 start deliver-candidate >/dev/null
+evidence "PR, current-SHA CI, and DoD verified" \
+  task run-1 complete deliver-candidate >/dev/null
 runctl phase run-1 complete delivery >/dev/null
 evidence "late CI failure" ci run-1 record failure "$SHA" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "completed-delivery-ci-is-immutable" \
