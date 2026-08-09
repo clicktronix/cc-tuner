@@ -97,7 +97,14 @@ STATE_KEYS="$(jq -c 'keys | sort' "$STATE")"
 SCHEMA_KEYS="$(jq -c '.required | sort' "$SCHEMA")"
 STATE_CI_KEYS="$(jq -c '.ci | keys | sort' "$STATE")"
 SCHEMA_CI_KEYS="$(jq -c '.properties.ci.required | sort' "$SCHEMA")"
-if [ "$STATE_KEYS" = "$SCHEMA_KEYS" ] && [ "$STATE_CI_KEYS" = "$SCHEMA_CI_KEYS" ]; then
+if [ "$STATE_KEYS" = "$SCHEMA_KEYS" ] && [ "$STATE_CI_KEYS" = "$SCHEMA_CI_KEYS" ] \
+    && jq -e '
+      .properties.required_reviewers.const == ["deep-review","mattpocock","codex"] and
+      (."$defs".task.properties.phase.enum | length) == 8 and
+      (.properties.candidate.oneOf | length) == 2 and
+      (.properties.ci.oneOf | length) == 3 and
+      (.allOf | length) == 2
+    ' "$SCHEMA" >/dev/null; then
   pass "runtime-state-keys-match-published-schema"
 else
   fail "runtime-state-keys-match-published-schema" \
@@ -299,7 +306,7 @@ GH_STUB="$(mktemp -d)" || exit 1
 cat > "$GH_STUB/gh" <<'GH_STUB_SCRIPT'
 #!/usr/bin/env bash
 case "$1:$2" in
-  pr:view) printf '{"number":42,"state":"OPEN","headRefOid":"%s"}\n' "$GH_TEST_SHA" ;;
+  pr:view) printf '{"number":42,"state":"%s","headRefOid":"%s","baseRefName":"main","mergeCommit":{"oid":"merge-sha"}}\n' "${GH_TEST_PR_STATE:-OPEN}" "$GH_TEST_SHA" ;;
   pr:checks) printf '%s\n' "$GH_TEST_CHECKS" ;;
   *) exit 1 ;;
 esac
@@ -336,6 +343,10 @@ OUT="$(runctl can-merge run-1 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q "$SHA"; } \
   && pass "exact-sha-delivery-can-merge" \
   || fail "exact-sha-delivery-can-merge" "rc=$rc out=$OUT"
+evidence "premature completion claim" finish run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "finish-requires-merged-pr" \
+  || fail "finish-requires-merged-pr" "rc=$rc"
+export GH_TEST_PR_STATE="MERGED"
 evidence "PR merged; issue/spec/branch reconciled" finish run-1 >/dev/null
 [ "$(jq -r '.status + ":" + .phase.name' "$REPO/$RUNS_REL/run-1.state.json")" = "completed:done" ] \
   && [ "$(jq -r '.completion_evidence' "$REPO/$RUNS_REL/run-1.state.json")" = "PR merged; issue/spec/branch reconciled" ] \

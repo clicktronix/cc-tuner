@@ -370,6 +370,25 @@ $final_pr_json
 EOF
 }
 
+verify_merged_pr() {
+  local candidate pr_number target pr_json
+  candidate="$(jq -r '.candidate.sha // empty' "$STATE")"
+  pr_number="$(jq -r '.ci.pr_number // empty' "$STATE")"
+  target="$(jq -r '.target_ref' "$STATE")"
+  [ -n "$candidate" ] && [ -n "$pr_number" ] \
+    || execute_task_die "completed delivery is not bound to a candidate PR"
+  command -v gh >/dev/null 2>&1 || execute_task_die "gh is required to verify the merged PR"
+  pr_json="$(gh pr view "$pr_number" --json number,state,headRefOid,baseRefName,mergeCommit 2>/dev/null)" \
+    || execute_task_die "cannot read merged PR #$pr_number"
+  jq -e --arg sha "$candidate" --arg base "$target" --argjson number "$pr_number" '
+    .number == $number and .state == "MERGED" and .headRefOid == $sha and
+    .baseRefName == $base and (.mergeCommit.oid | type == "string" and length > 0)
+  ' >/dev/null 2>&1 <<EOF \
+    || execute_task_die "PR #$pr_number is not a merged delivery of candidate $candidate into $target"
+$pr_json
+EOF
+}
+
 validate_phase_completion() {
   local phase="$1" candidate
   assert_phase_tasks_complete "$phase"
@@ -834,7 +853,7 @@ $EVIDENCE"
       || execute_task_die "finish requires delivery phase"
     [ "$(jq -r '.phase.status' "$STATE")" = "completed" ] \
       || execute_task_die "finish requires completed delivery phase"
-    validate_phase_completion delivery
+    verify_merged_pr
     read_evidence "post-merge reconciliation evidence"
     update_state '.status = "completed" | .phase = {name: "done", status: "completed"} |
       .completed_phases += ["done"] | .completion_evidence = $evidence | .completed_at = $updated_at' \
