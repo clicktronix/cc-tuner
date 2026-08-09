@@ -1,0 +1,15 @@
+{
+  "skills": ["spec", "run"],
+  "tests_reference": "plugins/cc-tuner/commands/spec.md#5-write-the-executable-contract",
+  "query": "Self-contained simulation; do not read the filesystem. A bug spec lists acceptance criteria and says only `run tests` under verification. It does not name the regression test, the exact command, expected failure, environment, fixtures, or a negative/mutation proof. May /run start implementation?",
+  "baseline_failure": "Production audit: the workflow mentioned DoR/DoD historically but the active spec template omitted the first failing check and execution began without a testable baseline.",
+  "expected_behavior": [
+    "Refuses implementation because Definition of Ready is incomplete",
+    "Requires an exact first failing check and the failure that proves the gap",
+    "Requires targeted/full commands plus environment and test data"
+  ],
+  "anti_expectation": [
+    "Does not invent missing commands during unattended execution",
+    "Does not accept a generic `run tests` placeholder"
+  ]
+}

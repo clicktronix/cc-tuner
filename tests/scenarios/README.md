@@ -13,10 +13,9 @@ once runs happen).
 Probes are self-contained decision tasks ("do not read the filesystem"), run as
 isolated haiku subagents — the weak-model audience is where guidance earns its keep.
 RED = no skill/playbook text in context, with one deliberate exception:
-`sensitive-small-diff-skip`'s RED is an **ablation** baseline (the probe includes the
-skip policy but WITHOUT the sensitive-surface list — the question being whether the
-list itself is load-bearing, not whether a skip policy exists). GREEN = the relevant
-guidance verbatim, as it appears in production.
+`sensitive-small-diff-review`'s RED is an **ablation** baseline (the probe includes the
+small-diff execution policy but WITHOUT the sensitive-surface list — the question is whether the list
+changes review depth). GREEN = the relevant guidance verbatim, as it appears in production.
 
 The four 2026-07-26/28 `task-flow` rows were measured differently: their REDs are documented
 production incidents, but a **fresh RED arm was also probed** (same query, guidance withheld) so the
@@ -27,11 +26,19 @@ row says so.
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
-| execute-task/sensitive-small-diff-skip | **2/2 reproduced** (ablation) | flips + ANTI clean | **load-bearing** — without the sensitive-surface list, size arithmetic always wins over surface risk |
+| task-run/sensitive-small-diff-review | **2/2 historical ablation** | not run for serial/fanout rewrite | regression spec — the old probe proves the surface list matters; new execution-shape GREEN is pending |
 | claude-md-writer/paths-rule-placement | **2/2 reproduced** | flips | **load-bearing** — baseline confidently invents config (`scope:`/`languages:` keys, `src/api/.claude.md`) a user would paste and silently get nothing |
 | claude-md-writer/what-goes-where | inconsistent | flips | value = factual precision (mechanism names), not discipline |
 | task-run/eyes-criterion-autonomy | 0/2 | holds (cites unresolved [eyes]/auto-ready mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |
 | task-run/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
+| task-run/visible-plan-before-edit | production incident | not run | guards the missing TaskCreate plan seen in audited `/run` threads |
+| task-run/dor-first-failing-check | production audit | not run | guards incomplete DoR/test contracts |
+| task-run/false-green-regression-test | production incident | not run | guards tests that were never proved capable of catching the bug |
+| task-run/implementation-only-parallelism | production audit | not run | guards overlapping delegation and parent ownership |
+| task-run/request-changes-blocks-merge | production incident | not run | guards invocation-as-approval and review bypass |
+| task-run/stale-review-after-fix | production audit | not run | guards approval reuse after tree changes |
+| task-run/reviewer-unavailable-fails-closed | production incident | not run | guards forgotten/unavailable Codex review |
+| task-run/current-sha-ci | production audit | not run | guards stale hosted checks after a new candidate |
 | task-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
 | task-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
 | task-flow/autofix-trusted-blindly | **2/2 reproduced** — both arms run lint, neither runs typecheck | 2/2 + ANTI clean | **load-bearing in both framings** — the conjunction "typecheck AND lint" is the payload, not the call to verify |
@@ -61,11 +68,16 @@ batch trustworthy without the asterisk.
 Per the Iron Law, a future edit to the guarded sections needs its own RED→GREEN before
 shipping; the GREEN-regression probes here make that cheap.
 
-Exercised again in the spec/run split: all three `task-run` scenarios (formerly `execute-task`) had
-their guarded text moved into `run.md` and reworded, so all three were re-probed. The interesting one
-is `sensitive-small-diff-skip`, where the risk was not "does it still say run the review" but "does it
-still say *skip* when it should" — a rule that collapses into always-review passes the expected
-behaviour and fails the anti-expectation. It was probed from both sides and still discriminates.
+The 2026-08-09 task-run rows were added from the cross-repository production audit that motivated the
+structured-state rewrite. They are regression specifications, not fabricated probe results: `not run`
+remains explicit until clean-room RED/GREEN arms are actually executed and recorded.
+
+Exercised again in the spec/run split: all three original `task-run` scenarios (formerly
+`execute-task`) had their guarded text moved into `run.md` and reworded, so all three were re-probed.
+The sensitive-diff scenario now guards review execution shape: deep-review always runs, but a
+low-risk small candidate may stay serial while a sensitive candidate fans out. The original ablation
+still proves the sensitive-surface list is load-bearing; it does not count as a GREEN result for the
+rewritten serial/fanout decision.
 
 Exercised in 0.9.0: the `claude-md-writer` docs refresh edited both guarded sections, so both were
 re-probed and carry a `green_recheck` block naming the **risk under test** — for

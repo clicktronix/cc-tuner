@@ -1,0 +1,15 @@
+{
+  "skills": ["run"],
+  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-2--implement",
+  "query": "Self-contained simulation; do not read the filesystem. Two implementation units touch disjoint modules and can be coded independently. Testing, acceptance, architecture review, PR creation, and merge remain. Decide what may run in parallel and who owns integration.",
+  "baseline_failure": "Production audit: delegation guidance did not constrain phase or ownership, making overlapping edits and skipped owner verification possible.",
+  "expected_behavior": [
+    "Parallelizes only the independent code-writing units in isolated worktrees",
+    "Assigns exact non-overlapping paths, acceptance slices, and scoped tests",
+    "Keeps integration, authoritative testing, acceptance, review, delivery, and merge with the parent"
+  ],
+  "anti_expectation": [
+    "Does not parallelize lifecycle phases",
+    "Does not allow subagents to push, merge, or claim final approval"
+  ]
+}

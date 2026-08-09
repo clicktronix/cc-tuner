@@ -13,6 +13,8 @@ CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
 # thing the file exists to carry, so this pins that the scaffold really came from the template.
 if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] \
   && grep -q "cheap_gate" "$T/.claude/execute-task.md" \
+  && grep -q "target_test" "$T/.claude/execute-task.md" \
+  && grep -q "full_test" "$T/.claude/execute-task.md" \
   && ! find "$T/.claude" -name '.execute-task.*' -print -quit | grep -q .; then
   echo "PASS scaffold-created"; else echo "FAIL scaffold-created (rc=$rc, want 2)"; fails=1; fi
 # present -> left untouched (sentinel preserved), exit EXACTLY 0 (proceed signal)
