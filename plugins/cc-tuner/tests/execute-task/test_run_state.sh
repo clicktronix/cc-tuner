@@ -212,6 +212,50 @@ else
 fi
 rm -rf "$REPO"
 
+# A dead initialization lock used to let several stale-lock contenders remove one another's fresh
+# generation and all enter the critical section. Repeated eight-way contention must still produce
+# exactly one active run per repository.
+lock_race_ok=1
+lock_race_trial=1
+while [ "$lock_race_trial" -le 20 ]; do
+  REPO="$(mktemp -d)" || exit 1
+  RESULTS="$(mktemp -d)" || exit 1
+  (
+    cd "$REPO" && git init -q -b main && git config user.email test@example.com \
+      && git config user.name test && mkdir -p docs && printf 'base\n' > file.txt \
+      && printf '# Spec\n' > docs/spec.md && git add file.txt docs/spec.md \
+      && git commit -qm init && git switch -qc task
+  ) || exit 1
+  for n in 1 2 3 4 5 6 7 8; do
+    CLAUDE_PROJECT_DIR="$REPO" bash "$P" "race-$n" main --expected-branch task >/dev/null \
+      || exit 1
+  done
+  mkdir "$REPO/$RUNS_REL/.init.lock"
+  printf '999999999999\n' > "$REPO/$RUNS_REL/.init.lock/pid"
+  for n in 1 2 3 4 5 6 7 8; do
+    (
+      runctl init "race-$n" --mode auto --spec docs/spec.md >/dev/null 2>&1
+      printf '%s\n' "$?" > "$RESULTS/$n"
+    ) &
+  done
+  wait
+  successes="$(awk '$1 == 0 { total++ } END { print total + 0 }' "$RESULTS"/*)"
+  active="$(find "$REPO/$RUNS_REL" -type f -name '*.state.json' | wc -l | tr -d ' ')"
+  if [ "$successes" -ne 1 ] || [ "$active" -ne 1 ]; then
+    lock_race_ok=0
+    break
+  fi
+  rm -rf "$REPO" "$RESULTS"
+  lock_race_trial=$((lock_race_trial + 1))
+done
+if [ "$lock_race_ok" -eq 1 ]; then
+  pass "stale-init-lock-contention-is-serialized"
+else
+  fail "stale-init-lock-contention-is-serialized" \
+    "trial=$lock_race_trial successes=$successes active=$active"
+  rm -rf "$REPO" "$RESULTS"
+fi
+
 # Specs move from the planning area to the archive while implementation owns mutations. State
 # follows only a staged/committed relocation; a copy that leaves the old tracked path cannot pass.
 make_repo

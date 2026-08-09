@@ -35,10 +35,13 @@ EOF
 }
 
 cleanup_lock() {
-  local lock_dir
+  local lock_dir owner
   [ -n "$LOCK_DIRS" ] || return
   while IFS= read -r lock_dir; do
     [ -n "$lock_dir" ] || continue
+    [ ! -L "$lock_dir" ] && [ -d "$lock_dir" ] && [ ! -L "$lock_dir/pid" ] || continue
+    owner="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+    [ "$owner" = "$$" ] || continue
     rm -f "$lock_dir/pid" 2>/dev/null || true
     rmdir "$lock_dir" 2>/dev/null || true
   done <<EOF
@@ -277,37 +280,77 @@ load_state() {
 }
 
 acquire_lock() {
-  local requested_lock="$1" label="$2" owner
-  [ ! -L "$requested_lock" ] || execute_task_die "refusing symlinked $label lock"
-  if mkdir "$requested_lock" 2>/dev/null; then
-    LOCK_DIRS="${LOCK_DIRS}${LOCK_DIRS:+
-}$requested_lock"
-    printf '%s\n' "$$" > "$requested_lock/pid" 2>/dev/null \
-      || execute_task_die "cannot record $label lock owner"
-    return
+  local requested_lock="$1" label="$2" reclaim_lock lock_path owner stale moved now modified
+  reclaim_lock="$requested_lock.reclaim"
+  for lock_path in "$requested_lock" "$reclaim_lock"; do
+    [ ! -L "$lock_path" ] && { [ ! -e "$lock_path" ] || [ -d "$lock_path" ]; } \
+      || execute_task_die "invalid $label lock path"
+    [ ! -L "$lock_path/pid" ] \
+      || execute_task_die "refusing symlinked $label lock owner"
+  done
+
+  # Serialize both a fresh acquisition and a stale-generation swap. A killed reclaimer leaves this
+  # tiny guard behind and fails closed; guessing that it is stale would recreate the same race one
+  # level higher.
+  mkdir "$reclaim_lock" 2>/dev/null \
+    || execute_task_die "$label lock recovery is held by another process"
+  if ! (set -C; printf '%s\n' "$$" > "$reclaim_lock/pid") 2>/dev/null \
+      || [ "$(cat "$reclaim_lock/pid" 2>/dev/null || true)" != "$$" ]; then
+    [ -L "$reclaim_lock/pid" ] || rm -f "$reclaim_lock/pid" 2>/dev/null || true
+    rmdir "$reclaim_lock" 2>/dev/null || true
+    execute_task_die "cannot own $label lock recovery"
   fi
-  [ ! -L "$requested_lock" ] && [ -d "$requested_lock" ] \
-    || execute_task_die "invalid $label lock"
-  [ ! -L "$requested_lock/pid" ] \
-    || execute_task_die "refusing symlinked $label lock owner"
-  owner="$(cat "$requested_lock/pid" 2>/dev/null || true)"
-  case "$owner" in
-    ''|*[!0-9]*) ;;
-    *)
-      if ! kill -0 "$owner" 2>/dev/null; then
-        rm -f "$requested_lock/pid" 2>/dev/null || true
-        rmdir "$requested_lock" 2>/dev/null || true
-        if mkdir "$requested_lock" 2>/dev/null; then
-          LOCK_DIRS="${LOCK_DIRS}${LOCK_DIRS:+
+  LOCK_DIRS="${LOCK_DIRS}${LOCK_DIRS:+
+}$reclaim_lock"
+
+  if [ -d "$requested_lock" ]; then
+    owner="$(cat "$requested_lock/pid" 2>/dev/null || true)"
+    case "$owner" in
+      [1-9]|[1-9][0-9]*)
+        kill -0 "$owner" 2>/dev/null && execute_task_die "$label is held by another process"
+        ;;
+      '')
+        now="$(date +%s 2>/dev/null || true)"
+        modified="$(stat -c '%Y' "$requested_lock" 2>/dev/null \
+          || stat -f '%m' "$requested_lock" 2>/dev/null || true)"
+        [ -n "$now" ] && [ -n "$modified" ] \
+          || execute_task_die "$label has an ownerless lock of unknown age"
+        case "$now:$modified" in *[!0-9:]*) execute_task_die "$label has an invalid lock age" ;; esac
+        [ $((now - modified)) -gt 60 ] \
+          || execute_task_die "$label has a fresh ownerless lock"
+        ;;
+      *) ;;
+    esac
+    stale="$requested_lock.stale.$$"
+    [ ! -e "$stale" ] && [ ! -L "$stale" ] \
+      || execute_task_die "stale $label lock path already exists"
+    mv "$requested_lock" "$stale" 2>/dev/null \
+      || execute_task_die "$label lock changed during stale takeover"
+    moved="$(cat "$stale/pid" 2>/dev/null || true)"
+    if [ "$moved" != "$owner" ]; then
+      mv "$stale" "$requested_lock" 2>/dev/null || true
+      execute_task_die "$label lock generation changed during stale takeover"
+    fi
+    rm -f "$stale/pid" 2>/dev/null || true
+    if ! rmdir "$stale" 2>/dev/null; then
+      mv "$stale" "$requested_lock" 2>/dev/null || true
+      execute_task_die "cannot remove stale $label lock"
+    fi
+  fi
+
+  mkdir "$requested_lock" 2>/dev/null \
+    || execute_task_die "cannot acquire $label"
+  if ! (set -C; printf '%s\n' "$$" > "$requested_lock/pid") 2>/dev/null \
+      || [ "$(cat "$requested_lock/pid" 2>/dev/null || true)" != "$$" ]; then
+    rm -f "$requested_lock/pid" 2>/dev/null || true
+    rmdir "$requested_lock" 2>/dev/null || true
+    execute_task_die "cannot record $label lock owner"
+  fi
+  LOCK_DIRS="${LOCK_DIRS}${LOCK_DIRS:+
 }$requested_lock"
-          printf '%s\n' "$$" > "$requested_lock/pid" 2>/dev/null \
-            || execute_task_die "cannot record $label lock owner"
-          return
-        fi
-      fi
-      ;;
-  esac
-  execute_task_die "$label is held by another process"
+
+  rm -f "$reclaim_lock/pid" 2>/dev/null || true
+  rmdir "$reclaim_lock" 2>/dev/null || true
 }
 
 lock_state() {
