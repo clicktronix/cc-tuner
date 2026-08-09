@@ -104,6 +104,10 @@ run_preflight non-branch HEAD --expected-branch task >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 1 ] && echo "PASS non-branch-target-rejected" \
   || { echo "FAIL non-branch-target-rejected (rc=$rc)"; failures=1; }
+run_preflight invalid-expected main --expected-branch 'task;invalid' >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && echo "PASS invalid-expected-branch-rejected" \
+  || { echo "FAIL invalid-expected-branch-rejected (rc=$rc)"; failures=1; }
 rm -rf "$REPO"
 
 make_repo

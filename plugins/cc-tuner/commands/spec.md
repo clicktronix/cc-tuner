@@ -106,7 +106,7 @@ Write `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and 
 - [ ] Regression check was observed failing for the expected reason before the fix
 - [ ] Targeted, full, static/build, runtime, and acceptance checks passed as specified
 - [ ] Complete diff and formatter/autofix output were read; no unexplained files remain
-- [ ] Candidate commit passed deep review and Codex review on its exact SHA/tree
+- [ ] Candidate commit passed deep review, mattpocock review, and Codex review on its exact SHA/tree
 - [ ] PR head equals the reviewed SHA and required CI is green on that SHA
 
 ## Completion and reconciliation

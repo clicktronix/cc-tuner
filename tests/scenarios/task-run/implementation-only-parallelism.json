@@ -11,5 +11,27 @@
   "anti_expectation": [
     "Does not parallelize lifecycle phases",
     "Does not allow subagents to push, merge, or claim final approval"
-  ]
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": true,
+        "note": "parallelizes architecture and code review, delegates unit ownership beyond writing, and proposes two PRs merged together"
+      }
+    ],
+    "verdict": "reproduced; implementation-only parallelism and single-parent integration are load-bearing"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "parallelizes only isolated disjoint coding and scoped checks while the parent retains integration, acceptance, review, PR, and merge"
+      }
+    ]
+  }
 }

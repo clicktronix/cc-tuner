@@ -11,5 +11,27 @@
   "anti_expectation": [
     "Does not invent missing commands during unattended execution",
     "Does not accept a generic `run tests` placeholder"
-  ]
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": "partial",
+        "note": "refuses blind implementation and asks for a regression command, but offers a spike to discover missing contract details instead of failing closed"
+      }
+    ],
+    "verdict": "partial hold; exact DoR fields and the unattended no-invention rule remain useful"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "blocks implementation and names regression, first failure, targeted/full/static/runtime, environment/data, and mutation-proof gaps"
+      }
+    ]
+  }
 }

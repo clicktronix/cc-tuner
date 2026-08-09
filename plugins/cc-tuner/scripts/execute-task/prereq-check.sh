@@ -6,14 +6,54 @@
 set -u
 CACHE="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
 missing=0
+MANIFEST="$CACHE/installed_plugins.json"
+MANIFEST_MODE="cache"
 
 have() { compgen -G "$1" >/dev/null 2>&1; }  # quoted glob check — safe with spaces in the path
 
+# Once Claude Code publishes an installed-plugin manifest it is the authority for the active
+# version. Falling back to old cache directories when an active key is missing makes an uninstalled
+# plugin look available. Cache discovery remains only for older installations without a manifest.
+if [ -e "$MANIFEST" ]; then
+  if [ -f "$MANIFEST" ] && command -v jq >/dev/null 2>&1 \
+    && jq -e '.plugins | type == "object"' "$MANIFEST" >/dev/null 2>&1; then
+    MANIFEST_MODE="active"
+  else
+    MANIFEST_MODE="invalid"
+    echo "INVALID: $MANIFEST is present but is not a readable installed-plugin manifest" >&2
+  fi
+fi
+
+manifest_roots() {
+  [ "$MANIFEST_MODE" = "active" ] || return 1
+  jq -r --arg key "$1" '
+    .plugins[$key] // [] |
+    if type == "array" then .[]?.installPath // empty else empty end
+  ' "$MANIFEST" 2>/dev/null
+}
+
+have_matt_skill() {
+  local relative="$1" root roots
+  case "$MANIFEST_MODE" in
+    active)
+      roots="$(manifest_roots 'mattpocock-skills@mattpocock')"
+      [ -n "$roots" ] || return 1
+      while IFS= read -r root; do
+        [ -n "$root" ] && [ -f "$root/$relative" ] && return 0
+      done <<EOF
+$roots
+EOF
+      return 1
+      ;;
+    invalid) return 1 ;;
+    cache) have "$CACHE/cache/*/mattpocock-skills/*/$relative" ;;
+  esac
+}
+
 have_required_codex_review() {
-  local review root manifest roots
-  manifest="$CACHE/installed_plugins.json"
-  if [ -f "$manifest" ] && command -v jq >/dev/null 2>&1; then
-    roots="$(jq -r '.plugins["cc-codex-triage@cc-codex-triage"][]?.installPath // empty' "$manifest" 2>/dev/null)"
+  local review root roots
+  if [ "$MANIFEST_MODE" = "active" ]; then
+    roots="$(manifest_roots 'cc-codex-triage@cc-codex-triage')"
     if [ -n "$roots" ]; then
       while IFS= read -r root; do
         [ -n "$root" ] || continue
@@ -29,7 +69,9 @@ $roots
 EOF
       return 1
     fi
+    return 1
   fi
+  [ "$MANIFEST_MODE" = "cache" ] || return 1
   for review in "$CACHE"/cache/*/cc-codex-triage/*/commands/review.md; do
     [ -f "$review" ] || continue
     root="${review%/commands/review.md}"
@@ -44,23 +86,23 @@ EOF
 }
 
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run
-# phase 4 runs `/mattpocock-skills:code-review`. This replaced the old superpowers requirement, which
+# Phase 6 runs `/mattpocock-skills:code-review`. This replaced the old superpowers requirement, which
 # gated skills (brainstorming, writing-plans, subagent-driven-development, requesting-code-review)
 # that neither command invokes any more — blocking runs that did not need it while letting the
-# dependency they DO need go unchecked until phase 4 of an unattended run.
-if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/productivity/grilling/SKILL.md"; then
+# dependency they DO need go unchecked until Phase 6 of an unattended run.
+if ! have_matt_skill "skills/productivity/grilling/SKILL.md"; then
   echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
-  echo "  install: /plugin marketplace add mattpocock/mattpocock-skills && /plugin install mattpocock-skills@mattpocock-skills" >&2
+  echo "  install: /plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock" >&2
   missing=1
 fi
-if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/engineering/domain-modeling/SKILL.md"; then
+if ! have_matt_skill "skills/engineering/domain-modeling/SKILL.md"; then
   echo "MISSING: mattpocock-skills domain-modeling skill (/spec vocabulary pass)" >&2
-  echo "  install: /plugin install mattpocock-skills@mattpocock-skills (or update it — the skill moved)" >&2
+  echo "  install: /plugin install mattpocock-skills@mattpocock (or update it — the skill moved)" >&2
   missing=1
 fi
-if ! have "$CACHE/cache/*/mattpocock-skills/*/skills/engineering/code-review/SKILL.md"; then
-  echo "MISSING: mattpocock-skills code-review skill (run phase 4 review layer)" >&2
-  echo "  install: /plugin install mattpocock-skills@mattpocock-skills (or update it — the skill moved)" >&2
+if ! have_matt_skill "skills/engineering/code-review/SKILL.md"; then
+  echo "MISSING: mattpocock-skills code-review skill (run Phase 6 review layer)" >&2
+  echo "  install: /plugin install mattpocock-skills@mattpocock (or update it — the skill moved)" >&2
   missing=1
 fi
 if ! have_required_codex_review; then

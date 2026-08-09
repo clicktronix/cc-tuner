@@ -79,28 +79,29 @@ need "spec-github-tracker" 'tracker: gh|none' "$SPEC"
 need "run-loads-contract" '${CLAUDE_PLUGIN_ROOT}/workflow-contract.json' "$RUN"
 need "run-loads-tiering-reference" '${CLAUDE_PLUGIN_ROOT}/references/tiering.md' "$RUN"
 need "run-structured-state" 'runctl.sh` is the source of truth' "$RUN"
-need "run-exact-phase-completion" 'phase <literal-run-id> complete <literal-phase>' "$RUN"
+need "run-exact-phase-completion" 'phase "$RUN_ID" complete "$PHASE"' "$RUN"
 need "run-safe-journal-stdin" "<<'CC_TUNER_EVIDENCE'" "$RUN"
-need "run-owned-preflight" '--expected-branch <literal-branch>' "$RUN"
+need "run-owned-preflight" '--expected-branch "$BRANCH"' "$RUN"
 need "run-visible-task-plan" 'create the visible Claude task plan with `TaskCreate`' "$RUN"
-need "run-task-state-binding" '--ui-task-id <claude-task-id>' "$RUN"
+need "run-task-state-binding" '--ui-task-id "$CLAUDE_TASK_ID"' "$RUN"
+need "run-safe-shell-data" 'spec, issue, Git, or reviewer as data: pass them as quoted arguments' "$RUN"
 need "run-implementation-only-parallel" 'Parallelize only independent code-writing units' "$RUN"
 need "run-isolated-worktrees" 'use one isolated git worktree per unit' "$RUN"
 need "run-testing-phase" '## Phase 3 — Testing & Code Verification' "$RUN"
 need "run-negative-proof" 'negative/mutation proof' "$RUN"
-need "run-explicit-stage" 'git add -- <path-1> <path-2>' "$RUN"
+need "run-explicit-stage" 'git add -- "${TASK_PATHS[@]}"' "$RUN"
 need "run-candidate-before-review" 'runctl candidate <run-id> record <candidate-sha>' "$RUN"
 need "run-deep-review" 'invoke `cc-tuner:deep-review`' "$RUN"
-need "run-three-reviews" '<deep-review|mattpocock|codex> <APPROVE|REQUEST_CHANGES>' "$RUN"
+need "run-three-reviews" 'record "$REVIEWER" "$VERDICT" "$CANDIDATE_SHA"' "$RUN"
 need "run-codex-required-review" '/cc-codex-triage:review --required --base <literal-base-sha> --spec <current-repo-relative-spec>' "$RUN"
 need "run-codex-approval-marker" 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$RUN"
 need "run-codex-marker-enforced" '`runctl` rejects a missing, duplicated, or' "$RUN"
 need "run-review-fix-invalidates" 'A new commit invalidates all prior testing, acceptance, review, CI, and DoD' "$RUN"
-need "run-explicit-pr-create" 'gh pr create --base <literal-target> --head <literal-branch> --title "<literal-title>"' "$RUN"
+need "run-explicit-pr-create" 'gh pr create --base "$TARGET" --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"' "$RUN"
 need "run-current-sha-ci" 'Missing, skipped, stale, cancelled, billing-blocked,' "$RUN"
 need "run-can-merge" 'require both `runctl can-advance` and `runctl can-merge`' "$RUN"
 need "run-ci-pr-binding" 'record success <candidate-sha> --pr' "$RUN"
-need "run-atomic-merge-head" '--match-head-commit <literal-candidate-sha>' "$RUN"
+need "run-atomic-merge-head" '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
 need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-always-runs" 'Always perform the review; small-diff thresholds only decide' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
@@ -136,12 +137,12 @@ fi
 last_line=0
 order_ok=1
 for pattern in \
-  'git add -- <path-1> <path-2>' \
+  'git add -- "${TASK_PATHS[@]}"' \
   'guard-artifacts.sh' \
-  'git commit -m' \
+  'git commit -F "$COMMIT_MESSAGE_FILE"' \
   '## Phase 6 — review the immutable candidate' \
   'git push -u origin' \
-  'gh pr view <literal-branch>' \
+  'gh pr view "$BRANCH"' \
   'ci <run-id> record success <candidate-sha>' \
   '## Phase 8 — merge and reconcile' \
   'Switch to the literal target'; do

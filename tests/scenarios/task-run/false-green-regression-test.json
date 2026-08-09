@@ -11,5 +11,27 @@
   "anti_expectation": [
     "Does not accept a syntax, fixture, or environment error as the required RED",
     "Does not weaken the assertion merely to manufacture a failure"
-  ]
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": false,
+        "note": "rejects green-only evidence and independently requires both an unfixed baseline and mutation verification"
+      }
+    ],
+    "verdict": "did not reproduce; retained as a GREEN regression and state-machine testing gate specification"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "requires the named regression check to fail when the fix is absent or reversed before accepting final green"
+      }
+    ]
+  }
 }

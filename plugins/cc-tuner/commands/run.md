@@ -20,11 +20,19 @@ the spec. Without `--auto`, stop at the boundaries named below.
 an append-only narrative for humans; journal prose, plan checkboxes, and a review invocation are never
 proof that a gate passed.
 
+All executable examples below consume pre-resolved shell variables (`RUN_ID`, `PHASE`, `TASK_ID`,
+`BRANCH`, `TARGET`, `SPEC_PATH`, `CANDIDATE_SHA`, and prepared-file paths). Treat values read from a
+spec, issue, Git, or reviewer as data: pass them as quoted arguments, never paste them into shell
+source and never replace angle-bracket prose inside a command. Validate the run/task IDs with the
+state CLI, the spec path through `runctl init`, and both refs with `git check-ref-format` before the
+first state-changing command. Put free-form commit/PR text in prepared files. A value that cannot be
+carried through a quoted variable, stdin, or a file is a hard stop.
+
 At the top of every phase after Phase 0, before any other action:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" resume <literal-run-id>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase <literal-run-id> enter <literal-phase>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" resume "$RUN_ID"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase "$RUN_ID" enter "$PHASE"
 ```
 
 Call `enter` only when resume shows the preceding phase completed. A `phase fix` transition already
@@ -35,15 +43,15 @@ Record state evidence and complete the phase only after its actual gate succeeds
 through stdin with a quoted heredoc so shell syntax in evidence is data, never executable text:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task <literal-run-id> start <literal-task-id>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task <literal-run-id> complete <literal-task-id> <<'CC_TUNER_TASK_EVIDENCE'
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task "$RUN_ID" start "$TASK_ID"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task "$RUN_ID" complete "$TASK_ID" <<'CC_TUNER_TASK_EVIDENCE'
 <exact diff/check/acceptance evidence for this task>
 CC_TUNER_TASK_EVIDENCE
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" gate <literal-run-id> record <dor|testing|acceptance|dod> pass [--sha <literal-candidate-sha>] <<'CC_TUNER_GATE_EVIDENCE'
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" gate "$RUN_ID" record "$GATE_ID" pass <<'CC_TUNER_GATE_EVIDENCE'
 <exact command and result evidence for this gate>
 CC_TUNER_GATE_EVIDENCE
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase <literal-run-id> complete <literal-phase>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" append <literal-run-id> <<'CC_TUNER_EVIDENCE'
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase "$RUN_ID" complete "$PHASE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" append "$RUN_ID" <<'CC_TUNER_EVIDENCE'
 <verbatim phase evidence, including literal branch/SHA/PR/check values>
 CC_TUNER_EVIDENCE
 ```
@@ -75,8 +83,8 @@ fires. Phase 0 flows directly into Phase 1 so the user sees the execution plan o
    is one PR, and every `[eyes]` item has a machine replacement or dated waiver.
 6. Open the owned run from a clean repository worktree, then initialize structured state:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/preflight.sh" <literal-run-id> <literal-target> --expected-branch <literal-branch>
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" init <literal-run-id> --mode <interactive|auto> --spec <repo-relative-spec-path>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/preflight.sh" "$RUN_ID" "$TARGET" --expected-branch "$BRANCH"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" init "$RUN_ID" --mode "$RUN_MODE" --spec "$SPEC_PATH"
    ```
    `init` opens `readiness/in_progress`. On restart, use `runctl.sh resume` instead of reinitializing.
 7. Record `gate <run-id> record dor pass` through stdin with the exact DoR evidence, then run
@@ -103,7 +111,7 @@ Use `blockedBy` dependencies to reflect this order. Capture every returned Claud
 to structured state; descriptions go through stdin:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task <literal-run-id> add <literal-task-id> <literal-phase> --ui-task-id <claude-task-id> <<'CC_TUNER_TASK'
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task "$RUN_ID" add "$TASK_ID" "$TASK_PHASE" --ui-task-id "$CLAUDE_TASK_ID" <<'CC_TUNER_TASK'
 <scope, owned paths, acceptance slice, and deciding checks>
 CC_TUNER_TASK
 ```
@@ -144,7 +152,7 @@ phase, reconcile shipped versus deferred scope in the spec. When this branch com
 plan with `git mv` to `<plans-root>/ARCHIVE/PLANS/` and atomically update state:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" spec <literal-run-id> relocate <new-repo-relative-spec-path>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" spec "$RUN_ID" relocate "$NEW_SPEC_PATH"
 ```
 
 Complete `implementation` only when every implementation task and final task-path edit is complete,
@@ -164,9 +172,11 @@ Resume state and enter `testing`. Do not write fixes in this phase. Execute the 
 6. inspect `git status --porcelain -uall` and the complete diff for unintended behavior or files.
 
 Establish an alleged pre-existing failure against the task base before classifying it. If any fix is
-needed, send the reason through stdin to `runctl phase <run-id> fix`, create/bind the returned
-implementation task, return to Phase 2, and invalidate downstream evidence. Never patch code while
-state still says `testing`.
+needed, send the reason through stdin to `runctl phase <run-id> fix`. It returns exactly
+`FIX_TASK id=<task-id> phase=implementation`; create the matching visible task with `TaskCreate`, bind
+its returned Claude task ID with `runctl task ... bind-ui`, then return to Phase 2. A fix transition
+invalidates downstream evidence, and the new task cannot start until that binding exists. Never patch
+code while state still says `testing`.
 
 Record `gate <run-id> record testing pass` through stdin with exact commands/results, complete
 `testing`, update the visible task, and apply the HITL boundary.
@@ -193,11 +203,11 @@ Stage only explicit task paths; never `git add -A` or
 `git add .`:
 
 ```bash
-git add -- <path-1> <path-2>
+git add -- "${TASK_PATHS[@]}"
 git diff --cached --check
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh" <literal-run-id>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh" "$RUN_ID"
 git diff --cached
-git commit -m "<type>: <imperative summary>"
+git commit -F "$COMMIT_MESSAGE_FILE"
 ```
 
 Require a clean worktree, capture full `HEAD` and tree SHA, and record it with
@@ -230,15 +240,18 @@ issue. A missing reviewer, partial lens, timeout, tool failure, or `REQUEST_CHAN
 Record each result with:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" review <literal-run-id> record <deep-review|mattpocock|codex> <APPROVE|REQUEST_CHANGES> <literal-candidate-sha> <<'CC_TUNER_REVIEW'
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" review "$RUN_ID" record "$REVIEWER" "$VERDICT" "$CANDIDATE_SHA" <<'CC_TUNER_REVIEW'
 <verbatim verdict and finding disposition>
 CC_TUNER_REVIEW
 ```
 
-If a finding requires code or test changes, use `phase fix`, create/bind its follow-up implementation
-task, and repeat Phases 2–6. A new commit invalidates all prior testing, acceptance, review, CI, and DoD
-evidence; an older approval can never be copied forward. Keep Codex thread metadata outside disposable
-review worktrees so deleting one cannot orphan the review.
+If a finding is refuted or explicitly deferred without changing the source/test tree, rerun that
+reviewer against the same immutable candidate and record its fresh `APPROVE`; the earlier
+`REQUEST_CHANGES` remains in `review_history`. If a finding requires code or test changes, use
+`phase fix`, create/bind its follow-up implementation task from the returned `FIX_TASK` marker, and
+repeat Phases 2–6. A new commit invalidates all prior testing, acceptance, review, CI, and DoD
+evidence; an older approval can never be copied forward.
+Keep Codex thread metadata outside disposable review worktrees so deleting one cannot orphan the review.
 
 Complete `review` only after all three exact-candidate approvals exist, then apply the HITL boundary.
 
@@ -248,8 +261,9 @@ Resume state and enter `delivery`. Verify clean `HEAD` still equals the reviewed
 literal branch and find or create its PR with an explicit title and prepared body:
 
 ```bash
-git push -u origin <literal-branch>
-gh pr view <literal-branch> --json number,url,headRefOid,baseRefName || gh pr create --base <literal-target> --head <literal-branch> --title "<literal-title>" --body-file <prepared-body-file>
+git push -u origin "$BRANCH"
+gh pr view "$BRANCH" --json number,url,headRefOid,baseRefName \
+  || gh pr create --base "$TARGET" --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
 ```
 
 Verify PR base, remote head, candidate, all three review results, and pushed SHA agree. Observe the
@@ -278,7 +292,7 @@ Pass both the recorded PR number and candidate SHA to GitHub's atomic head guard
 `--squash` or `--merge` flag from the spec:
 
 ```bash
-gh pr merge <literal-pr-number> --squash --match-head-commit <literal-candidate-sha>
+gh pr merge "$PR_NUMBER" --squash --match-head-commit "$CANDIDATE_SHA"
 ```
 
 If the remote head moves after the last live check, GitHub must reject the merge rather than merge
@@ -292,7 +306,7 @@ While still on the owned branch, append the `MERGED` state, board result, and li
 then finish structured state with the same post-merge evidence over quoted stdin:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" finish <literal-run-id> <<'CC_TUNER_COMPLETION'
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" finish "$RUN_ID" <<'CC_TUNER_COMPLETION'
 <literal merged PR, issue/board, spec/archive, and cleanup evidence>
 CC_TUNER_COMPLETION
 ```

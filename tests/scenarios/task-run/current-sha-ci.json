@@ -11,5 +11,27 @@
   "anti_expectation": [
     "Does not reuse checks from SHA A",
     "Does not infer hosted success from local tests"
-  ]
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": false,
+        "note": "independently rejects merging SHA B without its own hosted checks"
+      }
+    ],
+    "verdict": "did not reproduce; retained as a GREEN regression for exact-SHA CI enforcement"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "rejects stale SHA A checks and ties can-merge to required hosted checks on candidate SHA B"
+      }
+    ]
+  }
 }

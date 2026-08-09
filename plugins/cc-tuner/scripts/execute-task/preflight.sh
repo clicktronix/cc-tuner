@@ -31,6 +31,8 @@ case "$TARGET" in -*) execute_task_die "target ref must not start with '-'" ;; e
 case "$EXPECTED_BRANCH" in -*) execute_task_die "expected branch must not start with '-'" ;; esac
 git check-ref-format "refs/heads/$TARGET" >/dev/null 2>&1 \
   || execute_task_die "target must be a literal branch name, got '$TARGET'"
+git check-ref-format "refs/heads/$EXPECTED_BRANCH" >/dev/null 2>&1 \
+  || execute_task_die "expected branch must be a literal branch name, got '$EXPECTED_BRANCH'"
 
 execute_task_prepare_state
 JOURNAL="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.md"

@@ -16,5 +16,15 @@
     "date": "2026-07-08",
     "method": "2 isolated haiku ablation probes with the sensitive-surface list withheld",
     "verdict": "Both arms missed the pricing sensitivity; the list remains load-bearing for choosing review depth."
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "fans out despite the five-line diff because SERVICE_FEE_RATE is a pricing and billing surface, while preserving one immutable candidate"
+      }
+    ]
   }
 }

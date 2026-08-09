@@ -16,11 +16,61 @@ add_codex() {
   printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
     > "${ROOT}/${CCT%/commands}/scripts/review-state.sh"
 }
+add_active_matt() {
+  root="$1"
+  mkdir -p "$root/skills/productivity/grilling" \
+    "$root/skills/engineering/domain-modeling" "$root/skills/engineering/code-review"
+  touch "$root/skills/productivity/grilling/SKILL.md" \
+    "$root/skills/engineering/domain-modeling/SKILL.md" \
+    "$root/skills/engineering/code-review/SKILL.md"
+}
+add_active_codex() {
+  root="$1"
+  mkdir -p "$root/commands" "$root/scripts"
+  printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$root/commands/review.md"
+  printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$root/scripts/review-state.sh"
+}
 
 # all present -> exit 0
 mkroot; add_grilling; add_domain; add_codereview; add_codex
 CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1 \
   && echo "PASS all-present" || { echo "FAIL all-present"; fails=1; }
+rm -rf "$ROOT"
+
+# An existing manifest is authoritative for every dependency. Uninstalled plugins must not be
+# resurrected from stale cache directories.
+mkroot; add_grilling; add_domain; add_codereview; add_codex
+printf '%s\n' '{"plugins":{}}' > "$ROOT/installed_plugins.json"
+OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'mattpocock-skills' \
+  && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
+  && echo "PASS active-manifest-does-not-fallback-to-stale-cache" \
+  || { echo "FAIL active-manifest-does-not-fallback-to-stale-cache (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# A malformed manifest also fails closed instead of silently accepting whatever old cache remains.
+mkroot; add_grilling; add_domain; add_codereview; add_codex
+printf '%s\n' '{not-json' > "$ROOT/installed_plugins.json"
+OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'INVALID:' \
+  && printf '%s' "$OUT" | grep -q 'mattpocock-skills' \
+  && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
+  && echo "PASS malformed-active-manifest-fails-closed" \
+  || { echo "FAIL malformed-active-manifest-fails-closed (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# Active roots for both required plugins are accepted without consulting cache layout.
+mkroot
+ACTIVE_MATT="$ROOT/active-matt"; ACTIVE_CODEX="$ROOT/active-codex"
+add_active_matt "$ACTIVE_MATT"; add_active_codex "$ACTIVE_CODEX"
+jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" '{plugins:{
+  "mattpocock-skills@mattpocock":[{installPath:$matt}],
+  "cc-codex-triage@cc-codex-triage":[{installPath:$codex}]
+}}' > "$ROOT/installed_plugins.json"
+OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'prereqs OK'; } \
+  && echo "PASS active-manifest-roots-pass" \
+  || { echo "FAIL active-manifest-roots-pass (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
 
 # A command that advertises required review cannot compensate for stale machine state.

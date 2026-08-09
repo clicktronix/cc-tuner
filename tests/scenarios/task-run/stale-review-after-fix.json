@@ -11,5 +11,27 @@
   "anti_expectation": [
     "Does not rely on similar diff size or passing tests to reuse approval",
     "Does not review an uncommitted moving worktree"
-  ]
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": "partial",
+        "note": "rejects approval reuse but mentions only fresh reviewer sign-off, not full testing, acceptance, all-reviewer, CI, and DoD invalidation"
+      }
+    ],
+    "verdict": "partial hold; complete downstream invalidation remains workflow-specific"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "rejects commit A approval and explicitly invalidates testing, acceptance, every review, CI, and DoD for commit B"
+      }
+    ]
+  }
 }
