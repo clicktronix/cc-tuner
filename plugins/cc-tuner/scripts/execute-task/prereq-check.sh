@@ -8,6 +8,13 @@ CACHE="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
 missing=0
 MANIFEST="$CACHE/installed_plugins.json"
 MANIFEST_MODE="cache"
+PROJECT_START="${CLAUDE_PROJECT_DIR:-$PWD}"
+PROJECT_ROOT="$(git -C "$PROJECT_START" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$PROJECT_ROOT" ]; then
+  PROJECT_ROOT="$(cd "$PROJECT_START" 2>/dev/null && pwd -P || true)"
+elif ! PROJECT_ROOT="$(cd "$PROJECT_ROOT" 2>/dev/null && pwd -P)"; then
+  PROJECT_ROOT=""
+fi
 
 have() { compgen -G "$1" >/dev/null 2>&1; }  # quoted glob check — safe with spaces in the path
 
@@ -26,9 +33,17 @@ fi
 
 manifest_roots() {
   [ "$MANIFEST_MODE" = "active" ] || return 1
-  jq -r --arg key "$1" '
+  [ -n "$PROJECT_ROOT" ] || return 1
+  jq -r --arg key "$1" --arg project "$PROJECT_ROOT" '
     .plugins[$key] // [] |
-    if type == "array" then .[]?.installPath // empty else empty end
+    if type == "array" then
+      .[]? |
+      select(
+        .scope == "user" or
+        ((.scope == "project" or .scope == "local") and .projectPath == $project)
+      ) |
+      .installPath // empty
+    else empty end
   ' "$MANIFEST" 2>/dev/null
 }
 

@@ -64,13 +64,43 @@ mkroot
 ACTIVE_MATT="$ROOT/active-matt"; ACTIVE_CODEX="$ROOT/active-codex"
 add_active_matt "$ACTIVE_MATT"; add_active_codex "$ACTIVE_CODEX"
 jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" '{plugins:{
-  "mattpocock-skills@mattpocock":[{installPath:$matt}],
-  "cc-codex-triage@cc-codex-triage":[{installPath:$codex}]
+  "mattpocock-skills@mattpocock":[{scope:"user",installPath:$matt}],
+  "cc-codex-triage@cc-codex-triage":[{scope:"user",installPath:$codex}]
 }}' > "$ROOT/installed_plugins.json"
 OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'prereqs OK'; } \
   && echo "PASS active-manifest-roots-pass" \
   || { echo "FAIL active-manifest-roots-pass (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# Project/local installations are active only for their canonical project root.
+mkroot
+ACTIVE_MATT="$ROOT/active-matt"; ACTIVE_CODEX="$ROOT/active-codex"; PROJECT="$ROOT/project"
+add_active_matt "$ACTIVE_MATT"; add_active_codex "$ACTIVE_CODEX"; mkdir -p "$PROJECT"
+PROJECT="$(cd "$PROJECT" && pwd -P)"
+jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" --arg project "$PROJECT" '{plugins:{
+  "mattpocock-skills@mattpocock":[{scope:"project",projectPath:$project,installPath:$matt}],
+  "cc-codex-triage@cc-codex-triage":[{scope:"local",projectPath:$project,installPath:$codex}]
+}}' > "$ROOT/installed_plugins.json"
+OUT="$(CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'prereqs OK'; } \
+  && echo "PASS matching-project-scopes-pass" \
+  || { echo "FAIL matching-project-scopes-pass (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# A valid installation scoped to another project is not active in this repository.
+mkroot
+ACTIVE_MATT="$ROOT/active-matt"; ACTIVE_CODEX="$ROOT/active-codex"; PROJECT="$ROOT/project"
+add_active_matt "$ACTIVE_MATT"; add_active_codex "$ACTIVE_CODEX"; mkdir -p "$PROJECT"
+jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" '{plugins:{
+  "mattpocock-skills@mattpocock":[{scope:"project",projectPath:"/definitely/another/project",installPath:$matt}],
+  "cc-codex-triage@cc-codex-triage":[{scope:"local",projectPath:"/definitely/another/project",installPath:$codex}]
+}}' > "$ROOT/installed_plugins.json"
+OUT="$(CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'mattpocock-skills' \
+  && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
+  && echo "PASS foreign-project-scopes-fail-closed" \
+  || { echo "FAIL foreign-project-scopes-fail-closed (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
 
 # A command that advertises required review cannot compensate for stale machine state.
