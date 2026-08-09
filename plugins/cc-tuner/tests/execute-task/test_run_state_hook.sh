@@ -64,6 +64,14 @@ OUT="$(hook pre-tool-use "$EDIT_INPUT" 2>&1)"; rc=$?
   && pass "edit-before-planning-blocked" \
   || fail "edit-before-planning-blocked" "rc=$rc out=$OUT"
 
+mkdir -p "$REPO/packages/app"
+NESTED_EDIT_INPUT="$(jq -cn --arg cwd "$REPO/packages/app" \
+  '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:"packages/app/file.txt"}}')"
+OUT="$(hook pre-tool-use "$NESTED_EDIT_INPUT" 2>&1)"; rc=$?
+{ [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -q 'only during implementation'; } \
+  && pass "subdirectory-hook-finds-repo-wide-state" \
+  || fail "subdirectory-hook-finds-repo-wide-state" "rc=$rc out=$OUT"
+
 MERGE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 123 --squash"}}')"
 OUT="$(hook pre-tool-use "$MERGE_INPUT" 2>&1)"; rc=$?
 { [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -q 'blocked gh pr merge'; } \

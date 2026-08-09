@@ -31,7 +31,7 @@ GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 GIT_ROOT="$(CDPATH='' cd -- "$GIT_ROOT" 2>/dev/null && pwd -P || true)"
 case "$PROJECT_DIR" in "$GIT_ROOT"|"$GIT_ROOT"/*) ;; *) allow ;; esac
 
-RUNS="$PROJECT_DIR/.claude/execute-task-runs"
+RUNS="$GIT_ROOT/.claude/execute-task-runs"
 [ -d "$RUNS" ] && [ ! -L "$RUNS" ] || allow
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 [ -n "$BRANCH" ] || allow
@@ -74,7 +74,7 @@ RUN_ID="$(jq -r '.run_id // empty' "$STATE" 2>/dev/null)"
 PLUGIN_ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd || true)"
 RUNCTL="$PLUGIN_ROOT/scripts/execute-task/runctl.sh"
 [ -x "$RUNCTL" ] || [ -f "$RUNCTL" ] || allow
-if ! CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$RUNCTL" status "$RUN_ID" >/dev/null 2>&1; then
+if ! CLAUDE_PROJECT_DIR="$GIT_ROOT" bash "$RUNCTL" status "$RUN_ID" >/dev/null 2>&1; then
   case "$EVENT" in
     pre-tool-use) deny_tool "cc-tuner: invalid run state for '$RUN_ID'; refusing merge" ;;
     stop) block_stop "cc-tuner: invalid run state for '$RUN_ID'; repair or explicitly remove it before stopping" ;;
@@ -108,7 +108,7 @@ case "$EVENT" in
       || deny_tool "cc-tuner blocked gh pr merge for run '$RUN_ID': use --match-head-commit $CANDIDATE"
     printf '%s\n' "$COMMAND" | grep -Eq "(^|[[:space:]])$PR_NUMBER([[:space:];&|]|$)" \
       || deny_tool "cc-tuner blocked gh pr merge for run '$RUN_ID': merge the recorded PR #$PR_NUMBER explicitly"
-    if OUT="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$RUNCTL" can-merge "$RUN_ID" 2>&1)"; then
+    if OUT="$(CLAUDE_PROJECT_DIR="$GIT_ROOT" bash "$RUNCTL" can-merge "$RUN_ID" 2>&1)"; then
       allow
     fi
     deny_tool "cc-tuner blocked gh pr merge for run '$RUN_ID': $OUT"

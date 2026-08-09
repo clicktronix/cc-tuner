@@ -9,21 +9,21 @@ execute_task_die() {
 }
 
 execute_task_init_root() {
-  local requested git_root
+  local requested requested_root git_root
   requested="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"
   [ -n "$requested" ] || execute_task_die "run inside a Git repository"
   cd "$requested" 2>/dev/null || execute_task_die "cannot enter project directory '$requested'"
   git_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
     || execute_task_die "not a Git repository: '$requested'"
-  EXECUTE_TASK_ROOT="$(pwd -P)" || execute_task_die "cannot canonicalize project directory"
+  requested_root="$(pwd -P)" || execute_task_die "cannot canonicalize project directory"
   git_root="$(CDPATH='' cd -- "$git_root" 2>/dev/null && pwd -P)" \
     || execute_task_die "cannot canonicalize Git root"
-  case "$EXECUTE_TASK_ROOT" in
+  case "$requested_root" in
     "$git_root"|"$git_root"/*) ;;
-    *) execute_task_die "project directory escapes Git root: $EXECUTE_TASK_ROOT" ;;
+    *) execute_task_die "project directory escapes Git root: $requested_root" ;;
   esac
-  EXECUTE_TASK_PREFIX="$(git rev-parse --show-prefix 2>/dev/null)" \
-    || execute_task_die "cannot resolve project prefix"
+  cd "$git_root" 2>/dev/null || execute_task_die "cannot enter Git root '$git_root'"
+  EXECUTE_TASK_ROOT="$git_root"
   EXECUTE_TASK_RUNS_DIR="$EXECUTE_TASK_ROOT/$EXECUTE_TASK_RUNS_REL"
 }
 
@@ -66,7 +66,7 @@ execute_task_prepare_state() {
   if [ "$allow_tracked" != "allow-tracked" ]; then
     exclude_file="$(git rev-parse --git-path info/exclude 2>/dev/null)" \
       || execute_task_die "cannot resolve Git exclude file"
-    pattern="/$EXECUTE_TASK_PREFIX$EXECUTE_TASK_RUNS_REL/"
+    pattern="/$EXECUTE_TASK_RUNS_REL/"
     [ ! -L "$exclude_file" ] || execute_task_die "refusing symlinked Git exclude file"
     mkdir -p "$(dirname "$exclude_file")" || execute_task_die "cannot create Git info directory"
     if ! grep -qxF "$pattern" "$exclude_file" 2>/dev/null; then

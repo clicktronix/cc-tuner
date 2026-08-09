@@ -49,10 +49,27 @@ make_repo
 mkdir -p "$REPO/packages/app"
 printf 'nested\n' > "$REPO/packages/app/app.txt"
 (cd "$REPO" && git add packages/app/app.txt && git commit -qm "add nested project")
+JOURNAL="$(CLAUDE_PROJECT_DIR="$REPO/packages/app" bash "$SCRIPT" nested-root main --expected-branch task)"
+if [ "$JOURNAL" = "$RUNS_REL/nested-root.md" ] \
+  && [ -f "$REPO/$JOURNAL" ] \
+  && [ ! -e "$REPO/packages/app/.claude" ] \
+  && (cd "$REPO" && git check-ignore -q "$JOURNAL"); then
+  echo "PASS subdirectory-run-state-is-git-root-owned"
+else
+  echo "FAIL subdirectory-run-state-is-git-root-owned (journal=$JOURNAL)"
+  failures=1
+fi
+rm -rf "$REPO"
+
+make_repo
+mkdir -p "$REPO/packages/app"
+printf 'nested\n' > "$REPO/packages/app/app.txt"
+(cd "$REPO" && git add packages/app/app.txt && git commit -qm "add nested project")
 printf 'dirty outside project\n' >> "$REPO/file.txt"
 CLAUDE_PROJECT_DIR="$REPO/packages/app" bash "$SCRIPT" nested-dirty main --expected-branch task >/dev/null 2>&1
 rc=$?
-if [ "$rc" -eq 2 ] && [ ! -e "$REPO/packages/app/$RUNS_REL/nested-dirty.md" ]; then
+if [ "$rc" -eq 2 ] && [ ! -e "$REPO/$RUNS_REL/nested-dirty.md" ] \
+  && [ ! -e "$REPO/packages/app/$RUNS_REL/nested-dirty.md" ]; then
   echo "PASS repo-wide-dirty-blocks-from-subdirectory"
 else
   echo "FAIL repo-wide-dirty-blocks-from-subdirectory (rc=$rc)"

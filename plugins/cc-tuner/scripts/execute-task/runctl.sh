@@ -239,7 +239,7 @@ validate_state_shape() {
       ([.reviews[].reviewer] | sort) == ([.required_reviewers[]] | sort) and
       (.review_history | type == "array") and
       (.invalidations | type == "array") and
-      (.fix_round | type == "number" and . >= 0 and floor == .) and
+      (.fix_round | type == "number" and . >= 0 and . <= 999999 and floor == .) and
       all(.tasks[];
         keys == ["description", "evidence", "id", "phase", "status", "ui_task_id", "updated_at"] and
         (.id | id) and (.description | type == "string" and length > 0) and
@@ -692,7 +692,10 @@ case "$SUBCOMMAND" in
           *) execute_task_die "fix loop may start only from testing, acceptance, candidate, review, or delivery" ;;
         esac
         read_evidence "fix-loop reason"
-        ROUND=$(( $(jq -r '.fix_round' "$STATE") + 1 ))
+        CURRENT_ROUND="$(jq -r '.fix_round' "$STATE")"
+        [ "$CURRENT_ROUND" -lt 999999 ] \
+          || execute_task_die "fix-loop limit reached (999999)"
+        ROUND=$((CURRENT_ROUND + 1))
         FIX_ID="review-fix-$ROUND"
         update_state '
           .invalidations += [{at: $updated_at, reason: $reason, candidate_sha: .candidate.sha}] |

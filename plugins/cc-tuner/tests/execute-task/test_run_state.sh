@@ -140,6 +140,7 @@ SCHEMA_CI_KEYS="$(jq -c '.properties.ci.required | sort' "$SCHEMA")"
 if [ "$STATE_KEYS" = "$SCHEMA_KEYS" ] && [ "$STATE_CI_KEYS" = "$SCHEMA_CI_KEYS" ] \
     && jq -e '
       .properties.required_reviewers.const == ["deep-review","mattpocock","codex"] and
+      .properties.fix_round.maximum == 999999 and
       (."$defs".task.properties.phase.enum | length) == 6 and
       (.properties.candidate.oneOf | length) == 2 and
       (.properties.ci.oneOf | length) == 3 and
@@ -186,6 +187,32 @@ evidence "release branch ownership" block run-2 >/dev/null
 [ "$(jq -r '.status' "$STATE")" = "blocked" ] && runctl resume run-1 >/dev/null \
   && [ "$(jq -r '.status' "$STATE")" = "active" ] \
   && pass "block-resume-owned-state" || fail "block-resume-owned-state"
+rm -rf "$REPO"
+
+# Project subdirectories in one worktree share one repo-wide run owner.
+REPO="$(mktemp -d)" || exit 1
+(
+  cd "$REPO" && git init -q -b main && git config user.email test@example.com \
+    && git config user.name test && mkdir -p docs packages/a packages/b \
+    && printf 'base\n' > file.txt && printf '# Spec\n' > docs/spec.md \
+    && printf 'a\n' > packages/a/a.txt && printf 'b\n' > packages/b/b.txt \
+    && git add . && git commit -qm init && git switch -qc task
+) || exit 1
+CLAUDE_PROJECT_DIR="$REPO/packages/a" bash "$P" sub-a main --expected-branch task >/dev/null \
+  || exit 1
+CLAUDE_PROJECT_DIR="$REPO/packages/a" bash "$R" init sub-a --mode auto --spec docs/spec.md >/dev/null \
+  || exit 1
+CLAUDE_PROJECT_DIR="$REPO/packages/b" bash "$P" sub-b main --expected-branch task >/dev/null \
+  || exit 1
+CLAUDE_PROJECT_DIR="$REPO/packages/b" bash "$R" init sub-b --mode auto --spec docs/spec.md >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 1 ] \
+  && [ "$(find "$REPO/$RUNS_REL" -name '*.state.json' -type f | wc -l | tr -d ' ')" -eq 1 ] \
+  && [ ! -e "$REPO/packages/a/.claude" ] && [ ! -e "$REPO/packages/b/.claude" ]; then
+  pass "subdirectories-share-repo-wide-run-owner"
+else
+  fail "subdirectories-share-repo-wide-run-owner" "rc=$rc"
+fi
 rm -rf "$REPO"
 
 # Concurrent initialization is serialized across run IDs, so exactly one state can become active.
@@ -389,6 +416,23 @@ if jq -e '.phase == {name:"implementation",status:"in_progress"} and .fix_round 
 else
   fail "testing-fix-loop-creates-task-and-invalidates"
 fi
+rm -rf "$REPO"
+
+# The persisted fix-loop counter is bounded before Bash arithmetic can wrap.
+make_repo
+complete_readiness && create_plan && complete_implementation || exit 1
+STATE="$REPO/$RUNS_REL/run-1.state.json"
+jq '.fix_round = 999999' "$STATE" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+evidence "one more fix" phase run-1 fix >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(jq -r '.fix_round' "$STATE")" -eq 999999 ]; then
+  pass "fix-loop-limit-rejected-before-arithmetic"
+else
+  fail "fix-loop-limit-rejected-before-arithmetic" "rc=$rc round=$(jq -r '.fix_round' "$STATE")"
+fi
+jq '.fix_round = 1000000' "$STATE" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+runctl status run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "out-of-range-fix-counter-invalidates-state" \
+  || fail "out-of-range-fix-counter-invalidates-state" "rc=$rc"
 rm -rf "$REPO"
 
 # Delivery accepts CI and DoD only for the immutable reviewed candidate.

@@ -166,7 +166,7 @@
     },
     "completed_at": { "$ref": "#/$defs/nullableTimestamp" },
     "completion_evidence": { "type": ["string", "null"] },
-    "fix_round": { "type": "integer", "minimum": 0 },
+    "fix_round": { "type": "integer", "minimum": 0, "maximum": 999999 },
     "invalidations": {
       "type": "array",
       "items": {
