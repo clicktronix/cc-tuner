@@ -20,7 +20,8 @@ have_required_codex_review() {
         review="$root/commands/review.md"
         if [ -f "$review" ] && [ -f "$root/scripts/review-state.sh" ] \
           && grep -qF -- '--required' "$review" \
-          && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review"; then
+          && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
+          && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh"; then
           return 0
         fi
       done <<EOF
@@ -34,7 +35,8 @@ EOF
     root="${review%/commands/review.md}"
     if [ -f "$root/scripts/review-state.sh" ] \
       && grep -qF -- '--required' "$review" \
-      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review"; then
+      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
+      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh"; then
       return 0
     fi
   done

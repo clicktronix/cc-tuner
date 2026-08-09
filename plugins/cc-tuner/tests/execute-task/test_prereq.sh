@@ -13,13 +13,23 @@ add_codereview()  { mkdir -p "$ROOT/$MP/engineering/code-review"; touch "$ROOT/$
 add_codex() {
   mkdir -p "$ROOT/$CCT" "${ROOT}/${CCT%/commands}/scripts"
   printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$ROOT/$CCT/review.md"
-  touch "${ROOT}/${CCT%/commands}/scripts/review-state.sh"
+  printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
+    > "${ROOT}/${CCT%/commands}/scripts/review-state.sh"
 }
 
 # all present -> exit 0
 mkroot; add_grilling; add_domain; add_codereview; add_codex
 CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1 \
   && echo "PASS all-present" || { echo "FAIL all-present"; fails=1; }
+rm -rf "$ROOT"
+
+# A command that advertises required review cannot compensate for stale machine state.
+mkroot; add_grilling; add_domain; add_codereview; add_codex
+printf '%s\n' 'legacy review state' > "${ROOT}/${CCT%/commands}/scripts/review-state.sh"
+OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q -- '--required'; } \
+  && echo "PASS cct-required-state-missing" \
+  || { echo "FAIL cct-required-state-missing (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
 
 # mattpocock-skills missing entirely -> exit exactly 1, and the message names it

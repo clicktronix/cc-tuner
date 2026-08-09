@@ -34,8 +34,9 @@ plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grillin
            "$CACHE/cache/m/cc-codex-triage/1/scripts"
   touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
         "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling/SKILL.md" \
-        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md" \
-        "$CACHE/cache/m/cc-codex-triage/1/scripts/review-state.sh"
+        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md"
+  printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
+    > "$CACHE/cache/m/cc-codex-triage/1/scripts/review-state.sh"
   printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
     > "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
 }
