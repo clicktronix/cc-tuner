@@ -103,7 +103,7 @@ codex_approval_marker() {
   tree="$(jq -r '.candidate.tree_sha' "$state")"
   base="$(jq -r '.base_sha' "$state")"
   spec="$(jq -r '.spec' "$state")"
-  printf 'CC_CODEX_REQUIRED_REVIEW APPROVE thread=review-run-1 head=%s tree=%s fingerprint=%064d base_sha=%s spec_path=%s\n' \
+  printf 'CC_CODEX_REQUIRED_REVIEW APPROVE thread=review-run-1 head=%s tree=%s fingerprint=%040d base_sha=%s spec_path=%s\n' \
     "$sha" "$tree" 0 "$base" "$spec"
 }
 
@@ -219,6 +219,9 @@ complete_readiness || exit 1
 evidence "Impossible late readiness task" task run-1 add late-readiness readiness >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "past-phase-task-is-rejected" \
   || fail "past-phase-task-is-rejected" "rc=$rc"
+evidence "Reserved fix task" task run-1 add review-fix-1 implementation >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "fix-task-namespace-is-reserved" \
+  || fail "fix-task-namespace-is-reserved" "rc=$rc"
 evidence "Implementation only" task run-1 add implement-only implementation >/dev/null
 runctl phase run-1 complete planning >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "planning-requires-full-lifecycle" \

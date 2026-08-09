@@ -158,8 +158,10 @@ EOF
   case "$fingerprint" in
     *[!0-9a-f]*|'') execute_task_die "Codex required-review marker has an invalid fingerprint" ;;
   esac
-  [ "${#fingerprint}" -eq 64 ] \
-    || execute_task_die "Codex required-review marker has an invalid fingerprint"
+  case "${#fingerprint}" in
+    40|64) ;;
+    *) execute_task_die "Codex required-review marker has an invalid fingerprint" ;;
+  esac
 }
 
 state_paths() {
@@ -695,6 +697,9 @@ case "$SUBCOMMAND" in
         [ "$(jq -r '.phase.name' "$STATE")" = "planning" ] \
           || execute_task_die "tasks may be added only during planning (fix tasks are created by 'phase fix')"
         read_evidence "task description"
+        case "$TASK_ID" in
+          review-fix-*) execute_task_die "task IDs beginning with 'review-fix-' are reserved for fix-loop tasks" ;;
+        esac
         jq -e --arg id "$TASK_ID" 'all(.tasks[]; .id != $id)' "$STATE" >/dev/null 2>&1 \
           || execute_task_die "task '$TASK_ID' already exists"
         update_state '.tasks += [{id: $id, phase: $phase, description: $description,
