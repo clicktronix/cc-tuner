@@ -9,7 +9,7 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 execute_task_init_root
 
-LOCK_DIR=""
+LOCK_DIRS=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -25,7 +25,7 @@ usage: runctl.sh init <run-id> [--mode interactive|auto] [--spec <path>]
        runctl.sh gate <run-id> record <gate-id> pass|fail [--sha <commit>] < evidence.txt
        runctl.sh candidate <run-id> record <commit>
        runctl.sh review <run-id> record <reviewer> APPROVE|REQUEST_CHANGES <commit> < evidence.txt
-       runctl.sh ci <run-id> record success|failure <commit> < evidence.txt
+       runctl.sh ci <run-id> record success|failure <commit> [--pr <number>] < evidence.txt
        runctl.sh can-advance|can-merge <run-id>
        runctl.sh block <run-id> < reason.txt
        runctl.sh resume <run-id>
@@ -35,10 +35,15 @@ EOF
 }
 
 cleanup_lock() {
-  if [ -n "$LOCK_DIR" ]; then
-    rm -f "$LOCK_DIR/pid" 2>/dev/null || true
-    rmdir "$LOCK_DIR" 2>/dev/null || true
-  fi
+  local lock_dir
+  [ -n "$LOCK_DIRS" ] || return
+  while IFS= read -r lock_dir; do
+    [ -n "$lock_dir" ] || continue
+    rm -f "$lock_dir/pid" 2>/dev/null || true
+    rmdir "$lock_dir" 2>/dev/null || true
+  done <<EOF
+$LOCK_DIRS
+EOF
 }
 trap cleanup_lock EXIT
 trap 'exit 129' HUP
@@ -116,6 +121,20 @@ state_paths() {
   STATE="$EXECUTE_TASK_RUNS_DIR/$EXECUTE_TASK_RUN_ID.state.json"
   execute_task_assert_regular_or_missing "$STATE"
   execute_task_assert_run_owner "$META"
+}
+
+assert_no_other_active_run() {
+  local other current_branch other_run
+  current_branch="$(execute_task_current_branch)"
+  for other in "$EXECUTE_TASK_RUNS_DIR"/*.state.json; do
+    [ -f "$other" ] && [ ! -L "$other" ] && [ "$other" != "$STATE" ] || continue
+    if jq -e --arg branch "$current_branch" \
+        '.schema_version == 1 and .branch == $branch and .status == "active"' \
+        "$other" >/dev/null 2>&1; then
+      other_run="$(jq -r '.run_id // "unknown"' "$other" 2>/dev/null)"
+      execute_task_die "branch '$current_branch' already has active run '$other_run'"
+    fi
+  done
 }
 
 validate_state_shape() {
@@ -201,15 +220,20 @@ load_state() {
     || execute_task_die "invalid or foreign state file for run '$EXECUTE_TASK_RUN_ID'"
 }
 
-lock_state() {
-  local owner requested_lock
-  requested_lock="$STATE.lock"
+acquire_lock() {
+  local requested_lock="$1" label="$2" owner
+  [ ! -L "$requested_lock" ] || execute_task_die "refusing symlinked $label lock"
   if mkdir "$requested_lock" 2>/dev/null; then
-    LOCK_DIR="$requested_lock"
-    printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null \
-      || execute_task_die "cannot record state lock owner"
+    LOCK_DIRS="${LOCK_DIRS}${LOCK_DIRS:+
+}$requested_lock"
+    printf '%s\n' "$$" > "$requested_lock/pid" 2>/dev/null \
+      || execute_task_die "cannot record $label lock owner"
     return
   fi
+  [ ! -L "$requested_lock" ] && [ -d "$requested_lock" ] \
+    || execute_task_die "invalid $label lock"
+  [ ! -L "$requested_lock/pid" ] \
+    || execute_task_die "refusing symlinked $label lock owner"
   owner="$(cat "$requested_lock/pid" 2>/dev/null || true)"
   case "$owner" in
     ''|*[!0-9]*) ;;
@@ -218,15 +242,24 @@ lock_state() {
         rm -f "$requested_lock/pid" 2>/dev/null || true
         rmdir "$requested_lock" 2>/dev/null || true
         if mkdir "$requested_lock" 2>/dev/null; then
-          LOCK_DIR="$requested_lock"
-          printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null \
-            || execute_task_die "cannot record state lock owner"
+          LOCK_DIRS="${LOCK_DIRS}${LOCK_DIRS:+
+}$requested_lock"
+          printf '%s\n' "$$" > "$requested_lock/pid" 2>/dev/null \
+            || execute_task_die "cannot record $label lock owner"
           return
         fi
       fi
       ;;
   esac
-  execute_task_die "state is being updated by another process: $EXECUTE_TASK_RUN_ID"
+  execute_task_die "$label is held by another process"
+}
+
+lock_state() {
+  acquire_lock "$STATE.lock" "state for run '$EXECUTE_TASK_RUN_ID'"
+}
+
+lock_initialization() {
+  acquire_lock "$EXECUTE_TASK_RUNS_DIR/.init.lock" "run initialization"
 }
 
 update_state() {
@@ -363,6 +396,9 @@ case "$SUBCOMMAND" in
     done
     case "$MODE" in interactive|auto) ;; *) execute_task_die "mode must be interactive or auto" ;; esac
     state_paths "$RUN_ID"
+    lock_state
+    lock_initialization
+    assert_no_other_active_run
     [ -f "$JOURNAL" ] || execute_task_die "journal not found for run '$EXECUTE_TASK_RUN_ID'; run preflight first"
     [ -z "$SPEC" ] || assert_repo_regular_tracked "spec" "$SPEC"
     if [ -f "$STATE" ]; then
@@ -375,7 +411,6 @@ case "$SUBCOMMAND" in
           (.completed_phases | length) == 0 and (.tasks | length) == 0 and (.gates | length) == 0' \
           "$STATE" >/dev/null 2>&1 \
           || execute_task_die "mode/spec cannot change after run progress exists"
-        lock_state
         load_state
         update_state '.mode = $mode | if ($spec | length) > 0 then .spec = $spec else . end' \
           --arg mode "$MODE" --arg spec "$SPEC"
@@ -383,7 +418,6 @@ case "$SUBCOMMAND" in
       printf '%s\n' "$EXECUTE_TASK_RUNS_REL/$EXECUTE_TASK_RUN_ID.state.json"
       exit 0
     fi
-    lock_state
     NOW="$(date -u +%FT%TZ)"
     BRANCH="$(execute_task_read_meta branch "$META")"
     TARGET="$(execute_task_read_meta target_ref "$META")"
@@ -664,16 +698,53 @@ case "$SUBCOMMAND" in
     ;;
 
   ci)
-    [ "$#" -eq 5 ] || usage
+    [ "$#" -ge 5 ] || usage
     [ "$3" = "record" ] || execute_task_die "unknown CI action '$3'"
     state_paths "$2"; lock_state; load_state; assert_active
     [ "$(jq -r '.phase.name' "$STATE")" = "delivery" ] \
       || execute_task_die "CI may be recorded only in delivery phase"
     CI_STATUS="$4"; case "$CI_STATUS" in success|failure) ;; *) execute_task_die "CI status must be success or failure" ;; esac
     SHA="$(resolve_commit "$5")"
+    shift 5
+    PR_NUMBER=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --pr)
+          [ "$#" -ge 2 ] || execute_task_die "--pr requires a value"
+          PR_NUMBER="$2"; shift
+          ;;
+        *) execute_task_die "unknown CI option '$1'" ;;
+      esac
+      shift
+    done
     CANDIDATE="$(jq -r '.candidate.sha // empty' "$STATE")"
     [ "$SHA" = "$CANDIDATE" ] || execute_task_die "CI result is for $SHA, not candidate $CANDIDATE"
+    if [ "$CI_STATUS" = "success" ]; then
+      case "$PR_NUMBER" in ''|*[!0-9]*) execute_task_die "successful CI requires --pr <positive-number>" ;; esac
+      [ "$PR_NUMBER" -gt 0 ] || execute_task_die "successful CI requires --pr <positive-number>"
+      command -v gh >/dev/null 2>&1 || execute_task_die "gh is required to verify hosted CI"
+      PR_JSON="$(gh pr view "$PR_NUMBER" --json number,state,headRefOid 2>/dev/null)" \
+        || execute_task_die "cannot read PR #$PR_NUMBER for CI verification"
+      jq -e --arg sha "$SHA" --argjson number "$PR_NUMBER" \
+        '.number == $number and .state == "OPEN" and .headRefOid == $sha' \
+        >/dev/null 2>&1 <<EOF \
+        || execute_task_die "PR #$PR_NUMBER is not open at candidate $SHA"
+$PR_JSON
+EOF
+      CHECKS_JSON="$(gh pr checks "$PR_NUMBER" --required --json bucket,name,state 2>/dev/null)" \
+        || execute_task_die "required checks are not green for PR #$PR_NUMBER"
+      jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
+        || execute_task_die "PR #$PR_NUMBER has missing, pending, skipped, cancelled, or failed required checks"
+$CHECKS_JSON
+EOF
+    elif [ -n "$PR_NUMBER" ]; then
+      execute_task_die "--pr is accepted only when recording successful CI"
+    fi
     read_evidence "CI evidence"
+    if [ "$CI_STATUS" = "success" ]; then
+      EVIDENCE="PR #$PR_NUMBER required checks verified at $SHA
+$EVIDENCE"
+    fi
     update_state '.ci = {status: $status, sha: $sha, evidence: $evidence, recorded_at: $updated_at}' \
       --arg status "$CI_STATUS" --arg sha "$SHA" --arg evidence "$EVIDENCE"
     ;;

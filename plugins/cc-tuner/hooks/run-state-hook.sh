@@ -51,7 +51,17 @@ done
 ACTIVE_COUNT="$(printf '%s\n' "$ACTIVE" | grep -c .)"
 if [ "$ACTIVE_COUNT" -ne 1 ]; then
   case "$EVENT" in
-    pre-tool-use) deny_tool "cc-tuner: multiple active run states own branch '$BRANCH'; resolve them before merge" ;;
+    pre-tool-use)
+      TOOL_NAME="$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)"
+      if [ "$TOOL_NAME" = "Bash" ]; then
+        COMMAND="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)"
+        printf '%s\n' "$COMMAND" \
+          | grep -Eq '(^|[;&|][;&|]?[[:space:]]*)(command[[:space:]]+)?([^[:space:];&|]*/)?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)' \
+          && deny_tool "cc-tuner: multiple active run states own branch '$BRANCH'; refusing merge"
+        allow
+      fi
+      deny_tool "cc-tuner: multiple active run states own branch '$BRANCH'; mutation ownership is ambiguous"
+      ;;
     stop) block_stop "cc-tuner: multiple active run states own branch '$BRANCH'; block or finish all but one" ;;
     task-completed) deny_tool "cc-tuner: multiple active run states own branch '$BRANCH'; task ownership is ambiguous" ;;
     *) allow ;;

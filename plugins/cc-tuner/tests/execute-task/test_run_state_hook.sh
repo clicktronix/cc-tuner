@@ -54,7 +54,7 @@ OUT="$(hook stop "$ACTIVE_STOP_INPUT" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ -z "$OUT" ]; } && pass "stop-hook-active-breaks-loop" \
   || fail "stop-hook-active-breaks-loop" "rc=$rc out=$OUT"
 
-NONMERGE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_input:{command:"git status --short"}}')"
+NONMERGE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:"git status --short"}}')"
 hook pre-tool-use "$NONMERGE_INPUT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && pass "non-merge-bash-allowed" || fail "non-merge-bash-allowed" "rc=$rc"
 
@@ -64,11 +64,27 @@ OUT="$(hook pre-tool-use "$EDIT_INPUT" 2>&1)"; rc=$?
   && pass "edit-before-planning-blocked" \
   || fail "edit-before-planning-blocked" "rc=$rc out=$OUT"
 
-MERGE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_input:{command:"gh pr merge 123 --squash"}}')"
+MERGE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 123 --squash"}}')"
 OUT="$(hook pre-tool-use "$MERGE_INPUT" 2>&1)"; rc=$?
 { [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -q 'blocked gh pr merge'; } \
   && pass "premature-gh-merge-blocked" \
   || fail "premature-gh-merge-blocked" "rc=$rc out=$OUT"
+
+# Legacy/corrupt duplicate states still allow a Bash recovery command, but never merge or task completion.
+STATE_DIR="$REPO/.claude/execute-task-runs"
+cp "$STATE_DIR/hook-run.state.json" "$STATE_DIR/duplicate.state.json"
+hook pre-tool-use "$NONMERGE_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "multiple-state-recovery-bash-allowed" \
+  || fail "multiple-state-recovery-bash-allowed" "rc=$rc"
+OUT="$(hook pre-tool-use "$MERGE_INPUT" 2>&1)"; rc=$?
+{ [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -q 'refusing merge'; } \
+  && pass "multiple-state-merge-blocked" \
+  || fail "multiple-state-merge-blocked" "rc=$rc out=$OUT"
+DUP_TASK_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,hook_event_name:"TaskCompleted",task_id:"task-123"}')"
+hook task-completed "$DUP_TASK_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "multiple-state-task-completion-blocked" \
+  || fail "multiple-state-task-completion-blocked" "rc=$rc"
+rm -f "$STATE_DIR/duplicate.state.json"
 
 # TaskCompleted is enforced only for an explicit run-state <-> Claude task binding.
 evidence "DoR ready" gate hook-run record dor pass >/dev/null

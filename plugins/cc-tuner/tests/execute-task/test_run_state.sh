@@ -103,6 +103,12 @@ OUT="$(runctl resume run-1 2>&1)"; rc=$?
   && pass "active-resume-is-idempotent" \
   || fail "active-resume-is-idempotent" "rc=$rc out=$OUT"
 
+# One branch cannot have two authoritative active runs.
+CLAUDE_PROJECT_DIR="$REPO" bash "$P" run-2 main --expected-branch task >/dev/null || exit 1
+runctl init run-2 --mode auto --spec docs/spec.md >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "second-active-run-on-branch-rejected" \
+  || fail "second-active-run-on-branch-rejected" "rc=$rc"
+
 # Read/status operations re-check branch ownership.
 (cd "$REPO" && git switch -qc other) >/dev/null 2>&1
 runctl status run-1 >/dev/null 2>&1; rc=$?
@@ -115,6 +121,30 @@ evidence "waiting for a user-owned migration" block run-1 >/dev/null
 [ "$(jq -r '.status' "$STATE")" = "blocked" ] && runctl resume run-1 >/dev/null \
   && [ "$(jq -r '.status' "$STATE")" = "active" ] \
   && pass "block-resume-owned-state" || fail "block-resume-owned-state"
+rm -rf "$REPO"
+
+# Concurrent initialization is serialized across run IDs, so exactly one state can become active.
+REPO="$(mktemp -d)" || exit 1
+(
+  cd "$REPO" && git init -q -b main && git config user.email test@example.com \
+    && git config user.name test && mkdir -p docs && printf 'base\n' > file.txt \
+    && printf '# Spec\n' > docs/spec.md && git add file.txt docs/spec.md \
+    && git commit -qm init && git switch -qc task
+) || exit 1
+for run_id in parallel-a parallel-b; do
+  CLAUDE_PROJECT_DIR="$REPO" bash "$P" "$run_id" main --expected-branch task >/dev/null \
+    || exit 1
+done
+(runctl init parallel-a --mode auto --spec docs/spec.md >/dev/null 2>&1) & pid_a=$!
+(runctl init parallel-b --mode auto --spec docs/spec.md >/dev/null 2>&1) & pid_b=$!
+wait "$pid_a"; rc_a=$?
+wait "$pid_b"; rc_b=$?
+if { [ "$rc_a" -eq 0 ] && [ "$rc_b" -eq 1 ]; } \
+    || { [ "$rc_a" -eq 1 ] && [ "$rc_b" -eq 0 ]; }; then
+  pass "concurrent-init-allows-one-active-run"
+else
+  fail "concurrent-init-allows-one-active-run" "rc_a=$rc_a rc_b=$rc_b"
+fi
 rm -rf "$REPO"
 
 # Specs move from the planning area to the archive while implementation owns mutations. State
@@ -160,6 +190,26 @@ runctl can-advance run-1 >/dev/null 2>&1; rc=$?
   || fail "new-head-invalidates-review" "rc=$rc"
 rm -rf "$REPO"
 
+# REQUEST_CHANGES is a blocking current verdict and leaves review only through the explicit fix loop.
+make_repo
+prepare_candidate || { fail "request-changes-fixture"; rm -rf "$REPO"; exit "$fails"; }
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+evidence "deep review requested changes" review run-1 record deep-review REQUEST_CHANGES "$SHA" >/dev/null
+evidence "matt approved" review run-1 record mattpocock APPROVE "$SHA" >/dev/null
+evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null
+runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "request-changes-blocks-review" \
+  || fail "request-changes-blocks-review" "rc=$rc"
+evidence "address deep review findings" phase run-1 fix >/dev/null
+if jq -e '.phase == {name:"implementation",status:"in_progress"} and
+    .candidate.sha == null and all(.reviews[]; .verdict == "PENDING") and .ci.status == "pending"' \
+    "$REPO/$RUNS_REL/run-1.state.json" >/dev/null; then
+  pass "review-fix-invalidates-downstream"
+else
+  fail "review-fix-invalidates-downstream"
+fi
+rm -rf "$REPO"
+
 # Candidate content must be exactly the content that passed testing, even though the test gate can
 # be recorded before the candidate commit exists.
 make_repo
@@ -203,7 +253,34 @@ WRONG_SHA="$(git -C "$REPO" rev-parse main)"
 evidence "stale CI run" ci run-1 record success "$WRONG_SHA" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "wrong-ci-sha-rejected" \
   || fail "wrong-ci-sha-rejected" "rc=$rc"
-evidence "required checks passed" ci run-1 record success "$SHA" >/dev/null
+evidence "required checks failed" ci run-1 record failure "$SHA" >/dev/null
+runctl phase run-1 complete delivery >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "failed-ci-blocks-delivery" \
+  || fail "failed-ci-blocks-delivery" "rc=$rc"
+
+GH_STUB="$(mktemp -d)" || exit 1
+cat > "$GH_STUB/gh" <<'GH_STUB_SCRIPT'
+#!/usr/bin/env bash
+case "$1:$2" in
+  pr:view) printf '{"number":42,"state":"OPEN","headRefOid":"%s"}\n' "$GH_TEST_SHA" ;;
+  pr:checks) printf '%s\n' "$GH_TEST_CHECKS" ;;
+  *) exit 1 ;;
+esac
+GH_STUB_SCRIPT
+chmod +x "$GH_STUB/gh"
+export GH_TEST_SHA="$WRONG_SHA"
+export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
+PATH="$GH_STUB:$PATH"
+evidence "checks passed on stale PR head" ci run-1 record success "$SHA" --pr 42 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "stale-pr-head-not-green" \
+  || fail "stale-pr-head-not-green" "rc=$rc"
+export GH_TEST_SHA="$SHA"
+export GH_TEST_CHECKS='[]'
+evidence "no required checks" ci run-1 record success "$SHA" --pr 42 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "absent-required-checks-not-green" \
+  || fail "absent-required-checks-not-green" "rc=$rc"
+export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
+evidence "required checks passed" ci run-1 record success "$SHA" --pr 42 >/dev/null
 evidence "DoD verified on candidate" gate run-1 record dod pass --sha "$SHA" >/dev/null
 runctl phase run-1 complete delivery >/dev/null
 OUT="$(runctl can-merge run-1 2>&1)"; rc=$?
@@ -214,6 +291,7 @@ evidence "PR merged; issue/spec/branch reconciled" finish run-1 >/dev/null
 [ "$(jq -r '.status + ":" + .phase.name' "$REPO/$RUNS_REL/run-1.state.json")" = "completed:done" ] \
   && [ "$(jq -r '.completion_evidence' "$REPO/$RUNS_REL/run-1.state.json")" = "PR merged; issue/spec/branch reconciled" ] \
   && pass "finish-marks-terminal" || fail "finish-marks-terminal"
+rm -rf "$GH_STUB"
 rm -rf "$REPO"
 
 exit "$fails"
