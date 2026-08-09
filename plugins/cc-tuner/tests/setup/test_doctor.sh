@@ -30,11 +30,14 @@ plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grillin
   mkdir -p "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling" \
            "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling" \
            "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review" \
-           "$CACHE/cache/m/cc-codex-triage/1/commands"
+           "$CACHE/cache/m/cc-codex-triage/1/commands" \
+           "$CACHE/cache/m/cc-codex-triage/1/scripts"
   touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
         "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling/SKILL.md" \
         "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md" \
-        "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
+        "$CACHE/cache/m/cc-codex-triage/1/scripts/review-state.sh"
+  printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
+    > "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
 }
 run() { ( cd "${1:-$R}" && PATH="$STUB" CLAUDE_PLUGIN_CACHE="$CACHE" CC_TUNER_HOME="$H" \
           bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
