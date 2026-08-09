@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+set -u
+
+DIR="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)"
+P="$DIR/preflight.sh"
+R="$DIR/runctl.sh"
+RUNS_REL=".claude/execute-task-runs"
+fails=0
+
+pass() { printf 'PASS %s\n' "$1"; }
+fail() { printf 'FAIL %s%s\n' "$1" "${2:+ ($2)}"; fails=1; }
+runctl() { CLAUDE_PROJECT_DIR="$REPO" bash "$R" "$@"; }
+evidence() {
+  text="$1"; shift
+  printf '%s\n' "$text" | runctl "$@"
+}
+
+make_repo() {
+  REPO="$(mktemp -d)" || exit 1
+  (
+    cd "$REPO" && git init -q -b main && git config user.email test@example.com \
+      && git config user.name test && mkdir -p docs && printf 'base\n' > file.txt \
+      && printf '# Spec\n' > docs/spec.md && git add file.txt docs/spec.md \
+      && git commit -qm init && git switch -qc task
+  ) || exit 1
+  CLAUDE_PROJECT_DIR="$REPO" bash "$P" run-1 main --expected-branch task >/dev/null \
+    || exit 1
+  runctl init run-1 --mode auto --spec docs/spec.md >/dev/null || exit 1
+}
+
+complete_readiness() {
+  evidence "DoR commands and prerequisites verified" gate run-1 record dor pass >/dev/null \
+    && runctl phase run-1 complete readiness >/dev/null \
+    && runctl phase run-1 enter planning >/dev/null
+}
+
+create_plan() {
+  evidence "Implement the scoped behavior and regression test" \
+    task run-1 add implement-feature implementation >/dev/null \
+    && runctl phase run-1 complete planning >/dev/null \
+    && runctl phase run-1 enter implementation >/dev/null
+}
+
+complete_implementation() {
+  runctl task run-1 start implement-feature >/dev/null \
+    && evidence "Implementation and scoped test completed" \
+      task run-1 complete implement-feature >/dev/null \
+    && runctl phase run-1 complete implementation >/dev/null \
+    && runctl phase run-1 enter testing >/dev/null
+}
+
+complete_testing_to_candidate() {
+  evidence "targeted/full test commands passed" gate run-1 record testing pass >/dev/null \
+    && runctl phase run-1 complete testing >/dev/null \
+    && runctl phase run-1 enter acceptance >/dev/null \
+    && evidence "machine acceptance passed" gate run-1 record acceptance pass >/dev/null \
+    && runctl phase run-1 complete acceptance >/dev/null \
+    && runctl phase run-1 enter candidate >/dev/null
+}
+
+record_candidate_and_enter_review() {
+  SHA="$(git -C "$REPO" rev-parse HEAD)"
+  runctl candidate run-1 record "$SHA" >/dev/null \
+    && runctl phase run-1 complete candidate >/dev/null \
+    && runctl phase run-1 enter review >/dev/null
+}
+
+approve_all() {
+  SHA="$(git -C "$REPO" rev-parse HEAD)"
+  for reviewer in deep-review mattpocock codex; do
+    evidence "$reviewer approved exact candidate" \
+      review run-1 record "$reviewer" APPROVE "$SHA" >/dev/null || return 1
+  done
+}
+
+prepare_candidate() {
+  complete_readiness && create_plan && complete_implementation || return 1
+  printf 'implementation\n' >> "$REPO/file.txt"
+  (cd "$REPO" && git add file.txt && git commit -qm implementation) || return 1
+  complete_testing_to_candidate && record_candidate_and_enter_review
+}
+
+# State is adjacent to the journal, validates ownership, and init is idempotent.
+make_repo
+STATE="$REPO/$RUNS_REL/run-1.state.json"
+if [ -f "$STATE" ] \
+  && jq -e '.schema_version == 1 and .phase == {name:"readiness",status:"in_progress"} and
+    .required_reviewers == ["deep-review","mattpocock","codex"]' "$STATE" >/dev/null \
+  && runctl init run-1 --mode auto --spec docs/spec.md >/dev/null; then
+  pass "state-init-idempotent"
+else
+  fail "state-init-idempotent"
+fi
+
+# Phase order is executable, not prose.
+runctl phase run-1 enter implementation >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "illegal-transition-rejected" \
+  || fail "illegal-transition-rejected" "rc=$rc"
+
+# Active resume is the idempotent phase-entry read used at every /run boundary.
+OUT="$(runctl resume run-1 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | jq -e '.status == "active" and .phase.name == "readiness"' >/dev/null 2>&1; } \
+  && pass "active-resume-is-idempotent" \
+  || fail "active-resume-is-idempotent" "rc=$rc out=$OUT"
+
+# Read/status operations re-check branch ownership.
+(cd "$REPO" && git switch -qc other) >/dev/null 2>&1
+runctl status run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "cross-branch-state-rejected" \
+  || fail "cross-branch-state-rejected" "rc=$rc"
+(cd "$REPO" && git switch -q task) >/dev/null 2>&1
+
+# Explicit block/resume is the only non-terminal Stop escape for an auto run.
+evidence "waiting for a user-owned migration" block run-1 >/dev/null
+[ "$(jq -r '.status' "$STATE")" = "blocked" ] && runctl resume run-1 >/dev/null \
+  && [ "$(jq -r '.status' "$STATE")" = "active" ] \
+  && pass "block-resume-owned-state" || fail "block-resume-owned-state"
+rm -rf "$REPO"
+
+# Specs move from the planning area to the archive while implementation owns mutations. State
+# follows only a staged/committed relocation; a copy that leaves the old tracked path cannot pass.
+make_repo
+complete_readiness && create_plan || exit 1
+mkdir -p "$REPO/docs/archive"
+cp "$REPO/docs/spec.md" "$REPO/docs/archive/spec-copy.md"
+(cd "$REPO" && git add docs/archive/spec-copy.md) >/dev/null 2>&1
+runctl spec run-1 relocate docs/archive/spec-copy.md >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "spec-copy-is-not-relocation" \
+  || fail "spec-copy-is-not-relocation" "rc=$rc"
+(cd "$REPO" && git reset -q docs/archive/spec-copy.md && rm -f docs/archive/spec-copy.md \
+  && git mv docs/spec.md docs/archive/spec.md) >/dev/null 2>&1
+runctl spec run-1 relocate docs/archive/spec.md >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] \
+  && [ "$(jq -r '.spec' "$REPO/$RUNS_REL/run-1.state.json")" = "docs/archive/spec.md" ]; then
+  pass "tracked-spec-relocation-updates-state"
+else
+  fail "tracked-spec-relocation-updates-state" "rc=$rc"
+fi
+rm -rf "$REPO"
+
+# A candidate cannot pass review without every required exact-SHA verdict.
+make_repo
+prepare_candidate || { fail "candidate-fixture"; rm -rf "$REPO"; exit "$fails"; }
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+evidence "deep review approved" review run-1 record deep-review APPROVE "$SHA" >/dev/null
+evidence "mattpocock approved" review run-1 record mattpocock APPROVE "$SHA" >/dev/null
+runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "missing-codex-review-blocks" \
+  || fail "missing-codex-review-blocks" "rc=$rc"
+
+# Approval is invalid as soon as either HEAD or the worktree differs from the candidate.
+evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null
+printf 'post-review mutation\n' >> "$REPO/file.txt"
+runctl can-advance run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "dirty-tree-invalidates-review" \
+  || fail "dirty-tree-invalidates-review" "rc=$rc"
+(cd "$REPO" && git add file.txt && git commit -qm post-review-mutation) >/dev/null 2>&1
+runctl can-advance run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "new-head-invalidates-review" \
+  || fail "new-head-invalidates-review" "rc=$rc"
+rm -rf "$REPO"
+
+# Candidate content must be exactly the content that passed testing, even though the test gate can
+# be recorded before the candidate commit exists.
+make_repo
+complete_readiness && create_plan && complete_implementation || exit 1
+printf 'tested implementation\n' >> "$REPO/file.txt"
+evidence "tests passed on this worktree" gate run-1 record testing pass >/dev/null
+runctl phase run-1 complete testing >/dev/null
+runctl phase run-1 enter acceptance >/dev/null
+evidence "acceptance passed" gate run-1 record acceptance pass >/dev/null
+runctl phase run-1 complete acceptance >/dev/null
+runctl phase run-1 enter candidate >/dev/null
+printf 'untested mutation\n' >> "$REPO/file.txt"
+(cd "$REPO" && git add file.txt && git commit -qm untested-mutation) >/dev/null 2>&1
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+runctl candidate run-1 record "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "candidate-must-match-tested-tree" \
+  || fail "candidate-must-match-tested-tree" "rc=$rc"
+rm -rf "$REPO"
+
+# A testing/acceptance/candidate/review/delivery failure returns only through the explicit fix loop.
+make_repo
+complete_readiness && create_plan && complete_implementation || exit 1
+evidence "test exposed another implementation defect" phase run-1 fix >/dev/null
+if jq -e '.phase == {name:"implementation",status:"in_progress"} and .fix_round == 1 and
+    any(.tasks[]; .id == "review-fix-1" and .status == "pending") and
+    .candidate.sha == null and .ci.status == "pending"' \
+    "$REPO/$RUNS_REL/run-1.state.json" >/dev/null; then
+  pass "testing-fix-loop-creates-task-and-invalidates"
+else
+  fail "testing-fix-loop-creates-task-and-invalidates"
+fi
+rm -rf "$REPO"
+
+# Delivery accepts CI and DoD only for the immutable reviewed candidate.
+make_repo
+prepare_candidate && approve_all \
+  && runctl phase run-1 complete review >/dev/null \
+  && runctl phase run-1 enter delivery >/dev/null || exit 1
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+WRONG_SHA="$(git -C "$REPO" rev-parse main)"
+evidence "stale CI run" ci run-1 record success "$WRONG_SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "wrong-ci-sha-rejected" \
+  || fail "wrong-ci-sha-rejected" "rc=$rc"
+evidence "required checks passed" ci run-1 record success "$SHA" >/dev/null
+evidence "DoD verified on candidate" gate run-1 record dod pass --sha "$SHA" >/dev/null
+runctl phase run-1 complete delivery >/dev/null
+OUT="$(runctl can-merge run-1 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q "$SHA"; } \
+  && pass "exact-sha-delivery-can-merge" \
+  || fail "exact-sha-delivery-can-merge" "rc=$rc out=$OUT"
+evidence "PR merged; issue/spec/branch reconciled" finish run-1 >/dev/null
+[ "$(jq -r '.status + ":" + .phase.name' "$REPO/$RUNS_REL/run-1.state.json")" = "completed:done" ] \
+  && [ "$(jq -r '.completion_evidence' "$REPO/$RUNS_REL/run-1.state.json")" = "PR merged; issue/spec/branch reconciled" ] \
+  && pass "finish-marks-terminal" || fail "finish-marks-terminal"
+rm -rf "$REPO"
+
+exit "$fails"

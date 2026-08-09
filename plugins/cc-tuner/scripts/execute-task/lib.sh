@@ -113,3 +113,67 @@ execute_task_assert_run_owner() {
   [ "$stored_branch" = "$current_branch" ] \
     || execute_task_die "run '$EXECUTE_TASK_RUN_ID' belongs to branch '$stored_branch', not '$current_branch'"
 }
+
+execute_task_validate_item_id() {
+  local kind="$1" value="$2"
+  [ -n "$value" ] || execute_task_die "$kind is required"
+  [ "${#value}" -le 120 ] || execute_task_die "$kind exceeds 120 characters"
+  case "$value" in
+    [abcdefghijklmnopqrstuvwxyz0123456789]*) ;;
+    *) execute_task_die "$kind must start with a lowercase ASCII letter or digit" ;;
+  esac
+  case "$value" in
+    *[!abcdefghijklmnopqrstuvwxyz0123456789._-]*)
+      execute_task_die "$kind may contain only lowercase ASCII letters, digits, dot, underscore, and hyphen"
+      ;;
+  esac
+}
+
+execute_task_current_sha() {
+  git rev-parse --verify HEAD 2>/dev/null \
+    || execute_task_die "run requires an existing HEAD commit"
+}
+
+execute_task_current_tree_sha() {
+  git rev-parse --verify HEAD^{tree} 2>/dev/null \
+    || execute_task_die "cannot resolve the current tree SHA"
+}
+
+execute_task_assert_clean_tree() {
+  local dirty
+  dirty="$(git status --porcelain -uall 2>/dev/null)" \
+    || execute_task_die "git status failed; refusing to assume a clean tree"
+  [ -z "$dirty" ] || execute_task_die "working tree must be clean for an immutable candidate"
+}
+
+# Build the tree object represented by the complete working tree without touching the user's index.
+# This lets a pre-commit testing gate bind to the exact content later recorded as the candidate.
+execute_task_worktree_tree_sha() {
+  local real_index temporary_index tree
+  real_index="$(git rev-parse --git-path index 2>/dev/null)" \
+    || execute_task_die "cannot resolve Git index"
+  temporary_index="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-index.XXXXXX")" \
+    || execute_task_die "cannot create temporary Git index"
+  if [ -f "$real_index" ]; then
+    cp "$real_index" "$temporary_index" || {
+      rm -f "$temporary_index"
+      execute_task_die "cannot copy Git index"
+    }
+  else
+    rm -f "$temporary_index"
+    GIT_INDEX_FILE="$temporary_index" git read-tree HEAD >/dev/null 2>&1 || {
+      rm -f "$temporary_index"
+      execute_task_die "cannot initialize temporary Git index"
+    }
+  fi
+  GIT_INDEX_FILE="$temporary_index" git add -A -- :/ >/dev/null 2>&1 || {
+    rm -f "$temporary_index"
+    execute_task_die "cannot snapshot working tree"
+  }
+  tree="$(GIT_INDEX_FILE="$temporary_index" git write-tree 2>/dev/null)" || {
+    rm -f "$temporary_index"
+    execute_task_die "cannot write working-tree snapshot"
+  }
+  rm -f "$temporary_index"
+  printf '%s\n' "$tree"
+}

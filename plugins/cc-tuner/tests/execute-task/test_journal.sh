@@ -32,10 +32,29 @@ CLAUDE_PROJECT_DIR="$T" bash "$P" run1 main --expected-branch task >/dev/null 2>
 # path
 [ "$(CLAUDE_PROJECT_DIR="$T" bash "$J" path run1)" = ".claude/execute-task-runs/run1.md" ] \
   && echo "PASS path" || { echo "FAIL path"; fails=1; }
-# append adds a line
-CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 "step 2 APPROVE r3" >/dev/null 2>&1
+# append reads the safe interface from stdin and adds a line
+printf '%s\n' "step 2 APPROVE r3" | CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 >/dev/null 2>&1
 grep -q "step 2 APPROVE r3" "$T/.claude/execute-task-runs/run1.md" \
   && echo "PASS append" || { echo "FAIL append"; fails=1; }
+# Literal Markdown shell syntax must remain data. The quoted heredoc/pipe contract prevents the
+# caller shell from executing it before journal.sh receives the bytes.
+MARKER="$T/journal-command-substitution-ran"
+printf 'literal `touch %s` and $(touch %s)\n' "$MARKER" "$MARKER" \
+  | CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 >/dev/null 2>&1
+if [ ! -e "$MARKER" ] \
+  && grep -qF 'literal `touch' "$T/.claude/execute-task-runs/run1.md" \
+  && grep -qF '$(touch' "$T/.claude/execute-task-runs/run1.md"; then
+  echo "PASS append-stdin-preserves-shell-syntax"
+else
+  echo "FAIL append-stdin-preserves-shell-syntax"
+  fails=1
+fi
+# Legacy argv remains readable for one migration window, but emits a warning because expansion at
+# the caller cannot be made safe after the fact.
+OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 "legacy message" 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'deprecated'; } \
+  && echo "PASS append-argv-compatibility-warning" \
+  || { echo "FAIL append-argv-compatibility-warning (rc=$rc out=$OUT)"; fails=1; }
 # append with NO message -> rejected (exit exactly 1), no blank bullet written
 before="$(wc -l < "$T/.claude/execute-task-runs/run1.md")"
 CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 >/dev/null 2>&1; rc=$?
@@ -60,7 +79,9 @@ OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" read nope 2>/dev/null)"; rc=$?
 
 # resume keeps the header (base SHA / target -- what stops a resumed run rebasing
 # onto the wrong thing) and bounds the log tail
-for i in 1 2 3 4 5 6 7 8; do CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 "entry $i" >/dev/null 2>&1; done
+for i in 1 2 3 4 5 6 7 8; do
+  printf 'entry %s\n' "$i" | CLAUDE_PROJECT_DIR="$T" bash "$J" append run1 >/dev/null 2>&1
+done
 OUT="$(CLAUDE_PROJECT_DIR="$T" bash "$J" resume run1 3 2>&1)"
 { printf '%s' "$OUT" | grep -q 'base SHA' \
   && printf '%s' "$OUT" | grep -q 'entry 8' \

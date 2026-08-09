@@ -35,7 +35,7 @@ done
 json_count=0
 for f in "$ROOT"/.claude-plugin/marketplace.json "$PLUGIN"/.claude-plugin/plugin.json \
          "$PLUGIN"/hooks/hooks.json "$PLUGIN"/workflow-contract.json "$ROOT"/release-please-config.json \
-         "$ROOT"/.release-please-manifest.json "$ROOT"/tests/scenarios/*/*.json; do
+         "$PLUGIN"/schemas/*.json "$ROOT"/.release-please-manifest.json "$ROOT"/tests/scenarios/*/*.json; do
   [ -f "$f" ] || continue
   json_count=$((json_count + 1))
   jq empty "$f" >/dev/null 2>&1 || bad "invalid JSON: ${f#$ROOT/}"

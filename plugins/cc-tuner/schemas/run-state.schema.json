@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/clicktronix/cc-tuner/schemas/run-state.schema.json",
+  "title": "cc-tuner run state",
+  "description": "Authoritative local state for one /cc-tuner:run lifecycle. The Markdown journal is an audit view, not a gate source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "mode",
+    "status",
+    "blocked_reason",
+    "spec",
+    "branch",
+    "target_ref",
+    "target_sha",
+    "base_sha",
+    "phase",
+    "completed_phases",
+    "tasks",
+    "gates",
+    "required_reviewers",
+    "reviews",
+    "review_history",
+    "candidate",
+    "ci",
+    "completed_at",
+    "fix_round",
+    "completion_evidence",
+    "invalidations",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "$ref": "#/$defs/id" },
+    "mode": { "enum": ["interactive", "auto"] },
+    "status": { "enum": ["active", "blocked", "completed"] },
+    "blocked_reason": { "type": ["string", "null"] },
+    "spec": { "type": ["string", "null"] },
+    "branch": { "type": "string", "minLength": 1 },
+    "target_ref": { "type": "string", "minLength": 1 },
+    "target_sha": { "$ref": "#/$defs/sha" },
+    "base_sha": { "type": "string", "minLength": 1 },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": {
+          "enum": [
+            "readiness",
+            "planning",
+            "implementation",
+            "testing",
+            "acceptance",
+            "candidate",
+            "review",
+            "delivery",
+            "done"
+          ]
+        },
+        "status": { "enum": ["in_progress", "completed"] }
+      }
+    },
+    "completed_phases": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/task" }
+    },
+    "gates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gate" }
+    },
+    "required_reviewers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "reviews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/review" }
+    },
+    "review_history": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/review" }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha", "tree_sha", "recorded_at"],
+      "properties": {
+        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "tree_sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
+      }
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sha", "evidence", "recorded_at"],
+      "properties": {
+        "status": { "enum": ["pending", "success", "failure"] },
+        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "evidence": { "type": ["string", "null"] },
+        "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
+      }
+    },
+    "completed_at": { "$ref": "#/$defs/nullableTimestamp" },
+    "completion_evidence": { "type": ["string", "null"] },
+    "fix_round": { "type": "integer", "minimum": 0 },
+    "invalidations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "reason", "candidate_sha"],
+        "properties": {
+          "at": { "$ref": "#/$defs/timestamp" },
+          "reason": { "type": "string", "minLength": 1 },
+          "candidate_sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] }
+        }
+      }
+    },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "updated_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableTimestamp": {
+      "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "phase", "description", "status", "ui_task_id", "evidence", "updated_at"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "phase": { "type": "string" },
+        "description": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["pending", "in_progress", "blocked", "completed"] },
+        "ui_task_id": { "type": ["string", "null"] },
+        "evidence": { "type": ["string", "null"] },
+        "updated_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "sha", "tree_sha", "evidence", "recorded_at"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "status": { "enum": ["pass", "fail"] },
+        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "tree_sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "evidence": { "type": "string", "minLength": 1 },
+        "recorded_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "verdict", "sha", "evidence", "recorded_at"],
+      "properties": {
+        "reviewer": { "$ref": "#/$defs/id" },
+        "verdict": { "enum": ["PENDING", "APPROVE", "REQUEST_CHANGES"] },
+        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "evidence": { "type": ["string", "null"] },
+        "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
+      }
+    }
+  }
+}
