@@ -38,7 +38,12 @@
     "mode": { "enum": ["interactive", "auto"] },
     "status": { "enum": ["active", "blocked", "completed"] },
     "blocked_reason": { "type": ["string", "null"] },
-    "spec": { "type": ["string", "null"] },
+    "spec": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[a-zA-Z0-9_./-]+$" }
+      ]
+    },
     "branch": { "type": "string", "minLength": 1 },
     "target_ref": { "type": "string", "minLength": 1 },
     "target_sha": { "$ref": "#/$defs/sha" },

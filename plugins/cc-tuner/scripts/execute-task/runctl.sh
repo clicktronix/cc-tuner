@@ -95,6 +95,16 @@ validate_repo_relative_path() {
   fi
 }
 
+validate_review_spec_path() {
+  local value="$1"
+  validate_repo_relative_path "spec" "$value"
+  case "$value" in
+    *[!a-zA-Z0-9_./-]*)
+      execute_task_die "spec path must use [a-zA-Z0-9_./-] for the required-review marker"
+      ;;
+  esac
+}
+
 assert_repo_regular_tracked() {
   local label="$1" value="$2" git_root parent parent_real full
   validate_repo_relative_path "$label" "$value"
@@ -111,6 +121,36 @@ assert_repo_regular_tracked() {
   [ -f "$full" ] || execute_task_die "$label must be a regular file: $value"
   git -C "$git_root" ls-files --error-unmatch -- "$value" >/dev/null 2>&1 \
     || execute_task_die "$label must be tracked in the Git index: $value"
+}
+
+validate_codex_approval_evidence() {
+  local marker marker_count word1 word2 thread_field head_field tree_field fp_field
+  local base_field spec_field extra fingerprint candidate_tree base_sha spec_path
+  marker_count="$(printf '%s\n' "$EVIDENCE" | grep -c '^CC_CODEX_REQUIRED_REVIEW APPROVE ' || true)"
+  [ "$marker_count" -eq 1 ] \
+    || execute_task_die "Codex APPROVE evidence must contain exactly one required-review marker"
+  marker="$(printf '%s\n' "$EVIDENCE" | grep '^CC_CODEX_REQUIRED_REVIEW APPROVE ')"
+  IFS=' ' read -r word1 word2 thread_field head_field tree_field fp_field base_field spec_field extra <<EOF
+$marker
+EOF
+  candidate_tree="$(jq -r '.candidate.tree_sha // empty' "$STATE")"
+  base_sha="$(jq -r '.base_sha' "$STATE")"
+  spec_path="$(jq -r '.spec // empty' "$STATE")"
+  fingerprint="${fp_field#fingerprint=}"
+  [ "$word1" = "CC_CODEX_REQUIRED_REVIEW" ] \
+    && [ "$word2" = "APPROVE" ] \
+    && [ "$thread_field" = "thread=review-$EXECUTE_TASK_RUN_ID" ] \
+    && [ "$head_field" = "head=$SHA" ] \
+    && [ "$tree_field" = "tree=$candidate_tree" ] \
+    && [ "$base_field" = "base_sha=$base_sha" ] \
+    && [ -n "$spec_path" ] && [ "$spec_field" = "spec_path=$spec_path" ] \
+    && [ -z "$extra" ] \
+    || execute_task_die "Codex required-review marker does not match this run and candidate"
+  case "$fingerprint" in
+    *[!0-9a-f]*|'') execute_task_die "Codex required-review marker has an invalid fingerprint" ;;
+  esac
+  [ "${#fingerprint}" -eq 64 ] \
+    || execute_task_die "Codex required-review marker has an invalid fingerprint"
 }
 
 state_paths() {
@@ -159,6 +199,7 @@ validate_state_shape() {
       .schema_version == 1 and
       .run_id == $run and .branch == $branch and .target_ref == $target and .base_sha == $base and
       (.run_id | id) and (.target_sha | sha) and
+      (.spec == null or (.spec | type == "string" and test("^[a-zA-Z0-9_./-]+$"))) and
       (.mode == "interactive" or .mode == "auto") and
       (.status == "active" or .status == "blocked" or .status == "completed") and
       (if .status == "blocked" then (.blocked_reason | type == "string" and length > 0)
@@ -459,7 +500,10 @@ case "$SUBCOMMAND" in
     lock_initialization
     assert_no_other_active_run
     [ -f "$JOURNAL" ] || execute_task_die "journal not found for run '$EXECUTE_TASK_RUN_ID'; run preflight first"
-    [ -z "$SPEC" ] || assert_repo_regular_tracked "spec" "$SPEC"
+    if [ -n "$SPEC" ]; then
+      validate_review_spec_path "$SPEC"
+      assert_repo_regular_tracked "spec" "$SPEC"
+    fi
     if [ -f "$STATE" ]; then
       load_state
       current_mode="$(jq -r '.mode' "$STATE")"
@@ -539,6 +583,7 @@ case "$SUBCOMMAND" in
     NEW_SPEC="$4"
     [ -n "$OLD_SPEC" ] || execute_task_die "run has no spec path to relocate"
     validate_repo_relative_path "stored spec" "$OLD_SPEC"
+    validate_review_spec_path "$NEW_SPEC"
     [ "$NEW_SPEC" != "$OLD_SPEC" ] || execute_task_die "new spec path must differ from the current path"
     assert_repo_regular_tracked "new spec" "$NEW_SPEC"
     GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -772,6 +817,9 @@ case "$SUBCOMMAND" in
     fi
     assert_current_candidate
     read_evidence "review evidence"
+    if [ "$REVIEWER" = "codex" ] && [ "$VERDICT" = "APPROVE" ]; then
+      validate_codex_approval_evidence
+    fi
     update_state '
       .review_history += [{reviewer: $reviewer, verdict: $verdict, sha: $sha,
         evidence: $evidence, recorded_at: $updated_at}] |

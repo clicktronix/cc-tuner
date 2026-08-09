@@ -67,10 +67,22 @@ record_candidate_and_enter_review() {
 
 approve_all() {
   SHA="$(git -C "$REPO" rev-parse HEAD)"
-  for reviewer in deep-review mattpocock codex; do
+  for reviewer in deep-review mattpocock; do
     evidence "$reviewer approved exact candidate" \
       review run-1 record "$reviewer" APPROVE "$SHA" >/dev/null || return 1
   done
+  evidence "$(codex_approval_marker)" \
+    review run-1 record codex APPROVE "$SHA" >/dev/null
+}
+
+codex_approval_marker() {
+  state="$REPO/$RUNS_REL/run-1.state.json"
+  sha="$(git -C "$REPO" rev-parse HEAD)"
+  tree="$(jq -r '.candidate.tree_sha' "$state")"
+  base="$(jq -r '.base_sha' "$state")"
+  spec="$(jq -r '.spec' "$state")"
+  printf 'CC_CODEX_REQUIRED_REVIEW APPROVE thread=review-run-1 head=%s tree=%s fingerprint=%064d base_sha=%s spec_path=%s\n' \
+    "$sha" "$tree" 0 "$base" "$spec"
 }
 
 prepare_candidate() {
@@ -204,7 +216,10 @@ runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
   || fail "missing-codex-review-blocks" "rc=$rc"
 
 # Approval is invalid as soon as either HEAD or the worktree differs from the candidate.
-evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null
+evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "codex-approval-requires-self-verified-marker" \
+  || fail "codex-approval-requires-self-verified-marker" "rc=$rc"
+evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
 printf 'post-review mutation\n' >> "$REPO/file.txt"
 runctl can-advance run-1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "dirty-tree-invalidates-review" \
@@ -221,7 +236,7 @@ prepare_candidate || { fail "request-changes-fixture"; rm -rf "$REPO"; exit "$fa
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 evidence "deep review requested changes" review run-1 record deep-review REQUEST_CHANGES "$SHA" >/dev/null
 evidence "matt approved" review run-1 record mattpocock APPROVE "$SHA" >/dev/null
-evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null
+evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
 runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "request-changes-blocks-review" \
   || fail "request-changes-blocks-review" "rc=$rc"
