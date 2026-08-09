@@ -35,6 +35,14 @@ Record state evidence and complete the phase only after its actual gate succeeds
 through stdin with a quoted heredoc so shell syntax in evidence is data, never executable text:
 
 ```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task <literal-run-id> start <literal-task-id>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task <literal-run-id> complete <literal-task-id> <<'CC_TUNER_TASK_EVIDENCE'
+<exact diff/check/acceptance evidence for this task>
+CC_TUNER_TASK_EVIDENCE
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" gate <literal-run-id> record <dor|testing|acceptance|dod> pass [--sha <literal-candidate-sha>] <<'CC_TUNER_GATE_EVIDENCE'
+<exact command and result evidence for this gate>
+CC_TUNER_GATE_EVIDENCE
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase <literal-run-id> complete <literal-phase>
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/journal.sh" append <literal-run-id> <<'CC_TUNER_EVIDENCE'
 <verbatim phase evidence, including literal branch/SHA/PR/check values>
 CC_TUNER_EVIDENCE
@@ -71,9 +79,9 @@ fires. Phase 0 flows directly into Phase 1 so the user sees the execution plan o
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" init <literal-run-id> --mode <interactive|auto> --spec <repo-relative-spec-path>
    ```
    `init` opens `readiness/in_progress`. On restart, use `runctl.sh resume` instead of reinitializing.
-7. Record the DoR gate through stdin with its exact evidence, then complete `readiness`. Journal the
-   spec, run config, acceptance, branch, target, base SHA, and prior board status. Move the configured
-   card to In Progress.
+7. Record `gate <run-id> record dor pass` through stdin with the exact DoR evidence, then run
+   `phase <run-id> complete readiness`. Journal the spec, run config, acceptance, branch, target,
+   base SHA, and prior board status. Move the configured card to In Progress.
 
 Continue directly to Phase 1.
 
@@ -204,13 +212,16 @@ Resume state and enter `review`. Read the complete candidate diff again, then ru
    run serially only when the candidate is within both contract small-diff thresholds and touches no
    sensitive surface, otherwise fan them out against the same immutable candidate;
 2. invoke `mattpocock-skills:code-review` against the same candidate;
-3. invoke the model-callable reviewer with literal state values:
+3. invoke the model-callable reviewer with literal state values (`base_sha`, `candidate.sha`,
+   `candidate.tree_sha`, and `spec` from `runctl status`):
    ```text
    /cc-codex-triage:review --required --base <literal-base-sha> --spec <current-repo-relative-spec> --thread review-<literal-run-id> --cap 5 "Review the complete candidate against the spec using unbiased correctness, architecture, systemic, security/data, and testing/operability lenses."
    ```
    Here `--cap 5` bounds repair rounds, not findings. The command must self-verify its git-common-dir
    state and return `CC_CODEX_REQUIRED_REVIEW APPROVE` with matching `head`, `tree`, `base_sha`, and
-   `spec_path`; absence of that exact marker is not approval.
+   `spec_path`; absence of that exact marker is not approval. Pass that marker verbatim as the
+   evidence for `runctl review ... record codex APPROVE`; `runctl` rejects a missing, duplicated, or
+   mismatched marker.
 
 Do not invoke the bundled `/code-review`. Do not cap findings at ten. Validate every finding against
 candidate source and record it as fixed, refuted with `file:line`, or explicitly deferred to a board
