@@ -1,0 +1,15 @@
+{
+  "skills": ["run"],
+  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-1--publish-the-execution-plan",
+  "query": "Self-contained simulation; do not read the filesystem. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
+  "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
+  "expected_behavior": [
+    "Creates visible TaskCreate items before the first repository mutation",
+    "Includes implementation, testing, acceptance, candidate review, PR/current-SHA CI, and DoD/merge/reconciliation",
+    "Links blockers and keeps one item in_progress through TaskUpdate"
+  ],
+  "anti_expectation": [
+    "Does not substitute a prose plan or journal paragraph for the task list",
+    "Does not mark future phases complete before evidence exists"
+  ]
+}
