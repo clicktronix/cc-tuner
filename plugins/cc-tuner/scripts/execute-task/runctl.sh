@@ -204,13 +204,16 @@ validate_state_shape() {
       ((.candidate.sha == null and .candidate.tree_sha == null and .candidate.recorded_at == null) or
         (.candidate.sha != null and .candidate.tree_sha != null and
           (.candidate.recorded_at | type == "string" and length > 0))) and
-      (.ci | keys == ["evidence", "recorded_at", "sha", "status"]) and
+      (.ci | keys == ["evidence", "pr_number", "recorded_at", "sha", "status"]) and
       (.ci.sha | nullable_sha) and
+      (.ci.pr_number == null or
+        (.ci.pr_number | type == "number" and . > 0 and floor == .)) and
       (.ci.status as $ci_status | ["pending", "success", "failure"] | index($ci_status) != null) and
       (if .ci.status == "pending" then
-        .ci.sha == null and .ci.evidence == null and .ci.recorded_at == null
+        .ci.sha == null and .ci.pr_number == null and .ci.evidence == null and .ci.recorded_at == null
        else .ci.sha != null and (.ci.evidence | type == "string" and length > 0) and
-        (.ci.recorded_at | type == "string" and length > 0) end)
+        (.ci.recorded_at | type == "string" and length > 0) and
+        (if .ci.status == "success" then .ci.pr_number != null else .ci.pr_number == null end) end)
     ' "$checked_state" >/dev/null 2>&1
 }
 
@@ -336,6 +339,37 @@ assert_reviews_approved() {
     || execute_task_die "all required reviewers must APPROVE candidate $candidate"
 }
 
+verify_hosted_ci() {
+  local candidate pr_number pr_json checks_json final_pr_json
+  candidate="${1:-$(jq -r '.candidate.sha // empty' "$STATE")}"
+  pr_number="${2:-$(jq -r '.ci.pr_number // empty' "$STATE")}"
+  [ -n "$candidate" ] && [ -n "$pr_number" ] \
+    || execute_task_die "successful CI is not bound to a candidate PR"
+  command -v gh >/dev/null 2>&1 || execute_task_die "gh is required to verify hosted CI"
+  pr_json="$(gh pr view "$pr_number" --json number,state,headRefOid 2>/dev/null)" \
+    || execute_task_die "cannot read PR #$pr_number for CI verification"
+  jq -e --arg sha "$candidate" --argjson number "$pr_number" \
+    '.number == $number and .state == "OPEN" and .headRefOid == $sha' \
+    >/dev/null 2>&1 <<EOF \
+    || execute_task_die "PR #$pr_number is not open at candidate $candidate"
+$pr_json
+EOF
+  checks_json="$(gh pr checks "$pr_number" --required --json bucket,name,state 2>/dev/null)" \
+    || execute_task_die "required checks are not green for PR #$pr_number"
+  jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
+    || execute_task_die "PR #$pr_number has missing, pending, skipped, cancelled, or failed required checks"
+$checks_json
+EOF
+  final_pr_json="$(gh pr view "$pr_number" --json number,state,headRefOid 2>/dev/null)" \
+    || execute_task_die "cannot re-read PR #$pr_number after CI verification"
+  jq -e --arg sha "$candidate" --argjson number "$pr_number" \
+    '.number == $number and .state == "OPEN" and .headRefOid == $sha' \
+    >/dev/null 2>&1 <<EOF \
+    || execute_task_die "PR #$pr_number moved while required checks were verified"
+$final_pr_json
+EOF
+}
+
 validate_phase_completion() {
   local phase="$1" candidate
   assert_phase_tasks_complete "$phase"
@@ -364,6 +398,7 @@ validate_phase_completion() {
       jq -e --arg sha "$candidate" '.ci.status == "success" and .ci.sha == $sha' \
         "$STATE" >/dev/null 2>&1 \
         || execute_task_die "CI must succeed on candidate $candidate"
+      verify_hosted_ci
       jq -e 'all(.tasks[]; .status == "completed")' "$STATE" >/dev/null 2>&1 \
         || execute_task_die "all run tasks must be completed before delivery"
       ;;
@@ -449,7 +484,7 @@ case "$SUBCOMMAND" in
         reviews: ($reviewers | map({reviewer: ., verdict: "PENDING", sha: null, evidence: null, recorded_at: null})),
         review_history: [],
         candidate: {sha: null, tree_sha: null, recorded_at: null},
-        ci: {status: "pending", sha: null, evidence: null, recorded_at: null},
+        ci: {status: "pending", sha: null, pr_number: null, evidence: null, recorded_at: null},
         fix_round: 0,
         invalidations: [],
         created_at: $now,
@@ -540,7 +575,7 @@ case "$SUBCOMMAND" in
           .reviews = [.required_reviewers[] as $reviewer |
             {reviewer: $reviewer, verdict: "PENDING", sha: null, evidence: null, recorded_at: null}] |
           .candidate = {sha: null, tree_sha: null, recorded_at: null} |
-          .ci = {status: "pending", sha: null, evidence: null, recorded_at: null}
+          .ci = {status: "pending", sha: null, pr_number: null, evidence: null, recorded_at: null}
         ' --arg reason "$EVIDENCE" --arg task "$FIX_ID" --argjson round "$ROUND"
         ;;
       *) execute_task_die "unknown phase action '$ACTION'" ;;
@@ -634,6 +669,15 @@ case "$SUBCOMMAND" in
       [ -n "$GATE_SHA" ] && [ "$GATE_SHA" = "$CANDIDATE" ] \
         || execute_task_die "DoD evidence must name the exact candidate SHA"
     fi
+    if [ "$GATE_STATUS" = "pass" ]; then
+      case "$GATE_ID" in
+        testing|acceptance|dod)
+          jq -e --arg id "$GATE_ID" 'any(.gates[]; .id == $id and .status == "fail")' \
+            "$STATE" >/dev/null 2>&1 \
+            && execute_task_die "gate '$GATE_ID' already failed; use phase fix before recording a pass"
+          ;;
+      esac
+    fi
     read_evidence "gate evidence"
     GATE_TREE=""
     if [ "$GATE_ID" = "testing" ] && [ "$GATE_STATUS" = "pass" ]; then
@@ -668,7 +712,7 @@ case "$SUBCOMMAND" in
       .candidate = {sha: $sha, tree_sha: $tree, recorded_at: $updated_at} |
       .reviews = [.required_reviewers[] as $reviewer |
         {reviewer: $reviewer, verdict: "PENDING", sha: null, evidence: null, recorded_at: null}] |
-      .ci = {status: "pending", sha: null, evidence: null, recorded_at: null} |
+      .ci = {status: "pending", sha: null, pr_number: null, evidence: null, recorded_at: null} |
       .gates = [.gates[] | select(.id != "dod")]
     ' --arg sha "$SHA" --arg tree "$TREE_SHA"
     ;;
@@ -686,6 +730,12 @@ case "$SUBCOMMAND" in
     SHA="$(resolve_commit "$6")"
     CANDIDATE="$(jq -r '.candidate.sha // empty' "$STATE")"
     [ "$SHA" = "$CANDIDATE" ] || execute_task_die "review verdict is stale: candidate is $CANDIDATE, verdict names $SHA"
+    if [ "$VERDICT" = "APPROVE" ]; then
+      jq -e --arg reviewer "$REVIEWER" --arg sha "$SHA" '
+        any(.reviews[]; .reviewer == $reviewer and .verdict == "REQUEST_CHANGES" and .sha == $sha)
+      ' "$STATE" >/dev/null 2>&1 \
+        && execute_task_die "reviewer '$REVIEWER' already requested changes on candidate $SHA; use phase fix"
+    fi
     assert_current_candidate
     read_evidence "review evidence"
     update_state '
@@ -723,20 +773,9 @@ case "$SUBCOMMAND" in
       case "$PR_NUMBER" in ''|*[!0-9]*) execute_task_die "successful CI requires --pr <positive-number>" ;; esac
       [ "$PR_NUMBER" -gt 0 ] || execute_task_die "successful CI requires --pr <positive-number>"
       command -v gh >/dev/null 2>&1 || execute_task_die "gh is required to verify hosted CI"
-      PR_JSON="$(gh pr view "$PR_NUMBER" --json number,state,headRefOid 2>/dev/null)" \
-        || execute_task_die "cannot read PR #$PR_NUMBER for CI verification"
-      jq -e --arg sha "$SHA" --argjson number "$PR_NUMBER" \
-        '.number == $number and .state == "OPEN" and .headRefOid == $sha' \
-        >/dev/null 2>&1 <<EOF \
-        || execute_task_die "PR #$PR_NUMBER is not open at candidate $SHA"
-$PR_JSON
-EOF
-      CHECKS_JSON="$(gh pr checks "$PR_NUMBER" --required --json bucket,name,state 2>/dev/null)" \
-        || execute_task_die "required checks are not green for PR #$PR_NUMBER"
-      jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
-        || execute_task_die "PR #$PR_NUMBER has missing, pending, skipped, cancelled, or failed required checks"
-$CHECKS_JSON
-EOF
+      jq -e '.ci.status == "failure"' "$STATE" >/dev/null 2>&1 \
+        && execute_task_die "CI already failed for this candidate; use phase fix before recording success"
+      verify_hosted_ci "$SHA" "$PR_NUMBER"
     elif [ -n "$PR_NUMBER" ]; then
       execute_task_die "--pr is accepted only when recording successful CI"
     fi
@@ -745,8 +784,10 @@ EOF
       EVIDENCE="PR #$PR_NUMBER required checks verified at $SHA
 $EVIDENCE"
     fi
-    update_state '.ci = {status: $status, sha: $sha, evidence: $evidence, recorded_at: $updated_at}' \
-      --arg status "$CI_STATUS" --arg sha "$SHA" --arg evidence "$EVIDENCE"
+    update_state '.ci = {status: $status, sha: $sha, pr_number: $pr_number,
+      evidence: $evidence, recorded_at: $updated_at}' \
+      --arg status "$CI_STATUS" --arg sha "$SHA" --arg evidence "$EVIDENCE" \
+      --argjson pr_number "${PR_NUMBER:-null}"
     ;;
 
   can-advance)
@@ -776,12 +817,13 @@ $EVIDENCE"
 
   resume)
     [ "$#" -eq 2 ] || usage
-    state_paths "$2"; lock_state; load_state
+    state_paths "$2"; lock_state; lock_initialization; load_state
     case "$(jq -r '.status' "$STATE")" in
-      blocked) update_state '.status = "active" | .blocked_reason = null' ;;
-      active) ;;
+      blocked|active) assert_no_other_active_run ;;
       completed) execute_task_die "completed run '$EXECUTE_TASK_RUN_ID' cannot be resumed" ;;
     esac
+    [ "$(jq -r '.status' "$STATE")" = "active" ] \
+      || update_state '.status = "active" | .blocked_reason = null'
     jq '{run_id,status,phase,spec,candidate,ci}' "$STATE"
     ;;
 

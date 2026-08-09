@@ -104,10 +104,11 @@
     "ci": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "sha", "evidence", "recorded_at"],
+      "required": ["status", "sha", "pr_number", "evidence", "recorded_at"],
       "properties": {
         "status": { "enum": ["pending", "success", "failure"] },
         "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+        "pr_number": { "type": ["integer", "null"], "minimum": 1 },
         "evidence": { "type": ["string", "null"] },
         "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
       }

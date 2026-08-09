@@ -92,6 +92,18 @@ else
   fail "state-init-idempotent"
 fi
 
+SCHEMA="$DIR/../../schemas/run-state.schema.json"
+STATE_KEYS="$(jq -c 'keys | sort' "$STATE")"
+SCHEMA_KEYS="$(jq -c '.required | sort' "$SCHEMA")"
+STATE_CI_KEYS="$(jq -c '.ci | keys | sort' "$STATE")"
+SCHEMA_CI_KEYS="$(jq -c '.properties.ci.required | sort' "$SCHEMA")"
+if [ "$STATE_KEYS" = "$SCHEMA_KEYS" ] && [ "$STATE_CI_KEYS" = "$SCHEMA_CI_KEYS" ]; then
+  pass "runtime-state-keys-match-published-schema"
+else
+  fail "runtime-state-keys-match-published-schema" \
+    "state=$STATE_KEYS schema=$SCHEMA_KEYS ci=$STATE_CI_KEYS ci_schema=$SCHEMA_CI_KEYS"
+fi
+
 # Phase order is executable, not prose.
 runctl phase run-1 enter implementation >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "illegal-transition-rejected" \
@@ -118,6 +130,12 @@ runctl status run-1 >/dev/null 2>&1; rc=$?
 
 # Explicit block/resume is the only non-terminal Stop escape for an auto run.
 evidence "waiting for a user-owned migration" block run-1 >/dev/null
+CLAUDE_PROJECT_DIR="$REPO" bash "$P" run-2 main --expected-branch task >/dev/null || exit 1
+runctl init run-2 --mode auto --spec docs/spec.md >/dev/null || exit 1
+runctl resume run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "resume-cannot-duplicate-active-owner" \
+  || fail "resume-cannot-duplicate-active-owner" "rc=$rc"
+evidence "release branch ownership" block run-2 >/dev/null
 [ "$(jq -r '.status' "$STATE")" = "blocked" ] && runctl resume run-1 >/dev/null \
   && [ "$(jq -r '.status' "$STATE")" = "active" ] \
   && pass "block-resume-owned-state" || fail "block-resume-owned-state"
@@ -200,6 +218,9 @@ evidence "codex approved" review run-1 record codex APPROVE "$SHA" >/dev/null
 runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "request-changes-blocks-review" \
   || fail "request-changes-blocks-review" "rc=$rc"
+evidence "same candidate reconsidered" review run-1 record deep-review APPROVE "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "request-changes-cannot-be-overwritten" \
+  || fail "request-changes-cannot-be-overwritten" "rc=$rc"
 evidence "address deep review findings" phase run-1 fix >/dev/null
 if jq -e '.phase == {name:"implementation",status:"in_progress"} and
     .candidate.sha == null and all(.reviews[]; .verdict == "PENDING") and .ci.status == "pending"' \
@@ -232,6 +253,10 @@ rm -rf "$REPO"
 # A testing/acceptance/candidate/review/delivery failure returns only through the explicit fix loop.
 make_repo
 complete_readiness && create_plan && complete_implementation || exit 1
+evidence "targeted test failed" gate run-1 record testing fail >/dev/null
+evidence "same state claimed green" gate run-1 record testing pass >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "failed-testing-gate-cannot-be-overwritten" \
+  || fail "failed-testing-gate-cannot-be-overwritten" "rc=$rc"
 evidence "test exposed another implementation defect" phase run-1 fix >/dev/null
 if jq -e '.phase == {name:"implementation",status:"in_progress"} and .fix_round == 1 and
     any(.tasks[]; .id == "review-fix-1" and .status == "pending") and
@@ -257,6 +282,18 @@ evidence "required checks failed" ci run-1 record failure "$SHA" >/dev/null
 runctl phase run-1 complete delivery >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "failed-ci-blocks-delivery" \
   || fail "failed-ci-blocks-delivery" "rc=$rc"
+evidence "same candidate CI retried green" ci run-1 record success "$SHA" --pr 42 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "failed-ci-cannot-be-overwritten" \
+  || fail "failed-ci-cannot-be-overwritten" "rc=$rc"
+rm -rf "$REPO"
+
+# A fresh candidate may record live hosted CI; the state remains bound to that PR until merge.
+make_repo
+prepare_candidate && approve_all \
+  && runctl phase run-1 complete review >/dev/null \
+  && runctl phase run-1 enter delivery >/dev/null || exit 1
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+WRONG_SHA="$(git -C "$REPO" rev-parse main)"
 
 GH_STUB="$(mktemp -d)" || exit 1
 cat > "$GH_STUB/gh" <<'GH_STUB_SCRIPT'
@@ -281,8 +318,20 @@ evidence "no required checks" ci run-1 record success "$SHA" --pr 42 >/dev/null 
   || fail "absent-required-checks-not-green" "rc=$rc"
 export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
 evidence "required checks passed" ci run-1 record success "$SHA" --pr 42 >/dev/null
+[ "$(jq -r '.ci.pr_number' "$REPO/$RUNS_REL/run-1.state.json")" = "42" ] \
+  && pass "successful-ci-is-bound-to-pr" || fail "successful-ci-is-bound-to-pr"
+export GH_TEST_CHECKS='[{"bucket":"fail","name":"test","state":"FAILURE"}]'
+runctl phase run-1 complete delivery >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "ci-regression-blocks-delivery-at-use-time" \
+  || fail "ci-regression-blocks-delivery-at-use-time" "rc=$rc"
+export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
 evidence "DoD verified on candidate" gate run-1 record dod pass --sha "$SHA" >/dev/null
 runctl phase run-1 complete delivery >/dev/null
+export GH_TEST_SHA="$WRONG_SHA"
+runctl can-merge run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "pr-head-move-blocks-merge-time-check" \
+  || fail "pr-head-move-blocks-merge-time-check" "rc=$rc"
+export GH_TEST_SHA="$SHA"
 OUT="$(runctl can-merge run-1 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q "$SHA"; } \
   && pass "exact-sha-delivery-can-merge" \

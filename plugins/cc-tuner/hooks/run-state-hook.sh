@@ -100,6 +100,14 @@ case "$EVENT" in
     printf '%s\n' "$COMMAND" \
       | grep -Eq '(^|[;&|][;&|]?[[:space:]]*)(command[[:space:]]+)?([^[:space:];&|]*/)?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)' \
       || allow
+    CANDIDATE="$(jq -r '.candidate.sha // empty' "$STATE")"
+    PR_NUMBER="$(jq -r '.ci.pr_number // empty' "$STATE")"
+    [ -n "$CANDIDATE" ] && [ -n "$PR_NUMBER" ] \
+      || deny_tool "cc-tuner blocked gh pr merge for run '$RUN_ID': delivery is not bound to a PR/candidate"
+    printf '%s\n' "$COMMAND" | grep -Eq -- "--match-head-commit([=][[:space:]]*|[[:space:]]+)$CANDIDATE([[:space:];&|]|$)" \
+      || deny_tool "cc-tuner blocked gh pr merge for run '$RUN_ID': use --match-head-commit $CANDIDATE"
+    printf '%s\n' "$COMMAND" | grep -Eq "(^|[[:space:]])$PR_NUMBER([[:space:];&|]|$)" \
+      || deny_tool "cc-tuner blocked gh pr merge for run '$RUN_ID': merge the recorded PR #$PR_NUMBER explicitly"
     if OUT="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$RUNCTL" can-merge "$RUN_ID" 2>&1)"; then
       allow
     fi
