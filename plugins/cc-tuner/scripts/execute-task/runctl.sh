@@ -389,6 +389,19 @@ $pr_json
 EOF
 }
 
+validate_delivery_state() {
+  local candidate
+  assert_current_candidate
+  candidate="$(jq -r '.candidate.sha' "$STATE")"
+  assert_reviews_approved
+  assert_gate_passed dod "$candidate"
+  jq -e --arg sha "$candidate" '.ci.status == "success" and .ci.sha == $sha' \
+    "$STATE" >/dev/null 2>&1 \
+    || execute_task_die "CI must succeed on candidate $candidate"
+  jq -e 'all(.tasks[]; .status == "completed")' "$STATE" >/dev/null 2>&1 \
+    || execute_task_die "all run tasks must be completed before delivery"
+}
+
 validate_phase_completion() {
   local phase="$1" candidate
   assert_phase_tasks_complete "$phase"
@@ -410,16 +423,8 @@ validate_phase_completion() {
       assert_reviews_approved
       ;;
     delivery)
-      assert_current_candidate
-      candidate="$(jq -r '.candidate.sha' "$STATE")"
-      assert_reviews_approved
-      assert_gate_passed dod "$candidate"
-      jq -e --arg sha "$candidate" '.ci.status == "success" and .ci.sha == $sha' \
-        "$STATE" >/dev/null 2>&1 \
-        || execute_task_die "CI must succeed on candidate $candidate"
+      validate_delivery_state
       verify_hosted_ci
-      jq -e 'all(.tasks[]; .status == "completed")' "$STATE" >/dev/null 2>&1 \
-        || execute_task_die "all run tasks must be completed before delivery"
       ;;
   esac
 }
@@ -528,6 +533,8 @@ case "$SUBCOMMAND" in
     state_paths "$2"; lock_state; load_state; assert_active
     [ "$(jq -r '.phase.name' "$STATE")" = "implementation" ] \
       || execute_task_die "spec may be relocated only in implementation phase"
+    [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
+      || execute_task_die "spec path is immutable after implementation completes"
     OLD_SPEC="$(jq -r '.spec // empty' "$STATE")"
     NEW_SPEC="$4"
     [ -n "$OLD_SPEC" ] || execute_task_die "run has no spec path to relocate"
@@ -604,6 +611,8 @@ case "$SUBCOMMAND" in
   task)
     [ "$#" -ge 4 ] || usage
     state_paths "$2"; lock_state; load_state; assert_active
+    [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
+      || execute_task_die "task evidence is immutable after the current phase completes"
     ACTION="$3"; TASK_ID="$4"; execute_task_validate_item_id "task-id" "$TASK_ID"
     case "$ACTION" in
       add)
@@ -678,6 +687,8 @@ case "$SUBCOMMAND" in
       shift
     done
     CURRENT="$(jq -r '.phase.name' "$STATE")"
+    [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
+      || execute_task_die "gate evidence is immutable after phase '$CURRENT' completes"
     case "$GATE_ID:$CURRENT" in
       dor:readiness|testing:testing|acceptance:acceptance|dod:delivery) ;;
       dor:*|testing:*|acceptance:*|dod:*) execute_task_die "gate '$GATE_ID' cannot be recorded in phase '$CURRENT'" ;;
@@ -716,6 +727,8 @@ case "$SUBCOMMAND" in
     state_paths "$2"; lock_state; load_state; assert_active
     [ "$(jq -r '.phase.name' "$STATE")" = "candidate" ] \
       || execute_task_die "candidate may be recorded only in candidate phase"
+    [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
+      || execute_task_die "candidate evidence is immutable after candidate phase completes"
     SHA="$(resolve_commit "$4")"; execute_task_assert_clean_tree
     CURRENT_SHA="$(execute_task_current_sha)"
     [ "$SHA" = "$CURRENT_SHA" ] || execute_task_die "candidate must be the exact current HEAD ($CURRENT_SHA)"
@@ -742,6 +755,8 @@ case "$SUBCOMMAND" in
     state_paths "$2"; lock_state; load_state; assert_active
     [ "$(jq -r '.phase.name' "$STATE")" = "review" ] \
       || execute_task_die "reviews may be recorded only in review phase"
+    [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
+      || execute_task_die "review evidence is immutable after review phase completes"
     REVIEWER="$4"; execute_task_validate_item_id "reviewer" "$REVIEWER"
     jq -e --arg reviewer "$REVIEWER" 'any(.required_reviewers[]; . == $reviewer)' "$STATE" >/dev/null 2>&1 \
       || execute_task_die "reviewer '$REVIEWER' is not required by this run"
@@ -772,6 +787,8 @@ case "$SUBCOMMAND" in
     state_paths "$2"; lock_state; load_state; assert_active
     [ "$(jq -r '.phase.name' "$STATE")" = "delivery" ] \
       || execute_task_die "CI may be recorded only in delivery phase"
+    [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
+      || execute_task_die "CI evidence is immutable after delivery phase completes"
     CI_STATUS="$4"; case "$CI_STATUS" in success|failure) ;; *) execute_task_die "CI status must be success or failure" ;; esac
     SHA="$(resolve_commit "$5")"
     shift 5
@@ -853,6 +870,7 @@ $EVIDENCE"
       || execute_task_die "finish requires delivery phase"
     [ "$(jq -r '.phase.status' "$STATE")" = "completed" ] \
       || execute_task_die "finish requires completed delivery phase"
+    validate_delivery_state
     verify_merged_pr
     read_evidence "post-merge reconciliation evidence"
     update_state '.status = "completed" | .phase = {name: "done", status: "completed"} |

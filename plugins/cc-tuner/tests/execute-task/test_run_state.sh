@@ -334,6 +334,12 @@ runctl phase run-1 complete delivery >/dev/null 2>&1; rc=$?
 export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
 evidence "DoD verified on candidate" gate run-1 record dod pass --sha "$SHA" >/dev/null
 runctl phase run-1 complete delivery >/dev/null
+evidence "late CI failure" ci run-1 record failure "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "completed-delivery-ci-is-immutable" \
+  || fail "completed-delivery-ci-is-immutable" "rc=$rc"
+evidence "late DoD failure" gate run-1 record dod fail --sha "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "completed-delivery-dod-is-immutable" \
+  || fail "completed-delivery-dod-is-immutable" "rc=$rc"
 export GH_TEST_SHA="$WRONG_SHA"
 runctl can-merge run-1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "pr-head-move-blocks-merge-time-check" \
