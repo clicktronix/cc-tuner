@@ -227,6 +227,13 @@ evidence "release branch ownership" block run-2 >/dev/null
   && evidence "user resolved the migration" unblock run-1 >/dev/null \
   && [ "$(jq -r '.status' "$STATE")" = "active" ] \
   && pass "block-unblock-owned-state" || fail "block-unblock-owned-state"
+# Unblocking nulls blocked_reason, so the state file alone cannot show a hard stop was walked past.
+# The decision has to outlive the command that consumed it.
+JOURNAL_FILE="$REPO/$RUNS_REL/run-1.md"
+{ grep -qF 'user resolved the migration' "$JOURNAL_FILE" \
+  && grep -qF 'waiting for a user-owned migration' "$JOURNAL_FILE"; } \
+  && pass "unblock-decision-outlives-the-command" \
+  || fail "unblock-decision-outlives-the-command"
 evidence "already active" unblock run-1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "unblock-rejects-an-active-run" \
   || fail "unblock-rejects-an-active-run" "rc=$rc"

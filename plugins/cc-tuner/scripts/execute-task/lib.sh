@@ -147,9 +147,9 @@ execute_task_assert_clean_tree() {
 }
 
 # Install paths of a plugin that is ACTIVE for this project, from the manifest Claude Code
-# publishes. One copy of this selection rule: the prerequisite check and the required-review verifier
-# answer different questions about the same installation, and two filters would eventually disagree
-# about which version is installed. Usage: execute_task_manifest_roots <manifest> <key> <project>
+# publishes. It lives here rather than inline because the prerequisite check needs the same selection
+# rule once the DoR/DoD flow lands, and two copies of it would eventually disagree about which
+# version is installed. Usage: execute_task_manifest_roots <manifest> <key> <project>
 execute_task_manifest_roots() {
   local manifest="$1" key="$2" project="$3"
   [ -f "$manifest" ] && [ -n "$project" ] || return 1
@@ -173,7 +173,8 @@ execute_task_manifest_roots() {
 # authoritative when it exists: falling back to a stale cache directory would let an uninstalled
 # plugin answer for a delivery gate. Without a manifest at all (older Claude Code) cache discovery is
 # the only option, so the candidate must at least carry the required-review contract — an ancient
-# cached copy cannot answer for a gate it never implemented.
+# cached copy cannot answer for a gate it never implemented. Prints the first root that carries
+# review-state.sh; returns non-zero when there is none, so callers fail closed.
 execute_task_codex_plugin_root() {
   local cache manifest roots root
   cache="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
