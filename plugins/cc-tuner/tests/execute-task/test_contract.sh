@@ -9,10 +9,11 @@ DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 CONFIG="$ROOT/plugins/cc-tuner/assets/execute-task/config.template.md"
 CONTRACT="$ROOT/plugins/cc-tuner/workflow-contract.json"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
-# Keep this value identical to codex-tuner and update it only in coordinated contract PRs.
-# This constant only proves THIS repo's file is unchanged: it is compared against itself, so it
-# cannot detect that the sibling has diverged. codex-tuner is still on contract 1.1.0 with 14
-# invariants and must be updated to this 2.0.0 contract before the pledge above is true again.
+# Change-detection for THIS repo's copy of the shared contract, nothing more: the constant is
+# compared against the file it pins, so it cannot observe the sibling at all. Treat a failure here as
+# "the contract changed — was codex-tuner updated in the same breath?", not as proof that it was.
+# Known divergence at the time of writing: codex-tuner carries contract 1.1.0 with 14 invariants,
+# this repo carries 2.0.0 with 25. Re-syncing it is a coordinated cross-repository change.
 EXPECTED_SHARED_CONTRACT_SHA256="7a4fdb14d2b4ff94b3701f2e0eb344f5333e9a460e5bf8942205847c30216906"
 fails=0
 
@@ -100,6 +101,9 @@ need "run-codex-required-review" '/cc-codex-triage:review --required --base <lit
 need "run-codex-approval-marker" 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$RUN"
 need "run-codex-marker-enforced" 'compares the marker with `review-state.sh check`' "$RUN"
 need "run-reviewer-hard-stop" '`CAP_REACHED` or `DIVERGED` is a terminal answer' "$RUN"
+need "run-block-survives-resume" 'it never reactivates a blocked run' "$RUN"
+need "run-unblock-is-evidenced" 'runctl.sh" unblock "$RUN_ID"' "$RUN"
+need "run-same-sha-disposition" 'later evidence must name what changed the answer' "$RUN"
 need "run-reviewer-literal-ids" 'literal reviewer id `deep-review`, `mattpocock`, or `codex`' "$RUN"
 need "run-prepared-files-outside-worktree" 'outside the repository worktree' "$RUN"
 need "run-required-github-checks" 'reads `gh pr checks --required`' "$RUN"

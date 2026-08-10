@@ -41,6 +41,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" resume "$RUN_ID"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase "$RUN_ID" enter "$PHASE"
 ```
 
+`resume` reports state; it never reactivates a blocked run. If it exits non-zero saying the run is
+blocked, the phase loop is over: surface the recorded reason and stop. Reactivating is a separate,
+evidenced act that belongs after the user's decision, never as a way to continue past your own hard
+stop:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" unblock "$RUN_ID" <<'CC_TUNER_UNBLOCK'
+<the decision that cleared the block, and who made it>
+CC_TUNER_UNBLOCK
+```
+
 Call `enter` only when resume shows the preceding phase completed. A `phase fix` transition already
 returns state to `implementation/in_progress`; when repeating Phase 2, resume it without entering it a
 second time.
