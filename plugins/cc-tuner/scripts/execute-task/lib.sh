@@ -155,9 +155,9 @@ execute_task_manifest_roots() {
   [ -f "$manifest" ] && [ -n "$project" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
   jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
-  # Deterministic precedence, not manifest order: an install scoped to THIS project wins over a
-  # user-wide one. Without a fixed order two callers reading the same manifest can pick different
-  # installs and still both be "right".
+  # Total order, not manifest order: local, then project, then user. Grouping any two of them would
+  # leave the choice to entry order, so two callers reading the same manifest could pick different
+  # installs and both be "right".
   jq -r --arg key "$key" --arg project "$project" '
     .plugins[$key] // [] |
     if type == "array" then
@@ -165,7 +165,7 @@ execute_task_manifest_roots() {
           .scope == "user" or
           ((.scope == "project" or .scope == "local") and .projectPath == $project)
         ) ]
-      | sort_by(if .scope == "user" then 1 else 0 end)
+      | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
       | .[] | .installPath // empty
     else empty end
   ' "$manifest" 2>/dev/null
