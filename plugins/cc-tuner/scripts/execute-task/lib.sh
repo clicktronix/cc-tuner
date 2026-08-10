@@ -168,32 +168,46 @@ execute_task_manifest_roots() {
   ' "$manifest" 2>/dev/null
 }
 
+# Does this root carry the required-review contract? One predicate, used by the delivery gate and by
+# the prerequisite check: preflight passing on a root the gate then rejects — or worse, the reverse —
+# is the two-answers-to-one-question defect these checks exist to prevent.
+execute_task_codex_root_qualifies() {
+  local root="$1" review="$1/commands/review.md" state="$1/scripts/review-state.sh"
+  [ -f "$review" ] && [ -f "$state" ] \
+    && grep -qF -- '--required' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"
+}
+
 # Resolve the ACTIVE cc-codex-triage installation, so a required-review approval can be verified
 # against that plugin's own state instead of trusting text the model pasted back. The manifest is
 # authoritative when it exists: falling back to a stale cache directory would let an uninstalled
 # plugin answer for a delivery gate. Without a manifest at all (older Claude Code) cache discovery is
-# the only option, so the candidate must at least carry the required-review contract — an ancient
-# cached copy cannot answer for a gate it never implemented. Prints the first root that carries
-# review-state.sh; returns non-zero when there is none, so callers fail closed.
+# the only option. Either way the root must qualify, so an old copy cannot answer for a gate it never
+# implemented. Prints the first qualifying root; returns non-zero when there is none, so callers fail
+# closed.
+#
+# The location is NOT overridable. CLAUDE_PLUGIN_CACHE exists as a test hook, and a delivery gate
+# that reads its own authority's address from a test hook is not a gate. This raises the cost of
+# faking an approval; it does not make one impossible — anything with shell access can rewrite this
+# file or the state it guards, and no local check changes that.
 execute_task_codex_plugin_root() {
   local cache manifest roots root
-  cache="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
+  cache="$HOME/.claude/plugins"
   manifest="$cache/installed_plugins.json"
   if [ -e "$manifest" ]; then
     roots="$(execute_task_manifest_roots "$manifest" \
       'cc-codex-triage@cc-codex-triage' "$EXECUTE_TASK_ROOT")" || return 1
     while IFS= read -r root; do
-      [ -n "$root" ] && [ -f "$root/scripts/review-state.sh" ] && { printf '%s\n' "$root"; return 0; }
+      [ -n "$root" ] || continue
+      if execute_task_codex_root_qualifies "$root"; then printf '%s\n' "$root"; return 0; fi
     done <<EOF
 $roots
 EOF
     return 1
   fi
   for root in "$cache"/cache/*/cc-codex-triage/*; do
-    [ -f "$root/scripts/review-state.sh" ] || continue
-    grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh" || continue
-    printf '%s\n' "$root"
-    return 0
+    if execute_task_codex_root_qualifies "$root"; then printf '%s\n' "$root"; return 0; fi
   done
   return 1
 }

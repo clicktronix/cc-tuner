@@ -88,8 +88,25 @@ case "$EVENT" in
     case "$TOOL_NAME" in
       Write|Edit|MultiEdit|NotebookEdit)
         PHASE="$(jq -r '.phase.name' "$STATE")"
-        [ "$PHASE" = "implementation" ] \
-          || deny_tool "cc-tuner: $TOOL_NAME may mutate task paths only during implementation; current phase is '$PHASE'. Return through 'runctl.sh phase $RUN_ID fix' to reopen implementation, or 'runctl.sh block $RUN_ID' to stop the run and edit freely."
+        [ "$PHASE" = "implementation" ] && allow
+        # The fence is about TASK PATHS, and this is the only place that decides what one is. A
+        # scratch file outside the repository — the prepared commit message, the PR body — is not
+        # part of the candidate, cannot reach the tested tree, and must stay writable in the later
+        # phases that consume it. Anything inside the repository, or any path this cannot resolve,
+        # stays fenced.
+        TARGET="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
+        case "$TARGET" in
+          /*)
+            TARGET_DIR="$(CDPATH='' cd -- "$(dirname -- "$TARGET")" 2>/dev/null && pwd -P || true)"
+            if [ -n "$TARGET_DIR" ]; then
+              case "$TARGET_DIR" in
+                "$GIT_ROOT"|"$GIT_ROOT"/*) ;;
+                *) allow ;;
+              esac
+            fi
+            ;;
+        esac
+        deny_tool "cc-tuner: $TOOL_NAME may mutate task paths only during implementation; current phase is '$PHASE'. Prepared files belong outside the repository. Return through 'runctl.sh phase $RUN_ID fix' to reopen implementation, or 'runctl.sh block $RUN_ID' to stop the run and edit freely."
         allow
         ;;
     esac
