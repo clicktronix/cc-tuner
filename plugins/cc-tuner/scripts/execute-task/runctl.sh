@@ -565,7 +565,9 @@ SUBCOMMAND="${1:-}"
 
 # Take stdin BEFORE any state mutex. read_evidence can block indefinitely on an open pipe, and
 # blocking while holding the lock wedges every other command on this run — with a live PID, so no
-# staleness rule ever clears it.
+# staleness rule ever clears it. The fixed-arity subcommands gate their label on argc so a misuse
+# fails instead of waiting on a pipe; the others need evidence whatever their remaining arguments
+# are, so their own branch reports the argument error after stdin is already in hand.
 EVIDENCE_LABEL=""
 case "$SUBCOMMAND" in
   phase)  [ "${3:-}" = "fix" ] && EVIDENCE_LABEL="fix-loop reason" ;;
@@ -1056,8 +1058,12 @@ resolve it with the user, then 'runctl.sh unblock $EXECUTE_TASK_RUN_ID' with the
     ;;
 
   unblock)
-    # Deliberate and evidenced, unlike resume. The decision itself is the caller's to journal; what
-    # is enforced here is that reactivating a blocked run is an act, not a side effect.
+    # Deliberate and evidenced, unlike resume. `.blocked_reason` is cleared here, so without a
+    # durable copy the state file would end up indistinguishable from a run that was never blocked —
+    # the one record that a hard stop was walked past, and on whose decision, would exist nowhere.
+    # Writing it to the journal rather than asking the caller to: an audit trail that depends on the
+    # caller remembering is not one. Human-readable narrative is journal.sh's job, which is why the
+    # decision goes there and not into a new state field.
     [ "$#" -eq 2 ] || usage
     state_paths "$2"; lock_state; lock_initialization; load_state
     case "$(jq -r '.status' "$STATE")" in
@@ -1065,6 +1071,10 @@ resolve it with the user, then 'runctl.sh unblock $EXECUTE_TASK_RUN_ID' with the
       *) execute_task_die "run '$EXECUTE_TASK_RUN_ID' is $(jq -r '.status' "$STATE"), not blocked" ;;
     esac
     assert_no_other_active_run
+    BLOCKED_REASON="$(jq -r '.blocked_reason' "$STATE")"
+    printf 'unblocked after: %s\ndecision: %s\n' "$BLOCKED_REASON" "$EVIDENCE" \
+      | bash "$SCRIPT_DIR/journal.sh" append "$EXECUTE_TASK_RUN_ID" >/dev/null \
+      || execute_task_die "cannot journal the unblock decision; refusing to reactivate run '$EXECUTE_TASK_RUN_ID'"
     update_state '.status = "active" | .blocked_reason = null'
     printf 'UNBLOCKED %s\n%s\n' "$EXECUTE_TASK_RUN_ID" "$EVIDENCE"
     ;;
