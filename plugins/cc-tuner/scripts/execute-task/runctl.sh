@@ -183,7 +183,10 @@ verify_codex_required_review() {
   local marker="$1" plugin_root authoritative
   plugin_root="$(execute_task_codex_plugin_root)" \
     || execute_task_die "cannot locate an installed cc-codex-triage with scripts/review-state.sh; Codex approval cannot be verified"
-  authoritative="$(CLAUDE_PROJECT_DIR="$EXECUTE_TASK_ROOT" \
+  # Strip the reviewer's own test overrides: CC_CODEX_STATE_DIR redirects where it reads its approval
+  # state from, and an ambient value would let the answer be staged somewhere else entirely.
+  authoritative="$(env -u CC_CODEX_STATE_DIR -u CC_CODEX_GATE_DIR \
+    CLAUDE_PROJECT_DIR="$EXECUTE_TASK_ROOT" \
     bash "$plugin_root/scripts/review-state.sh" check "review-$EXECUTE_TASK_RUN_ID" 2>/dev/null)" \
     || execute_task_die "cc-codex-triage reports no gate-eligible approval for thread 'review-$EXECUTE_TASK_RUN_ID'"
   [ "$authoritative" = "$marker" ] \
@@ -475,16 +478,21 @@ verify_hosted_ci() {
     || execute_task_die "PR #$pr_number is not open at candidate $candidate"
 $pr_json
 EOF
-  checks_json="$(gh pr checks "$pr_number" --required --json bucket,name,state 2>/dev/null)" \
-    || execute_task_die "required checks are not green for PR #$pr_number"
-  # An empty list is not success: it means this repository has no REQUIRED checks configured, so
-  # there is nothing hosted to prove the candidate. Say that, rather than reporting it as a failed
-  # check the operator will go looking for.
-  jq -e 'length > 0' >/dev/null 2>&1 <<EOF \
-    || execute_task_die "PR #$pr_number has no required checks configured on GitHub; delivery cannot verify hosted CI until the target branch requires at least one check"
-$checks_json
-EOF
-  jq -e 'all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
+  # `gh pr checks` does not return an empty list when nothing is required — it exits non-zero and
+  # says so on stderr. Reading only the exit status reports "not green" for a repository that simply
+  # has no branch protection, sending the operator to look for a failing check that does not exist.
+  checks_error="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-checks.XXXXXX")" \
+    || execute_task_die "cannot create a temporary file for the CI check output"
+  if ! checks_json="$(gh pr checks "$pr_number" --required --json bucket,name,state 2>"$checks_error")"; then
+    if grep -q 'no checks reported' "$checks_error"; then
+      rm -f "$checks_error"
+      execute_task_die "PR #$pr_number has no required checks configured on GitHub; delivery cannot verify hosted CI until the target branch requires at least one check"
+    fi
+    rm -f "$checks_error"
+    execute_task_die "required checks are not green for PR #$pr_number"
+  fi
+  rm -f "$checks_error"
+  jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
     || execute_task_die "PR #$pr_number has missing, pending, skipped, cancelled, or failed required checks"
 $checks_json
 EOF
@@ -1063,7 +1071,9 @@ resolve it with the user, then 'runctl.sh unblock $EXECUTE_TASK_RUN_ID' with the
     # the one record that a hard stop was walked past, and on whose decision, would exist nowhere.
     # Writing it to the journal rather than asking the caller to: an audit trail that depends on the
     # caller remembering is not one. Human-readable narrative is journal.sh's job, which is why the
-    # decision goes there and not into a new state field.
+    # decision goes there and not into a new state field. The entry records that a decision was made,
+  # not that the run was reactivated: if the state update below never lands, a journal line claiming
+  # the transition would be false, and a retry would append a second false one.
     [ "$#" -eq 2 ] || usage
     state_paths "$2"; lock_state; lock_initialization; load_state
     case "$(jq -r '.status' "$STATE")" in
@@ -1072,7 +1082,8 @@ resolve it with the user, then 'runctl.sh unblock $EXECUTE_TASK_RUN_ID' with the
     esac
     assert_no_other_active_run
     BLOCKED_REASON="$(jq -r '.blocked_reason' "$STATE")"
-    printf 'unblocked after: %s\ndecision: %s\n' "$BLOCKED_REASON" "$EVIDENCE" \
+    printf 'unblock decision recorded (state remains authoritative) after: %s\ndecision: %s\n' \
+      "$BLOCKED_REASON" "$EVIDENCE" \
       | bash "$SCRIPT_DIR/journal.sh" append "$EXECUTE_TASK_RUN_ID" >/dev/null \
       || execute_task_die "cannot journal the unblock decision; refusing to reactivate run '$EXECUTE_TASK_RUN_ID'"
     update_state '.status = "active" | .blocked_reason = null'

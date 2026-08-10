@@ -72,6 +72,28 @@ OUT="$(hook pre-tool-use "$NESTED_EDIT_INPUT" 2>&1)"; rc=$?
   && pass "subdirectory-hook-finds-repo-wide-state" \
   || fail "subdirectory-hook-finds-repo-wide-state" "rc=$rc out=$OUT"
 
+# The fence guards task paths. A prepared commit message or PR body lives outside the repository,
+# cannot reach the candidate tree, and is consumed in phases that deny edits — so it has to stay
+# writable, or the playbook's own "recreate them after a resume" is impossible.
+SCRATCH_DIR="$(mktemp -d)"
+OUTSIDE_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/commit-message.txt" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$OUTSIDE_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "prepared-file-outside-the-repository-stays-writable" \
+  || fail "prepared-file-outside-the-repository-stays-writable" "rc=$rc"
+# ...and a path the hook cannot resolve is still fenced: unknown is not outside.
+UNRESOLVABLE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:"relative/guess.txt"}}')"
+hook pre-tool-use "$UNRESOLVABLE_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "unresolvable-path-stays-fenced" \
+  || fail "unresolvable-path-stays-fenced" "rc=$rc"
+# An absolute path INSIDE the repository is a task path, whatever phase claims otherwise.
+INSIDE_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$REPO/file.txt" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$INSIDE_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "absolute-path-inside-the-repository-is-fenced" \
+  || fail "absolute-path-inside-the-repository-is-fenced" "rc=$rc"
+rm -rf "$SCRATCH_DIR"
+
 MERGE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 123 --squash"}}')"
 OUT="$(hook pre-tool-use "$MERGE_INPUT" 2>&1)"; rc=$?
 { [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -q 'blocked gh pr merge'; } \

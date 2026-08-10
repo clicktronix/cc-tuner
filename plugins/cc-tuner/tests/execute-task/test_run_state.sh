@@ -110,21 +110,26 @@ codex_approval_marker() {
 
 # A stub cc-codex-triage installation. It stands in for the plugin whose OWN suite proves that a
 # marker is only produced for an attributable exact-candidate APPROVE; what is under test here is
-# that runctl refuses to accept a marker no installed plugin will confirm.
+# that runctl refuses to accept a marker no installed plugin will confirm. The gate reads a fixed
+# location, so the stub is installed by moving HOME rather than through a plugin-specific override —
+# a delivery gate that takes its authority's address from a test hook is not a gate.
 install_codex_stub() {
   CODEX_STUB="$(mktemp -d)" || return 1
-  mkdir -p "$CODEX_STUB/root/scripts"
-  cat > "$CODEX_STUB/root/scripts/review-state.sh" <<'STUB'
+  STUB_ROOT="$CODEX_STUB/root"
+  mkdir -p "$STUB_ROOT/scripts" "$STUB_ROOT/commands" "$CODEX_STUB/.claude/plugins"
+  cat > "$STUB_ROOT/scripts/review-state.sh" <<'STUB'
 #!/usr/bin/env bash
+# CC_CODEX_REQUIRED_REVIEW APPROVE — contract marker the resolver requires.
 [ "${1:-}" = check ] || exit 1
 [ -n "${CC_TUNER_TEST_CODEX_APPROVAL:-}" ] || exit 10
 printf '%s\n' "$CC_TUNER_TEST_CODEX_APPROVAL"
 STUB
-  chmod +x "$CODEX_STUB/root/scripts/review-state.sh"
-  jq -n --arg path "$CODEX_STUB/root" \
+  chmod +x "$STUB_ROOT/scripts/review-state.sh"
+  printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$STUB_ROOT/commands/review.md"
+  jq -n --arg path "$STUB_ROOT" \
     '{plugins:{"cc-codex-triage@cc-codex-triage":[{scope:"user",installPath:$path}]}}' \
-    > "$CODEX_STUB/installed_plugins.json" || return 1
-  export CLAUDE_PLUGIN_CACHE="$CODEX_STUB"
+    > "$CODEX_STUB/.claude/plugins/installed_plugins.json" || return 1
+  export HOME="$CODEX_STUB"
 }
 
 # The happy path only exists when the authority agrees with the pasted marker.
@@ -230,8 +235,11 @@ evidence "release branch ownership" block run-2 >/dev/null
 # Unblocking nulls blocked_reason, so the state file alone cannot show a hard stop was walked past.
 # The decision has to outlive the command that consumed it.
 JOURNAL_FILE="$REPO/$RUNS_REL/run-1.md"
+# The entry must record the decision without asserting a transition the command had not made when it
+# was written — a crash between the two would otherwise leave a journal line that is simply false.
 { grep -qF 'user resolved the migration' "$JOURNAL_FILE" \
-  && grep -qF 'waiting for a user-owned migration' "$JOURNAL_FILE"; } \
+  && grep -qF 'waiting for a user-owned migration' "$JOURNAL_FILE" \
+  && grep -qF 'state remains authoritative' "$JOURNAL_FILE"; } \
   && pass "unblock-decision-outlives-the-command" \
   || fail "unblock-decision-outlives-the-command"
 evidence "already active" unblock run-1 >/dev/null 2>&1; rc=$?
@@ -464,13 +472,30 @@ OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$S
 jq --arg spec "$SPEC_BACKUP" '.spec = $spec' "$REPO/$RUNS_REL/run-1.state.json" > "$REPO/state.tmp" \
   && mv "$REPO/state.tmp" "$REPO/$RUNS_REL/run-1.state.json"
 
-SAVED_PLUGIN_CACHE="$CLAUDE_PLUGIN_CACHE"
-export CLAUDE_PLUGIN_CACHE="$REPO/no-such-plugin-cache"
+# preflight and the gate must agree on what counts as an installation. A root that carries
+# review-state.sh but not the required-review contract is one the prerequisite check rejects, so the
+# gate cannot accept it either — otherwise preflight passes on one install and approval comes from
+# another.
+SAVED_HOME="$HOME"
+HALF_HOME="$(mktemp -d)"
+mkdir -p "$HALF_HOME/root/scripts" "$HALF_HOME/.claude/plugins"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$HALF_HOME/root/scripts/review-state.sh"
+jq -n --arg path "$HALF_HOME/root" \
+  '{plugins:{"cc-codex-triage@cc-codex-triage":[{scope:"user",installPath:$path}]}}' \
+  > "$HALF_HOME/.claude/plugins/installed_plugins.json"
+export HOME="$HALF_HOME"
+OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cannot locate an installed cc-codex-triage'; } \
+  && pass "root-without-the-required-review-contract-is-not-an-installation" \
+  || fail "root-without-the-required-review-contract-is-not-an-installation" "rc=$rc out=$OUT"
+rm -rf "$HALF_HOME"
+
+export HOME="$REPO/no-such-home"
 OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cannot locate an installed cc-codex-triage'; } \
   && pass "absent-reviewer-plugin-fails-closed" \
   || fail "absent-reviewer-plugin-fails-closed" "rc=$rc out=$OUT"
-export CLAUDE_PLUGIN_CACHE="$SAVED_PLUGIN_CACHE"
+export HOME="$SAVED_HOME"
 codex_stub_agrees
 evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
 printf 'post-review mutation\n' >> "$REPO/file.txt"
@@ -669,7 +694,15 @@ cat > "$GH_STUB/gh" <<'GH_STUB_SCRIPT'
 #!/usr/bin/env bash
 case "$1:$2" in
   pr:view) printf '{"number":42,"state":"%s","headRefOid":"%s","baseRefName":"main","mergeCommit":{"oid":"merge-sha"}}\n' "${GH_TEST_PR_STATE:-OPEN}" "$GH_TEST_SHA" ;;
-  pr:checks) printf '%s\n' "$GH_TEST_CHECKS" ;;
+  pr:checks)
+    # Real `gh pr checks` exits 1 and reports on stderr when the branch requires nothing; it never
+    # returns an empty array. A stub that returns [] tests a CLI that does not exist.
+    if [ "$GH_TEST_CHECKS" = "none" ]; then
+      echo "no checks reported on the 'task' branch" >&2
+      exit 1
+    fi
+    printf '%s\n' "$GH_TEST_CHECKS"
+    ;;
   *) exit 1 ;;
 esac
 GH_STUB_SCRIPT
@@ -681,8 +714,8 @@ evidence "checks passed on stale PR head" ci run-1 record success "$SHA" --pr 42
 [ "$rc" -eq 1 ] && pass "stale-pr-head-not-green" \
   || fail "stale-pr-head-not-green" "rc=$rc"
 export GH_TEST_SHA="$SHA"
-export GH_TEST_CHECKS='[]'
-# An empty required-check list is a repository configuration answer, not a failed check. Asserting
+export GH_TEST_CHECKS='none'
+# No required checks is a repository configuration answer, not a failed check. Asserting
 # only rc=1 here passed before that distinction existed, so the message is the assertion.
 OUT="$(evidence "no required checks" ci run-1 record success "$SHA" --pr 42 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'no required checks configured on GitHub'; } \
