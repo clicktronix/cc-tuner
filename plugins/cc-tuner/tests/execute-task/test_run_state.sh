@@ -121,6 +121,9 @@ install_codex_stub() {
 #!/usr/bin/env bash
 # CC_CODEX_REQUIRED_REVIEW APPROVE — contract marker the resolver requires.
 [ "${1:-}" = check ] || exit 1
+# The real verifier reads its approval state from a directory CC_CODEX_STATE_DIR can redirect. If
+# the gate passed that through, an ambient value would decide where the answer comes from.
+[ -z "${CC_CODEX_STATE_DIR:-}" ] || { echo "state directory was redirected" >&2; exit 12; }
 [ -n "${CC_TUNER_TEST_CODEX_APPROVAL:-}" ] || exit 10
 printf '%s\n' "$CC_TUNER_TEST_CODEX_APPROVAL"
 STUB
@@ -473,7 +476,12 @@ OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$S
   || fail "absent-reviewer-plugin-fails-closed" "rc=$rc out=$OUT"
 export HOME="$SAVED_HOME"
 codex_stub_agrees
-evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
+# The reviewer's own state override must not survive into the gate's call.
+export CC_CODEX_STATE_DIR="$REPO/redirected-review-state"
+evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "ambient-state-override-does-not-reach-the-verifier" \
+  || fail "ambient-state-override-does-not-reach-the-verifier" "rc=$rc"
+unset CC_CODEX_STATE_DIR
 printf 'post-review mutation\n' >> "$REPO/file.txt"
 runctl can-advance run-1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "dirty-tree-invalidates-review" \

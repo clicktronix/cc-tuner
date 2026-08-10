@@ -155,15 +155,18 @@ execute_task_manifest_roots() {
   [ -f "$manifest" ] && [ -n "$project" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
   jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
+  # Deterministic precedence, not manifest order: an install scoped to THIS project wins over a
+  # user-wide one. Without a fixed order two callers reading the same manifest can pick different
+  # installs and still both be "right".
   jq -r --arg key "$key" --arg project "$project" '
     .plugins[$key] // [] |
     if type == "array" then
-      .[]? |
-      select(
-        .scope == "user" or
-        ((.scope == "project" or .scope == "local") and .projectPath == $project)
-      ) |
-      .installPath // empty
+      [ .[]? | select(
+          .scope == "user" or
+          ((.scope == "project" or .scope == "local") and .projectPath == $project)
+        ) ]
+      | sort_by(if .scope == "user" then 1 else 0 end)
+      | .[] | .installPath // empty
     else empty end
   ' "$manifest" 2>/dev/null
 }
@@ -187,10 +190,12 @@ execute_task_codex_root_qualifies() {
 # implemented. Prints the first qualifying root; returns non-zero when there is none, so callers fail
 # closed.
 #
-# The location is NOT overridable. CLAUDE_PLUGIN_CACHE exists as a test hook, and a delivery gate
-# that reads its own authority's address from a test hook is not a gate. This raises the cost of
-# faking an approval; it does not make one impossible — anything with shell access can rewrite this
-# file or the state it guards, and no local check changes that.
+# The address is derived from HOME, not from CLAUDE_PLUGIN_CACHE: a delivery gate that takes its own
+# authority's location from a hook whose documented purpose is testing is not a gate. HOME is still
+# an environment variable, so this is not unforgeable and must not be described as such — the tests
+# install their stub exactly that way. What it buys is that faking an approval takes the same work as
+# faking anything else here; anything with shell access can rewrite this file or the state it guards,
+# and no local check changes that.
 execute_task_codex_plugin_root() {
   local cache manifest roots root
   cache="$HOME/.claude/plugins"
