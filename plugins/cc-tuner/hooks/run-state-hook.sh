@@ -89,7 +89,7 @@ case "$EVENT" in
       Write|Edit|MultiEdit|NotebookEdit)
         PHASE="$(jq -r '.phase.name' "$STATE")"
         [ "$PHASE" = "implementation" ] \
-          || deny_tool "cc-tuner: $TOOL_NAME may mutate task paths only during implementation; current phase is '$PHASE'"
+          || deny_tool "cc-tuner: $TOOL_NAME may mutate task paths only during implementation; current phase is '$PHASE'. Return through 'runctl.sh phase $RUN_ID fix' to reopen implementation, or 'runctl.sh block $RUN_ID' to stop the run and edit freely."
         allow
         ;;
     esac

@@ -90,6 +90,7 @@ approve_all() {
     evidence "$reviewer approved exact candidate" \
       review run-1 record "$reviewer" APPROVE "$SHA" >/dev/null || return 1
   done
+  codex_stub_agrees
   evidence "$(codex_approval_marker)" \
     review run-1 record codex APPROVE "$SHA" >/dev/null \
     && runctl task run-1 start review-candidate >/dev/null \
@@ -107,12 +108,40 @@ codex_approval_marker() {
     "$sha" "$tree" 0 "$base" "$spec"
 }
 
+# A stub cc-codex-triage installation. It stands in for the plugin whose OWN suite proves that a
+# marker is only produced for an attributable exact-candidate APPROVE; what is under test here is
+# that runctl refuses to accept a marker no installed plugin will confirm.
+install_codex_stub() {
+  CODEX_STUB="$(mktemp -d)" || return 1
+  mkdir -p "$CODEX_STUB/root/scripts"
+  cat > "$CODEX_STUB/root/scripts/review-state.sh" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" = check ] || exit 1
+[ -n "${CC_TUNER_TEST_CODEX_APPROVAL:-}" ] || exit 10
+printf '%s\n' "$CC_TUNER_TEST_CODEX_APPROVAL"
+STUB
+  chmod +x "$CODEX_STUB/root/scripts/review-state.sh"
+  jq -n --arg path "$CODEX_STUB/root" \
+    '{plugins:{"cc-codex-triage@cc-codex-triage":[{scope:"user",installPath:$path}]}}' \
+    > "$CODEX_STUB/installed_plugins.json" || return 1
+  export CLAUDE_PLUGIN_CACHE="$CODEX_STUB"
+}
+
+# The happy path only exists when the authority agrees with the pasted marker.
+codex_stub_agrees() { export CC_TUNER_TEST_CODEX_APPROVAL="$(codex_approval_marker)"; }
+codex_stub_silent() { unset CC_TUNER_TEST_CODEX_APPROVAL; }
+
 prepare_candidate() {
-  complete_readiness && create_plan && complete_implementation || return 1
+  complete_readiness && create_plan || return 1
+  # Task-path content must be final BEFORE implementation completes: everything after that point
+  # is verification, and the testing gate now refuses a tree that moved since.
   printf 'implementation\n' >> "$REPO/file.txt"
+  complete_implementation || return 1
   (cd "$REPO" && git add file.txt && git commit -qm implementation) || return 1
   complete_testing_to_candidate && record_candidate_and_enter_review
 }
+
+install_codex_stub || exit 1
 
 # State is adjacent to the journal, validates ownership, and init is idempotent.
 make_repo
@@ -339,6 +368,28 @@ bad_marker="$(codex_approval_marker | sed 's/fingerprint=/digest=/')"
 evidence "$bad_marker" review run-1 record codex APPROVE "$SHA" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "codex-approval-requires-fingerprint-label" \
   || fail "codex-approval-requires-fingerprint-label" "rc=$rc"
+
+# Every field of the marker is a value this process already knows, and the fingerprint is only
+# shape-checked — so a well-formed marker is text an agent can type. It counts as approval only
+# when the installed reviewer plugin still holds that exact approval.
+codex_stub_silent
+OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'no gate-eligible approval'; } \
+  && pass "well-formed-marker-without-authoritative-approval-rejected" \
+  || fail "well-formed-marker-without-authoritative-approval-rejected" "rc=$rc out=$OUT"
+export CC_TUNER_TEST_CODEX_APPROVAL="$(codex_approval_marker | sed 's/fingerprint=0/fingerprint=1/')"
+OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'does not match the approval'; } \
+  && pass "marker-must-equal-the-authoritative-approval" \
+  || fail "marker-must-equal-the-authoritative-approval" "rc=$rc out=$OUT"
+SAVED_PLUGIN_CACHE="$CLAUDE_PLUGIN_CACHE"
+export CLAUDE_PLUGIN_CACHE="$REPO/no-such-plugin-cache"
+OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cannot locate an installed cc-codex-triage'; } \
+  && pass "absent-reviewer-plugin-fails-closed" \
+  || fail "absent-reviewer-plugin-fails-closed" "rc=$rc out=$OUT"
+export CLAUDE_PLUGIN_CACHE="$SAVED_PLUGIN_CACHE"
+codex_stub_agrees
 evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
 printf 'post-review mutation\n' >> "$REPO/file.txt"
 runctl can-advance run-1 >/dev/null 2>&1; rc=$?
@@ -356,6 +407,7 @@ prepare_candidate || { fail "request-changes-fixture"; rm -rf "$REPO"; exit "$fa
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 evidence "deep review requested changes" review run-1 record deep-review REQUEST_CHANGES "$SHA" >/dev/null
 evidence "matt approved" review run-1 record mattpocock APPROVE "$SHA" >/dev/null
+codex_stub_agrees
 evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null
 runctl task run-1 start review-candidate >/dev/null
 evidence "review attempt completed with blocking verdict" \
@@ -377,12 +429,35 @@ else
 fi
 rm -rf "$REPO"
 
-# Candidate content must be exactly the content that passed testing, even though the test gate can
-# be recorded before the candidate commit exists.
+# The PreToolUse hook only sees the tools it matches, so a Bash heredoc, `sed -i`, or a formatter
+# can mutate task paths in a phase that forbids it. The state machine has to catch that itself:
+# whatever content implementation ended with is what testing is allowed to verify.
 make_repo
-complete_readiness && create_plan && complete_implementation || exit 1
+complete_readiness && create_plan || exit 1
 printf 'tested implementation\n' >> "$REPO/file.txt"
-evidence "tests passed on this worktree" gate run-1 record testing pass >/dev/null
+complete_implementation || exit 1
+IMPL_TREE="$(jq -r '[.gates[] | select(.id == "implementation-tree")][-1].tree_sha' \
+  "$REPO/$RUNS_REL/run-1.state.json")"
+case "$IMPL_TREE" in
+  [0-9a-f]*) pass "implementation-completion-records-worktree-content" ;;
+  *) fail "implementation-completion-records-worktree-content" "tree=$IMPL_TREE" ;;
+esac
+printf 'bash-only mutation the hook cannot see\n' >> "$REPO/file.txt"
+OUT="$(evidence "tests passed" gate run-1 record testing pass 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'changed after implementation completed'; } \
+  && pass "post-implementation-mutation-blocks-testing-gate" \
+  || fail "post-implementation-mutation-blocks-testing-gate" "rc=$rc out=$OUT"
+# The recorded content is the state machine's own, not an evidence field an agent may write.
+OUT="$(evidence "hand-written tree" gate run-1 record implementation-tree pass 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cannot be recorded by hand'; } \
+  && pass "implementation-tree-gate-is-reserved" \
+  || fail "implementation-tree-gate-is-reserved" "rc=$rc out=$OUT"
+# Reverting the unauthorised change restores the tested content, so the gate opens again.
+(cd "$REPO" && git checkout -- file.txt && printf 'tested implementation\n' >> file.txt) \
+  >/dev/null 2>&1
+evidence "tests passed on this worktree" gate run-1 record testing pass >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "reverted-tree-reopens-testing-gate" \
+  || fail "reverted-tree-reopens-testing-gate" "rc=$rc"
 runctl task run-1 start verify-tests >/dev/null
 evidence "testing task completed" task run-1 complete verify-tests >/dev/null
 runctl phase run-1 complete testing >/dev/null

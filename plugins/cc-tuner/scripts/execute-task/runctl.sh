@@ -149,13 +149,15 @@ EOF
     fingerprint=*) fingerprint="${fp_field#fingerprint=}" ;;
     *) execute_task_die "Codex required-review marker has an invalid fingerprint field" ;;
   esac
+  [ -n "$spec_path" ] \
+    || execute_task_die "run '$EXECUTE_TASK_RUN_ID' has no spec path; Codex required review needs one (re-init the run with --spec)"
   [ "$word1" = "CC_CODEX_REQUIRED_REVIEW" ] \
     && [ "$word2" = "APPROVE" ] \
     && [ "$thread_field" = "thread=review-$EXECUTE_TASK_RUN_ID" ] \
     && [ "$head_field" = "head=$SHA" ] \
     && [ "$tree_field" = "tree=$candidate_tree" ] \
     && [ "$base_field" = "base_sha=$base_sha" ] \
-    && [ -n "$spec_path" ] && [ "$spec_field" = "spec_path=$spec_path" ] \
+    && [ "$spec_field" = "spec_path=$spec_path" ] \
     && [ -z "$extra" ] \
     || execute_task_die "Codex required-review marker does not match this run and candidate"
   case "$fingerprint" in
@@ -165,6 +167,22 @@ EOF
     40|64) ;;
     *) execute_task_die "Codex required-review marker has an invalid fingerprint" ;;
   esac
+  verify_codex_required_review "$marker"
+}
+
+# The marker's fields are all values this process already knows, and the fingerprint is only
+# shape-checked here — so matching the text proves nothing on its own. cc-codex-triage owns the
+# only state that can attribute an APPROVE to a dispatch against this exact candidate; ask it, and
+# compare byte for byte. No installation, no answer, or a different answer is not an approval.
+verify_codex_required_review() {
+  local marker="$1" plugin_root authoritative
+  plugin_root="$(execute_task_codex_plugin_root)" \
+    || execute_task_die "cannot locate an installed cc-codex-triage with scripts/review-state.sh; Codex approval cannot be verified"
+  authoritative="$(CLAUDE_PROJECT_DIR="$EXECUTE_TASK_ROOT" \
+    bash "$plugin_root/scripts/review-state.sh" check "review-$EXECUTE_TASK_RUN_ID" 2>/dev/null)" \
+    || execute_task_die "cc-codex-triage reports no gate-eligible approval for thread 'review-$EXECUTE_TASK_RUN_ID'"
+  [ "$authoritative" = "$marker" ] \
+    || execute_task_die "recorded Codex marker does not match the approval cc-codex-triage holds for 'review-$EXECUTE_TASK_RUN_ID'"
 }
 
 state_paths() {
@@ -228,7 +246,9 @@ validate_state_shape() {
       (.phase.name as $phase | ["readiness", "planning", "implementation", "testing", "acceptance",
         "candidate", "review", "delivery", "done"] | index($phase) != null) and
       (.phase.status == "in_progress" or .phase.status == "completed") and
-      (.completed_phases | type == "array") and (.tasks | type == "array") and
+      (.completed_phases | type == "array") and
+      (.completed_phases | unique | length) == (.completed_phases | length) and
+      (.tasks | type == "array") and
       ([.tasks[].id] | unique | length) == (.tasks | length) and
       ([.tasks[].ui_task_id | select(. != null)] | unique | length) ==
         ([.tasks[].ui_task_id | select(. != null)] | length) and
@@ -452,7 +472,14 @@ $pr_json
 EOF
   checks_json="$(gh pr checks "$pr_number" --required --json bucket,name,state 2>/dev/null)" \
     || execute_task_die "required checks are not green for PR #$pr_number"
-  jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
+  # An empty list is not success: it means this repository has no REQUIRED checks configured, so
+  # there is nothing hosted to prove the candidate. Say that, rather than reporting it as a failed
+  # check the operator will go looking for.
+  jq -e 'length > 0' >/dev/null 2>&1 <<EOF \
+    || execute_task_die "PR #$pr_number has no required checks configured on GitHub; delivery cannot verify hosted CI until the target branch requires at least one check"
+$checks_json
+EOF
+  jq -e 'all(.[]; .bucket == "pass")' >/dev/null 2>&1 <<EOF \
     || execute_task_die "PR #$pr_number has missing, pending, skipped, cancelled, or failed required checks"
 $checks_json
 EOF
@@ -681,8 +708,20 @@ case "$SUBCOMMAND" in
         [ "$(jq -r '.phase.status' "$STATE")" = "in_progress" ] \
           || execute_task_die "phase '$CURRENT' is already completed"
         validate_phase_completion "$CURRENT"
+        # Only implementation may mutate task paths, and the PreToolUse hook can only see the tools
+        # it matches — a Bash heredoc, `sed -i`, or a formatter is invisible to it. Recording the
+        # worktree content here turns that rule into something later phases can check, instead of a
+        # rule that holds only while the agent uses the guarded tools.
+        IMPLEMENTATION_TREE=""
+        [ "$CURRENT" = "implementation" ] && IMPLEMENTATION_TREE="$(execute_task_worktree_tree_sha)"
         update_state '.phase.status = "completed" |
-          .completed_phases += [$phase]' --arg phase "$CURRENT"
+          .completed_phases += [$phase] |
+          if ($tree | length) > 0 then
+            .gates = ([.gates[] | select(.id != "implementation-tree")] +
+              [{id: "implementation-tree", status: "pass", sha: null, tree_sha: $tree,
+                evidence: "worktree content recorded when implementation completed",
+                recorded_at: $updated_at}])
+          else . end' --arg phase "$CURRENT" --arg tree "$IMPLEMENTATION_TREE"
         ;;
       fix)
         [ "$#" -eq 3 ] || usage
@@ -808,6 +847,9 @@ case "$SUBCOMMAND" in
     case "$GATE_ID:$CURRENT" in
       dor:readiness|testing:testing|acceptance:acceptance|dod:delivery) ;;
       dor:*|testing:*|acceptance:*|dod:*) execute_task_die "gate '$GATE_ID' cannot be recorded in phase '$CURRENT'" ;;
+      implementation-tree:*)
+        execute_task_die "gate 'implementation-tree' is written by 'phase complete implementation' and cannot be recorded by hand"
+        ;;
       *) ;;
     esac
     if [ "$GATE_ID" = "dod" ]; then
@@ -828,6 +870,12 @@ case "$SUBCOMMAND" in
     GATE_TREE=""
     if [ "$GATE_ID" = "testing" ] && [ "$GATE_STATUS" = "pass" ]; then
       GATE_TREE="$(execute_task_worktree_tree_sha)"
+      IMPLEMENTATION_TREE="$(jq -r \
+        '[.gates[] | select(.id == "implementation-tree")][-1].tree_sha // empty' "$STATE")"
+      [ -n "$IMPLEMENTATION_TREE" ] \
+        || execute_task_die "implementation completion recorded no worktree content; re-enter and complete implementation"
+      [ "$GATE_TREE" = "$IMPLEMENTATION_TREE" ] \
+        || execute_task_die "task paths changed after implementation completed (recorded $IMPLEMENTATION_TREE, now $GATE_TREE); testing may not carry a mutation — revert it, or return through 'phase fix'"
     fi
     update_state '.gates = ([.gates[] | select(.id != $id)] +
       [{id: $id, status: $status, sha: (if ($sha | length) == 0 then null else $sha end),
