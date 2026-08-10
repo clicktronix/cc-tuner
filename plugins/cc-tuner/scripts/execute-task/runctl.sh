@@ -29,6 +29,7 @@ usage: runctl.sh init <run-id> [--mode interactive|auto] [--spec <path>]
        runctl.sh can-advance|can-merge <run-id>
        runctl.sh block <run-id> < reason.txt
        runctl.sh resume <run-id>
+       runctl.sh unblock <run-id> < decision.txt
        runctl.sh finish <run-id> < post-merge-evidence.txt
 EOF
   exit 1
@@ -580,8 +581,9 @@ case "$SUBCOMMAND" in
   gate)   [ "${3:-}" = "record" ] && EVIDENCE_LABEL="gate evidence" ;;
   review) [ "${3:-}" = "record" ] && EVIDENCE_LABEL="review evidence" ;;
   ci)     [ "${3:-}" = "record" ] && EVIDENCE_LABEL="CI evidence" ;;
-  block)  EVIDENCE_LABEL="block reason" ;;
-  finish) EVIDENCE_LABEL="post-merge reconciliation evidence" ;;
+  block)   [ "$#" -eq 2 ] && EVIDENCE_LABEL="block reason" ;;
+  unblock) [ "$#" -eq 2 ] && EVIDENCE_LABEL="unblock decision" ;;
+  finish)  [ "$#" -eq 2 ] && EVIDENCE_LABEL="post-merge reconciliation evidence" ;;
 esac
 [ -z "$EVIDENCE_LABEL" ] || read_evidence "$EVIDENCE_LABEL"
 
@@ -1037,15 +1039,34 @@ $EVIDENCE"
     ;;
 
   resume)
+    # Read-mostly: every phase begins with this, so it must never clear a block. A blocked run is
+    # waiting on a decision nobody has made yet; silently reactivating it here turned `block` into a
+    # no-op for an unattended run, which is the opposite of what a hard stop is for.
     [ "$#" -eq 2 ] || usage
     state_paths "$2"; lock_state; lock_initialization; load_state
     case "$(jq -r '.status' "$STATE")" in
-      blocked|active) assert_no_other_active_run ;;
+      active) assert_no_other_active_run ;;
+      blocked)
+        execute_task_die "run '$EXECUTE_TASK_RUN_ID' is blocked: $(jq -r '.blocked_reason' "$STATE")
+resolve it with the user, then 'runctl.sh unblock $EXECUTE_TASK_RUN_ID' with the decision on stdin"
+        ;;
       completed) execute_task_die "completed run '$EXECUTE_TASK_RUN_ID' cannot be resumed" ;;
     esac
-    [ "$(jq -r '.status' "$STATE")" = "active" ] \
-      || update_state '.status = "active" | .blocked_reason = null'
     jq '{run_id,status,phase,spec,candidate,ci}' "$STATE"
+    ;;
+
+  unblock)
+    # Deliberate and evidenced, unlike resume. The decision itself is the caller's to journal; what
+    # is enforced here is that reactivating a blocked run is an act, not a side effect.
+    [ "$#" -eq 2 ] || usage
+    state_paths "$2"; lock_state; lock_initialization; load_state
+    case "$(jq -r '.status' "$STATE")" in
+      blocked) ;;
+      *) execute_task_die "run '$EXECUTE_TASK_RUN_ID' is $(jq -r '.status' "$STATE"), not blocked" ;;
+    esac
+    assert_no_other_active_run
+    update_state '.status = "active" | .blocked_reason = null'
+    printf 'UNBLOCKED %s\n%s\n' "$EXECUTE_TASK_RUN_ID" "$EVIDENCE"
     ;;
 
   finish)

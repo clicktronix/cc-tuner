@@ -205,17 +205,31 @@ runctl status run-1 >/dev/null 2>&1; rc=$?
   || fail "cross-branch-state-rejected" "rc=$rc"
 (cd "$REPO" && git switch -q task) >/dev/null 2>&1
 
-# Explicit block/resume is the only non-terminal Stop escape for an auto run.
+# Explicit block/unblock is the only non-terminal Stop escape for an auto run.
 evidence "waiting for a user-owned migration" block run-1 >/dev/null
+# /run calls `resume` at the top of every phase. If that cleared the block, an unattended run would
+# walk straight past a hard stop nobody has resolved — so resume must report it and refuse.
+OUT="$(runctl resume run-1 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'is blocked:' \
+  && [ "$(jq -r '.status' "$STATE")" = "blocked" ]; } \
+  && pass "resume-does-not-clear-a-block" \
+  || fail "resume-does-not-clear-a-block" "rc=$rc out=$OUT"
 CLAUDE_PROJECT_DIR="$REPO" bash "$P" run-2 main --expected-branch task >/dev/null || exit 1
 runctl init run-2 --mode auto --spec docs/spec.md >/dev/null || exit 1
-runctl resume run-1 >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 1 ] && pass "resume-cannot-duplicate-active-owner" \
-  || fail "resume-cannot-duplicate-active-owner" "rc=$rc"
+evidence "the user chose to continue" unblock run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "unblock-cannot-duplicate-active-owner" \
+  || fail "unblock-cannot-duplicate-active-owner" "rc=$rc"
+runctl unblock run-1 < /dev/null >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "unblock-requires-a-recorded-decision" \
+  || fail "unblock-requires-a-recorded-decision" "rc=$rc"
 evidence "release branch ownership" block run-2 >/dev/null
-[ "$(jq -r '.status' "$STATE")" = "blocked" ] && runctl resume run-1 >/dev/null \
+[ "$(jq -r '.status' "$STATE")" = "blocked" ] \
+  && evidence "user resolved the migration" unblock run-1 >/dev/null \
   && [ "$(jq -r '.status' "$STATE")" = "active" ] \
-  && pass "block-resume-owned-state" || fail "block-resume-owned-state"
+  && pass "block-unblock-owned-state" || fail "block-unblock-owned-state"
+evidence "already active" unblock run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "unblock-rejects-an-active-run" \
+  || fail "unblock-rejects-an-active-run" "rc=$rc"
 rm -rf "$REPO"
 
 # Project subdirectories in one worktree share one repo-wide run owner.
@@ -431,6 +445,18 @@ OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$S
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'does not match the approval'; } \
   && pass "marker-must-equal-the-authoritative-approval" \
   || fail "marker-must-equal-the-authoritative-approval" "rc=$rc out=$OUT"
+# A run opened without --spec cannot satisfy the required-review marker at all. Say that, instead of
+# reporting a mismatch against an empty expected value.
+SPEC_BACKUP="$(jq -r '.spec' "$REPO/$RUNS_REL/run-1.state.json")"
+jq '.spec = null' "$REPO/$RUNS_REL/run-1.state.json" > "$REPO/state.tmp" \
+  && mv "$REPO/state.tmp" "$REPO/$RUNS_REL/run-1.state.json"
+OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'has no spec path'; } \
+  && pass "spec-less-run-names-the-missing-spec" \
+  || fail "spec-less-run-names-the-missing-spec" "rc=$rc out=$OUT"
+jq --arg spec "$SPEC_BACKUP" '.spec = $spec' "$REPO/$RUNS_REL/run-1.state.json" > "$REPO/state.tmp" \
+  && mv "$REPO/state.tmp" "$REPO/$RUNS_REL/run-1.state.json"
+
 SAVED_PLUGIN_CACHE="$CLAUDE_PLUGIN_CACHE"
 export CLAUDE_PLUGIN_CACHE="$REPO/no-such-plugin-cache"
 OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" 2>&1)"; rc=$?
@@ -588,6 +614,17 @@ jq '.fix_round = 1000000' "$STATE" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
 runctl status run-1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "out-of-range-fix-counter-invalidates-state" \
   || fail "out-of-range-fix-counter-invalidates-state" "rc=$rc"
+# The published schema declares completed_phases uniqueItems. The runtime validator has to agree, or
+# the schema is decoration: nothing else reads it.
+jq '.fix_round = 0 | .completed_phases = ["readiness","planning","readiness"]' "$STATE" \
+  > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+runctl status run-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "duplicate-completed-phase-invalidates-state" \
+  || fail "duplicate-completed-phase-invalidates-state" "rc=$rc"
+jq -e '.properties.completed_phases.uniqueItems == true' \
+  "$DIR/../../schemas/run-state.schema.json" >/dev/null \
+  && pass "schema-still-declares-the-rule-the-validator-enforces" \
+  || fail "schema-still-declares-the-rule-the-validator-enforces"
 rm -rf "$REPO"
 
 # Delivery accepts CI and DoD only for the immutable reviewed candidate.
@@ -638,9 +675,17 @@ evidence "checks passed on stale PR head" ci run-1 record success "$SHA" --pr 42
   || fail "stale-pr-head-not-green" "rc=$rc"
 export GH_TEST_SHA="$SHA"
 export GH_TEST_CHECKS='[]'
-evidence "no required checks" ci run-1 record success "$SHA" --pr 42 >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 1 ] && pass "absent-required-checks-not-green" \
-  || fail "absent-required-checks-not-green" "rc=$rc"
+# An empty required-check list is a repository configuration answer, not a failed check. Asserting
+# only rc=1 here passed before that distinction existed, so the message is the assertion.
+OUT="$(evidence "no required checks" ci run-1 record success "$SHA" --pr 42 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'no required checks configured on GitHub'; } \
+  && pass "absent-required-checks-names-the-configuration-gap" \
+  || fail "absent-required-checks-names-the-configuration-gap" "rc=$rc out=$OUT"
+export GH_TEST_CHECKS='[{"bucket":"fail","name":"test","state":"FAILURE"}]'
+OUT="$(evidence "red required check" ci run-1 record success "$SHA" --pr 42 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'missing, pending, skipped, cancelled, or failed'; } \
+  && pass "red-required-check-is-reported-as-a-check-failure" \
+  || fail "red-required-check-is-reported-as-a-check-failure" "rc=$rc out=$OUT"
 export GH_TEST_CHECKS='[{"bucket":"pass","name":"test","state":"SUCCESS"}]'
 evidence "required checks passed" ci run-1 record success "$SHA" --pr 42 >/dev/null
 [ "$(jq -r '.ci.pr_number' "$REPO/$RUNS_REL/run-1.state.json")" = "42" ] \

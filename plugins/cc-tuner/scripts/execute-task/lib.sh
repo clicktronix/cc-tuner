@@ -147,9 +147,9 @@ execute_task_assert_clean_tree() {
 }
 
 # Install paths of a plugin that is ACTIVE for this project, from the manifest Claude Code
-# publishes. One copy of this selection rule: prereq-check and the required-review verifier answer
-# different questions about the same installation, and two filters would eventually disagree about
-# which version is installed. Usage: execute_task_manifest_roots <manifest> <key> <project-root>
+# publishes. One copy of this selection rule: the prerequisite check and the required-review verifier
+# answer different questions about the same installation, and two filters would eventually disagree
+# about which version is installed. Usage: execute_task_manifest_roots <manifest> <key> <project>
 execute_task_manifest_roots() {
   local manifest="$1" key="$2" project="$3"
   [ -f "$manifest" ] && [ -n "$project" ] || return 1
@@ -171,8 +171,9 @@ execute_task_manifest_roots() {
 # Resolve the ACTIVE cc-codex-triage installation, so a required-review approval can be verified
 # against that plugin's own state instead of trusting text the model pasted back. The manifest is
 # authoritative when it exists: falling back to a stale cache directory would let an uninstalled
-# plugin answer for a delivery gate. Prints the first root that carries review-state.sh; returns
-# non-zero when there is none, so callers fail closed.
+# plugin answer for a delivery gate. Without a manifest at all (older Claude Code) cache discovery is
+# the only option, so the candidate must at least carry the required-review contract — an ancient
+# cached copy cannot answer for a gate it never implemented.
 execute_task_codex_plugin_root() {
   local cache manifest roots root
   cache="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
@@ -188,7 +189,10 @@ EOF
     return 1
   fi
   for root in "$cache"/cache/*/cc-codex-triage/*; do
-    [ -f "$root/scripts/review-state.sh" ] && { printf '%s\n' "$root"; return 0; }
+    [ -f "$root/scripts/review-state.sh" ] || continue
+    grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh" || continue
+    printf '%s\n' "$root"
+    return 0
   done
   return 1
 }
