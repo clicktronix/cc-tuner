@@ -29,10 +29,11 @@ through `runctl init`, and both refs with `git check-ref-format` before the firs
 command. A value that cannot be carried through a quoted variable, stdin, or a file is a hard stop.
 
 **Prepared files.** `$COMMIT_MESSAGE_FILE` and `$PR_BODY_FILE` carry free-form text that must not
-reach a shell. Write them **during Phase 2, outside the repository worktree** — `$TMPDIR` or the
-session scratch directory. Two reasons: after implementation completes the mutation hook denies
-`Write`/`Edit` in every later phase, and a stray untracked file inside the worktree fails the clean
-tree the candidate requires. Recreate them from state after a resume; they are scratch, not evidence.
+reach a shell. Write them **outside the repository worktree** — `$TMPDIR` or the session scratch
+directory — with an absolute path. A file inside the worktree would fail the clean tree the candidate
+requires; one outside it is not a task path, so the mutation fence permits it in any phase and you
+can recreate it after a resume. That exemption is exactly as wide as it sounds: a path the fence
+cannot resolve to somewhere outside the repository is refused.
 
 At the top of every phase after Phase 0, before any other action:
 

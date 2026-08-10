@@ -61,36 +61,24 @@ EOF
 }
 
 have_required_codex_review() {
-  local review root roots
+  local root roots
+  # Same predicate the delivery gate applies (lib.sh): preflight passing on an installation the gate
+  # then refuses — or approving from one preflight never saw — is the divergence this check exists
+  # to prevent.
   if [ "$MANIFEST_MODE" = "active" ]; then
     roots="$(manifest_roots 'cc-codex-triage@cc-codex-triage')"
-    if [ -n "$roots" ]; then
-      while IFS= read -r root; do
-        [ -n "$root" ] || continue
-        review="$root/commands/review.md"
-        if [ -f "$review" ] && [ -f "$root/scripts/review-state.sh" ] \
-          && grep -qF -- '--required' "$review" \
-          && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
-          && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh"; then
-          return 0
-        fi
-      done <<EOF
+    [ -n "$roots" ] || return 1
+    while IFS= read -r root; do
+      [ -n "$root" ] || continue
+      execute_task_codex_root_qualifies "$root" && return 0
+    done <<EOF
 $roots
 EOF
-      return 1
-    fi
     return 1
   fi
   [ "$MANIFEST_MODE" = "cache" ] || return 1
-  for review in "$CACHE"/cache/*/cc-codex-triage/*/commands/review.md; do
-    [ -f "$review" ] || continue
-    root="${review%/commands/review.md}"
-    if [ -f "$root/scripts/review-state.sh" ] \
-      && grep -qF -- '--required' "$review" \
-      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
-      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh"; then
-      return 0
-    fi
+  for root in "$CACHE"/cache/*/cc-codex-triage/*; do
+    execute_task_codex_root_qualifies "$root" && return 0
   done
   return 1
 }
