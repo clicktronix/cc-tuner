@@ -86,6 +86,36 @@ UNRESOLVABLE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Write",tool
 hook pre-tool-use "$UNRESOLVABLE_INPUT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && pass "unresolvable-path-stays-fenced" \
   || fail "unresolvable-path-stays-fenced" "rc=$rc"
+# A symlink is resolved by the writing tool, so an outside-repo NAME pointing at a tracked file is
+# still a task-path write.
+ln -s "$REPO/file.txt" "$SCRATCH_DIR/disguised.txt"
+SYMLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/disguised.txt" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$SYMLINK_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "symlink-into-the-repository-is-fenced" \
+  || fail "symlink-into-the-repository-is-fenced" "rc=$rc"
+# "Outside the worktree" is not "harmless". In a LINKED worktree the common Git directory lives
+# outside the worktree entirely, and it holds the reviewer approval state this run's own delivery
+# gate reads back — so an outside-the-worktree rule alone would let a run forge its own approval.
+# A plain clone cannot show this: there .git is inside the tree and the repository-root test already
+# covers it.
+LINKED_PARENT="$(mktemp -d)"
+LINKED="$LINKED_PARENT/wt"
+git -C "$REPO" worktree add -q -b linked-task "$LINKED" >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$LINKED" bash "$P" linked-run main --expected-branch linked-task >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$LINKED" bash "$R" init linked-run --mode auto >/dev/null 2>&1
+LINKED_COMMON="$(git -C "$LINKED" rev-parse --git-common-dir 2>/dev/null)"
+case "$LINKED_COMMON" in /*) ;; *) LINKED_COMMON="$LINKED/$LINKED_COMMON" ;; esac
+LINKED_COMMON="$(CDPATH='' cd -- "$LINKED_COMMON" 2>/dev/null && pwd -P)"
+mkdir -p "$LINKED_COMMON/cc-codex-triage/threads"
+GITDIR_INPUT="$(jq -cn --arg cwd "$LINKED" --arg f "$LINKED_COMMON/cc-codex-triage/threads/review-linked-run.approved" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$GITDIR_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "linked-worktree-common-git-directory-is-fenced" \
+  || fail "linked-worktree-common-git-directory-is-fenced" "rc=$rc"
+git -C "$REPO" worktree remove --force "$LINKED" >/dev/null 2>&1
+rm -rf "$LINKED_PARENT"
+
 # An absolute path INSIDE the repository is a task path, whatever phase claims otherwise.
 INSIDE_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$REPO/file.txt" \
   '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
