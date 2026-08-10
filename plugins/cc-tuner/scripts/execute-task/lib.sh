@@ -146,30 +146,41 @@ execute_task_assert_clean_tree() {
   [ -z "$dirty" ] || execute_task_die "working tree must be clean for an immutable candidate"
 }
 
+# Install paths of a plugin that is ACTIVE for this project, from the manifest Claude Code
+# publishes. One copy of this selection rule: the prerequisite check and the required-review verifier
+# answer different questions about the same installation, and two filters would eventually disagree
+# about which version is installed. Usage: execute_task_manifest_roots <manifest> <key> <project>
+execute_task_manifest_roots() {
+  local manifest="$1" key="$2" project="$3"
+  [ -f "$manifest" ] && [ -n "$project" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
+  jq -r --arg key "$key" --arg project "$project" '
+    .plugins[$key] // [] |
+    if type == "array" then
+      .[]? |
+      select(
+        .scope == "user" or
+        ((.scope == "project" or .scope == "local") and .projectPath == $project)
+      ) |
+      .installPath // empty
+    else empty end
+  ' "$manifest" 2>/dev/null
+}
+
 # Resolve the ACTIVE cc-codex-triage installation, so a required-review approval can be verified
-# against that plugin's own state instead of trusting text the model pasted back. The manifest
-# Claude Code publishes is authoritative when it exists: falling back to a stale cache directory
-# would let an uninstalled plugin answer for a delivery gate. Prints the first root that carries
-# review-state.sh; returns non-zero when there is none, so callers fail closed.
+# against that plugin's own state instead of trusting text the model pasted back. The manifest is
+# authoritative when it exists: falling back to a stale cache directory would let an uninstalled
+# plugin answer for a delivery gate. Without a manifest at all (older Claude Code) cache discovery is
+# the only option, so the candidate must at least carry the required-review contract — an ancient
+# cached copy cannot answer for a gate it never implemented.
 execute_task_codex_plugin_root() {
   local cache manifest roots root
   cache="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
   manifest="$cache/installed_plugins.json"
   if [ -e "$manifest" ]; then
-    [ -f "$manifest" ] || return 1
-    command -v jq >/dev/null 2>&1 || return 1
-    jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
-    roots="$(jq -r --arg key 'cc-codex-triage@cc-codex-triage' --arg project "$EXECUTE_TASK_ROOT" '
-      .plugins[$key] // [] |
-      if type == "array" then
-        .[]? |
-        select(
-          .scope == "user" or
-          ((.scope == "project" or .scope == "local") and .projectPath == $project)
-        ) |
-        .installPath // empty
-      else empty end
-    ' "$manifest" 2>/dev/null)" || return 1
+    roots="$(execute_task_manifest_roots "$manifest" \
+      'cc-codex-triage@cc-codex-triage' "$EXECUTE_TASK_ROOT")" || return 1
     while IFS= read -r root; do
       [ -n "$root" ] && [ -f "$root/scripts/review-state.sh" ] && { printf '%s\n' "$root"; return 0; }
     done <<EOF
@@ -178,7 +189,10 @@ EOF
     return 1
   fi
   for root in "$cache"/cache/*/cc-codex-triage/*; do
-    [ -f "$root/scripts/review-state.sh" ] && { printf '%s\n' "$root"; return 0; }
+    [ -f "$root/scripts/review-state.sh" ] || continue
+    grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$root/scripts/review-state.sh" || continue
+    printf '%s\n' "$root"
+    return 0
   done
   return 1
 }
