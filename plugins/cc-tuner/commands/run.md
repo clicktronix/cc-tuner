@@ -22,11 +22,17 @@ proof that a gate passed.
 
 All executable examples below consume pre-resolved shell variables (`RUN_ID`, `PHASE`, `TASK_ID`,
 `BRANCH`, `TARGET`, `SPEC_PATH`, `CANDIDATE_SHA`, and prepared-file paths). Treat values read from a
-spec, issue, Git, or reviewer as data: pass them as quoted arguments, never paste them into shell
-source and never replace angle-bracket prose inside a command. Validate the run/task IDs with the
-state CLI, the spec path through `runctl init`, and both refs with `git check-ref-format` before the
-first state-changing command. Put free-form commit/PR text in prepared files. A value that cannot be
-carried through a quoted variable, stdin, or a file is a hard stop.
+spec, issue, Git, or reviewer as data: pass them as quoted arguments and never paste them into shell
+source. Angle brackets appear only inside heredoc bodies, where they mark prose you replace before
+sending — never inside a command line. Validate the run/task IDs with the state CLI, the spec path
+through `runctl init`, and both refs with `git check-ref-format` before the first state-changing
+command. A value that cannot be carried through a quoted variable, stdin, or a file is a hard stop.
+
+**Prepared files.** `$COMMIT_MESSAGE_FILE` and `$PR_BODY_FILE` carry free-form text that must not
+reach a shell. Write them **during Phase 2, outside the repository worktree** — `$TMPDIR` or the
+session scratch directory. Two reasons: after implementation completes the mutation hook denies
+`Write`/`Edit` in every later phase, and a stray untracked file inside the worktree fails the clean
+tree the candidate requires. Recreate them from state after a resume; they are scratch, not evidence.
 
 At the top of every phase after Phase 0, before any other action:
 
@@ -60,8 +66,10 @@ Never pass journal/review/test text through `eval`, `bash -c`, command substitut
 double-quoted positional argument.
 
 **HITL boundary:** without `--auto`, report completed evidence and the exact next phase, then stop at
-the end of Phases 1–7. Phase 7 always stops before merge. With `--auto`, continue unless a hard stop
-fires. Phase 0 flows directly into Phase 1 so the user sees the execution plan on the initial run.
+the end of Phases 1–7; the stop at the end of Phase 7 is the merge confirmation and is never skipped.
+With `--auto`, continue unless a hard stop fires — including through Phase 8, which merges without
+asking once `can-merge` succeeds. Phase 0 flows directly into Phase 1 so the user sees the execution
+plan on the initial run.
 
 ## Phase 0 — open the run and verify DoR
 
@@ -107,8 +115,9 @@ Create one task for every independently verifiable implementation unit, followed
 5. PR plus current-SHA CI;
 6. Definition of Done, merge, and reconciliation.
 
-Use `blockedBy` dependencies to reflect this order. Capture every returned Claude task ID and bind it
-to structured state; descriptions go through stdin:
+Create the tasks first, then set their `blockedBy` dependencies with `TaskUpdate` to reflect this
+order. Capture every returned Claude task ID and bind it to structured state; descriptions go through
+stdin:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task "$RUN_ID" add "$TASK_ID" "$TASK_PHASE" --ui-task-id "$CLAUDE_TASK_ID" <<'CC_TUNER_TASK'
@@ -172,14 +181,32 @@ Resume state and enter `testing`. Do not write fixes in this phase. Execute the 
 6. inspect `git status --porcelain -uall` and the complete diff for unintended behavior or files.
 
 Establish an alleged pre-existing failure against the task base before classifying it. If any fix is
-needed, send the reason through stdin to `runctl phase <run-id> fix`. It returns exactly
-`FIX_TASK id=<task-id> phase=implementation`; create the matching visible task with `TaskCreate`, bind
-its returned Claude task ID with `runctl task ... bind-ui`, then return to Phase 2. A fix transition
-invalidates downstream evidence, and the new task cannot start until that binding exists. Never patch
-code while state still says `testing`.
+needed, send the reason through stdin:
 
-Record `gate <run-id> record testing pass` through stdin with exact commands/results, complete
-`testing`, update the visible task, and apply the HITL boundary.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase "$RUN_ID" fix <<'CC_TUNER_FIX'
+<why the candidate must change>
+CC_TUNER_FIX
+```
+
+It returns exactly `FIX_TASK id=<task-id> phase=implementation`; create the matching visible task with
+`TaskCreate`, bind its returned Claude task ID with `runctl task "$RUN_ID" bind-ui "$TASK_ID"
+"$CLAUDE_TASK_ID"`, then return to Phase 2. A fix transition invalidates downstream evidence, and the
+new task cannot start until that binding exists.
+
+Never patch code while state still says `testing` — and this is enforced, not merely asked. Completing
+implementation records the worktree content, and the testing gate refuses a tree that moved since,
+whichever tool moved it. Regenerated snapshots, lockfiles, and formatter output count: they are
+mutations, so either revert them or take them back through `phase fix`.
+
+Record the gate through stdin with exact commands/results, complete `testing`, update the visible
+task, and apply the HITL boundary:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" gate "$RUN_ID" record testing pass <<'CC_TUNER_TESTING'
+<exact commands and results>
+CC_TUNER_TESTING
+```
 
 ## Phase 4 — acceptance
 
@@ -199,8 +226,7 @@ the HITL boundary.
 
 Resume state and enter `candidate`. This phase must not change the tested tree: `runctl` binds the
 testing gate to its tree SHA and rejects a different candidate. Inspect status and the complete diff.
-Stage only explicit task paths; never `git add -A` or
-`git add .`:
+Stage only explicit task paths; never `git add -A` or `git add .`:
 
 ```bash
 git add -- "${TASK_PATHS[@]}"
@@ -208,11 +234,11 @@ git diff --cached --check
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/guard-artifacts.sh" "$RUN_ID"
 git diff --cached
 git commit -F "$COMMIT_MESSAGE_FILE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" candidate "$RUN_ID" record "$(git rev-parse HEAD)"
 ```
 
-Require a clean worktree, capture full `HEAD` and tree SHA, and record it with
-`runctl candidate <run-id> record <candidate-sha>`. Complete `candidate`. From this point review is
-valid only for this immutable commit/tree. Apply the HITL boundary.
+Require a clean worktree, capture full `HEAD` and tree SHA, then complete `candidate`. From this
+point review is valid only for this immutable commit/tree. Apply the HITL boundary.
 
 ## Phase 6 — review the immutable candidate
 
@@ -227,17 +253,35 @@ Resume state and enter `review`. Read the complete candidate diff again, then ru
    ```text
    /cc-codex-triage:review --required --base <literal-base-sha> --spec <current-repo-relative-spec> --thread review-<literal-run-id> --cap 5 "Review the complete candidate against the spec using unbiased correctness, architecture, systemic, security/data, and testing/operability lenses."
    ```
-   Here `--cap 5` bounds repair rounds, not findings. The command must self-verify its git-common-dir
-   state and return `CC_CODEX_REQUIRED_REVIEW APPROVE` with matching `head`, `tree`, `base_sha`, and
-   `spec_path`; absence of that exact marker is not approval. Pass that marker verbatim as the
-   evidence for `runctl review ... record codex APPROVE`; `runctl` rejects a missing, duplicated, or
-   mismatched marker.
+   `--cap 5` is the whole thread's budget of paid dispatches, first round included — not five repair
+   rounds. The command must self-verify its git-common-dir state and return
+   `CC_CODEX_REQUIRED_REVIEW APPROVE` with matching `head`, `tree`, `base_sha`, and `spec_path`;
+   absence of that exact marker is not approval. Pass that marker verbatim as the evidence for
+   `runctl review ... record codex APPROVE`. `runctl` does not merely match the text: it resolves the
+   installed cc-codex-triage and compares the marker with `review-state.sh check`, so a marker no
+   reviewer plugin still holds is rejected.
+
+   **When the reviewer hard-stops.** `CAP_REACHED` or `DIVERGED` is a terminal answer, not a slow
+   `REQUEST_CHANGES`, and retrying `--required` on that thread only fails again. Report the open
+   findings and the exhausted budget, then stop: in HITL wait for the user's decision, and in `--auto`
+   treat it as a hard stop and block the run:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" block "$RUN_ID" <<'CC_TUNER_BLOCK'
+   <reviewer hard stop, the open findings, and what the user must decide>
+   CC_TUNER_BLOCK
+   ```
+
+   Only after that decision may the thread be reset with `/cc-codex-triage:thread-new review-<run-id>`,
+   which clears the required-review state so a fresh lifecycle can start. Never reset it to escape a
+   verdict.
 
 Do not invoke the bundled `/code-review`. Do not cap findings at ten. Validate every finding against
 candidate source and record it as fixed, refuted with `file:line`, or explicitly deferred to a board
 issue. A missing reviewer, partial lens, timeout, tool failure, or `REQUEST_CHANGES` is not approval.
 
-Record each result with:
+Record each result with the literal reviewer id `deep-review`, `mattpocock`, or `codex` — `runctl`
+rejects any other spelling:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" review "$RUN_ID" record "$REVIEWER" "$VERDICT" "$CANDIDATE_SHA" <<'CC_TUNER_REVIEW'
@@ -247,7 +291,11 @@ CC_TUNER_REVIEW
 
 If a finding is refuted or explicitly deferred without changing the source/test tree, rerun that
 reviewer against the same immutable candidate and record its fresh `APPROVE`; the earlier
-`REQUEST_CHANGES` remains in `review_history`. If a finding requires code or test changes, use
+`REQUEST_CHANGES` remains in `review_history`. Because the same SHA may hold both verdicts, the
+later evidence must name what changed the answer — the finding, its disposition, and the `file:line`
+that refutes it or the issue it was deferred to. For `codex` that re-review is machine-checked; for
+`deep-review` and `mattpocock` this evidence is the only record that a second review happened at all,
+so an approval that merely asserts the first verdict was wrong is not one. If a finding requires code or test changes, use
 `phase fix`, create/bind its follow-up implementation task from the returned `FIX_TASK` marker, and
 repeat Phases 2–6. A new commit invalidates all prior testing, acceptance, review, CI, and DoD
 evidence; an older approval can never be copied forward.
@@ -268,13 +316,27 @@ gh pr view "$BRANCH" --json number,url,headRefOid,baseRefName \
 
 Verify PR base, remote head, candidate, all three review results, and pushed SHA agree. Observe the
 spec's required hosted checks on that exact SHA. Missing, skipped, stale, cancelled, billing-blocked,
-or red checks are not green. Record `ci <run-id> record success <candidate-sha> --pr
-<literal-pr-number>` through stdin only after exact-SHA proof. This binds delivery state to the PR;
-`runctl` re-reads its head and required checks both now and at merge time.
+or red checks are not green. `runctl` reads `gh pr checks --required`, so the proof is GitHub's
+**required** checks on the PR's target branch: a repository whose branch protection requires nothing
+has no hosted evidence to offer and delivery stops there — configure a required check, or the run
+cannot complete. Record CI only after exact-SHA proof; this binds delivery state to the PR, and
+`runctl` re-reads its head and required checks both now and at merge time:
 
-Evaluate every pre-merge Definition of Done item from source evidence, not checkboxes. Record
-`gate <run-id> record dod pass --sha <candidate-sha>` only when all are true, complete `delivery`, and
-require both `runctl can-advance` and `runctl can-merge` to succeed.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" ci "$RUN_ID" record success "$CANDIDATE_SHA" --pr "$PR_NUMBER" <<'CC_TUNER_CI'
+<the required checks observed green on this exact SHA>
+CC_TUNER_CI
+```
+
+Evaluate every pre-merge Definition of Done item from source evidence, not checkboxes. Record the DoD
+gate only when all are true, complete `delivery`, and require both `runctl can-advance` and
+`runctl can-merge` to succeed:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" gate "$RUN_ID" record dod pass --sha "$CANDIDATE_SHA" <<'CC_TUNER_DOD'
+<per-item Definition of Done evidence for this candidate>
+CC_TUNER_DOD
+```
 
 In every mode show the PR, candidate SHA, reviews, CI, and DoD. HITL stops here for a separate explicit
 merge confirmation. `--auto` continues only when `can-merge` succeeds.
@@ -326,13 +388,20 @@ after switching targets and never hard-code `main` when the spec names another t
 
 ## Verification
 
-- [ ] Structured state, not journal prose, decided every transition
-- [ ] Visible tasks existed before the first task-path mutation and stayed synchronized on resume
-- [ ] DoR named and implementation demonstrated the expected first failure
-- [ ] Only independent code writing was parallel; the parent verified and integrated every diff
-- [ ] Testing covered RED→GREEN/mutation, targeted/full/static/build/runtime checks, and final diff
-- [ ] Candidate was committed and clean before review
-- [ ] Deep-review had no finding cap and all three reviews approved the exact candidate SHA/tree
-- [ ] Review fixes invalidated downstream evidence and repeated the lifecycle from implementation
-- [ ] PR head and required CI equalled the reviewed candidate SHA
-- [ ] `can-merge` and DoD passed before merge; completion was reconciled afterward
+Each item names the invariants in `${CLAUDE_PLUGIN_ROOT}/workflow-contract.json` it discharges. Read
+the requirement there — a paraphrase kept here would be a second copy of the rule, and the copy is
+what drifts.
+
+- [ ] `structured-run-state`, `resume-before-every-phase`
+- [ ] `visible-plan-before-mutation`
+- [ ] `definition-of-ready-before-implementation`, `red-green-regression-proof`
+- [ ] `implementation-only-fanout`, `owner-verifies-delegation`
+- [ ] `testing-before-candidate`, `machine-and-human-acceptance`
+- [ ] `intentional-staging-before-commit`, `immutable-candidate-before-review`
+- [ ] `exhaustive-review-no-cap`, `review-bound-to-candidate`, `sensitive-diffs-require-review-fanout`
+- [ ] `reviewer-hard-stop-is-not-approval`
+- [ ] `changes-invalidate-downstream-evidence`
+- [ ] `current-sha-ci-verification`, `ordered-delivery`
+- [ ] `definition-of-done-before-merge`, `post-merge-reconciliation-only`
+- [ ] `hitl-stops-at-boundaries`, `explicit-auto-readiness`, `one-spec-one-branch-one-pr`,
+      `spec-before-run`, `clean-run-baseline`

@@ -50,7 +50,7 @@ their own idempotency and confirmation prompts, so never reimplement their steps
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer it once; if doctor already
   reported the script installed, skip silently.
 - **Repo-level run defaults** — optional, and only worth it for a repo you will run `/cc-tuner:run`
-  against more than once. It saves every spec repeating the same `ci` / `cheap_gate` / `target_test` /
+  against more than once. It saves every spec repeating the same `ci` / `target_test` /
   `full_test` commands:
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/config-init.sh" \

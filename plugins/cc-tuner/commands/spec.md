@@ -118,8 +118,7 @@ branch: <current task branch>
 target: <integration branch>
 merge: squash|merge
 auto_ready: yes|no — <reason when no>
-ci: <exact command or check source>
-cheap_gate: <exact command>
+ci: <required GitHub checks on the target branch, and how to observe them>
 target_test: <exact command>
 full_test: <exact command>
 tracker: gh|none
@@ -130,7 +129,9 @@ For a documentation-only or mechanical task, `First failing check` and `Negative
 say `not applicable` only with a concrete reason and an alternative baseline/diff check. Do not use
 `not applicable` merely because writing a regression test is inconvenient.
 
-`auto_ready: yes` is valid only when there is one PR, `ci`, `target_test`, and `full_test` are nonblank,
+`ci` names the checks the target branch **requires**: delivery reads `gh pr checks --required`, so a
+repository whose branch protection requires nothing cannot finish a run. `auto_ready: yes` is valid
+only when there is one PR, `ci`, `target_test`, and `full_test` are nonblank,
 the DoR is complete, and every `[eyes]` criterion has a machine replacement or waiver. It records
 capability, not execution mode; only `/run --auto` requests an unattended run.
 

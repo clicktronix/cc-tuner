@@ -31,20 +31,15 @@ if [ -e "$MANIFEST" ]; then
   fi
 fi
 
+# The selection rule itself lives in lib.sh, shared with the required-review verifier: this script
+# and that gate must agree on which installation is active, and a second copy of the filter is how
+# they would stop agreeing.
+# shellcheck source=lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+
 manifest_roots() {
   [ "$MANIFEST_MODE" = "active" ] || return 1
-  [ -n "$PROJECT_ROOT" ] || return 1
-  jq -r --arg key "$1" --arg project "$PROJECT_ROOT" '
-    .plugins[$key] // [] |
-    if type == "array" then
-      .[]? |
-      select(
-        .scope == "user" or
-        ((.scope == "project" or .scope == "local") and .projectPath == $project)
-      ) |
-      .installPath // empty
-    else empty end
-  ' "$MANIFEST" 2>/dev/null
+  execute_task_manifest_roots "$MANIFEST" "$1" "$PROJECT_ROOT"
 }
 
 have_matt_skill() {

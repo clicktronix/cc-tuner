@@ -10,7 +10,10 @@ CONFIG="$ROOT/plugins/cc-tuner/assets/execute-task/config.template.md"
 CONTRACT="$ROOT/plugins/cc-tuner/workflow-contract.json"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # Keep this value identical to codex-tuner and update it only in coordinated contract PRs.
-EXPECTED_SHARED_CONTRACT_SHA256="5d1a50de037c5f2f850869a0ea1b86932b702d83452995e8a5e3f8f27abdb4e5"
+# This constant only proves THIS repo's file is unchanged: it is compared against itself, so it
+# cannot detect that the sibling has diverged. codex-tuner is still on contract 1.1.0 with 14
+# invariants and must be updated to this 2.0.0 contract before the pledge above is true again.
+EXPECTED_SHARED_CONTRACT_SHA256="7a4fdb14d2b4ff94b3701f2e0eb344f5333e9a460e5bf8942205847c30216906"
 fails=0
 
 need() {
@@ -61,9 +64,9 @@ jq -e '
     "infrastructure, CI, deployment, and release configuration",
     "security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and server-side allowlists"
   ] and
-  (.invariants | length) == 24 and
-  ([.invariants[].id] | unique | length) == 24 and
-  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only"])) and
+  (.invariants | length) == 25 and
+  ([.invariants[].id] | unique | length) == 25 and
+  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "reviewer-hard-stop-is-not-approval", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only"])) and
   all(.invariants[]; (keys == ["id", "requirement"]) and (.requirement | length > 0))
 ' "$CONTRACT" >/dev/null 2>&1 \
   && echo "PASS semantic-contract" || { echo "FAIL semantic-contract"; fails=1; }
@@ -90,17 +93,21 @@ need "run-isolated-worktrees" 'use one isolated git worktree per unit' "$RUN"
 need "run-testing-phase" '## Phase 3 — Testing & Code Verification' "$RUN"
 need "run-negative-proof" 'negative/mutation proof' "$RUN"
 need "run-explicit-stage" 'git add -- "${TASK_PATHS[@]}"' "$RUN"
-need "run-candidate-before-review" 'runctl candidate <run-id> record <candidate-sha>' "$RUN"
+need "run-candidate-before-review" 'runctl.sh" candidate "$RUN_ID" record "$(git rev-parse HEAD)"' "$RUN"
 need "run-deep-review" 'invoke `cc-tuner:deep-review`' "$RUN"
 need "run-three-reviews" 'record "$REVIEWER" "$VERDICT" "$CANDIDATE_SHA"' "$RUN"
 need "run-codex-required-review" '/cc-codex-triage:review --required --base <literal-base-sha> --spec <current-repo-relative-spec>' "$RUN"
 need "run-codex-approval-marker" 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$RUN"
-need "run-codex-marker-enforced" '`runctl` rejects a missing, duplicated, or' "$RUN"
+need "run-codex-marker-enforced" 'compares the marker with `review-state.sh check`' "$RUN"
+need "run-reviewer-hard-stop" '`CAP_REACHED` or `DIVERGED` is a terminal answer' "$RUN"
+need "run-reviewer-literal-ids" 'literal reviewer id `deep-review`, `mattpocock`, or `codex`' "$RUN"
+need "run-prepared-files-outside-worktree" 'outside the repository worktree' "$RUN"
+need "run-required-github-checks" 'reads `gh pr checks --required`' "$RUN"
 need "run-review-fix-invalidates" 'A new commit invalidates all prior testing, acceptance, review, CI, and DoD' "$RUN"
 need "run-explicit-pr-create" 'gh pr create --base "$TARGET" --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"' "$RUN"
 need "run-current-sha-ci" 'Missing, skipped, stale, cancelled, billing-blocked,' "$RUN"
-need "run-can-merge" 'require both `runctl can-advance` and `runctl can-merge`' "$RUN"
-need "run-ci-pr-binding" 'record success <candidate-sha> --pr' "$RUN"
+need "run-can-merge" 'require both `runctl can-advance` and' "$RUN"
+need "run-ci-pr-binding" 'ci "$RUN_ID" record success "$CANDIDATE_SHA" --pr "$PR_NUMBER"' "$RUN"
 need "run-atomic-merge-head" '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
 need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-always-runs" 'Always perform the review; small-diff thresholds only decide' "$DEEP_REVIEW"
@@ -127,7 +134,20 @@ phase_count="$(grep -cE '^## Phase [0-8] —' "$RUN")"
 [ "$phase_count" -eq 9 ] && echo "PASS phase-count" \
   || { echo "FAIL phase-count (got $phase_count, want 9)"; fails=1; }
 
-if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|≤50 changed lines|≤5 files' "$SPEC" "$RUN" "$CONFIG" >/dev/null; then
+verification_ids="$(sed -n '/^## Verification$/,$p' "$RUN" | grep -o '`[a-z][a-z0-9-]*`' | tr -d '`' | sort -u)"
+unknown_ids=0
+for id in $verification_ids; do
+  jq -e --arg id "$id" 'any(.invariants[]; .id == $id)' "$CONTRACT" >/dev/null 2>&1 || {
+    echo "FAIL verification-index-names-unknown-invariant ($id)"; fails=1; unknown_ids=1; }
+done
+covered="$(printf '%s\n' "$verification_ids" | grep -c .)"
+if [ "$unknown_ids" -eq 0 ] && [ "$covered" -ge 20 ]; then
+  echo "PASS verification-indexes-the-contract ($covered invariants)"
+else
+  echo "FAIL verification-indexes-the-contract (covered=$covered)"; fails=1
+fi
+
+if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" "$CONFIG" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"
   fails=1
 else
@@ -143,7 +163,7 @@ for pattern in \
   '## Phase 6 — review the immutable candidate' \
   'git push -u origin' \
   'gh pr view "$BRANCH"' \
-  'ci <run-id> record success <candidate-sha>' \
+  'record success "$CANDIDATE_SHA" --pr "$PR_NUMBER"' \
   '## Phase 8 — merge and reconcile' \
   'Switch to the literal target'; do
   line="$(grep -nF -- "$pattern" "$RUN" | head -1 | cut -d: -f1)"

@@ -120,12 +120,16 @@
       "requirement": "Every required review approval records the exact candidate commit and tree; invocation or partial output is not approval."
     },
     {
+      "id": "reviewer-hard-stop-is-not-approval",
+      "requirement": "A reviewer cap, divergence, timeout, or unavailability is a terminal non-approval: the run reports it and blocks for a user decision, and reviewer state is never reset to escape a verdict."
+    },
+    {
       "id": "changes-invalidate-downstream-evidence",
       "requirement": "Any candidate change returns the run to implementation and invalidates prior testing, acceptance, review, CI, and DoD evidence."
     },
     {
       "id": "sensitive-diffs-require-review-fanout",
-      "requirement": "Deep review always runs; a sensitive-surface candidate fans out independent lenses regardless of diff size."
+      "requirement": "Deep review always runs. Its lenses may run serially only for a candidate that is within both small_diff thresholds and touches no sensitive surface; a sensitive-surface candidate, or one beyond either threshold, fans out independent lenses against the same immutable candidate."
     },
     {
       "id": "intentional-staging-before-commit",
