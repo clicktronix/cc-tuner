@@ -146,6 +146,43 @@ execute_task_assert_clean_tree() {
   [ -z "$dirty" ] || execute_task_die "working tree must be clean for an immutable candidate"
 }
 
+# Resolve the ACTIVE cc-codex-triage installation, so a required-review approval can be verified
+# against that plugin's own state instead of trusting text the model pasted back. The manifest
+# Claude Code publishes is authoritative when it exists: falling back to a stale cache directory
+# would let an uninstalled plugin answer for a delivery gate. Prints the first root that carries
+# review-state.sh; returns non-zero when there is none, so callers fail closed.
+execute_task_codex_plugin_root() {
+  local cache manifest roots root
+  cache="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
+  manifest="$cache/installed_plugins.json"
+  if [ -e "$manifest" ]; then
+    [ -f "$manifest" ] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
+    roots="$(jq -r --arg key 'cc-codex-triage@cc-codex-triage' --arg project "$EXECUTE_TASK_ROOT" '
+      .plugins[$key] // [] |
+      if type == "array" then
+        .[]? |
+        select(
+          .scope == "user" or
+          ((.scope == "project" or .scope == "local") and .projectPath == $project)
+        ) |
+        .installPath // empty
+      else empty end
+    ' "$manifest" 2>/dev/null)" || return 1
+    while IFS= read -r root; do
+      [ -n "$root" ] && [ -f "$root/scripts/review-state.sh" ] && { printf '%s\n' "$root"; return 0; }
+    done <<EOF
+$roots
+EOF
+    return 1
+  fi
+  for root in "$cache"/cache/*/cc-codex-triage/*; do
+    [ -f "$root/scripts/review-state.sh" ] && { printf '%s\n' "$root"; return 0; }
+  done
+  return 1
+}
+
 # Build the tree object represented by the complete working tree without touching the user's index.
 # This lets a pre-commit testing gate bind to the exact content later recorded as the candidate.
 execute_task_worktree_tree_sha() {
