@@ -451,6 +451,43 @@ OUT="$(evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$S
 jq --arg spec "$SPEC_BACKUP" '.spec = $spec' "$REPO/$RUNS_REL/run-1.state.json" > "$REPO/state.tmp" \
   && mv "$REPO/state.tmp" "$REPO/$RUNS_REL/run-1.state.json"
 
+# Precedence is a total order, so entry order in the manifest cannot change the answer. Two
+# qualifying installs listed user-first: only the local one answers correctly, so an approval proves
+# which root was chosen.
+SAVED_HOME_PRECEDENCE="$HOME"
+MULTI="$(mktemp -d)"
+mkdir -p "$MULTI/.claude/plugins"
+for scope in user local; do
+  mkdir -p "$MULTI/$scope/scripts" "$MULTI/$scope/commands"
+  printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$MULTI/$scope/commands/review.md"
+done
+cat > "$MULTI/local/scripts/review-state.sh" <<'LOCAL_STUB'
+#!/usr/bin/env bash
+# CC_CODEX_REQUIRED_REVIEW APPROVE
+[ "${1:-}" = check ] || exit 1
+printf '%s\n' "$CC_TUNER_TEST_CODEX_APPROVAL"
+LOCAL_STUB
+cat > "$MULTI/user/scripts/review-state.sh" <<'USER_STUB'
+#!/usr/bin/env bash
+# CC_CODEX_REQUIRED_REVIEW APPROVE
+[ "${1:-}" = check ] || exit 1
+printf '%s\n' "wrong-root"
+USER_STUB
+chmod +x "$MULTI/local/scripts/review-state.sh" "$MULTI/user/scripts/review-state.sh"
+REPO_REAL="$(cd "$REPO" && pwd -P)"
+jq -n --arg u "$MULTI/user" --arg l "$MULTI/local" --arg p "$REPO_REAL" \
+  '{plugins:{"cc-codex-triage@cc-codex-triage":[
+     {scope:"user",installPath:$u},
+     {scope:"local",projectPath:$p,installPath:$l}]}}' \
+  > "$MULTI/.claude/plugins/installed_plugins.json"
+export HOME="$MULTI"
+export CC_TUNER_TEST_CODEX_APPROVAL="$(codex_approval_marker)"
+evidence "$(codex_approval_marker)" review run-1 record codex APPROVE "$SHA" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "install-precedence-ignores-manifest-entry-order" \
+  || fail "install-precedence-ignores-manifest-entry-order" "rc=$rc"
+export HOME="$SAVED_HOME_PRECEDENCE"
+rm -rf "$MULTI"
+
 # preflight and the gate must agree on what counts as an installation. A root that carries
 # review-state.sh but not the required-review contract is one the prerequisite check rejects, so the
 # gate cannot accept it either — otherwise preflight passes on one install and approval comes from

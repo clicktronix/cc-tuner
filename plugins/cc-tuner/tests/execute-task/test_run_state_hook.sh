@@ -94,6 +94,18 @@ SYMLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/disguised.txt" \
 hook pre-tool-use "$SYMLINK_INPUT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && pass "symlink-into-the-repository-is-fenced" \
   || fail "symlink-into-the-repository-is-fenced" "rc=$rc"
+# ...and so is a hard link: outside name, tracked inode. A freshly prepared file has one link.
+ln "$REPO/file.txt" "$SCRATCH_DIR/hardlinked.txt" 2>/dev/null
+if [ -e "$SCRATCH_DIR/hardlinked.txt" ]; then
+  HARDLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/hardlinked.txt" \
+    '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+  hook pre-tool-use "$HARDLINK_INPUT" >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && pass "hard-linked-tracked-file-is-fenced" \
+    || fail "hard-linked-tracked-file-is-fenced" "rc=$rc"
+else
+  fail "hard-linked-tracked-file-is-fenced" "could not create the fixture hard link"
+fi
+
 # "Outside the worktree" is not "harmless". In a LINKED worktree the common Git directory lives
 # outside the worktree entirely, and it holds the reviewer approval state this run's own delivery
 # gate reads back — so an outside-the-worktree rule alone would let a run forge its own approval.
@@ -107,12 +119,19 @@ CLAUDE_PROJECT_DIR="$LINKED" bash "$R" init linked-run --mode auto >/dev/null 2>
 LINKED_COMMON="$(git -C "$LINKED" rev-parse --git-common-dir 2>/dev/null)"
 case "$LINKED_COMMON" in /*) ;; *) LINKED_COMMON="$LINKED/$LINKED_COMMON" ;; esac
 LINKED_COMMON="$(CDPATH='' cd -- "$LINKED_COMMON" 2>/dev/null && pwd -P)"
-mkdir -p "$LINKED_COMMON/cc-codex-triage/threads"
+case "$LINKED_COMMON" in
+  /*) mkdir -p "$LINKED_COMMON/cc-codex-triage/threads" ;;
+  *)  LINKED_COMMON="" ;;
+esac
 GITDIR_INPUT="$(jq -cn --arg cwd "$LINKED" --arg f "$LINKED_COMMON/cc-codex-triage/threads/review-linked-run.approved" \
   '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
-hook pre-tool-use "$GITDIR_INPUT" >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 2 ] && pass "linked-worktree-common-git-directory-is-fenced" \
-  || fail "linked-worktree-common-git-directory-is-fenced" "rc=$rc"
+if [ -z "$LINKED_COMMON" ] || [ ! -d "$LINKED" ]; then
+  fail "linked-worktree-common-git-directory-is-fenced" "worktree fixture did not build"
+else
+  hook pre-tool-use "$GITDIR_INPUT" >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && pass "linked-worktree-common-git-directory-is-fenced" \
+    || fail "linked-worktree-common-git-directory-is-fenced" "rc=$rc"
+fi
 git -C "$REPO" worktree remove --force "$LINKED" >/dev/null 2>&1
 rm -rf "$LINKED_PARENT"
 

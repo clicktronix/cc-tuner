@@ -100,6 +100,13 @@ case "$EVENT" in
         # name. And "outside the worktree" is not the same as "harmless": in a linked worktree the
         # common Git directory lives elsewhere, and it holds the reviewer's approval state — the very
         # thing the delivery gate consults.
+        # A hard link is the same escape wearing a different hat: the name is outside, the inode is
+        # a tracked file. A prepared file is freshly created and has exactly one link, so refuse
+        # anything already linked elsewhere rather than trying to find where.
+        TARGET_LINKS=""
+        [ -z "$TARGET" ] || [ ! -e "$TARGET" ] \
+          || TARGET_LINKS="$(stat -f %l "$TARGET" 2>/dev/null || stat -c %h "$TARGET" 2>/dev/null || echo unknown)"
+        case "$TARGET_LINKS" in ''|1) ;; *) TARGET="" ;; esac
         if [ -n "$TARGET" ] && [ ! -L "$TARGET" ]; then
           case "$TARGET" in
             /*)
