@@ -71,6 +71,10 @@ validate_phase() {
   phase_index "$1" >/dev/null 2>&1 || execute_task_die "unknown phase '$1'"
 }
 
+# Read the evidence a subcommand requires. Callers MUST invoke this before acquiring the state lock:
+# stdin can block indefinitely on an open pipe, and waiting on it while holding the mutex pins the
+# run for every other process. cc-codex-triage's gate-state.sh records the same rule for the same
+# reason; two plugins disagreeing about it is how one of them deadlocks.
 read_evidence() {
   local label="$1"
   [ ! -t 0 ] || execute_task_die "$label must be piped on stdin"
@@ -561,6 +565,26 @@ validate_phase_completion() {
 SUBCOMMAND="${1:-}"
 [ -n "$SUBCOMMAND" ] || usage
 
+# Take stdin BEFORE any state mutex. read_evidence can block indefinitely on an open pipe, and
+# blocking while holding the lock wedges every other command on this run — with a live PID, so no
+# staleness rule ever clears it.
+EVIDENCE_LABEL=""
+case "$SUBCOMMAND" in
+  phase)  [ "${3:-}" = "fix" ] && EVIDENCE_LABEL="fix-loop reason" ;;
+  task)
+    case "${3:-}" in
+      add) EVIDENCE_LABEL="task description" ;;
+      complete|block) EVIDENCE_LABEL="task ${3} evidence" ;;
+    esac
+    ;;
+  gate)   [ "${3:-}" = "record" ] && EVIDENCE_LABEL="gate evidence" ;;
+  review) [ "${3:-}" = "record" ] && EVIDENCE_LABEL="review evidence" ;;
+  ci)     [ "${3:-}" = "record" ] && EVIDENCE_LABEL="CI evidence" ;;
+  block)  EVIDENCE_LABEL="block reason" ;;
+  finish) EVIDENCE_LABEL="post-merge reconciliation evidence" ;;
+esac
+[ -z "$EVIDENCE_LABEL" ] || read_evidence "$EVIDENCE_LABEL"
+
 case "$SUBCOMMAND" in
   init)
     RUN_ID="${2:-}"
@@ -733,7 +757,6 @@ case "$SUBCOMMAND" in
           testing|acceptance|candidate|review|delivery) ;;
           *) execute_task_die "fix loop may start only from testing, acceptance, candidate, review, or delivery" ;;
         esac
-        read_evidence "fix-loop reason"
         CURRENT_ROUND="$(jq -r '.fix_round' "$STATE")"
         [ "$CURRENT_ROUND" -lt 999999 ] \
           || execute_task_die "fix-loop limit reached (999999)"
@@ -785,7 +808,6 @@ case "$SUBCOMMAND" in
         done
         [ "$(jq -r '.phase.name' "$STATE")" = "planning" ] \
           || execute_task_die "tasks may be added only during planning (fix tasks are created by 'phase fix')"
-        read_evidence "task description"
         case "$TASK_ID" in
           review-fix-*) execute_task_die "task IDs beginning with 'review-fix-' are reserved for fix-loop tasks" ;;
         esac
@@ -809,7 +831,6 @@ case "$SUBCOMMAND" in
         ;;
       complete|block)
         [ "$#" -eq 4 ] || usage
-        read_evidence "task $ACTION evidence"
         CURRENT="$(jq -r '.phase.name' "$STATE")"
         jq -e --arg id "$TASK_ID" --arg phase "$CURRENT" '
           any(.tasks[]; .id == $id and .phase == $phase and .status == "in_progress")
@@ -872,7 +893,6 @@ case "$SUBCOMMAND" in
           ;;
       esac
     fi
-    read_evidence "gate evidence"
     GATE_TREE=""
     if [ "$GATE_ID" = "testing" ] && [ "$GATE_STATUS" = "pass" ]; then
       GATE_TREE="$(execute_task_worktree_tree_sha)"
@@ -935,7 +955,6 @@ case "$SUBCOMMAND" in
     CANDIDATE="$(jq -r '.candidate.sha // empty' "$STATE")"
     [ "$SHA" = "$CANDIDATE" ] || execute_task_die "review verdict is stale: candidate is $CANDIDATE, verdict names $SHA"
     assert_current_candidate
-    read_evidence "review evidence"
     if [ "$REVIEWER" = "codex" ] && [ "$VERDICT" = "APPROVE" ]; then
       validate_codex_approval_evidence
     fi
@@ -982,7 +1001,6 @@ case "$SUBCOMMAND" in
     elif [ -n "$PR_NUMBER" ]; then
       execute_task_die "--pr is accepted only when recording successful CI"
     fi
-    read_evidence "CI evidence"
     if [ "$CI_STATUS" = "success" ]; then
       EVIDENCE="PR #$PR_NUMBER required checks verified at $SHA
 $EVIDENCE"
@@ -1014,7 +1032,7 @@ $EVIDENCE"
 
   block)
     [ "$#" -eq 2 ] || usage
-    state_paths "$2"; lock_state; load_state; assert_active; read_evidence "block reason"
+    state_paths "$2"; lock_state; load_state; assert_active
     update_state '.status = "blocked" | .blocked_reason = $reason' --arg reason "$EVIDENCE"
     ;;
 
@@ -1039,7 +1057,6 @@ $EVIDENCE"
       || execute_task_die "finish requires completed delivery phase"
     validate_delivery_state
     verify_merged_pr
-    read_evidence "post-merge reconciliation evidence"
     update_state '.status = "completed" | .phase = {name: "done", status: "completed"} |
       .completed_phases += ["done"] | .completion_evidence = $evidence | .completed_at = $updated_at' \
       --arg evidence "$EVIDENCE"

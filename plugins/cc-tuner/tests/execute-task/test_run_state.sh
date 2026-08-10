@@ -244,6 +244,31 @@ else
 fi
 rm -rf "$REPO"
 
+# Evidence arrives on stdin, and stdin can be a pipe nobody closes. Reading it while holding the
+# state mutex would wedge the run behind a LIVE pid, which no staleness rule ever clears.
+make_repo
+complete_readiness && create_plan || exit 1
+FIFO="$REPO/blocking-stdin"
+mkfifo "$FIFO" || exit 1
+( exec 9>"$FIFO"; sleep 30 ) & fifo_holder=$!
+( runctl task run-1 complete implement-feature < "$FIFO" >/dev/null 2>&1 ) & blocked_writer=$!
+sleep 1
+# Bounded on purpose: the regression this guards against is a wedge, and a test that reproduces a
+# wedge by wedging reports nothing. Probe in the background and treat "still running" as the failure.
+( runctl task run-1 start implement-feature >"$REPO/probe.out" 2>&1; printf '%s\n' "$?" > "$REPO/probe.rc" ) &
+probe=$!
+waited=0
+while [ ! -f "$REPO/probe.rc" ] && [ "$waited" -lt 20 ]; do sleep 0.5; waited=$((waited + 1)); done
+kill "$probe" "$fifo_holder" "$blocked_writer" 2>/dev/null
+wait "$probe" "$fifo_holder" "$blocked_writer" 2>/dev/null
+rc="$(cat "$REPO/probe.rc" 2>/dev/null || printf 'still-blocked')"
+if [ "$rc" = "0" ]; then
+  pass "blocked-stdin-does-not-hold-the-state-lock"
+else
+  fail "blocked-stdin-does-not-hold-the-state-lock" "rc=$rc out=$(cat "$REPO/probe.out" 2>/dev/null)"
+fi
+rm -rf "$REPO"
+
 # Concurrent initialization is serialized across run IDs, so exactly one state can become active.
 REPO="$(mktemp -d)" || exit 1
 (
