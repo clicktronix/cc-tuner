@@ -42,15 +42,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" phase "$RUN_ID" ente
 ```
 
 `resume` reports state; it never reactivates a blocked run. If it exits non-zero saying the run is
-blocked, the phase loop is over: surface the recorded reason and stop. Reactivating is a separate,
-evidenced act that belongs after the user's decision, never as a way to continue past your own hard
-stop:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" unblock "$RUN_ID" <<'CC_TUNER_UNBLOCK'
-<the decision that cleared the block, and who made it>
-CC_TUNER_UNBLOCK
-```
+blocked, the phase loop is over for this turn: surface the recorded reason and stop. Reactivating is
+a separate act that belongs to whoever made the decision, and its command is deliberately not part of
+this loop — see **Reactivating a blocked run** below. Never reach for it to continue past your own
+hard stop.
 
 Call `enter` only when resume shows the preceding phase completed. A `phase fix` transition already
 returns state to `implementation/in_progress`; when repeating Phase 2, resume it without entering it a
@@ -387,6 +382,23 @@ CC_TUNER_COMPLETION
 Switch to the literal target, `git pull --ff-only`, remove only merged clean worktrees, prune, and
 delete merged local/remote-tracking refs according to task-flow. Never append to branch-owned state
 after switching targets and never hard-code `main` when the spec names another target.
+
+## Reactivating a blocked run
+
+A block is a question put to the user. It is answered by the user, and this command is theirs to run
+once they have answered — it is not a step in any phase above, and an unattended run that reaches a
+hard stop ends there:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" unblock "$RUN_ID" <<'CC_TUNER_UNBLOCK'
+<the decision that cleared the block, and who made it>
+CC_TUNER_UNBLOCK
+```
+
+`runctl` writes that decision to the journal before reactivating, because clearing the block erases
+`blocked_reason` and the state file would otherwise look like a run that was never stopped. Nothing
+here can tell a decision the user made from one the agent wrote for itself — which is exactly why
+the run reports the block and stops rather than answering its own question.
 
 ## What `--auto` never waives
 

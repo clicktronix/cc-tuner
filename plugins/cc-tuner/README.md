@@ -117,7 +117,9 @@ impossible, while the interactive work was compressed into one step of ten.
 Run progress lives in `.claude/execute-task-runs/<run-id>.state.json`, with ownership, allowed phase
 transitions, task bindings, gates, candidate identity, reviews, CI, and DoD recorded structurally.
 `journal.sh append` accepts evidence over stdin so backticks and command substitutions in logs cannot
-execute in the shell. The visible Claude task list is recreated from structured state after compaction
+execute in the shell. A run that hits a condition only a human can resolve is blocked; `resume`
+reports that and refuses, and only an explicit `runctl.sh unblock` — which journals the decision —
+reactivates it. The visible Claude task list is recreated from structured state after compaction
 or resume.
 
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;

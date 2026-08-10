@@ -103,6 +103,17 @@ need "run-codex-marker-enforced" 'compares the marker with `review-state.sh chec
 need "run-reviewer-hard-stop" '`CAP_REACHED` or `DIVERGED` is a terminal answer' "$RUN"
 need "run-block-survives-resume" 'it never reactivates a blocked run' "$RUN"
 need "run-unblock-is-evidenced" 'runctl.sh" unblock "$RUN_ID"' "$RUN"
+# The reactivation command must not sit inside the loop it is meant to stop: a phase loop that
+# carries its own escape hatch three lines below the check is not a stop.
+need "run-unblock-outside-the-phase-loop" '## Reactivating a blocked run' "$RUN"
+unblock_line="$(grep -nF 'unblock "$RUN_ID"' "$RUN" | head -1 | cut -d: -f1)"
+loop_line="$(grep -nF '## Reactivating a blocked run' "$RUN" | head -1 | cut -d: -f1)"
+if [ -n "$unblock_line" ] && [ -n "$loop_line" ] && [ "$unblock_line" -gt "$loop_line" ]; then
+  echo "PASS unblock-command-lives-in-its-own-section"
+else
+  echo "FAIL unblock-command-lives-in-its-own-section (unblock=$unblock_line section=$loop_line)"
+  fails=1
+fi
 need "run-same-sha-disposition" 'later evidence must name what changed the answer' "$RUN"
 need "run-reviewer-literal-ids" 'literal reviewer id `deep-review`, `mattpocock`, or `codex`' "$RUN"
 need "run-prepared-files-outside-worktree" 'outside the repository worktree' "$RUN"
