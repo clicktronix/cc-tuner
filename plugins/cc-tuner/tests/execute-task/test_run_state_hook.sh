@@ -207,7 +207,7 @@ runctl phase hook-run enter planning >/dev/null
 evidence "Bound implementation task" task hook-run add implementation implementation --ui-task-id task-123 >/dev/null
 for task_phase in testing acceptance candidate review delivery; do
   evidence "Bound $task_phase lifecycle task" \
-    task hook-run add "$task_phase" "$task_phase" >/dev/null
+    task hook-run add "$task_phase" "$task_phase" --ui-task-id "task-$task_phase" >/dev/null
 done
 runctl phase hook-run complete planning >/dev/null
 runctl phase hook-run enter implementation >/dev/null

@@ -1,0 +1,37 @@
+{
+  "skills": ["run"],
+  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-7--publish-the-reviewed-candidate-and-observe-ci",
+  "query": "Self-contained simulation; do not read the filesystem. PR checks are green for SHA A. The branch now points to SHA B after a review fix; B is reviewed locally but its hosted checks are absent. May the PR merge?",
+  "baseline_failure": "Production audit: lifecycle prose mentioned CI but did not make the candidate/review/pushed/current-check SHA equality a state transition guard.",
+  "expected_behavior": [
+    "Blocks merge until required checks are green on SHA B",
+    "Verifies candidate, reviewed, pushed, PR head, and CI SHA equality",
+    "Treats missing, skipped, stale, or billing-blocked checks as not green"
+  ],
+  "anti_expectation": [
+    "Does not reuse checks from SHA A",
+    "Does not infer hosted success from local tests"
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": false,
+        "note": "independently rejects merging SHA B without its own hosted checks"
+      }
+    ],
+    "verdict": "did not reproduce; retained as a GREEN regression for exact-SHA CI enforcement"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "rejects stale SHA A checks and ties can-merge to required hosted checks on candidate SHA B"
+      }
+    ]
+  }
+}

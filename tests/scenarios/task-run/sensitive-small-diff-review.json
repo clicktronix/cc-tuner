@@ -1,0 +1,30 @@
+{
+  "skills": ["run", "deep-review"],
+  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-6--review-the-immutable-candidate",
+  "query": "You are reviewing a committed candidate. Self-contained simulation — do not read the filesystem. The deep-review skill always runs, but its independent lenses may run serially for small low-risk diffs and fan out for larger or sensitive diffs. This candidate changes SERVICE_FEE_RATE from 0.02 to 0.025 plus its fixture: 5 lines across 2 files. Decide whether to run the lenses serially or fan them out.",
+  "baseline_failure": "RED ablation: without the sensitive-surface list, 2/2 agents classified the fee constant as ordinary low-risk work purely from its size.",
+  "expected_behavior": [
+    "Fans out the lenses because money/payments/pricing is sensitive regardless of diff size",
+    "Still performs the complete review against one immutable candidate",
+    "Names the pricing surface rather than relying on line-count arithmetic"
+  ],
+  "anti_expectation": [
+    "Does not skip deep-review for either execution shape",
+    "May review a similarly small UI-copy-only candidate serially instead of creating unnecessary reviewer agents"
+  ],
+  "baseline_observed": {
+    "date": "2026-07-08",
+    "method": "2 isolated haiku ablation probes with the sensitive-surface list withheld",
+    "verdict": "Both arms missed the pricing sensitivity; the list remains load-bearing for choosing review depth."
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "fans out despite the five-line diff because SERVICE_FEE_RATE is a pricing and billing surface, while preserving one immutable candidate"
+      }
+    ]
+  }
+}

@@ -13,25 +13,32 @@ once runs happen).
 Probes are self-contained decision tasks ("do not read the filesystem"), run as
 isolated haiku subagents — the weak-model audience is where guidance earns its keep.
 RED = no skill/playbook text in context, with one deliberate exception:
-`sensitive-small-diff-skip`'s RED is an **ablation** baseline (the probe includes the
-skip policy but WITHOUT the sensitive-surface list — the question being whether the
-list itself is load-bearing, not whether a skip policy exists). GREEN = the relevant
-guidance verbatim, as it appears in production.
+`sensitive-small-diff-review`'s RED is an **ablation** baseline (the probe includes the
+small-diff execution policy but WITHOUT the sensitive-surface list — the question is whether the list
+changes review depth). GREEN = the relevant guidance verbatim, as it appears in production.
 
 The four 2026-07-26/28 `task-flow` rows were measured differently: their REDs are documented
 production incidents, but a **fresh RED arm was also probed** (same query, guidance withheld) so the
 verdict rests on a measured contrast rather than on the incident alone. Where the two disagree, the
 row says so.
 
-## Status (2026-07-08 baselines; task-flow rows 2026-07-16 and 2026-07-31)
+## Status (task-run recheck 2026-08-10; older rows retain their recorded dates)
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
-| execute-task/sensitive-small-diff-skip | **2/2 reproduced** (ablation) | flips + ANTI clean | **load-bearing** — without the sensitive-surface list, size arithmetic always wins over surface risk |
+| task-run/sensitive-small-diff-review | **2/2 historical ablation** | passes | **load-bearing** — the old ablation missed pricing sensitivity; the rewritten GREEN fans out the same five-line fee change |
 | claude-md-writer/paths-rule-placement | **2/2 reproduced** | flips | **load-bearing** — baseline confidently invents config (`scope:`/`languages:` keys, `src/api/.claude.md`) a user would paste and silently get nothing |
 | claude-md-writer/what-goes-where | inconsistent | flips | value = factual precision (mechanism names), not discipline |
 | task-run/eyes-criterion-autonomy | 0/2 | holds (cites unresolved [eyes]/auto-ready mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |
 | task-run/red-cheap-gate-deadline | 0/2 | holds | did not reproduce — same treatment |
+| task-run/visible-plan-before-edit | partial hold | passes | guidance adds the complete downstream lifecycle and state/UI bindings omitted by the RED arm |
+| task-run/dor-first-failing-check | partial hold | passes | guidance removes the RED arm's option to discover/invent missing contract details during the run |
+| task-run/false-green-regression-test | holds unaided | passes | not load-bearing in isolation; retained as cheap regression and machine-gate specification |
+| task-run/implementation-only-parallelism | **reproduced** | passes | **load-bearing** — RED parallelizes review and proposes multiple PRs; GREEN confines delegation to code writing |
+| task-run/request-changes-blocks-merge | partial hold | passes | guidance requires a fresh approval after disposition; tree changes also require a new immutable candidate and all three fresh approvals |
+| task-run/stale-review-after-fix | partial hold | passes | guidance invalidates testing, acceptance, every review, CI, and DoD rather than only reviewer sign-off |
+| task-run/reviewer-unavailable-fails-closed | holds unaided | passes | not load-bearing in isolation; retained for machine-enforced reviewer/lens completeness |
+| task-run/current-sha-ci | holds unaided | passes | not load-bearing in isolation; retained for exact-SHA hosted-check enforcement |
 | task-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
 | task-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
 | task-flow/autofix-trusted-blindly | **2/2 reproduced** — both arms run lint, neither runs typecheck | 2/2 + ANTI clean | **load-bearing in both framings** — the conjunction "typecheck AND lint" is the payload, not the call to verify |
@@ -58,14 +65,24 @@ so the RED arm is a stronger-than-neutral control. That corpus supplies none of 
 under test, so the measured effects are lower bounds — but a clean-room harness would make the next
 batch trustworthy without the asterisk.
 
-Per the Iron Law, a future edit to the guarded sections needs its own RED→GREEN before
-shipping; the GREEN-regression probes here make that cheap.
+Per the Iron Law, a future behavior-changing edit to a guarded section needs its own RED→GREEN (or
+an honest unaided-hold result plus GREEN regression) before shipping. The repository validator now
+requires recorded baseline and GREEN evidence for this task-run batch; it does not infer model
+quality merely from a scenario file existing.
 
-Exercised again in the spec/run split: all three `task-run` scenarios (formerly `execute-task`) had
-their guarded text moved into `run.md` and reworded, so all three were re-probed. The interesting one
-is `sensitive-small-diff-skip`, where the risk was not "does it still say run the review" but "does it
-still say *skip* when it should" — a rule that collapses into always-review passes the expected
-behaviour and fails the anti-expectation. It was probed from both sides and still discriminates.
+The 2026-08-09 task-run rows were added from the cross-repository production audit that motivated the
+structured-state rewrite. On 2026-08-10 each new row received one isolated RED and GREEN Haiku arm;
+the sensitive-diff row reused its recorded two-arm ablation RED and received a new GREEN. The probes
+ran from `/tmp` with Claude Code `2.1.226`, `--safe-mode`, no tools, no session persistence, and no
+project/workflow text in RED. One arm is enough to exercise the contract but not to estimate a stable
+model compliance rate, so the per-scenario JSON preserves the exact limited sample and verdict.
+
+Exercised again in the spec/run split: all three original `task-run` scenarios (formerly
+`execute-task`) had their guarded text moved into `run.md` and reworded, so all three were re-probed.
+The sensitive-diff scenario now guards review execution shape: deep-review always runs, but a
+low-risk small candidate may stay serial while a sensitive candidate fans out. The original ablation
+still proves the sensitive-surface list is load-bearing; it does not count as a GREEN result for the
+rewritten serial/fanout decision.
 
 Exercised in 0.9.0: the `claude-md-writer` docs refresh edited both guarded sections, so both were
 re-probed and carry a `green_recheck` block naming the **risk under test** — for

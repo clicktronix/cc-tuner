@@ -36,17 +36,17 @@ complete_readiness() {
 
 create_plan() {
   evidence "Implement the scoped behavior and regression test" \
-    task run-1 add implement-feature implementation >/dev/null \
+    task run-1 add implement-feature implementation --ui-task-id ui-implement-feature >/dev/null \
     && evidence "Run targeted, full, static, and runtime verification" \
-      task run-1 add verify-tests testing >/dev/null \
+      task run-1 add verify-tests testing --ui-task-id ui-verify-tests >/dev/null \
     && evidence "Prove every acceptance criterion" \
-      task run-1 add verify-acceptance acceptance >/dev/null \
+      task run-1 add verify-acceptance acceptance --ui-task-id ui-verify-acceptance >/dev/null \
     && evidence "Stage and commit the tested candidate" \
-      task run-1 add finalize-candidate candidate >/dev/null \
+      task run-1 add finalize-candidate candidate --ui-task-id ui-finalize-candidate >/dev/null \
     && evidence "Complete every exact-candidate review" \
-      task run-1 add review-candidate review >/dev/null \
+      task run-1 add review-candidate review --ui-task-id ui-review-candidate >/dev/null \
     && evidence "Publish, verify CI and DoD, then reconcile" \
-      task run-1 add deliver-candidate delivery >/dev/null \
+      task run-1 add deliver-candidate delivery --ui-task-id ui-deliver-candidate >/dev/null \
     && runctl phase run-1 complete planning >/dev/null \
     && runctl phase run-1 enter implementation >/dev/null
 }
@@ -385,6 +385,30 @@ runctl phase run-1 complete planning >/dev/null 2>&1; rc=$?
   || fail "planning-requires-full-lifecycle" "rc=$rc"
 rm -rf "$REPO"
 
+# A complete lifecycle plan is still not visible until every structured task is bound to the UI.
+make_repo
+complete_readiness || exit 1
+for item in \
+  "implement-feature implementation" \
+  "verify-tests testing" \
+  "verify-acceptance acceptance" \
+  "finalize-candidate candidate" \
+  "review-candidate review" \
+  "deliver-candidate delivery"; do
+  set -- $item
+  evidence "Lifecycle task $1" task run-1 add "$1" "$2" >/dev/null
+done
+runctl phase run-1 complete planning >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "planning-requires-visible-task-bindings" \
+  || fail "planning-requires-visible-task-bindings" "rc=$rc"
+for task_id in implement-feature verify-tests verify-acceptance finalize-candidate review-candidate deliver-candidate; do
+  runctl task run-1 bind-ui "$task_id" "ui-$task_id" >/dev/null || exit 1
+done
+runctl phase run-1 complete planning >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "bound-visible-plan-completes" \
+  || fail "bound-visible-plan-completes" "rc=$rc"
+rm -rf "$REPO"
+
 make_repo
 complete_readiness && create_plan || exit 1
 mkdir -p "$REPO/docs/archive"
@@ -545,7 +569,8 @@ runctl can-advance run-1 >/dev/null 2>&1; rc=$?
   || fail "new-head-invalidates-review" "rc=$rc"
 rm -rf "$REPO"
 
-# REQUEST_CHANGES is a blocking current verdict and leaves review only through the explicit fix loop.
+# REQUEST_CHANGES blocks review, but a reviewer may approve the same immutable candidate after a
+# documented refutation/defer disposition. Both verdicts remain auditable in review_history.
 make_repo
 prepare_candidate || { fail "request-changes-fixture"; rm -rf "$REPO"; exit "$fails"; }
 SHA="$(git -C "$REPO" rev-parse HEAD)"
@@ -559,18 +584,47 @@ evidence "review attempt completed with blocking verdict" \
 runctl phase run-1 complete review >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "request-changes-blocks-review" \
   || fail "request-changes-blocks-review" "rc=$rc"
-evidence "same candidate reconsidered" review run-1 record deep-review APPROVE "$SHA" >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 1 ] && pass "request-changes-cannot-be-overwritten" \
-  || fail "request-changes-cannot-be-overwritten" "rc=$rc"
-evidence "address deep review findings" phase run-1 fix >/dev/null
+evidence "Refuted finding with file.txt:1 evidence; same tree remains valid" \
+  review run-1 record deep-review APPROVE "$SHA" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && jq -e --arg sha "$SHA" '
+    (.reviews[] | select(.reviewer == "deep-review")) |
+      .verdict == "APPROVE" and .sha == $sha
+  ' "$REPO/$RUNS_REL/run-1.state.json" >/dev/null \
+  && jq -e --arg sha "$SHA" '
+    [.review_history[] | select(.reviewer == "deep-review" and .sha == $sha) | .verdict] ==
+      ["REQUEST_CHANGES", "APPROVE"]
+  ' "$REPO/$RUNS_REL/run-1.state.json" >/dev/null \
+  && runctl phase run-1 complete review >/dev/null; then
+  pass "same-candidate-disposition-allows-fresh-approval"
+else
+  fail "same-candidate-disposition-allows-fresh-approval" "rc=$rc"
+fi
+rm -rf "$REPO"
+
+# A finding that requires source/test changes returns through the explicit fix loop and invalidates
+# every candidate-bound downstream gate.
+make_repo
+prepare_candidate || { fail "review-fix-fixture"; rm -rf "$REPO"; exit "$fails"; }
+SHA="$(git -C "$REPO" rev-parse HEAD)"
+evidence "deep review found a source defect" \
+  review run-1 record deep-review REQUEST_CHANGES "$SHA" >/dev/null
+FIX_OUT="$(evidence "address deep review findings" phase run-1 fix)"; rc=$?
 if jq -e '.phase == {name:"implementation",status:"in_progress"} and
     .candidate.sha == null and all(.reviews[]; .verdict == "PENDING") and .ci.status == "pending" and
     any(.tasks[]; .id == "review-candidate" and .status == "pending" and .evidence == null)' \
-    "$REPO/$RUNS_REL/run-1.state.json" >/dev/null; then
+    "$REPO/$RUNS_REL/run-1.state.json" >/dev/null \
+  && [ "$rc" -eq 0 ] && [ "$FIX_OUT" = "FIX_TASK id=review-fix-1 phase=implementation" ]; then
   pass "review-fix-invalidates-downstream"
 else
-  fail "review-fix-invalidates-downstream"
+  fail "review-fix-invalidates-downstream" "rc=$rc out=$FIX_OUT"
 fi
+runctl task run-1 start review-fix-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "fix-task-cannot-start-before-visible-binding" \
+  || fail "fix-task-cannot-start-before-visible-binding" "rc=$rc"
+runctl task run-1 bind-ui review-fix-1 ui-review-fix-1 >/dev/null \
+  && runctl task run-1 start review-fix-1 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "bound-fix-task-can-start" \
+  || fail "bound-fix-task-can-start" "rc=$rc"
 rm -rf "$REPO"
 
 # Prepared commit/PR text needs a home that is neither the shell nor the candidate tree. The run asks
@@ -701,14 +755,15 @@ evidence "targeted test failed" gate run-1 record testing fail >/dev/null
 evidence "same state claimed green" gate run-1 record testing pass >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "failed-testing-gate-cannot-be-overwritten" \
   || fail "failed-testing-gate-cannot-be-overwritten" "rc=$rc"
-evidence "test exposed another implementation defect" phase run-1 fix >/dev/null
+FIX_OUT="$(evidence "test exposed another implementation defect" phase run-1 fix)"; rc=$?
 if jq -e '.phase == {name:"implementation",status:"in_progress"} and .fix_round == 1 and
     any(.tasks[]; .id == "review-fix-1" and .status == "pending") and
     .candidate.sha == null and .ci.status == "pending"' \
-    "$REPO/$RUNS_REL/run-1.state.json" >/dev/null; then
+    "$REPO/$RUNS_REL/run-1.state.json" >/dev/null \
+  && [ "$rc" -eq 0 ] && [ "$FIX_OUT" = "FIX_TASK id=review-fix-1 phase=implementation" ]; then
   pass "testing-fix-loop-creates-task-and-invalidates"
 else
-  fail "testing-fix-loop-creates-task-and-invalidates"
+  fail "testing-fix-loop-creates-task-and-invalidates" "rc=$rc out=$FIX_OUT"
 fi
 rm -rf "$REPO"
 

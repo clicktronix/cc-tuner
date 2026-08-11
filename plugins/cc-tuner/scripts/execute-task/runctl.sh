@@ -593,6 +593,9 @@ validate_phase_completion() {
           "$STATE" >/dev/null 2>&1 \
           || execute_task_die "planning must create a '$required_phase' lifecycle task"
       done
+      jq -e 'all(.tasks[]; .ui_task_id | type == "string" and length > 0)' \
+        "$STATE" >/dev/null 2>&1 \
+        || execute_task_die "planning cannot complete until every task is bound to a visible Claude task"
       ;;
     implementation)
       jq -e 'any(.tasks[]; .phase == "implementation")' "$STATE" >/dev/null 2>&1 \
@@ -830,6 +833,7 @@ case "$SUBCOMMAND" in
           .candidate = {sha: null, tree_sha: null, recorded_at: null} |
           .ci = {status: "pending", sha: null, pr_number: null, evidence: null, recorded_at: null}
         ' --arg reason "$EVIDENCE" --arg task "$FIX_ID" --argjson round "$ROUND"
+        printf 'FIX_TASK id=%s phase=implementation\n' "$FIX_ID"
         ;;
       *) execute_task_die "unknown phase action '$ACTION'" ;;
     esac
@@ -874,7 +878,9 @@ case "$SUBCOMMAND" in
         [ "$#" -eq 4 ] || usage
         CURRENT="$(jq -r '.phase.name' "$STATE")"
         jq -e --arg id "$TASK_ID" --arg phase "$CURRENT" '
-          any(.tasks[]; .id == $id and .phase == $phase and (.status == "pending" or .status == "blocked"))
+          any(.tasks[]; .id == $id and .phase == $phase and
+            (.ui_task_id | type == "string" and length > 0) and
+            (.status == "pending" or .status == "blocked"))
         ' "$STATE" >/dev/null 2>&1 || execute_task_die "task '$TASK_ID' is not startable in phase '$CURRENT'"
         update_state '(.tasks[] | select(.id == $id)) |=
           (.status = "in_progress" | .evidence = null | .updated_at = $updated_at)' --arg id "$TASK_ID"
@@ -1030,12 +1036,6 @@ case "$SUBCOMMAND" in
     SHA="$(resolve_commit "$6")"
     CANDIDATE="$(jq -r '.candidate.sha // empty' "$STATE")"
     [ "$SHA" = "$CANDIDATE" ] || execute_task_die "review verdict is stale: candidate is $CANDIDATE, verdict names $SHA"
-    if [ "$VERDICT" = "APPROVE" ]; then
-      jq -e --arg reviewer "$REVIEWER" --arg sha "$SHA" '
-        any(.reviews[]; .reviewer == $reviewer and .verdict == "REQUEST_CHANGES" and .sha == $sha)
-      ' "$STATE" >/dev/null 2>&1 \
-        && execute_task_die "reviewer '$REVIEWER' already requested changes on candidate $SHA; use phase fix"
-    fi
     assert_current_candidate
     if [ "$REVIEWER" = "codex" ] && [ "$VERDICT" = "APPROVE" ]; then
       validate_codex_approval_evidence

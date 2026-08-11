@@ -1,0 +1,37 @@
+{
+  "skills": ["run"],
+  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-1--publish-the-execution-plan",
+  "query": "Self-contained simulation; do not read the filesystem. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
+  "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
+  "expected_behavior": [
+    "Creates visible TaskCreate items before the first repository mutation",
+    "Includes implementation, testing, acceptance, candidate review, PR/current-SHA CI, and DoD/merge/reconciliation",
+    "Links blockers and keeps one item in_progress through TaskUpdate"
+  ],
+  "anti_expectation": [
+    "Does not substitute a prose plan or journal paragraph for the task list",
+    "Does not mark future phases complete before evidence exists"
+  ],
+  "baseline_observed": {
+    "date": "2026-08-10",
+    "method": "1 isolated Claude Code haiku probe from /tmp with --safe-mode, no tools, no session persistence, and no workflow text",
+    "runs": [
+      {
+        "model": "haiku",
+        "red": "partial",
+        "note": "creates a visible list for the three implementation tasks, but omits the downstream testing, acceptance, candidate, review, CI, and DoD lifecycle"
+      }
+    ],
+    "verdict": "partial hold; the visible-list instinct is native, but the complete lifecycle plan is supplied by the workflow"
+  },
+  "green_check": {
+    "date": "2026-08-10",
+    "runs": [
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "creates implementation plus every downstream lifecycle task, blockedBy order, state bindings, and the HITL boundary before editing"
+      }
+    ]
+  }
+}

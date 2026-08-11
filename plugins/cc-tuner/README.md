@@ -55,6 +55,14 @@ can't ship `.claude/rules/*`): a versioned template with the plans root detected
 from the repo layout, repo-specific deltas in an untouched `task-flow.local.md`,
 and optional cleanup of legacy hand-copied rule files.
 
+### `deep-review`
+
+A read-only, exact-candidate review skill for `/run` and direct use. It reviews the complete committed
+diff through correctness, spec/scope, repository standards, architecture/systemic effects,
+security/data safety, and testing/operability lenses. It may fan out those independent lenses against
+the same immutable SHA, then validates and deduplicates their output without a top-ten cap. Its
+verdict includes both commit and tree SHA; any later change invalidates approval.
+
 ### `smoke-verify`
 
 A per-repo opt-in Stop-hook gate against the top regression source in agentic
@@ -82,28 +90,37 @@ routes the agent to do it.
 
 The task loop, split in two on purpose.
 
-`/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, the issue and the code
-before it asks anything, grills the requirements via `mattpocock-skills:grilling` plus
-`mattpocock-skills:domain-modeling`, and writes a
-spec whose acceptance criteria each name the command, tool step, or human verification that decides
-them. Every `[eyes]` criterion records its human step plus a machine replacement or waiver when one
-exists. A genuinely human-only criterion is valid in HITL mode and makes the spec not `--auto`-ready.
-The spec states that readiness explicitly.
+`/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, issue, architecture,
+code, tests, and consumers, grills requirements via `mattpocock-skills:grilling` plus
+`mattpocock-skills:domain-modeling`, and commits an executable contract. Its DoR names the observed
+baseline, first failing check and expected failure, targeted/full checks, environment and data. Every
+acceptance criterion names its deciding machine or human step; every `[eyes]` item records a machine
+replacement or waiver. Its DoD binds verification, reviews, PR head, and CI to the same candidate.
 
-`/cc-tuner:run [--auto] <spec>` executes it. Without `--auto` it stops between
-phases; with `--auto` it runs unattended and merges on green CI. `--auto` never waives a red gate, a
-red CI, an unresolved `[eyes]` criterion, or scope beyond the spec. After merge it may reconcile only
-the task's board, spec, branches, and worktrees; deploy, publish, and migration remain forbidden.
+`/cc-tuner:run [--auto] <spec>` executes it. It first publishes a visible `TaskCreate` plan, then
+implements, performs explicit Testing & Code Verification, commits an immutable candidate, runs
+`cc-tuner:deep-review`, mattpocock review, and Codex review to exact-SHA approval, then opens the PR and
+accepts only current-head CI. Independent code-writing units alone may fan out into isolated
+worktrees; the parent owns integration and every later gate. Structured run state enforces phase
+transitions; the Markdown journal is audit narrative, not truth.
+
+Without `--auto`, `/run` stops at delivery boundaries and again before merge. With `--auto`, it runs
+unattended only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
+evidence, failed tests, stale review, unresolved `[eyes]`, missing current-SHA CI, or scope beyond the
+spec. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
+forbidden.
 
 These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipeline and could do
 neither well: its intake step was marked "human gate, always", so full autonomy was structurally
 impossible, while the interactive work was compressed into one step of ten.
 
-The other half of that fix is that **the run journal is now read, not just written**. It had eight
-append call sites and no way to get anything back, which is why a long run lost its place: after a
-compaction the playbook returns (it is re-read from the command file) but the progress does not.
-`/run` opens every phase with `journal.sh resume`, and journals literal values — PR number, base SHA,
-per-criterion results — because shell state does not survive between Bash calls either.
+Run progress lives in `.claude/execute-task-runs/<run-id>.state.json`, with ownership, allowed phase
+transitions, task bindings, gates, candidate identity, reviews, CI, and DoD recorded structurally.
+`journal.sh append` accepts evidence over stdin so backticks and command substitutions in logs cannot
+execute in the shell. A run that hits a condition only a human can resolve is blocked; `resume`
+reports that and refuses, and only an explicit `runctl.sh unblock` — which journals the decision —
+reactivates it. The visible Claude task list is recreated from structured state after compaction
+or resume.
 
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).
@@ -115,7 +132,12 @@ cc-tuner installs and works standalone without them).
 /plugin install cc-tuner@cc-tuner
 ```
 
-The `claude-md-writer` and `task-flow` skills are model-invoked: Claude loads them when the task matches their descriptions — no slash command needed for those. The installers and the lifecycle playbooks are explicit slash commands you run yourself: `/cc-tuner:statusline-setup`, `/cc-tuner:task-flow-setup` (installing the canonical rule into a repo happens ONLY via this command — installing the plugin alone does not write any `.claude/rules/` file), `/cc-tuner:smoke-verify-setup` (same opt-in story: the Stop hook loads with the plugin but stays inert until this command writes the repo's config), `/cc-tuner:spec`, and `/cc-tuner:run`.
+The `claude-md-writer`, `task-flow`, and `deep-review` skills are model-invoked when their descriptions
+match; `deep-review` is also available directly as `/cc-tuner:deep-review`. The installers and
+lifecycle playbooks remain explicit user commands: `/cc-tuner:statusline-setup`,
+`/cc-tuner:task-flow-setup` (the rule is installed only by this command),
+`/cc-tuner:smoke-verify-setup` (the hook stays inert until this command writes repo config),
+`/cc-tuner:spec`, and `/cc-tuner:run`.
 
 ## Scope
 

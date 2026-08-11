@@ -9,10 +9,13 @@ T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
 ( cd "$T" && git init -q ) || { echo "FATAL: fixture setup failed"; exit 1; }
 # missing -> created from template, exit EXACTLY 2 (the STOP-and-fill signal)
 CLAUDE_PROJECT_DIR="$T" bash "$S" "$TPL" >/dev/null 2>&1; rc=$?
-# Assert on a FIELD, not the title: a title is prose and gets reworded, while `cheap_gate` is the
-# thing the file exists to carry, so this pins that the scaffold really came from the template.
+# Assert on a FIELD, not the title: a title is prose and gets reworded, while the command fields are
+# the thing the file exists to carry, so this pins that the scaffold really came from the template.
+# Every field asserted here must still be READ by /run — a field no consumer reads is the drift this
+# suite exists to catch, and `cheap_gate` reached exactly that state before it was removed.
 if [ "$rc" -eq 2 ] && [ -f "$T/.claude/execute-task.md" ] \
-  && grep -q "cheap_gate" "$T/.claude/execute-task.md" \
+  && grep -q "target_test" "$T/.claude/execute-task.md" \
+  && grep -q "full_test" "$T/.claude/execute-task.md" \
   && ! find "$T/.claude" -name '.execute-task.*' -print -quit | grep -q .; then
   echo "PASS scaffold-created"; else echo "FAIL scaffold-created (rc=$rc, want 2)"; fails=1; fi
 # present -> left untouched (sentinel preserved), exit EXACTLY 0 (proceed signal)
