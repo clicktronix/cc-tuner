@@ -23,7 +23,7 @@ usage: runctl.sh init <run-id> [--mode interactive|auto] [--spec <path>]
        runctl.sh task <run-id> start|complete|block <task-id> [< evidence.txt]
        runctl.sh task <run-id> bind-ui <task-id> <ui-task-id>
        runctl.sh gate <run-id> record <gate-id> pass|fail [--sha <commit>] < evidence.txt
-       runctl.sh prepare <run-id> <name>
+       runctl.sh prepare <run-id> commit-message|pr-body
        runctl.sh candidate <run-id> record <commit>
        runctl.sh review <run-id> record <reviewer> APPROVE|REQUEST_CHANGES <commit> < evidence.txt
        runctl.sh ci <run-id> record success|failure <commit> [--pr <number>] < evidence.txt
@@ -539,6 +539,49 @@ validate_delivery_state() {
     || execute_task_die "all run tasks must be completed before delivery"
 }
 
+ensure_prepared_directory() {
+  local base repository_dir path resolved
+  PREPARED_DIR="$(execute_task_prepared_dir)" || exit 1
+  repository_dir="$(dirname -- "$PREPARED_DIR")"
+  base="$(dirname -- "$repository_dir")"
+  for path in "$base" "$repository_dir" "$PREPARED_DIR"; do
+    [ ! -L "$path" ] || execute_task_die "refusing symlinked prepared-file directory: $path"
+    if [ ! -e "$path" ]; then
+      mkdir "$path" 2>/dev/null || {
+        [ -d "$path" ] && [ ! -L "$path" ] \
+          || execute_task_die "cannot create prepared-file directory: $path"
+      }
+    fi
+    [ -d "$path" ] && [ -O "$path" ] \
+      || execute_task_die "prepared-file directory is not owned by the current user: $path"
+    chmod 700 "$path" || execute_task_die "cannot secure prepared-file directory: $path"
+    resolved="$(CDPATH='' cd -- "$path" 2>/dev/null && pwd -P || true)"
+    [ "$resolved" = "$path" ] \
+      || execute_task_die "prepared-file directory escapes its owned path: $path"
+  done
+}
+
+cleanup_prepared_files() {
+  local prepared_dir path repository_dir base
+  prepared_dir="$(execute_task_prepared_dir)" || exit 1
+  [ ! -e "$prepared_dir" ] && [ ! -L "$prepared_dir" ] && return 0
+  [ ! -L "$prepared_dir" ] && [ -d "$prepared_dir" ] && [ -O "$prepared_dir" ] \
+    || execute_task_die "refusing unsafe prepared-file directory during cleanup"
+  [ "$(CDPATH='' cd -- "$prepared_dir" 2>/dev/null && pwd -P || true)" = "$prepared_dir" ] \
+    || execute_task_die "prepared-file directory moved before cleanup"
+  for path in "$prepared_dir/commit-message" "$prepared_dir/pr-body"; do
+    [ ! -e "$path" ] && [ ! -L "$path" ] && continue
+    [ ! -d "$path" ] || execute_task_die "refusing prepared-file directory entry during cleanup"
+    rm -f -- "$path" || execute_task_die "cannot remove prepared file: $path"
+  done
+  rmdir "$prepared_dir" 2>/dev/null \
+    || execute_task_die "prepared-file directory contains unowned entries; inspect $prepared_dir"
+  repository_dir="$(dirname -- "$prepared_dir")"
+  base="$(dirname -- "$repository_dir")"
+  rmdir "$repository_dir" 2>/dev/null || true
+  rmdir "$base" 2>/dev/null || true
+}
+
 validate_phase_completion() {
   local phase="$1" candidate required_phase
   assert_phase_tasks_complete "$phase"
@@ -922,27 +965,26 @@ case "$SUBCOMMAND" in
     # Free-form commit and PR text must not reach a shell, so it goes in a file — and that file must
     # not reach the candidate tree either. This owns both halves: the run gets a path outside the
     # repository, created here, so the mutation fence never has to decide whether an arbitrary
-    # outside path is a legitimate scratch file. Same name, same path, so a resume rewrites it.
+    # outside path is a legitimate scratch file. Same name, same path, so a resume can rewrite it.
     [ "$#" -eq 3 ] || usage
-    state_paths "$2"; load_state; assert_active
-    execute_task_validate_item_id "prepared-file name" "$3"
-    PREPARED_DIR="${TMPDIR:-/tmp}/cc-tuner-prepared/$EXECUTE_TASK_RUN_ID"
-    [ ! -L "$PREPARED_DIR" ] || execute_task_die "refusing symlinked prepared-file directory"
-    mkdir -p "$PREPARED_DIR" || execute_task_die "cannot create the prepared-file directory"
-    chmod 700 "$PREPARED_DIR" 2>/dev/null || true
-    PREPARED="$PREPARED_DIR/$3"
-    [ ! -L "$PREPARED" ] || execute_task_die "refusing symlinked prepared file: $3"
-    [ ! -e "$PREPARED" ] || [ -f "$PREPARED" ] \
-      || execute_task_die "prepared path is not a regular file: $3"
-    : > "$PREPARED" || execute_task_die "cannot create prepared file '$3'"
-    PREPARED_REAL="$(CDPATH='' cd -- "$PREPARED_DIR" 2>/dev/null && pwd -P || true)"
-    [ -n "$PREPARED_REAL" ] || execute_task_die "cannot canonicalize the prepared-file directory"
-    case "$PREPARED_REAL" in
-      "$EXECUTE_TASK_ROOT"|"$EXECUTE_TASK_ROOT"/*)
-        execute_task_die "prepared files must live outside the repository; \$TMPDIR resolves inside it"
-        ;;
+    state_paths "$2"; lock_state; load_state; assert_active
+    case "$3" in
+      commit-message|pr-body) ;;
+      *) execute_task_die "prepared-file name must be 'commit-message' or 'pr-body'" ;;
     esac
-    printf '%s\n' "$PREPARED_REAL/$3"
+    ensure_prepared_directory
+    PREPARED="$PREPARED_DIR/$3"
+    if [ ! -e "$PREPARED" ] && [ ! -L "$PREPARED" ]; then
+      # noclobber makes concurrent creation harmless and never follows an existing link.
+      ( set -C; : > "$PREPARED" ) 2>/dev/null || true
+    fi
+    [ ! -L "$PREPARED" ] && [ -f "$PREPARED" ] && [ -O "$PREPARED" ] \
+      || execute_task_die "prepared path is not an owned regular file: $3"
+    PREPARED_LINKS="$(execute_task_link_count "$PREPARED" 2>/dev/null || true)"
+    [ "$PREPARED_LINKS" = "1" ] \
+      || execute_task_die "prepared file must have exactly one link: $3"
+    chmod 600 "$PREPARED" || execute_task_die "cannot secure prepared file '$3'"
+    printf '%s\n' "$PREPARED"
     ;;
 
   candidate)
@@ -1127,6 +1169,7 @@ resolve it with the user, then 'runctl.sh unblock $EXECUTE_TASK_RUN_ID' with the
       || execute_task_die "finish requires completed delivery phase"
     validate_delivery_state
     verify_merged_pr
+    cleanup_prepared_files
     update_state '.status = "completed" | .phase = {name: "done", status: "completed"} |
       .completed_phases += ["done"] | .completion_evidence = $evidence | .completed_at = $updated_at' \
       --arg evidence "$EVIDENCE"
