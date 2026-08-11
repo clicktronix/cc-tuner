@@ -23,6 +23,7 @@ usage: runctl.sh init <run-id> [--mode interactive|auto] [--spec <path>]
        runctl.sh task <run-id> start|complete|block <task-id> [< evidence.txt]
        runctl.sh task <run-id> bind-ui <task-id> <ui-task-id>
        runctl.sh gate <run-id> record <gate-id> pass|fail [--sha <commit>] < evidence.txt
+       runctl.sh prepare <run-id> <name>
        runctl.sh candidate <run-id> record <commit>
        runctl.sh review <run-id> record <reviewer> APPROVE|REQUEST_CHANGES <commit> < evidence.txt
        runctl.sh ci <run-id> record success|failure <commit> [--pr <number>] < evidence.txt
@@ -915,6 +916,33 @@ case "$SUBCOMMAND" in
         evidence: $evidence, recorded_at: $updated_at}])' \
       --arg id "$GATE_ID" --arg status "$GATE_STATUS" --arg sha "$GATE_SHA" \
       --arg tree "$GATE_TREE" --arg evidence "$EVIDENCE"
+    ;;
+
+  prepare)
+    # Free-form commit and PR text must not reach a shell, so it goes in a file — and that file must
+    # not reach the candidate tree either. This owns both halves: the run gets a path outside the
+    # repository, created here, so the mutation fence never has to decide whether an arbitrary
+    # outside path is a legitimate scratch file. Same name, same path, so a resume rewrites it.
+    [ "$#" -eq 3 ] || usage
+    state_paths "$2"; load_state; assert_active
+    execute_task_validate_item_id "prepared-file name" "$3"
+    PREPARED_DIR="${TMPDIR:-/tmp}/cc-tuner-prepared/$EXECUTE_TASK_RUN_ID"
+    [ ! -L "$PREPARED_DIR" ] || execute_task_die "refusing symlinked prepared-file directory"
+    mkdir -p "$PREPARED_DIR" || execute_task_die "cannot create the prepared-file directory"
+    chmod 700 "$PREPARED_DIR" 2>/dev/null || true
+    PREPARED="$PREPARED_DIR/$3"
+    [ ! -L "$PREPARED" ] || execute_task_die "refusing symlinked prepared file: $3"
+    [ ! -e "$PREPARED" ] || [ -f "$PREPARED" ] \
+      || execute_task_die "prepared path is not a regular file: $3"
+    : > "$PREPARED" || execute_task_die "cannot create prepared file '$3'"
+    PREPARED_REAL="$(CDPATH='' cd -- "$PREPARED_DIR" 2>/dev/null && pwd -P || true)"
+    [ -n "$PREPARED_REAL" ] || execute_task_die "cannot canonicalize the prepared-file directory"
+    case "$PREPARED_REAL" in
+      "$EXECUTE_TASK_ROOT"|"$EXECUTE_TASK_ROOT"/*)
+        execute_task_die "prepared files must live outside the repository; \$TMPDIR resolves inside it"
+        ;;
+    esac
+    printf '%s\n' "$PREPARED_REAL/$3"
     ;;
 
   candidate)

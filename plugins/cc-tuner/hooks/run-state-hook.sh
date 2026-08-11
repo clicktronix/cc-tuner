@@ -95,40 +95,27 @@ case "$EVENT" in
         # phases that consume it. Anything inside the repository, or any path this cannot resolve,
         # stays fenced.
         TARGET="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
-        # A symlink is resolved by the writing tool, not by this check, so the final component is
-        # judged too: /tmp/body -> <repo>/tracked-file is a task-path write wearing an outside-repo
-        # name. And "outside the worktree" is not the same as "harmless": in a linked worktree the
-        # common Git directory lives elsewhere, and it holds the reviewer's approval state — the very
-        # thing the delivery gate consults.
-        # A hard link is the same escape wearing a different hat: the name is outside, the inode is
-        # a tracked file. A prepared file is freshly created and has exactly one link, so refuse
-        # anything already linked elsewhere rather than trying to find where.
-        TARGET_LINKS=""
-        [ -z "$TARGET" ] || [ ! -e "$TARGET" ] \
-          || TARGET_LINKS="$(stat -f %l "$TARGET" 2>/dev/null || stat -c %h "$TARGET" 2>/dev/null || echo unknown)"
-        case "$TARGET_LINKS" in ''|1) ;; *) TARGET="" ;; esac
-        if [ -n "$TARGET" ] && [ ! -L "$TARGET" ]; then
+        # The only writable place outside implementation is the directory `runctl prepare` owns for
+        # this run. Allowing any path outside the repository turned this into a chase — a symlink,
+        # then a hard link, then the common Git directory of a linked worktree, which holds the
+        # reviewer approval state. One named location ends the chase: the run asks for a path
+        # instead of inventing one, and everything else is a task path.
+        TARGET="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
+        PREPARED_DIR="${TMPDIR:-/tmp}/cc-tuner-prepared/$RUN_ID"
+        PREPARED_REAL="$(CDPATH='' cd -- "$PREPARED_DIR" 2>/dev/null && pwd -P || true)"
+        if [ -n "$TARGET" ] && [ -n "$PREPARED_REAL" ] && [ ! -L "$TARGET" ]; then
           case "$TARGET" in
             /*)
+              # A link already pointing elsewhere is not a file this run prepared.
+              TARGET_LINKS="$(stat -f %l "$TARGET" 2>/dev/null || stat -c %h "$TARGET" 2>/dev/null || echo unknown)"
               TARGET_DIR="$(CDPATH='' cd -- "$(dirname -- "$TARGET")" 2>/dev/null && pwd -P || true)"
-              GIT_DIR_ABS="$(git rev-parse --git-dir 2>/dev/null || true)"
-              [ -z "$GIT_DIR_ABS" ] \
-                || GIT_DIR_ABS="$(CDPATH='' cd -- "$GIT_DIR_ABS" 2>/dev/null && pwd -P || true)"
-              GIT_COMMON_ABS="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-              [ -z "$GIT_COMMON_ABS" ] \
-                || GIT_COMMON_ABS="$(CDPATH='' cd -- "$GIT_COMMON_ABS" 2>/dev/null && pwd -P || true)"
-              if [ -n "$TARGET_DIR" ]; then
-                OUTSIDE=1
-                for GUARDED in "$GIT_ROOT" "$GIT_DIR_ABS" "$GIT_COMMON_ABS"; do
-                  [ -n "$GUARDED" ] || continue
-                  case "$TARGET_DIR" in "$GUARDED"|"$GUARDED"/*) OUTSIDE=0 ;; esac
-                done
-                [ "$OUTSIDE" -eq 1 ] && allow
+              if [ "$TARGET_LINKS" = "1" ] && [ "$TARGET_DIR" = "$PREPARED_REAL" ]; then
+                allow
               fi
               ;;
           esac
         fi
-        deny_tool "cc-tuner: $TOOL_NAME may mutate task paths only during implementation; current phase is '$PHASE'. Prepared files belong outside the repository. Return through 'runctl.sh phase $RUN_ID fix' to reopen implementation, or 'runctl.sh block $RUN_ID' to stop the run and edit freely."
+        deny_tool "cc-tuner: $TOOL_NAME may mutate task paths only during implementation; current phase is '$PHASE'. Prepared commit/PR text belongs in a path from 'runctl.sh prepare $RUN_ID <name>'. Return through 'runctl.sh phase $RUN_ID fix' to reopen implementation, or 'runctl.sh block $RUN_ID' to stop the run and edit freely."
         allow
         ;;
     esac
