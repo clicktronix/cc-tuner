@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.0](https://github.com/clicktronix/cc-tuner/compare/v0.9.0...v0.10.0) (2026-08-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* run guards now bind to a journaled run ID and immutable target SHA.
+* spec/run split, effort tiering, /delegate and smoke-verify skill removed ([#11](https://github.com/clicktronix/cc-tuner/issues/11))
+
+### Features
+
+* enforce run lifecycle state ([6e2b06b](https://github.com/clicktronix/cc-tuner/commit/6e2b06bcaf2025e4538c069b57e1d9c983e29b62))
+* enforce run lifecycle state ([e83dc34](https://github.com/clicktronix/cc-tuner/commit/e83dc3455fba4c7d179ccf99236b0442373f785f))
+* runctl owns the prepared-file location ([7770172](https://github.com/clicktronix/cc-tuner/commit/7770172c6ea9cfb21988306d8755ecf03c35aa7d))
+* spec/run split, effort tiering, /delegate and smoke-verify skill removed ([#11](https://github.com/clicktronix/cc-tuner/issues/11)) ([0c97e96](https://github.com/clicktronix/cc-tuner/commit/0c97e96f949e12ffb070e2e3c1ddd47879e85f86))
+
+
+### Bug Fixes
+
+* bind delivery to live pull request ([8a9c048](https://github.com/clicktronix/cc-tuner/commit/8a9c04851d2a24a6e083b8b2b8bf30de53a616ca))
+* close the fence escapes and stop overstating the gate ([fb1c601](https://github.com/clicktronix/cc-tuner/commit/fb1c60132647a006c6de019c6ed72524a7a1d44b))
+* complete spec-run delivery lifecycle ([f9bd5d6](https://github.com/clicktronix/cc-tuner/commit/f9bd5d6e1cf72802f3727dc2318ab8cfabd3cfb1))
+* enforce complete lifecycle plan ([f6ebab2](https://github.com/clicktronix/cc-tuner/commit/f6ebab2d0b19884ac73426e901f760c3d3c1a56e))
+* fence the hard-link escape and fix install precedence ([5f0cacc](https://github.com/clicktronix/cc-tuner/commit/5f0caccdb38d355bded2f51dc8a3d419706211c4))
+* freeze completed lifecycle evidence ([1e9767a](https://github.com/clicktronix/cc-tuner/commit/1e9767a47b664de2de81ad49b3a75987724e5352))
+* harden lifecycle delivery guards ([250fa7a](https://github.com/clicktronix/cc-tuner/commit/250fa7a26ddead2353a396334d2c67a0847eded5))
+* isolate prepared files by repository ([cc3b576](https://github.com/clicktronix/cc-tuner/commit/cc3b576c7bf29e93991b137566a9ec760c77ab10))
+* journal the unblock decision instead of discarding it ([42b26db](https://github.com/clicktronix/cc-tuner/commit/42b26dba288776ddcd3d67f369c05bbb9ebe9ed5))
+* make a blocked run survive the phase loop ([6ba048f](https://github.com/clicktronix/cc-tuner/commit/6ba048f5a05b4a4b8dd4cb93f7b4ca4cfdbd0762))
+* read the link count portably in the mutation fence ([c07a869](https://github.com/clicktronix/cc-tuner/commit/c07a8694617ea8031d376963e50755d8ffb499f1))
+* require verified Codex approval ([cd63e3d](https://github.com/clicktronix/cc-tuner/commit/cd63e3dcfee6ac92652ce7bf834a5e2c85157212))
+* stop the delivery gate reading its own address from a test hook ([8132bd7](https://github.com/clicktronix/cc-tuner/commit/8132bd7caa42991ae2471ee0abe940e541aa652e))
+* take run evidence from stdin before the state lock ([15dae66](https://github.com/clicktronix/cc-tuner/commit/15dae661e0eafd3d42458b2cd782926a63dc7052))
+* validate review fingerprint contract ([214c603](https://github.com/clicktronix/cc-tuner/commit/214c603f3e4c3482adb4a96e1336a4a6104bef8f))
+* verify Codex approval and post-implementation content ([54cf747](https://github.com/clicktronix/cc-tuner/commit/54cf7475bd3221d6d8845913fcd6cc7b12b5806b))
+* verify post-merge completion ([ec018f1](https://github.com/clicktronix/cc-tuner/commit/ec018f1d21a1831bc7fe4e62aa4987f5e3bc98ff))
+
 ## [0.9.0](https://github.com/clicktronix/cc-tuner/compare/v0.8.0...v0.9.0) (2026-07-31)
 
 
