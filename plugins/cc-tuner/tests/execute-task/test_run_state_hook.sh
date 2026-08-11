@@ -13,6 +13,12 @@ runctl() { CLAUDE_PROJECT_DIR="$REPO" bash "$R" "$@"; }
 hook() { event="$1"; input="$2"; printf '%s\n' "$input" | bash "$H" "$event"; }
 evidence() { text="$1"; shift; printf '%s\n' "$text" | runctl "$@"; }
 
+# `runctl prepare` owns a directory keyed by run id under TMPDIR, so it survives between suite runs.
+# A leftover file from a previous run would make this suite depend on history — give it its own.
+SUITE_TMP="$(mktemp -d)" || exit 1
+export TMPDIR="$SUITE_TMP"
+trap 'rm -rf "$SUITE_TMP"' EXIT
+
 REPO="$(mktemp -d)" || exit 1
 (
   cd "$REPO" && git init -q -b main && git config user.email test@example.com \
@@ -76,11 +82,20 @@ OUT="$(hook pre-tool-use "$NESTED_EDIT_INPUT" 2>&1)"; rc=$?
 # cannot reach the candidate tree, and is consumed in phases that deny edits — so it has to stay
 # writable, or the playbook's own "recreate them after a resume" is impossible.
 SCRATCH_DIR="$(mktemp -d)"
+# The run asks runctl for the path; only that path is writable outside implementation.
+PREPARED_PATH="$(runctl prepare hook-run commit-message)"
+PREPARED_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_PATH" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$PREPARED_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "runctl-prepared-path-stays-writable" \
+  || fail "runctl-prepared-path-stays-writable" "rc=$rc"
+# An arbitrary path outside the repository is NOT a prepared file — that permission is what the
+# symlink, hard-link and common-git-directory escapes all rode in on.
 OUTSIDE_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/commit-message.txt" \
   '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
 hook pre-tool-use "$OUTSIDE_INPUT" >/dev/null 2>&1; rc=$?
-[ "$rc" -eq 0 ] && pass "prepared-file-outside-the-repository-stays-writable" \
-  || fail "prepared-file-outside-the-repository-stays-writable" "rc=$rc"
+[ "$rc" -eq 2 ] && pass "an-arbitrary-outside-path-is-not-a-prepared-file" \
+  || fail "an-arbitrary-outside-path-is-not-a-prepared-file" "rc=$rc"
 # ...and a path the hook cannot resolve is still fenced: unknown is not outside.
 UNRESOLVABLE_INPUT="$(jq -cn --arg cwd "$REPO" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:"relative/guess.txt"}}')"
 hook pre-tool-use "$UNRESOLVABLE_INPUT" >/dev/null 2>&1; rc=$?
@@ -88,16 +103,17 @@ hook pre-tool-use "$UNRESOLVABLE_INPUT" >/dev/null 2>&1; rc=$?
   || fail "unresolvable-path-stays-fenced" "rc=$rc"
 # A symlink is resolved by the writing tool, so an outside-repo NAME pointing at a tracked file is
 # still a task-path write.
-ln -s "$REPO/file.txt" "$SCRATCH_DIR/disguised.txt"
-SYMLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/disguised.txt" \
+PREPARED_DIR_REAL="$(dirname "$PREPARED_PATH")"
+ln -s "$REPO/file.txt" "$PREPARED_DIR_REAL/disguised.txt"
+SYMLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_DIR_REAL/disguised.txt" \
   '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
 hook pre-tool-use "$SYMLINK_INPUT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && pass "symlink-into-the-repository-is-fenced" \
   || fail "symlink-into-the-repository-is-fenced" "rc=$rc"
 # ...and so is a hard link: outside name, tracked inode. A freshly prepared file has one link.
-ln "$REPO/file.txt" "$SCRATCH_DIR/hardlinked.txt" 2>/dev/null
-if [ -e "$SCRATCH_DIR/hardlinked.txt" ]; then
-  HARDLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/hardlinked.txt" \
+ln "$REPO/file.txt" "$PREPARED_DIR_REAL/hardlinked.txt" 2>/dev/null
+if [ -e "$PREPARED_DIR_REAL/hardlinked.txt" ]; then
+  HARDLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_DIR_REAL/hardlinked.txt" \
     '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
   hook pre-tool-use "$HARDLINK_INPUT" >/dev/null 2>&1; rc=$?
   [ "$rc" -eq 2 ] && pass "hard-linked-tracked-file-is-fenced" \

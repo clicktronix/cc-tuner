@@ -627,6 +627,32 @@ runctl task run-1 bind-ui review-fix-1 ui-review-fix-1 >/dev/null \
   || fail "bound-fix-task-can-start" "rc=$rc"
 rm -rf "$REPO"
 
+# Prepared commit/PR text needs a home that is neither the shell nor the candidate tree. The run asks
+# for one instead of inventing a path, so the fence never has to judge an arbitrary outside path.
+make_repo
+PREPARED="$(runctl prepare run-1 commit-message)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ -f "$PREPARED" ]; } && pass "prepare-returns-a-usable-path" \
+  || fail "prepare-returns-a-usable-path" "rc=$rc path=$PREPARED"
+REPO_REAL_PREP="$(cd "$REPO" && pwd -P)"
+case "$PREPARED" in
+  "$REPO_REAL_PREP"/*) fail "prepared-file-is-outside-the-repository" "$PREPARED" ;;
+  /*) pass "prepared-file-is-outside-the-repository" ;;
+  *) fail "prepared-file-is-outside-the-repository" "not absolute: $PREPARED" ;;
+esac
+printf 'subject\n' > "$PREPARED"
+[ "$(runctl prepare run-1 commit-message)" = "$PREPARED" ] \
+  && pass "prepare-is-stable-across-a-resume" || fail "prepare-is-stable-across-a-resume"
+[ ! -s "$PREPARED" ] && pass "prepare-truncates-a-reused-path" \
+  || fail "prepare-truncates-a-reused-path"
+runctl prepare run-1 '../escape' >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "prepare-rejects-a-traversing-name" \
+  || fail "prepare-rejects-a-traversing-name" "rc=$rc"
+evidence "stop here" block run-1 >/dev/null
+runctl prepare run-1 commit-message >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "prepare-refuses-a-blocked-run" \
+  || fail "prepare-refuses-a-blocked-run" "rc=$rc"
+rm -rf "$REPO"
+
 # The PreToolUse hook only sees the tools it matches, so a Bash heredoc, `sed -i`, or a formatter
 # can mutate task paths in a phase that forbids it. The state machine has to catch that itself:
 # whatever content implementation ended with is what testing is allowed to verify.
