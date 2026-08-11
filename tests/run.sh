@@ -158,6 +158,30 @@ for f in "$ROOT"/tests/scenarios/*/*.json; do
 done
 [ "$dangling" -eq 0 ] && ok "scenario tests_reference paths resolve ($scen scenarios)"
 
+# --- 6b. the lifecycle rewrite has recorded model evidence ------------------------------------
+# These scenarios originally shipped as `not run`, contradicting their own RED→GREEN rule. The
+# validator cannot prove that an external model call happened, but it can prevent an unmeasured row
+# (or an empty/failed GREEN arm) from silently replacing the reviewed evidence in source control.
+task_run_evidence=0
+for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
+  implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \
+  reviewer-unavailable-fails-closed current-sha-ci sensitive-small-diff-review; do
+  file="$ROOT/tests/scenarios/task-run/$name.json"
+  if jq -e '
+    (.baseline_observed | type == "object") and
+    (.baseline_observed.date | type == "string" and length > 0) and
+    (.baseline_observed.method | type == "string" and length > 0) and
+    (.baseline_observed.verdict | type == "string" and length > 0) and
+    (.green_check.runs | type == "array" and length > 0) and
+    all(.green_check.runs[]; .pass == true and (.note | type == "string" and length > 0))
+  ' "$file" >/dev/null 2>&1; then
+    task_run_evidence=$((task_run_evidence + 1))
+  else
+    bad "tests/scenarios/task-run/$name.json lacks recorded baseline/GREEN evidence"
+  fi
+done
+[ "$task_run_evidence" -eq 9 ] && ok "task-run RED/GREEN evidence is recorded ($task_run_evidence scenarios)"
+
 # --- 7. relative markdown links resolve --------------------------------------------------------
 broken=0
 for f in $(find "$PLUGIN" "$ROOT/docs" -maxdepth 99 -name '*.md' 2>/dev/null; find "$ROOT" -maxdepth 1 -name '*.md'); do

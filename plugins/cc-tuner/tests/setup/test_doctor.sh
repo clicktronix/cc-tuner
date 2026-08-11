@@ -17,7 +17,7 @@ absent() {
 
 mkenv() { # builds $STUB (PATH) + $CACHE (plugins) + $H (home) + $R (repo)
   T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
-  STUB="$T/bin"; CACHE="$T/plugins"; H="$T/home"; R="$T/repo"
+  STUB="$T/bin"; FAKE_HOME="$T/plugin-home"; CACHE="$FAKE_HOME/.claude/plugins"; H="$T/home"; R="$T/repo"
   mkdir -p "$STUB" "$CACHE" "$H/.claude" "$R"
   for u in sed tr grep head dirname bash cat; do
     src="$(command -v "$u")" && ln -s "$src" "$STUB/$u"
@@ -30,13 +30,17 @@ plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grillin
   mkdir -p "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling" \
            "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling" \
            "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review" \
-           "$CACHE/cache/m/cc-codex-triage/1/commands"
+           "$CACHE/cache/m/cc-codex-triage/1/commands" \
+           "$CACHE/cache/m/cc-codex-triage/1/scripts"
   touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
         "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling/SKILL.md" \
-        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md" \
-        "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
+        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md"
+  printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
+    > "$CACHE/cache/m/cc-codex-triage/1/scripts/review-state.sh"
+  printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
+    > "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
 }
-run() { ( cd "${1:-$R}" && PATH="$STUB" CLAUDE_PLUGIN_CACHE="$CACHE" CC_TUNER_HOME="$H" \
+run() { ( cd "${1:-$R}" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
           bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
 
 # --- baseline: everything present -> no blockers, exit 0 -----------------------------------------
@@ -87,14 +91,14 @@ rm -rf "$T"
 mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
 printf '#!/bin/sh\ncat <<EOF\ncontext7: https://mcp.context7.com/mcp (HTTP) - OK Connected\nchrome-devtools: npx chrome-devtools-mcp - X Failed to connect\nEOF\n' > "$STUB/mcpfix"
 chmod +x "$STUB/mcpfix"
-OUT="$( cd "$R" && PATH="$STUB" CLAUDE_PLUGIN_CACHE="$CACHE" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
         CC_TUNER_MCP_CMD="mcpfix" bash "$DOCTOR" full 2>&1 )"
 check  "mcp-connected-ok"      "ok   MCP 'context7' connected"                 "$OUT"
 check  "mcp-not-connected"     "WARN MCP 'chrome-devtools' configured but not" "$OUT"
 absent "mcp-not-a-blocker"     "MISS"                                          "$OUT"
 
 # quick mode must NOT probe -- the probe health-checks every server and can hang for 30s each
-OUT="$( cd "$R" && PATH="$STUB" CLAUDE_PLUGIN_CACHE="$CACHE" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
         CC_TUNER_MCP_CMD="mcpfix" bash "$DOCTOR" quick 2>&1 )"
 absent "quick-skips-mcp" "MCP 'context7'" "$OUT"
 rm -rf "$T"

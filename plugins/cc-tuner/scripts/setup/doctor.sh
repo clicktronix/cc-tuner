@@ -6,7 +6,8 @@
 # Exit 0 when nothing is MISS, 1 otherwise. bash 3.2 compatible: macOS ships 3.2.57.
 #
 # Test seams (all default to the real thing):
-#   CLAUDE_PLUGIN_CACHE  plugin cache root, honoured by prereq-check.sh too
+#   HOME                 plugin root ($HOME/.claude/plugins), the same location prereq-check.sh
+#                        and the delivery gate resolve
 #   CC_TUNER_MCP_CMD     command whose stdout is parsed for MCP servers (default: claude mcp list)
 #   CC_TUNER_HOME        home dir for user-level checks (default: $HOME)
 set -u
