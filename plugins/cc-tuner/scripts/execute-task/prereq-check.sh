@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # cc-tuner execute-task: verify the required plugins are installed.
 # One anchor file per plugin is enough — a plugin's skills/commands ship as a unit.
-# Exit 0 if both present; else 1 with install hints. Override cache root via
-# CLAUDE_PLUGIN_CACHE (used by tests).
+# Exit 0 if both present; else 1 with install hints. The plugin root is the same fixed location the
+# delivery gate resolves (lib.sh): a preflight that could be pointed elsewhere cannot promise the
+# gate will find the installation it just approved. Tests move HOME, as the gate's tests do.
 set -u
-CACHE="${CLAUDE_PLUGIN_CACHE:-$HOME/.claude/plugins}"
+CACHE="$HOME/.claude/plugins"
 missing=0
 MANIFEST="$CACHE/installed_plugins.json"
 MANIFEST_MODE="cache"

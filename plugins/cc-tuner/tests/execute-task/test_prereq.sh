@@ -2,7 +2,13 @@
 set -u
 S="$(cd "$(dirname "$0")/../../scripts/execute-task" && pwd)/prereq-check.sh"
 fails=0
-mkroot() { ROOT="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }; }  # fake plugin cache root
+# The gate and prereq-check both read $HOME/.claude/plugins, so a fixture installs by moving HOME
+# rather than through a plugin-specific override — the whole point of the alignment.
+mkroot() {
+  FAKE_HOME="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
+  ROOT="$FAKE_HOME/.claude/plugins"
+  mkdir -p "$ROOT" || { echo "FATAL: mkdir failed"; exit 1; }
+}
 
 MP="cache/mattpocock/mattpocock-skills/1.2.0/skills"
 CCT="cache/cc-codex-triage/cc-codex-triage/0.6.0/commands"
@@ -33,7 +39,7 @@ add_active_codex() {
 
 # all present -> exit 0
 mkroot; add_grilling; add_domain; add_codereview; add_codex
-CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" >/dev/null 2>&1 \
+HOME="$FAKE_HOME" bash "$S" >/dev/null 2>&1 \
   && echo "PASS all-present" || { echo "FAIL all-present"; fails=1; }
 rm -rf "$ROOT"
 
@@ -41,7 +47,7 @@ rm -rf "$ROOT"
 # resurrected from stale cache directories.
 mkroot; add_grilling; add_domain; add_codereview; add_codex
 printf '%s\n' '{"plugins":{}}' > "$ROOT/installed_plugins.json"
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'mattpocock-skills' \
   && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
   && echo "PASS active-manifest-does-not-fallback-to-stale-cache" \
@@ -51,7 +57,7 @@ rm -rf "$ROOT"
 # A malformed manifest also fails closed instead of silently accepting whatever old cache remains.
 mkroot; add_grilling; add_domain; add_codereview; add_codex
 printf '%s\n' '{not-json' > "$ROOT/installed_plugins.json"
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'INVALID:' \
   && printf '%s' "$OUT" | grep -q 'mattpocock-skills' \
   && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
@@ -67,7 +73,7 @@ jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" '{plugins:{
   "mattpocock-skills@mattpocock":[{scope:"user",installPath:$matt}],
   "cc-codex-triage@cc-codex-triage":[{scope:"user",installPath:$codex}]
 }}' > "$ROOT/installed_plugins.json"
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'prereqs OK'; } \
   && echo "PASS active-manifest-roots-pass" \
   || { echo "FAIL active-manifest-roots-pass (rc=$rc out=$OUT)"; fails=1; }
@@ -82,7 +88,7 @@ jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" --arg project "$PROJ
   "mattpocock-skills@mattpocock":[{scope:"project",projectPath:$project,installPath:$matt}],
   "cc-codex-triage@cc-codex-triage":[{scope:"local",projectPath:$project,installPath:$codex}]
 }}' > "$ROOT/installed_plugins.json"
-OUT="$(CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(CLAUDE_PROJECT_DIR="$PROJECT" HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'prereqs OK'; } \
   && echo "PASS matching-project-scopes-pass" \
   || { echo "FAIL matching-project-scopes-pass (rc=$rc out=$OUT)"; fails=1; }
@@ -96,7 +102,7 @@ jq -n --arg matt "$ACTIVE_MATT" --arg codex "$ACTIVE_CODEX" '{plugins:{
   "mattpocock-skills@mattpocock":[{scope:"project",projectPath:"/definitely/another/project",installPath:$matt}],
   "cc-codex-triage@cc-codex-triage":[{scope:"local",projectPath:"/definitely/another/project",installPath:$codex}]
 }}' > "$ROOT/installed_plugins.json"
-OUT="$(CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(CLAUDE_PROJECT_DIR="$PROJECT" HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'mattpocock-skills' \
   && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
   && echo "PASS foreign-project-scopes-fail-closed" \
@@ -106,7 +112,7 @@ rm -rf "$ROOT"
 # A command that advertises required review cannot compensate for stale machine state.
 mkroot; add_grilling; add_domain; add_codereview; add_codex
 printf '%s\n' 'legacy review state' > "${ROOT}/${CCT%/commands}/scripts/review-state.sh"
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q -- '--required'; } \
   && echo "PASS cct-required-state-missing" \
   || { echo "FAIL cct-required-state-missing (rc=$rc out=$OUT)"; fails=1; }
@@ -114,7 +120,7 @@ rm -rf "$ROOT"
 
 # mattpocock-skills missing entirely -> exit exactly 1, and the message names it
 mkroot; add_codex
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'mattpocock-skills'; } \
   && echo "PASS mp-missing" || { echo "FAIL mp-missing (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
@@ -122,21 +128,21 @@ rm -rf "$ROOT"
 # grilling present but the code-review skill absent -> still exit 1. /run phase 4 needs it, and
 # discovering that mid-way through an unattended run is the failure this check exists to prevent.
 mkroot; add_grilling; add_codex
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'code-review'; } \
   && echo "PASS mp-codereview-missing" || { echo "FAIL mp-codereview-missing (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
 
 # domain-modeling is invoked during /spec and must be present before the grilling starts.
 mkroot; add_grilling; add_codereview; add_codex
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'domain-modeling'; } \
   && echo "PASS mp-domain-modeling-missing" || { echo "FAIL mp-domain-modeling-missing (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
 
 # cc-codex-triage missing -> exit exactly 1
 mkroot; add_grilling; add_domain; add_codereview
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
   && echo "PASS cct-missing" || { echo "FAIL cct-missing (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
@@ -145,7 +151,7 @@ rm -rf "$ROOT"
 mkroot; add_grilling; add_domain; add_codereview
 mkdir -p "$ROOT/$CCT"
 printf '%s\n' 'legacy review command' > "$ROOT/$CCT/review.md"
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q -- '--required'; } \
   && echo "PASS cct-required-review-missing" \
   || { echo "FAIL cct-required-review-missing (rc=$rc out=$OUT)"; fails=1; }
@@ -159,7 +165,7 @@ printf '%s\n' 'legacy review command' > "$ACTIVE/commands/review.md"
 jq -n --arg path "$ACTIVE" \
   '{plugins:{"cc-codex-triage@cc-codex-triage":[{installPath:$path}]}}' \
   > "$ROOT/installed_plugins.json"
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q -- '--required'; } \
   && echo "PASS cct-active-version-authoritative" \
   || { echo "FAIL cct-active-version-authoritative (rc=$rc out=$OUT)"; fails=1; }
@@ -169,7 +175,7 @@ rm -rf "$ROOT"
 # Requiring it blocked runs that never invoke it — the regression this guards against is someone
 # re-adding the check because the plugin is still installed on their own machine.
 mkroot; add_grilling; add_domain; add_codereview; add_codex
-OUT="$(CLAUDE_PLUGIN_CACHE="$ROOT" bash "$S" 2>&1)"; rc=$?
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && ! printf '%s' "$OUT" | grep -qi 'superpowers'; } \
   && echo "PASS superpowers-not-required" || { echo "FAIL superpowers-not-required (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$ROOT"
