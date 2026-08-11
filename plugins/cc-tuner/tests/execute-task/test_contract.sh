@@ -116,8 +116,8 @@ else
 fi
 need "run-same-sha-disposition" 'later evidence must name what changed the answer' "$RUN"
 need "run-reviewer-literal-ids" 'literal reviewer id `deep-review`, `mattpocock`, or `codex`' "$RUN"
-need "run-prepared-files-outside-worktree" 'outside the repository worktree' "$RUN"
-need "run-prepared-files-are-not-task-paths" 'not a task path, so the mutation fence permits it' "$RUN"
+need "run-prepared-files-come-from-runctl" 'prepare "$RUN_ID" commit-message' "$RUN"
+need "run-prepared-files-are-fence-scoped" 'the only location the mutation fence permits' "$RUN"
 need "run-required-github-checks" 'reads `gh pr checks --required`' "$RUN"
 need "run-review-fix-invalidates" 'A new commit invalidates all prior testing, acceptance, review, CI, and DoD' "$RUN"
 need "run-explicit-pr-create" 'gh pr create --base "$TARGET" --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"' "$RUN"

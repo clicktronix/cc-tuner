@@ -29,11 +29,14 @@ through `runctl init`, and both refs with `git check-ref-format` before the firs
 command. A value that cannot be carried through a quoted variable, stdin, or a file is a hard stop.
 
 **Prepared files.** `$COMMIT_MESSAGE_FILE` and `$PR_BODY_FILE` carry free-form text that must not
-reach a shell. Write them **outside the repository worktree** — `$TMPDIR` or the session scratch
-directory — with an absolute path. A file inside the worktree would fail the clean tree the candidate
-requires; one outside it is not a task path, so the mutation fence permits it in any phase and you
-can recreate it after a resume. That exemption is exactly as wide as it sounds: a path the fence
-cannot resolve to somewhere outside the repository is refused.
+reach a shell. Ask `runctl` for the path rather than inventing one — it creates the file outside the
+worktree and is the only location the mutation fence permits in a later phase, so a resume recreates
+it the same way:
+
+```bash
+COMMIT_MESSAGE_FILE="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" prepare "$RUN_ID" commit-message)"
+PR_BODY_FILE="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" prepare "$RUN_ID" pr-body)"
+```
 
 At the top of every phase after Phase 0, before any other action:
 
