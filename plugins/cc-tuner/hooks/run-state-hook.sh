@@ -107,7 +107,12 @@ case "$EVENT" in
           case "$TARGET" in
             /*)
               # A link already pointing elsewhere is not a file this run prepared.
-              TARGET_LINKS="$(stat -f %l "$TARGET" 2>/dev/null || stat -c %h "$TARGET" 2>/dev/null || echo unknown)"
+              # GNU stat's -f is --file-system, so `stat -f %l` there does not fail — it treats the
+              # format as a path and the `||` fallback never runs. Try both spellings and accept
+              # only a plain integer, so an unparsed answer stays "unknown" and fails closed.
+              TARGET_LINKS="$(stat -c %h "$TARGET" 2>/dev/null || true)"
+              case "$TARGET_LINKS" in ''|*[!0-9]*) TARGET_LINKS="$(stat -f %l "$TARGET" 2>/dev/null || true)" ;; esac
+              case "$TARGET_LINKS" in ''|*[!0-9]*) TARGET_LINKS=unknown ;; esac
               TARGET_DIR="$(CDPATH='' cd -- "$(dirname -- "$TARGET")" 2>/dev/null && pwd -P || true)"
               if [ "$TARGET_LINKS" = "1" ] && [ "$TARGET_DIR" = "$PREPARED_REAL" ]; then
                 allow
