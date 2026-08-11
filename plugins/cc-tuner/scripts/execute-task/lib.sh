@@ -146,6 +146,43 @@ execute_task_assert_clean_tree() {
   [ -z "$dirty" ] || execute_task_die "working tree must be clean for an immutable candidate"
 }
 
+# Stable scratch ownership for free-form commit/PR text. A run id is repository-local, so the
+# canonical worktree root participates in the namespace; otherwise two repositories with `run-1`
+# would share one file. The returned path is canonical and is rejected before any caller mutates the
+# filesystem when TMPDIR would place it inside the candidate tree.
+execute_task_prepared_dir() {
+  local scratch scratch_real repository_id uid prepared
+  scratch="${TMPDIR:-/tmp}"
+  [ -d "$scratch" ] \
+    || { echo "execute-task: TMPDIR is not an existing directory: $scratch" >&2; return 1; }
+  scratch_real="$(CDPATH='' cd -- "$scratch" 2>/dev/null && pwd -P)" \
+    || { echo "execute-task: cannot canonicalize TMPDIR: $scratch" >&2; return 1; }
+  repository_id="$(printf '%s\n' "$EXECUTE_TASK_ROOT" | git hash-object --stdin 2>/dev/null)"
+  case "$repository_id" in
+    ''|*[!0-9a-f]*) echo "execute-task: cannot derive prepared-file repository identity" >&2; return 1 ;;
+  esac
+  uid="$(id -u 2>/dev/null)"
+  case "$uid" in ''|*[!0-9]*) echo "execute-task: cannot resolve current user id" >&2; return 1 ;; esac
+  prepared="$scratch_real/cc-tuner-prepared-$uid/$repository_id/$EXECUTE_TASK_RUN_ID"
+  case "$prepared" in
+    "$EXECUTE_TASK_ROOT"|"$EXECUTE_TASK_ROOT"/*)
+      echo "execute-task: prepared files must live outside the repository; TMPDIR resolves inside it" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$prepared"
+}
+
+# BSD and GNU stat use different flags. Accept only the numeric answer, never diagnostic or
+# filesystem-report text that happens to come from the wrong spelling.
+execute_task_link_count() {
+  local path="$1" links
+  links="$(stat -c %h "$path" 2>/dev/null || true)"
+  case "$links" in ''|*[!0-9]*) links="$(stat -f %l "$path" 2>/dev/null || true)" ;; esac
+  case "$links" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$links"
+}
+
 # Install paths of a plugin that is ACTIVE for this project, from the manifest Claude Code
 # publishes. It lives here rather than inline because the prerequisite check needs the same selection
 # rule once the DoR/DoD flow lands, and two copies of it would eventually disagree about which

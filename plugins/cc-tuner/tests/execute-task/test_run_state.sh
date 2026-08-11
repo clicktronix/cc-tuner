@@ -642,11 +642,60 @@ esac
 printf 'subject\n' > "$PREPARED"
 [ "$(runctl prepare run-1 commit-message)" = "$PREPARED" ] \
   && pass "prepare-is-stable-across-a-resume" || fail "prepare-is-stable-across-a-resume"
-[ ! -s "$PREPARED" ] && pass "prepare-truncates-a-reused-path" \
-  || fail "prepare-truncates-a-reused-path"
+[ "$(cat "$PREPARED")" = "subject" ] && pass "prepare-does-not-truncate-a-reused-path" \
+  || fail "prepare-does-not-truncate-a-reused-path"
+runctl prepare run-1 arbitrary-note >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && pass "prepare-allows-only-owned-workflow-files" \
+  || fail "prepare-allows-only-owned-workflow-files" "rc=$rc"
 runctl prepare run-1 '../escape' >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "prepare-rejects-a-traversing-name" \
   || fail "prepare-rejects-a-traversing-name" "rc=$rc"
+
+# `prepare` itself is a Bash command, so the hook cannot protect a destination it follows while
+# creating the file. An existing hard link must be rejected without touching its other name.
+PREPARED_DIR="$(dirname "$PREPARED")"
+FILE_BEFORE="$(cat "$REPO/file.txt")"
+ln "$REPO/file.txt" "$PREPARED_DIR/pr-body" 2>/dev/null
+runctl prepare run-1 pr-body >/dev/null 2>&1; rc=$?
+if [ -e "$PREPARED_DIR/pr-body" ]; then
+  { [ "$rc" -eq 1 ] && [ "$(cat "$REPO/file.txt")" = "$FILE_BEFORE" ]; } \
+    && pass "prepare-refuses-a-hard-linked-destination-without-truncating" \
+    || fail "prepare-refuses-a-hard-linked-destination-without-truncating" "rc=$rc"
+  rm -f "$PREPARED_DIR/pr-body"
+else
+  fail "prepare-refuses-a-hard-linked-destination-without-truncating" "could not create fixture"
+fi
+
+# Reject an unsafe scratch root before mkdir or redirection can dirty the candidate tree.
+IN_REPO_TMP="$REPO/in-repo-tmp"
+mkdir -p "$IN_REPO_TMP"
+TMPDIR="$IN_REPO_TMP" runctl prepare run-1 pr-body >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 1 ] && [ -z "$(find "$IN_REPO_TMP" -mindepth 1 -print -quit)" ]; then
+  pass "prepare-rejects-an-in-repo-tmpdir-without-side-effects"
+else
+  fail "prepare-rejects-an-in-repo-tmpdir-without-side-effects" "rc=$rc"
+fi
+
+# A run id is unique only inside one repository. Repository identity must therefore participate in
+# the scratch namespace, or two simultaneous `run-1` lifecycles overwrite one another's text.
+FIRST_REPO="$REPO"
+SECOND_REPO="$(mktemp -d)" || exit 1
+(
+  cd "$SECOND_REPO" && git init -q -b main && git config user.email test@example.com \
+    && git config user.name test && mkdir -p docs && printf 'other\n' > file.txt \
+    && printf '# Spec\n' > docs/spec.md && git add file.txt docs/spec.md \
+    && git commit -qm init && git switch -qc task
+) || exit 1
+CLAUDE_PROJECT_DIR="$SECOND_REPO" bash "$P" run-1 main --expected-branch task >/dev/null \
+  || exit 1
+CLAUDE_PROJECT_DIR="$SECOND_REPO" bash "$R" init run-1 --mode auto --spec docs/spec.md >/dev/null \
+  || exit 1
+SECOND_PREPARED="$(CLAUDE_PROJECT_DIR="$SECOND_REPO" bash "$R" prepare run-1 commit-message)"
+[ "$SECOND_PREPARED" != "$PREPARED" ] && pass "prepared-path-is-repository-bound" \
+  || fail "prepared-path-is-repository-bound" "$SECOND_PREPARED"
+rm -rf "$SECOND_REPO"
+REPO="$FIRST_REPO"
+
 evidence "stop here" block run-1 >/dev/null
 runctl prepare run-1 commit-message >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && pass "prepare-refuses-a-blocked-run" \
@@ -773,6 +822,9 @@ make_repo
 prepare_candidate && approve_all \
   && runctl phase run-1 complete review >/dev/null \
   && runctl phase run-1 enter delivery >/dev/null || exit 1
+DELIVERY_PREPARED="$(runctl prepare run-1 pr-body)"
+printf 'sensitive PR body\n' > "$DELIVERY_PREPARED"
+DELIVERY_PREPARED_DIR="$(dirname "$DELIVERY_PREPARED")"
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 WRONG_SHA="$(git -C "$REPO" rev-parse main)"
 
@@ -850,6 +902,8 @@ evidence "PR merged; issue/spec/branch reconciled" finish run-1 >/dev/null
 [ "$(jq -r '.status + ":" + .phase.name' "$REPO/$RUNS_REL/run-1.state.json")" = "completed:done" ] \
   && [ "$(jq -r '.completion_evidence' "$REPO/$RUNS_REL/run-1.state.json")" = "PR merged; issue/spec/branch reconciled" ] \
   && pass "finish-marks-terminal" || fail "finish-marks-terminal"
+[ ! -e "$DELIVERY_PREPARED" ] && [ ! -d "$DELIVERY_PREPARED_DIR" ] \
+  && pass "finish-removes-prepared-files" || fail "finish-removes-prepared-files"
 rm -rf "$GH_STUB"
 rm -rf "$REPO"
 

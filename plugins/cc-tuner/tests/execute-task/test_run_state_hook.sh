@@ -89,6 +89,13 @@ PREPARED_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_PATH" \
 hook pre-tool-use "$PREPARED_INPUT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && pass "runctl-prepared-path-stays-writable" \
   || fail "runctl-prepared-path-stays-writable" "rc=$rc"
+PREPARED_DIR_REAL="$(dirname "$PREPARED_PATH")"
+printf 'not created by runctl\n' > "$PREPARED_DIR_REAL/unowned"
+UNOWNED_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_DIR_REAL/unowned" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$UNOWNED_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "unowned-file-in-the-prepared-directory-is-fenced" \
+  || fail "unowned-file-in-the-prepared-directory-is-fenced" "rc=$rc"
 # An arbitrary path outside the repository is NOT a prepared file — that permission is what the
 # symlink, hard-link and common-git-directory escapes all rode in on.
 OUTSIDE_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$SCRATCH_DIR/commit-message.txt" \
@@ -103,7 +110,6 @@ hook pre-tool-use "$UNRESOLVABLE_INPUT" >/dev/null 2>&1; rc=$?
   || fail "unresolvable-path-stays-fenced" "rc=$rc"
 # A symlink is resolved by the writing tool, so an outside-repo NAME pointing at a tracked file is
 # still a task-path write.
-PREPARED_DIR_REAL="$(dirname "$PREPARED_PATH")"
 ln -s "$REPO/file.txt" "$PREPARED_DIR_REAL/disguised.txt"
 SYMLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_DIR_REAL/disguised.txt" \
   '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
@@ -118,9 +124,22 @@ if [ -e "$PREPARED_DIR_REAL/hardlinked.txt" ]; then
   hook pre-tool-use "$HARDLINK_INPUT" >/dev/null 2>&1; rc=$?
   [ "$rc" -eq 2 ] && pass "hard-linked-tracked-file-is-fenced" \
     || fail "hard-linked-tracked-file-is-fenced" "rc=$rc"
+  rm -f "$PREPARED_DIR_REAL/hardlinked.txt"
 else
   fail "hard-linked-tracked-file-is-fenced" "could not create the fixture hard link"
 fi
+
+# Replacing the owned directory itself must not turn a repository directory into an allowed scratch
+# location. The final target is deliberately a normal single-link tracked file.
+mv "$PREPARED_DIR_REAL" "$PREPARED_DIR_REAL.saved"
+ln -s "$REPO" "$PREPARED_DIR_REAL"
+DIR_SYMLINK_INPUT="$(jq -cn --arg cwd "$REPO" --arg f "$PREPARED_DIR_REAL/file.txt" \
+  '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f}}')"
+hook pre-tool-use "$DIR_SYMLINK_INPUT" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "symlinked-prepared-directory-is-fenced" \
+  || fail "symlinked-prepared-directory-is-fenced" "rc=$rc"
+unlink "$PREPARED_DIR_REAL"
+mv "$PREPARED_DIR_REAL.saved" "$PREPARED_DIR_REAL"
 
 # "Outside the worktree" is not "harmless". In a LINKED worktree the common Git directory lives
 # outside the worktree entirely, and it holds the reviewer approval state this run's own delivery

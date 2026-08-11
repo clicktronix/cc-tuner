@@ -73,7 +73,11 @@ RUN_ID="$(jq -r '.run_id // empty' "$STATE" 2>/dev/null)"
 [ -n "$RUN_ID" ] || allow
 PLUGIN_ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd || true)"
 RUNCTL="$PLUGIN_ROOT/scripts/execute-task/runctl.sh"
+LIB="$PLUGIN_ROOT/scripts/execute-task/lib.sh"
 [ -x "$RUNCTL" ] || [ -f "$RUNCTL" ] || allow
+[ -f "$LIB" ] || allow
+# shellcheck source=../scripts/execute-task/lib.sh
+. "$LIB" || allow
 if ! CLAUDE_PROJECT_DIR="$GIT_ROOT" bash "$RUNCTL" status "$RUN_ID" >/dev/null 2>&1; then
   case "$EVENT" in
     pre-tool-use) deny_tool "cc-tuner: invalid run state for '$RUN_ID'; refusing merge" ;;
@@ -94,25 +98,25 @@ case "$EVENT" in
         # part of the candidate, cannot reach the tested tree, and must stay writable in the later
         # phases that consume it. Anything inside the repository, or any path this cannot resolve,
         # stays fenced.
-        TARGET="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
         # The only writable place outside implementation is the directory `runctl prepare` owns for
         # this run. Allowing any path outside the repository turned this into a chase — a symlink,
         # then a hard link, then the common Git directory of a linked worktree, which holds the
         # reviewer approval state. One named location ends the chase: the run asks for a path
         # instead of inventing one, and everything else is a task path.
         TARGET="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
-        PREPARED_DIR="${TMPDIR:-/tmp}/cc-tuner-prepared/$RUN_ID"
+        EXECUTE_TASK_ROOT="$GIT_ROOT"
+        EXECUTE_TASK_RUN_ID="$RUN_ID"
+        PREPARED_DIR="$(execute_task_prepared_dir 2>/dev/null || true)"
         PREPARED_REAL="$(CDPATH='' cd -- "$PREPARED_DIR" 2>/dev/null && pwd -P || true)"
-        if [ -n "$TARGET" ] && [ -n "$PREPARED_REAL" ] && [ ! -L "$TARGET" ]; then
+        if [ -n "$TARGET" ] && [ -n "$PREPARED_DIR" ] && [ "$PREPARED_REAL" = "$PREPARED_DIR" ] \
+          && [ ! -L "$PREPARED_DIR" ] && [ ! -L "$TARGET" ]; then
           case "$TARGET" in
-            /*)
+            "$PREPARED_DIR/commit-message"|"$PREPARED_DIR/pr-body")
               # A link already pointing elsewhere is not a file this run prepared.
               # GNU stat's -f is --file-system, so `stat -f %l` there does not fail — it treats the
               # format as a path and the `||` fallback never runs. Try both spellings and accept
               # only a plain integer, so an unparsed answer stays "unknown" and fails closed.
-              TARGET_LINKS="$(stat -c %h "$TARGET" 2>/dev/null || true)"
-              case "$TARGET_LINKS" in ''|*[!0-9]*) TARGET_LINKS="$(stat -f %l "$TARGET" 2>/dev/null || true)" ;; esac
-              case "$TARGET_LINKS" in ''|*[!0-9]*) TARGET_LINKS=unknown ;; esac
+              TARGET_LINKS="$(execute_task_link_count "$TARGET" 2>/dev/null || true)"
               TARGET_DIR="$(CDPATH='' cd -- "$(dirname -- "$TARGET")" 2>/dev/null && pwd -P || true)"
               if [ "$TARGET_LINKS" = "1" ] && [ "$TARGET_DIR" = "$PREPARED_REAL" ]; then
                 allow
