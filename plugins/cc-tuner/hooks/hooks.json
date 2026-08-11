@@ -1,5 +1,41 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-state-hook.sh pre-tool-use",
+            "timeout": 30,
+            "statusMessage": "cc-tuner: checking merge readiness"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-state-hook.sh pre-tool-use",
+            "timeout": 30,
+            "statusMessage": "cc-tuner: checking mutation phase"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-state-hook.sh task-completed",
+            "timeout": 30,
+            "statusMessage": "cc-tuner: checking task evidence"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -8,6 +44,16 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/smoke-verify-hook.sh",
             "timeout": 30,
             "statusMessage": "cc-tuner: checking smoke-verify gate"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-state-hook.sh stop",
+            "timeout": 30,
+            "statusMessage": "cc-tuner: checking run lifecycle"
           }
         ]
       }
