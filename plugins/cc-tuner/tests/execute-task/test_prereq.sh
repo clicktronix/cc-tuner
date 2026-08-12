@@ -13,11 +13,21 @@ mkroot() {
 MP="cache/mattpocock/mattpocock-skills/1.2.0/skills"
 CCT="cache/cc-codex-triage/cc-codex-triage/0.6.0/commands"
 
-add_grilling()    { mkdir -p "$ROOT/$MP/productivity/grilling";   touch "$ROOT/$MP/productivity/grilling/SKILL.md"; }
-add_domain()      { mkdir -p "$ROOT/$MP/engineering/domain-modeling"; touch "$ROOT/$MP/engineering/domain-modeling/SKILL.md"; }
-add_codereview()  { mkdir -p "$ROOT/$MP/engineering/code-review"; touch "$ROOT/$MP/engineering/code-review/SKILL.md"; }
-add_cap()         { mkdir -p "$ROOT/$MP/engineering/$1"; touch "$ROOT/$MP/engineering/$1/SKILL.md"; }
-add_all_caps()    { for c in tdd diagnosing-bugs research prototype; do add_cap "$c"; done; }
+# One list of the skill anchors the registry names, used by both the cache-layout and the
+# active-install fixtures. Three copies of it meant adding a capability required editing all three.
+MATT_SKILL_RELS="productivity/grilling
+engineering/domain-modeling
+engineering/code-review
+engineering/tdd
+engineering/diagnosing-bugs
+engineering/research
+engineering/prototype"
+
+add_cap()         { mkdir -p "$ROOT/$MP/$1"; touch "$ROOT/$MP/$1/SKILL.md"; }
+add_grilling()    { add_cap productivity/grilling; }
+add_domain()      { add_cap engineering/domain-modeling; }
+add_codereview()  { add_cap engineering/code-review; }
+add_all_caps()    { for c in tdd diagnosing-bugs research prototype; do add_cap "engineering/$c"; done; }
 add_codex() {
   mkdir -p "$ROOT/$CCT" "${ROOT}/${CCT%/commands}/scripts"
   printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$ROOT/$CCT/review.md"
@@ -27,21 +37,13 @@ add_codex() {
 # A complete installation carries every capability the registry names. The manifest-resolution cases
 # below assert exit 0, so an incomplete fixture would make them fail for a reason that has nothing to
 # do with the resolution they exist to test.
-MATT_ANCHORS="skills/productivity/grilling
-skills/engineering/domain-modeling
-skills/engineering/code-review
-skills/engineering/tdd
-skills/engineering/diagnosing-bugs
-skills/engineering/research
-skills/engineering/prototype"
-
 add_active_matt() {
   root="$1"
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
-    mkdir -p "$root/$rel"; touch "$root/$rel/SKILL.md"
+    mkdir -p "$root/skills/$rel"; touch "$root/skills/$rel/SKILL.md"
   done <<EOF
-$MATT_ANCHORS
+$MATT_SKILL_RELS
 EOF
 }
 add_active_codex() {
@@ -214,7 +216,7 @@ rm -rf "$ROOT"
 # A conditional method is not a precondition of starting anything; it is verified at the moment it is
 # applied. Both halves are one guarantee, so both are asserted on one fixture.
 mkroot; add_grilling; add_domain; add_codereview; add_codex
-for c in tdd diagnosing-bugs research; do add_cap "$c"; done   # prototype absent
+for c in tdd diagnosing-bugs research; do add_cap "engineering/$c"; done   # prototype absent
 HOME="$FAKE_HOME" bash "$S" --profile spec >/dev/null 2>&1 \
   && HOME="$FAKE_HOME" bash "$S" --profile run >/dev/null 2>&1 \
   && echo "PASS conditional-absence-does-not-break-a-profile" \
@@ -238,7 +240,7 @@ rm -rf "$ROOT"
 
 # No flags is doctor's view: everything recommended, conditionals included.
 mkroot; add_grilling; add_domain; add_codereview; add_codex
-for c in tdd diagnosing-bugs prototype; do add_cap "$c"; done    # research absent
+for c in tdd diagnosing-bugs prototype; do add_cap "engineering/$c"; done    # research absent
 OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'research'; } \
   && echo "PASS default-checks-every-recommended-capability" \
@@ -246,8 +248,10 @@ OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 rm -rf "$ROOT"
 
 # An unknown profile or capability is a usage error. Treating it as "nothing to check" would let a
-# typo in a command file silently disable that command's prerequisites.
-mkroot; add_grilling; add_domain; add_codereview; add_codex; add_all_caps
+# typo in a command file silently disable that command's prerequisites. No fixture: argument parsing
+# rejects these before anything on disk is consulted, and installing skills here would suggest the
+# outcome depended on them.
+mkroot
 HOME="$FAKE_HOME" bash "$S" --profile nonsense >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] \
   && echo "PASS unknown-profile-is-a-usage-error" \

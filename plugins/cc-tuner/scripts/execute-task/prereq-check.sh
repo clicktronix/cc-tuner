@@ -12,22 +12,28 @@
 #   (no flags)           every recommended capability — doctor's view
 set -u
 
-# The single list of capabilities cc-tuner names by hand: capability|scope|anchor|what needs it.
-# `conditional` is a method used only when the situation calls for it, so it belongs to no profile
-# and is verified immediately before use. A second list would eventually disagree with this one about
-# what a command requires, which is exactly the failure the profiles exist to remove.
+# The single list of capabilities cc-tuner names by hand: capability|scope|kind|anchor|what needs it.
+# `conditional` is a method used only when the situation calls for it, so it belongs to no profile and
+# is verified immediately before use. `kind` keeps the Codex required-review contract a row rather
+# than a hand-written exception: an exception is the second list this table exists to remove, and it
+# would be the one place membership could silently disagree with the rest.
 CAPABILITIES="
-grilling|spec|skills/productivity/grilling/SKILL.md|/spec grills the requirements
-domain-modeling|spec|skills/engineering/domain-modeling/SKILL.md|/spec pins vocabulary and writes the ADR
-tdd|run|skills/engineering/tdd/SKILL.md|/run picks the seam the first failing check binds to
-code-review|run|skills/engineering/code-review/SKILL.md|/run Phase 6 reviews the candidate
-diagnosing-bugs|conditional|skills/engineering/diagnosing-bugs/SKILL.md|/spec reproduces a reported defect
-research|conditional|skills/engineering/research/SKILL.md|/spec sources an external fact
-prototype|conditional|skills/engineering/prototype/SKILL.md|/spec settles a contested model
+grilling|spec|skill|skills/productivity/grilling/SKILL.md|/spec grills the requirements
+domain-modeling|spec|skill|skills/engineering/domain-modeling/SKILL.md|/spec pins vocabulary and writes the ADR
+tdd|run|skill|skills/engineering/tdd/SKILL.md|/run picks the seam the first failing check binds to
+code-review|run|skill|skills/engineering/code-review/SKILL.md|/run Phase 6 reviews the candidate
+codex-required-review|run|codex-contract|-|/run verifies an exact-candidate approval before merge
+diagnosing-bugs|conditional|skill|skills/engineering/diagnosing-bugs/SKILL.md|/spec reproduces a reported defect
+research|conditional|skill|skills/engineering/research/SKILL.md|/spec sources an external fact
+prototype|conditional|skill|skills/engineering/prototype/SKILL.md|/spec settles a contested model
 "
 
-capability_known() {
-  printf '%s\n' "$CAPABILITIES" | awk -F'|' -v c="$1" '$1 == c { found = 1 } END { exit !found }'
+# Profiles and capability names are read from the table, so a typo is a usage error instead of a
+# silently empty check set — a command whose prerequisites quietly resolve to nothing is worse than
+# one that will not start.
+registry_has() {  # <field-number> <value>
+  printf '%s\n' "$CAPABILITIES" \
+    | awk -F'|' -v n="$1" -v v="$2" '$n == v { found = 1 } END { exit !found }'
 }
 
 PROFILE=""
@@ -36,14 +42,12 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile)
       [ "$#" -ge 2 ] || { echo "--profile requires a value" >&2; exit 2; }
-      case "$2" in
-        spec|run) PROFILE="$2" ;;
-        *) echo "unknown profile '$2' (expected: spec, run)" >&2; exit 2 ;;
-      esac
-      shift ;;
+      [ "$2" != conditional ] && registry_has 2 "$2" \
+        || { echo "unknown profile '$2'" >&2; exit 2; }
+      PROFILE="$2"; shift ;;
     --capability)
       [ "$#" -ge 2 ] || { echo "--capability requires a value" >&2; exit 2; }
-      capability_known "$2" || { echo "unknown capability '$2'" >&2; exit 2; }
+      registry_has 1 "$2" || { echo "unknown capability '$2'" >&2; exit 2; }
       CAPABILITY="$2"; shift ;;
     *) echo "usage: prereq-check.sh [--profile spec|run] [--capability <name>]" >&2; exit 2 ;;
   esac
@@ -88,16 +92,21 @@ manifest_roots() {
   execute_task_manifest_roots "$MANIFEST" "$1" "$PROJECT_ROOT"
 }
 
+# Resolved once. The roots do not change between capabilities, and resolving per capability meant two
+# jq processes each over the same manifest — seven capabilities paid fourteen spawns to compute one
+# identical answer.
+MATT_ROOTS=""
+[ "$MANIFEST_MODE" = "active" ] && MATT_ROOTS="$(manifest_roots 'mattpocock-skills@mattpocock')"
+
 have_matt_skill() {
-  local relative="$1" root roots
+  local relative="$1" root
   case "$MANIFEST_MODE" in
     active)
-      roots="$(manifest_roots 'mattpocock-skills@mattpocock')"
-      [ -n "$roots" ] || return 1
+      [ -n "$MATT_ROOTS" ] || return 1
       while IFS= read -r root; do
         [ -n "$root" ] && [ -f "$root/$relative" ] && return 0
       done <<EOF
-$roots
+$MATT_ROOTS
 EOF
       return 1
       ;;
@@ -129,33 +138,33 @@ EOF
   return 1
 }
 
-# One pass over the registry. A capability is checked per anchor file rather than once per plugin
-# because the plugin ships them as a unit: a single missing anchor means upstream MOVED that skill,
-# and a phase that silently proceeds without its method is the failure this names.
-while IFS='|' read -r cap scope rel need; do
+# One pass over the registry, membership decided by the table for every row including the Codex
+# contract. A skill capability is checked per anchor file rather than once per plugin because the
+# plugin ships them as a unit: a single missing anchor means upstream MOVED that skill, and a phase
+# that silently proceeds without its method is the failure this names.
+while IFS='|' read -r cap scope kind rel need; do
   [ -n "$cap" ] || continue
   if [ -n "$CAPABILITY" ]; then
     [ "$cap" = "$CAPABILITY" ] || continue
   elif [ -n "$PROFILE" ]; then
     [ "$scope" = "$PROFILE" ] || continue
   fi
-  if ! have_matt_skill "$rel"; then
-    echo "MISSING: mattpocock-skills capability '$cap' — $need" >&2
-    echo "  install/update: /plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock" >&2
-    missing=1
-  fi
+  case "$kind" in
+    skill)
+      have_matt_skill "$rel" && continue
+      echo "MISSING: mattpocock-skills capability '$cap' — $need" >&2
+      echo "  install/update: /plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock" >&2
+      ;;
+    codex-contract)
+      have_required_codex_review && continue
+      echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state) — $need" >&2
+      echo "  install/update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
+      ;;
+    *) echo "INVALID: capability '$cap' has unknown kind '$kind'" >&2 ;;
+  esac
+  missing=1
 done <<EOF
 $CAPABILITIES
 EOF
-
-# The Codex required-review contract is the run profile's, not every command's: /spec has no
-# candidate to review and must not be blocked by a review plugin it never reaches.
-if [ -z "$CAPABILITY" ] && { [ -z "$PROFILE" ] || [ "$PROFILE" = "run" ]; }; then
-  if ! have_required_codex_review; then
-    echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
-    echo "  install/update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
-    missing=1
-  fi
-fi
 
 if [ "$missing" -eq 0 ]; then echo "prereqs OK"; else exit 1; fi
