@@ -86,7 +86,7 @@ plan on the initial run.
 1. Derive one stable run ID from the spec slug using lowercase ASCII letters, digits, `.`, `_`, and
    `-`; keep it unchanged across restarts. Run the companion-plugin check:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh" --profile run
    ```
 2. Read `${CLAUDE_PLUGIN_ROOT}/workflow-contract.json`, the spec, repository instructions, and
    `.claude/execute-task.md`. The spec wins; defaults may fill only blank stable-command fields.

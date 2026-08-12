@@ -122,8 +122,17 @@ reports that and refuses, and only an explicit `runctl.sh unblock` — which jou
 reactivates it. The visible Claude task list is recreated from structured state after compaction
 or resume.
 
-Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
-cc-tuner installs and works standalone without them).
+Requires the **mattpocock-skills** and **cc-codex-triage** plugins, checked per command rather than as
+one list — `/spec` is not blocked by a capability only `/run` reaches:
+
+| command | required |
+|---|---|
+| `/cc-tuner:spec` | `grilling`, `domain-modeling` |
+| `/cc-tuner:run` | `tdd`, `code-review`, and the cc-codex-triage required-review contract |
+| conditional | `diagnosing-bugs`, `research`, `prototype` — verified at the moment they are applied, never as a precondition of starting |
+| `/cc-tuner:setup` doctor | the full recommended set |
+
+cc-tuner installs and works standalone without them.
 
 ## Install
 

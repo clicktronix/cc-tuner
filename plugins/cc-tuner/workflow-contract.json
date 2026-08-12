@@ -150,6 +150,10 @@
     {
       "id": "post-merge-reconciliation-only",
       "requirement": "After merge, only task-lifecycle reconciliation is authorized; deploy, publish, and migration remain forbidden."
+    },
+    {
+      "id": "capability-specific-prerequisites",
+      "requirement": "A command verifies only the capabilities it uses; a conditional method is verified immediately before it is applied, never as a precondition of starting."
     }
   ]
 }

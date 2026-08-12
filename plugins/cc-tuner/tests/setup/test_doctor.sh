@@ -26,15 +26,14 @@ mkenv() { # builds $STUB (PATH) + $CACHE (plugins) + $H (home) + $R (repo)
 }
 tool() { ln -s "$(command -v "$1")" "$STUB/$1" 2>/dev/null || true; }   # expose a real tool
 ghstub() { printf '#!/bin/sh\n[ "$1" = auth ] || exit 0\ncat <<EOF\n  - Token scopes: %s\nEOF\n' "$1" > "$STUB/gh"; chmod +x "$STUB/gh"; }
-plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grilling + code-review) + cc-codex-triage
-  mkdir -p "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling" \
-           "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling" \
-           "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review" \
-           "$CACHE/cache/m/cc-codex-triage/1/commands" \
+plugins_ok() {   # doctor calls prereq-check with no profile, so the fixture carries every capability
+  MP1="$CACHE/cache/m/mattpocock-skills/1/skills"
+  for rel in productivity/grilling engineering/domain-modeling engineering/code-review \
+             engineering/tdd engineering/diagnosing-bugs engineering/research engineering/prototype; do
+    mkdir -p "$MP1/$rel"; touch "$MP1/$rel/SKILL.md"
+  done
+  mkdir -p "$CACHE/cache/m/cc-codex-triage/1/commands" \
            "$CACHE/cache/m/cc-codex-triage/1/scripts"
-  touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
-        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling/SKILL.md" \
-        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md"
   printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
     > "$CACHE/cache/m/cc-codex-triage/1/scripts/review-state.sh"
   printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \

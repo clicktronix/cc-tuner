@@ -16,19 +16,33 @@ CCT="cache/cc-codex-triage/cc-codex-triage/0.6.0/commands"
 add_grilling()    { mkdir -p "$ROOT/$MP/productivity/grilling";   touch "$ROOT/$MP/productivity/grilling/SKILL.md"; }
 add_domain()      { mkdir -p "$ROOT/$MP/engineering/domain-modeling"; touch "$ROOT/$MP/engineering/domain-modeling/SKILL.md"; }
 add_codereview()  { mkdir -p "$ROOT/$MP/engineering/code-review"; touch "$ROOT/$MP/engineering/code-review/SKILL.md"; }
+add_cap()         { mkdir -p "$ROOT/$MP/engineering/$1"; touch "$ROOT/$MP/engineering/$1/SKILL.md"; }
+add_all_caps()    { for c in tdd diagnosing-bugs research prototype; do add_cap "$c"; done; }
 add_codex() {
   mkdir -p "$ROOT/$CCT" "${ROOT}/${CCT%/commands}/scripts"
   printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$ROOT/$CCT/review.md"
   printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
     > "${ROOT}/${CCT%/commands}/scripts/review-state.sh"
 }
+# A complete installation carries every capability the registry names. The manifest-resolution cases
+# below assert exit 0, so an incomplete fixture would make them fail for a reason that has nothing to
+# do with the resolution they exist to test.
+MATT_ANCHORS="skills/productivity/grilling
+skills/engineering/domain-modeling
+skills/engineering/code-review
+skills/engineering/tdd
+skills/engineering/diagnosing-bugs
+skills/engineering/research
+skills/engineering/prototype"
+
 add_active_matt() {
   root="$1"
-  mkdir -p "$root/skills/productivity/grilling" \
-    "$root/skills/engineering/domain-modeling" "$root/skills/engineering/code-review"
-  touch "$root/skills/productivity/grilling/SKILL.md" \
-    "$root/skills/engineering/domain-modeling/SKILL.md" \
-    "$root/skills/engineering/code-review/SKILL.md"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    mkdir -p "$root/$rel"; touch "$root/$rel/SKILL.md"
+  done <<EOF
+$MATT_ANCHORS
+EOF
 }
 add_active_codex() {
   root="$1"
@@ -38,7 +52,7 @@ add_active_codex() {
 }
 
 # all present -> exit 0
-mkroot; add_grilling; add_domain; add_codereview; add_codex
+mkroot; add_grilling; add_domain; add_codereview; add_all_caps; add_codex
 HOME="$FAKE_HOME" bash "$S" >/dev/null 2>&1 \
   && echo "PASS all-present" || { echo "FAIL all-present"; fails=1; }
 rm -rf "$ROOT"
@@ -174,10 +188,74 @@ rm -rf "$ROOT"
 # superpowers is NOT required any more: a cache with no superpowers at all must still pass.
 # Requiring it blocked runs that never invoke it — the regression this guards against is someone
 # re-adding the check because the plugin is still installed on their own machine.
-mkroot; add_grilling; add_domain; add_codereview; add_codex
+mkroot; add_grilling; add_domain; add_codereview; add_all_caps; add_codex
 OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && ! printf '%s' "$OUT" | grep -qi 'superpowers'; } \
   && echo "PASS superpowers-not-required" || { echo "FAIL superpowers-not-required (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# --- capability profiles -------------------------------------------------------------------------
+# A command must not refuse to start over a capability it never uses. `/spec` failing because a Phase
+# 6 review skill moved sends the user to fix something unrelated to what they asked for.
+mkroot; add_grilling; add_domain; add_all_caps            # no code-review, no codex
+HOME="$FAKE_HOME" bash "$S" --profile spec >/dev/null 2>&1 \
+  && echo "PASS profile-spec-ignores-run-capabilities" \
+  || { echo "FAIL profile-spec-ignores-run-capabilities"; fails=1; }
+rm -rf "$ROOT"
+
+# but a capability the profile DOES use is named exactly
+mkroot; add_domain; add_all_caps; add_codereview; add_codex   # no grilling
+OUT="$(HOME="$FAKE_HOME" bash "$S" --profile spec 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'grilling'; } \
+  && echo "PASS profile-spec-names-the-missing-capability" \
+  || { echo "FAIL profile-spec-names-the-missing-capability (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# A conditional method is not a precondition of starting anything; it is verified at the moment it is
+# applied. Both halves are one guarantee, so both are asserted on one fixture.
+mkroot; add_grilling; add_domain; add_codereview; add_codex
+for c in tdd diagnosing-bugs research; do add_cap "$c"; done   # prototype absent
+HOME="$FAKE_HOME" bash "$S" --profile spec >/dev/null 2>&1 \
+  && HOME="$FAKE_HOME" bash "$S" --profile run >/dev/null 2>&1 \
+  && echo "PASS conditional-absence-does-not-break-a-profile" \
+  || { echo "FAIL conditional-absence-does-not-break-a-profile"; fails=1; }
+OUT="$(HOME="$FAKE_HOME" bash "$S" --capability prototype 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'prototype'; } \
+  && echo "PASS capability-check-names-the-conditional" \
+  || { echo "FAIL capability-check-names-the-conditional (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# The Codex required-review contract belongs to the run profile, not to every command.
+mkroot; add_grilling; add_domain; add_codereview; add_all_caps   # no codex
+OUT="$(HOME="$FAKE_HOME" bash "$S" --profile run 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'cc-codex-triage'; } \
+  && echo "PASS profile-run-requires-the-codex-contract" \
+  || { echo "FAIL profile-run-requires-the-codex-contract (rc=$rc out=$OUT)"; fails=1; }
+HOME="$FAKE_HOME" bash "$S" --profile spec >/dev/null 2>&1 \
+  && echo "PASS profile-spec-does-not-require-the-codex-contract" \
+  || { echo "FAIL profile-spec-does-not-require-the-codex-contract"; fails=1; }
+rm -rf "$ROOT"
+
+# No flags is doctor's view: everything recommended, conditionals included.
+mkroot; add_grilling; add_domain; add_codereview; add_codex
+for c in tdd diagnosing-bugs prototype; do add_cap "$c"; done    # research absent
+OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'research'; } \
+  && echo "PASS default-checks-every-recommended-capability" \
+  || { echo "FAIL default-checks-every-recommended-capability (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# An unknown profile or capability is a usage error. Treating it as "nothing to check" would let a
+# typo in a command file silently disable that command's prerequisites.
+mkroot; add_grilling; add_domain; add_codereview; add_codex; add_all_caps
+HOME="$FAKE_HOME" bash "$S" --profile nonsense >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] \
+  && echo "PASS unknown-profile-is-a-usage-error" \
+  || { echo "FAIL unknown-profile-is-a-usage-error (rc=$rc)"; fails=1; }
+HOME="$FAKE_HOME" bash "$S" --capability nonsense >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] \
+  && echo "PASS unknown-capability-is-a-usage-error" \
+  || { echo "FAIL unknown-capability-is-a-usage-error (rc=$rc)"; fails=1; }
 rm -rf "$ROOT"
 
 exit $fails

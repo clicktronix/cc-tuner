@@ -14,7 +14,7 @@ RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # "the contract changed — was codex-tuner updated in the same breath?", not as proof that it was.
 # Known divergence at the time of writing: codex-tuner carries contract 1.1.0 with 14 invariants,
 # this repo carries 2.0.0 with 25. Re-syncing it is a coordinated cross-repository change.
-EXPECTED_SHARED_CONTRACT_SHA256="7a4fdb14d2b4ff94b3701f2e0eb344f5333e9a460e5bf8942205847c30216906"
+EXPECTED_SHARED_CONTRACT_SHA256="2985de28a6495bdd77960a9dd66894d9fc6840f7a0b9d2d8e2087ae32baca777"
 fails=0
 
 need() {
@@ -65,9 +65,9 @@ jq -e '
     "infrastructure, CI, deployment, and release configuration",
     "security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and server-side allowlists"
   ] and
-  (.invariants | length) == 25 and
-  ([.invariants[].id] | unique | length) == 25 and
-  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "reviewer-hard-stop-is-not-approval", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only"])) and
+  (.invariants | length) == 26 and
+  ([.invariants[].id] | unique | length) == 26 and
+  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "reviewer-hard-stop-is-not-approval", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only", "capability-specific-prerequisites"])) and
   all(.invariants[]; (keys == ["id", "requirement"]) and (.requirement | length > 0))
 ' "$CONTRACT" >/dev/null 2>&1 \
   && echo "PASS semantic-contract" || { echo "FAIL semantic-contract"; fails=1; }

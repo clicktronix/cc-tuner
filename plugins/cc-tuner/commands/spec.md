@@ -14,7 +14,7 @@ decisions. This command owns discovery and readiness; `/run` owns delivery.
 
 ```bash
 git rev-parse --show-toplevel || { echo "not a git repo"; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh" --profile spec
 ```
 
 Read, in order:
