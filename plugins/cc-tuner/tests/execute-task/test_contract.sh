@@ -74,6 +74,13 @@ jq -e '
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
 need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC"
+# A method is placed by what it writes, not by topic. Readiness runs before the task branch exists,
+# so anything a method writes there lands on the integration branch.
+need "spec-diagnosing-bugs-is-read-only-in-readiness" 'read-only reproduction' "$SPEC"
+need "spec-prototype-is-workspace-scoped" 'disposable workspace' "$SPEC"
+need "spec-domain-modeling-writes-after-the-branch" 'ADR or glossary file is written only after §4' "$SPEC"
+need "spec-does-not-run-tdd" 'Do not run `mattpocock-skills:tdd` here' "$SPEC"
+need "spec-conditional-capability-is-checked-before-use" 'prereq-check.sh" --capability' "$SPEC"
 need "spec-dor" '## Definition of Ready' "$SPEC"
 need "spec-first-failing-check" 'First failing check: <exact command>; expected failure:' "$SPEC"
 need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC"

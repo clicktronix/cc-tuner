@@ -32,14 +32,26 @@ Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` f
 current dependency documentation through Context7 as questions arise. Ask one question at a time
 until the answer no longer changes the draft.
 
-Resolve before calling the task ready:
+Resolve before calling the task ready, each through the method named with it. A conditional method is
+verified at the moment it is applied, not at preflight:
 
-- the observed problem or desired user outcome;
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/prereq-check.sh" --capability <name>
+```
+
+- the observed problem or desired user outcome — for a reported defect run
+  `mattpocock-skills:diagnosing-bugs` as a **read-only reproduction**: read, run, and observe until the
+  failure reproduces. If diagnosis needs edits to proceed, make them in a disposable workspace and
+  discard it; readiness owns no branch that may hold them;
 - architecture ownership, boundaries, and affected consumers;
 - explicit scope and rejected alternatives;
 - acceptance evidence;
-- the first failing regression check or an honest non-code baseline;
-- targeted and full verification commands, environment, fixtures, and external dependencies.
+- the first failing regression check or an honest non-code baseline — record the command and the
+  failure it is expected to produce. Do not run `mattpocock-skills:tdd` here: it writes tests, and
+  until §4 there is no task branch to write them on. It belongs to `/run`'s implementation phase;
+- targeted and full verification commands, environment, fixtures, and external dependencies — when an
+  external API or version fact decides the answer, run `mattpocock-skills:research` for a primary
+  source instead of asserting it. Context7 stays the route for dependency documentation.
 
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec
 is not ready.
@@ -57,6 +69,18 @@ stops for the human step, while `--auto` rejects the spec in Phase 0.
 
 More than one PR, more than one repo, or independently reviewed phases require an epic with native
 sub-issues and one spec per sub-issue. Otherwise use one issue and one task branch.
+
+### Where a method may write
+
+Everything above §4 runs before this task owns a branch, so whatever a method writes there lands on
+the integration branch. Two methods write, and both are constrained:
+
+- `mattpocock-skills:prototype` — only when a state model, reducer, schema, or UI shape is still
+  contested after the grill, and only in a **disposable workspace**: a scratch directory or throwaway
+  worktree, removed afterwards. Carry only the fragment that encodes the decision into §5 and say it
+  came from a prototype. A prototype is never committed to any branch of this repository.
+- `mattpocock-skills:domain-modeling` — used for vocabulary throughout the grill, but
+  an ADR or glossary file is written only after §4, on the task branch this spec owns.
 
 ## 4. Create the task branch
 
