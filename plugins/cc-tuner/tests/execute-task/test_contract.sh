@@ -5,6 +5,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 SPEC="$ROOT/plugins/cc-tuner/commands/spec.md"
 RUN="$ROOT/plugins/cc-tuner/commands/run.md"
+PLAN="$ROOT/plugins/cc-tuner/commands/plan.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 CONFIG="$ROOT/plugins/cc-tuner/assets/execute-task/config.template.md"
 CONTRACT="$ROOT/plugins/cc-tuner/workflow-contract.json"
@@ -13,8 +14,8 @@ RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # compared against the file it pins, so it cannot observe the sibling at all. Treat a failure here as
 # "the contract changed — was codex-tuner updated in the same breath?", not as proof that it was.
 # Known divergence at the time of writing: codex-tuner carries contract 1.1.0 with 14 invariants,
-# this repo carries 2.0.0 with 26. Re-syncing it is a coordinated cross-repository change.
-EXPECTED_SHARED_CONTRACT_SHA256="2985de28a6495bdd77960a9dd66894d9fc6840f7a0b9d2d8e2087ae32baca777"
+# this repo carries 2.0.0 with 30. Re-syncing it is a coordinated cross-repository change.
+EXPECTED_SHARED_CONTRACT_SHA256="e45c0cfaf77d0ca9f894dcf5461dbedb31a349fe4545bb2889315f68ec87f124"
 fails=0
 
 need() {
@@ -65,12 +66,35 @@ jq -e '
     "infrastructure, CI, deployment, and release configuration",
     "security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and server-side allowlists"
   ] and
-  (.invariants | length) == 26 and
-  ([.invariants[].id] | unique | length) == 26 and
-  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "reviewer-hard-stop-is-not-approval", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only", "capability-specific-prerequisites"])) and
+  (.invariants | length) == 30 and
+  ([.invariants[].id] | unique | length) == 30 and
+  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "reviewer-hard-stop-is-not-approval", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only", "capability-specific-prerequisites", "canonical-plan-before-mutation", "task-dependencies-live-in-run-state", "visible-plan-is-a-recoverable-projection", "only-frontier-tasks-may-start"])) and
   all(.invariants[]; (keys == ["id", "requirement"]) and (.requirement | length > 0))
 ' "$CONTRACT" >/dev/null 2>&1 \
   && echo "PASS semantic-contract" || { echo "FAIL semantic-contract"; fails=1; }
+
+# /cc-tuner:plan is the one model-invocable cc-tuner command, so the stop before implementation has to
+# be a property of the command rather than a rule about who typed it.
+[ -f "$PLAN" ] && echo "PASS plan-command-exists" || { echo "FAIL plan-command-exists"; fails=1; }
+if [ -f "$PLAN" ]; then
+  need "plan-is-model-invocable" 'disable-model-invocation: false' "$PLAN"
+  need "plan-stops-before-implementation" 'stops here regardless of who invoked it' "$PLAN"
+  need "plan-verifies-its-profile" 'prereq-check.sh" --profile plan' "$PLAN"
+  need "plan-uses-codebase-design" 'mattpocock-skills:codebase-design' "$PLAN"
+  need "plan-writes-through-prepare" 'prepare "$RUN_ID" plan' "$PLAN"
+  need "plan-imports-atomically" 'plan "$RUN_ID" import' "$PLAN"
+  need "plan-publishes-the-graph" 'plan "$RUN_ID" publish' "$PLAN"
+  need "plan-binds-visible-tasks" 'task "$RUN_ID" bind-ui' "$PLAN"
+  need "plan-expand-contract-for-wide-refactors" 'expand → migrate → contract' "$PLAN"
+  need "plan-slices-are-vertical" 'vertical slice' "$PLAN"
+fi
+
+# The flow is spec -> plan -> run. `/run` materializing a graph it did not author is what stops it from
+# re-deriving one from prose on every resume.
+need "spec-hands-off-to-plan" '/cc-tuner:plan' "$SPEC"
+need "run-materializes-the-published-graph" 'materializes the published graph' "$RUN"
+need "run-does-not-replan-on-resume" 'never re-derives the graph from prose' "$RUN"
+need "run-recreates-lost-visible-tasks" 're-created and re-bound' "$RUN"
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
 need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC"
@@ -93,8 +117,11 @@ need "run-structured-state" 'runctl.sh` is the source of truth' "$RUN"
 need "run-exact-phase-completion" 'phase "$RUN_ID" complete "$PHASE"' "$RUN"
 need "run-safe-journal-stdin" "<<'CC_TUNER_EVIDENCE'" "$RUN"
 need "run-owned-preflight" '--expected-branch "$BRANCH"' "$RUN"
-need "run-visible-task-plan" 'create the visible Claude task plan with `TaskCreate`' "$RUN"
-need "run-task-state-binding" '--ui-task-id "$CLAUDE_TASK_ID"' "$RUN"
+# Both re-anchored when Phase 1 stopped authoring the plan: the guarantees are unchanged — a visible
+# task exists for every graph task, and each is bound to structured state — but the mechanism moved
+# from `task add --ui-task-id` to reconciliation plus `bind-ui`.
+need "run-visible-task-plan" '`TaskCreate` the visible task if `TaskList` has none bound to it' "$RUN"
+need "run-task-state-binding" 'bind-ui "$TASK_ID" "$CLAUDE_TASK_ID"' "$RUN"
 need "run-safe-shell-data" 'spec, issue, Git, or reviewer as data: pass them as quoted arguments' "$RUN"
 need "run-implementation-only-parallel" 'Parallelize only independent code-writing units' "$RUN"
 need "run-isolated-worktrees" 'use one isolated git worktree per unit' "$RUN"

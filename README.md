@@ -11,7 +11,13 @@ Skills:
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
 
-The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria; **`/cc-tuner:run [--auto] <spec>`** continues that branch through implementation, PR, CI, and merge. Without `--auto` it stops at phase boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
+The task loop is three commands, deliberately split by what each one owns:
+
+1. **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria — *what* to build.
+2. **`/cc-tuner:plan <spec>`** turns that spec into the canonical task graph: vertical slices with owned paths, acceptance, deciding checks, and blocking edges, imported into run state in one atomic write and published as a visible task list. It stops before implementation — *how* the work is cut.
+3. **`/cc-tuner:run [--auto] <spec>`** materializes the published graph and continues the branch through implementation, PR, CI, and merge — *delivery*. It never re-derives the graph from prose, and it takes work only from the frontier: a task starts when every task it is blocked by has completed and a visible task is bound to it.
+
+Without `--auto` it stops at phase boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
 
 ## Why this exists

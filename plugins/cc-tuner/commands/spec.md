@@ -165,7 +165,14 @@ Commit. When `tracker: gh`, create or update the issue so it and the spec link t
 
 ## 6. Hand off
 
-Print the spec path and one appropriate next command:
+Print the spec path and the next command. Planning comes next, not delivery: `/cc-tuner:plan` turns
+this spec into the task graph `/cc-tuner:run` executes, and it stops before implementation.
+
+```text
+/cc-tuner:plan docs/PLANS/2026-07-31-thing.md
+```
+
+Then, once the graph is published:
 
 ```text
 /cc-tuner:run docs/PLANS/2026-07-31-thing.md

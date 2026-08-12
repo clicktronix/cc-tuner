@@ -113,31 +113,30 @@ Continue directly to Phase 1.
 
 ## Phase 1 — publish the execution plan
 
-Resume state and enter `planning`. Before editing, generating, staging, or delegating any task path,
-create the visible Claude task plan with `TaskCreate`.
-
-Create one task for every independently verifiable implementation unit, followed by tasks for:
-
-1. Testing & Code Verification;
-2. acceptance evidence;
-3. candidate finalization and commit;
-4. deep-review, mattpocock review, and Codex approval;
-5. PR plus current-SHA CI;
-6. Definition of Done, merge, and reconciliation.
-
-Create the tasks first, then set their `blockedBy` dependencies with `TaskUpdate` to reflect this
-order. Capture every returned Claude task ID and bind it to structured state; descriptions go through
-stdin:
+Resume state and enter `planning`. This phase **materializes the published graph**; it does not author
+one. `/cc-tuner:plan` owns decomposition, and this command **never re-derives the graph from prose** —
+neither from the spec's task list nor from journal text, and not on any resume.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task "$RUN_ID" add "$TASK_ID" "$TASK_PHASE" --ui-task-id "$CLAUDE_TASK_ID" <<'CC_TUNER_TASK'
-<scope, owned paths, acceptance slice, and deciding checks>
-CC_TUNER_TASK
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" plan "$RUN_ID" frontier
 ```
 
-Use `TaskUpdate` and `runctl task start|complete|block` together from now on. Never substitute prose,
-the spec Tasks list, or journal text for this UI plan. On resume, reconcile `TaskList` against
-`runctl status`; structured state wins and missing visible tasks are recreated and rebound.
+If that reports no graph, invoke `/cc-tuner:plan` for this spec and continue once it has published.
+Before editing, generating, staging, or delegating any task path, the graph must be imported and
+published — that is `canonical-plan-before-mutation`.
+
+Reconcile the visible plan against the graph, in this direction only: structured state wins. For every
+graph task, `TaskCreate` the visible task if `TaskList` has none bound to it, mirror `blocked_by` with
+`TaskUpdate`'s `blockedBy`, and bind the returned id:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/execute-task/runctl.sh" task "$RUN_ID" bind-ui "$TASK_ID" "$CLAUDE_TASK_ID"
+```
+
+A visible task that went missing is **re-created and re-bound**; one whose graph task is already
+`completed` is not re-created as pending. Losing the visible list costs a reconciliation pass, never
+the run. From here on use `TaskUpdate` and `runctl task start|complete|block` together, and take work
+only from `plan frontier` — `task start` refuses anything else and names why.
 
 Complete `planning`, then apply the HITL boundary.
 

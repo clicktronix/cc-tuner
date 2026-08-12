@@ -154,6 +154,22 @@
     {
       "id": "capability-specific-prerequisites",
       "requirement": "A command verifies only the capabilities it uses; a conditional method is verified immediately before it is applied, never as a precondition of starting."
+    },
+    {
+      "id": "canonical-plan-before-mutation",
+      "requirement": "No task path is mutated before the run task graph is imported and published."
+    },
+    {
+      "id": "task-dependencies-live-in-run-state",
+      "requirement": "Task dependencies are validated and enforced in run state; a dependency recorded only in prose or in the visible task list does not exist."
+    },
+    {
+      "id": "visible-plan-is-a-recoverable-projection",
+      "requirement": "The visible task list projects run state and is re-created and re-bound when lost; missing review, test, or CI evidence still blocks."
+    },
+    {
+      "id": "only-frontier-tasks-may-start",
+      "requirement": "A task starts only when every task it is blocked by has completed and a visible task is bound to it."
     }
   ]
 }
