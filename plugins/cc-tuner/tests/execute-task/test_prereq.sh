@@ -18,6 +18,7 @@ CCT="cache/cc-codex-triage/cc-codex-triage/0.6.0/commands"
 MATT_SKILL_RELS="productivity/grilling
 engineering/domain-modeling
 engineering/code-review
+engineering/codebase-design
 engineering/tdd
 engineering/diagnosing-bugs
 engineering/research
@@ -27,7 +28,7 @@ add_cap()         { mkdir -p "$ROOT/$MP/$1"; touch "$ROOT/$MP/$1/SKILL.md"; }
 add_grilling()    { add_cap productivity/grilling; }
 add_domain()      { add_cap engineering/domain-modeling; }
 add_codereview()  { add_cap engineering/code-review; }
-add_all_caps()    { for c in tdd diagnosing-bugs research prototype; do add_cap "engineering/$c"; done; }
+add_all_caps()    { for c in tdd codebase-design diagnosing-bugs research prototype; do add_cap "engineering/$c"; done; }
 add_codex() {
   mkdir -p "$ROOT/$CCT" "${ROOT}/${CCT%/commands}/scripts"
   printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$ROOT/$CCT/review.md"
@@ -245,6 +246,21 @@ OUT="$(HOME="$FAKE_HOME" bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'research'; } \
   && echo "PASS default-checks-every-recommended-capability" \
   || { echo "FAIL default-checks-every-recommended-capability (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$ROOT"
+
+# The plan profile carries its own method. Adding a row to the table is all it takes for the profile
+# to exist — that is what the table being the only source of membership buys.
+# Everything except codebase-design, listed rather than taken from add_all_caps: that helper carries
+# the whole set, so using it here would install the very capability this case removes.
+mkroot; add_grilling; add_domain; add_codereview; add_codex
+for c in tdd diagnosing-bugs research prototype; do add_cap "engineering/$c"; done
+OUT="$(HOME="$FAKE_HOME" bash "$S" --profile plan 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && printf '%s' "$OUT" | grep -q 'codebase-design'; } \
+  && echo "PASS profile-plan-requires-codebase-design" \
+  || { echo "FAIL profile-plan-requires-codebase-design (rc=$rc out=$OUT)"; fails=1; }
+HOME="$FAKE_HOME" bash "$S" --profile spec >/dev/null 2>&1 \
+  && echo "PASS profile-spec-does-not-require-codebase-design" \
+  || { echo "FAIL profile-spec-does-not-require-codebase-design"; fails=1; }
 rm -rf "$ROOT"
 
 # An unknown profile or capability is a usage error. Treating it as "nothing to check" would let a

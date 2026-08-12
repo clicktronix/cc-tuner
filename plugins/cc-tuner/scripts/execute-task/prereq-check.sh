@@ -20,6 +20,7 @@ set -u
 CAPABILITIES="
 grilling|spec|skill|skills/productivity/grilling/SKILL.md|/spec grills the requirements
 domain-modeling|spec|skill|skills/engineering/domain-modeling/SKILL.md|/spec pins vocabulary and writes the ADR
+codebase-design|plan|skill|skills/engineering/codebase-design/SKILL.md|/plan places seams and module ownership
 tdd|run|skill|skills/engineering/tdd/SKILL.md|/run picks the seam the first failing check binds to
 code-review|run|skill|skills/engineering/code-review/SKILL.md|/run Phase 6 reviews the candidate
 codex-required-review|run|codex-contract|-|/run verifies an exact-candidate approval before merge

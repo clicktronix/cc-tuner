@@ -29,7 +29,7 @@ ghstub() { printf '#!/bin/sh\n[ "$1" = auth ] || exit 0\ncat <<EOF\n  - Token sc
 plugins_ok() {   # doctor calls prereq-check with no profile, so the fixture carries every capability
   MP1="$CACHE/cache/m/mattpocock-skills/1/skills"
   for rel in productivity/grilling engineering/domain-modeling engineering/code-review \
-             engineering/tdd engineering/diagnosing-bugs engineering/research engineering/prototype; do
+             engineering/tdd engineering/codebase-design engineering/diagnosing-bugs engineering/research engineering/prototype; do
     mkdir -p "$MP1/$rel"; touch "$MP1/$rel/SKILL.md"
   done
   mkdir -p "$CACHE/cache/m/cc-codex-triage/1/commands" \
