@@ -33,29 +33,70 @@
     "updated_at"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "run_id": { "$ref": "#/$defs/id" },
-    "mode": { "enum": ["interactive", "auto"] },
-    "status": { "enum": ["active", "blocked", "completed"] },
-    "blocked_reason": { "type": ["string", "null"] },
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "run_id": {
+      "$ref": "#/$defs/id"
+    },
+    "mode": {
+      "enum": [
+        "interactive",
+        "auto"
+      ]
+    },
+    "status": {
+      "enum": [
+        "active",
+        "blocked",
+        "completed"
+      ]
+    },
+    "blocked_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "spec": {
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "string",
           "pattern": "^[a-zA-Z0-9_./-]+$",
-          "not": { "pattern": "^\\./" }
+          "not": {
+            "pattern": "^\\./"
+          }
         }
       ]
     },
-    "branch": { "type": "string", "minLength": 1 },
-    "target_ref": { "type": "string", "minLength": 1 },
-    "target_sha": { "$ref": "#/$defs/sha" },
-    "base_sha": { "type": "string", "minLength": 1 },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_sha": {
+      "$ref": "#/$defs/sha"
+    },
+    "base_sha": {
+      "type": "string",
+      "minLength": 1
+    },
     "phase": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "status"],
+      "required": [
+        "name",
+        "status"
+      ],
       "properties": {
         "name": {
           "enum": [
@@ -70,55 +111,110 @@
             "done"
           ]
         },
-        "status": { "enum": ["in_progress", "completed"] }
+        "status": {
+          "enum": [
+            "in_progress",
+            "completed"
+          ]
+        }
       }
     },
     "completed_phases": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "tasks": {
       "type": "array",
-      "items": { "$ref": "#/$defs/task" }
+      "items": {
+        "$ref": "#/$defs/task"
+      }
     },
     "gates": {
       "type": "array",
-      "items": { "$ref": "#/$defs/gate" }
+      "items": {
+        "$ref": "#/$defs/gate"
+      }
     },
     "required_reviewers": {
-      "const": ["deep-review", "mattpocock", "codex"]
+      "const": [
+        "deep-review",
+        "mattpocock",
+        "codex"
+      ]
     },
     "reviews": {
       "type": "array",
-      "items": { "$ref": "#/$defs/review" }
+      "items": {
+        "$ref": "#/$defs/review"
+      }
     },
     "review_history": {
       "type": "array",
-      "items": { "$ref": "#/$defs/review" }
+      "items": {
+        "$ref": "#/$defs/review"
+      }
     },
     "candidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sha", "tree_sha", "recorded_at"],
+      "required": [
+        "sha",
+        "tree_sha",
+        "recorded_at"
+      ],
       "properties": {
-        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
-        "tree_sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
-        "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
+        "sha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tree_sha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        }
       },
       "oneOf": [
         {
           "properties": {
-            "sha": { "type": "null" },
-            "tree_sha": { "type": "null" },
-            "recorded_at": { "type": "null" }
+            "sha": {
+              "type": "null"
+            },
+            "tree_sha": {
+              "type": "null"
+            },
+            "recorded_at": {
+              "type": "null"
+            }
           }
         },
         {
           "properties": {
-            "sha": { "$ref": "#/$defs/sha" },
-            "tree_sha": { "$ref": "#/$defs/sha" },
-            "recorded_at": { "$ref": "#/$defs/timestamp" }
+            "sha": {
+              "$ref": "#/$defs/sha"
+            },
+            "tree_sha": {
+              "$ref": "#/$defs/sha"
+            },
+            "recorded_at": {
+              "$ref": "#/$defs/timestamp"
+            }
           }
         }
       ]
@@ -126,83 +222,230 @@
     "ci": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "sha", "pr_number", "evidence", "recorded_at"],
+      "required": [
+        "status",
+        "sha",
+        "pr_number",
+        "evidence",
+        "recorded_at"
+      ],
       "properties": {
-        "status": { "enum": ["pending", "success", "failure"] },
-        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
-        "pr_number": { "type": ["integer", "null"], "minimum": 1 },
-        "evidence": { "type": ["string", "null"] },
-        "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
+        "status": {
+          "enum": [
+            "pending",
+            "success",
+            "failure"
+          ]
+        },
+        "sha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pr_number": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        }
       },
       "oneOf": [
         {
           "properties": {
-            "status": { "const": "pending" },
-            "sha": { "type": "null" },
-            "pr_number": { "type": "null" },
-            "evidence": { "type": "null" },
-            "recorded_at": { "type": "null" }
+            "status": {
+              "const": "pending"
+            },
+            "sha": {
+              "type": "null"
+            },
+            "pr_number": {
+              "type": "null"
+            },
+            "evidence": {
+              "type": "null"
+            },
+            "recorded_at": {
+              "type": "null"
+            }
           }
         },
         {
           "properties": {
-            "status": { "const": "success" },
-            "sha": { "$ref": "#/$defs/sha" },
-            "pr_number": { "type": "integer", "minimum": 1 },
-            "evidence": { "type": "string", "minLength": 1 },
-            "recorded_at": { "$ref": "#/$defs/timestamp" }
+            "status": {
+              "const": "success"
+            },
+            "sha": {
+              "$ref": "#/$defs/sha"
+            },
+            "pr_number": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recorded_at": {
+              "$ref": "#/$defs/timestamp"
+            }
           }
         },
         {
           "properties": {
-            "status": { "const": "failure" },
-            "sha": { "$ref": "#/$defs/sha" },
-            "pr_number": { "type": "null" },
-            "evidence": { "type": "string", "minLength": 1 },
-            "recorded_at": { "$ref": "#/$defs/timestamp" }
+            "status": {
+              "const": "failure"
+            },
+            "sha": {
+              "$ref": "#/$defs/sha"
+            },
+            "pr_number": {
+              "type": "null"
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recorded_at": {
+              "$ref": "#/$defs/timestamp"
+            }
           }
         }
       ]
     },
-    "completed_at": { "$ref": "#/$defs/nullableTimestamp" },
-    "completion_evidence": { "type": ["string", "null"] },
-    "fix_round": { "type": "integer", "minimum": 0, "maximum": 999999 },
+    "completed_at": {
+      "$ref": "#/$defs/nullableTimestamp"
+    },
+    "completion_evidence": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fix_round": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 999999
+    },
     "invalidations": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["at", "reason", "candidate_sha"],
+        "required": [
+          "at",
+          "reason",
+          "candidate_sha"
+        ],
         "properties": {
-          "at": { "$ref": "#/$defs/timestamp" },
-          "reason": { "type": "string", "minLength": 1 },
-          "candidate_sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] }
+          "at": {
+            "$ref": "#/$defs/timestamp"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidate_sha": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/sha"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       }
     },
-    "created_at": { "$ref": "#/$defs/timestamp" },
-    "updated_at": { "$ref": "#/$defs/timestamp" }
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "status": { "const": "blocked" } } },
-      "then": { "properties": { "blocked_reason": { "type": "string", "minLength": 1 } } },
-      "else": { "properties": { "blocked_reason": { "type": "null" } } }
-    },
-    {
-      "if": { "properties": { "status": { "const": "completed" } } },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        }
+      },
       "then": {
         "properties": {
-          "phase": { "const": { "name": "done", "status": "completed" } },
-          "completion_evidence": { "type": "string", "minLength": 1 },
-          "completed_at": { "$ref": "#/$defs/timestamp" }
+          "blocked_reason": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "else": {
         "properties": {
-          "phase": { "properties": { "name": { "not": { "const": "done" } } } },
-          "completion_evidence": { "type": "null" },
-          "completed_at": { "type": "null" }
+          "blocked_reason": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "phase": {
+            "const": {
+              "name": "done",
+              "status": "completed"
+            }
+          },
+          "completion_evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "completed_at": {
+            "$ref": "#/$defs/timestamp"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "phase": {
+            "properties": {
+              "name": {
+                "not": {
+                  "const": "done"
+                }
+              }
+            }
+          },
+          "completion_evidence": {
+            "type": "null"
+          },
+          "completed_at": {
+            "type": "null"
+          }
         }
       }
     }
@@ -221,47 +464,203 @@
       "format": "date-time"
     },
     "nullableTimestamp": {
-      "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "task": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "phase", "description", "status", "ui_task_id", "evidence", "updated_at"],
+      "required": [
+        "id",
+        "title",
+        "phase",
+        "description",
+        "delivers",
+        "owned_paths",
+        "acceptance",
+        "checks",
+        "blocked_by",
+        "status",
+        "ui_task_id",
+        "evidence",
+        "updated_at"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/id" },
-        "phase": {
-          "enum": ["implementation", "testing", "acceptance", "candidate", "review", "delivery"]
+        "id": {
+          "$ref": "#/$defs/id"
         },
-        "description": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["pending", "in_progress", "blocked", "completed"] },
-        "ui_task_id": { "type": ["string", "null"] },
-        "evidence": { "type": ["string", "null"] },
-        "updated_at": { "$ref": "#/$defs/timestamp" }
+        "phase": {
+          "enum": [
+            "implementation",
+            "testing",
+            "acceptance",
+            "candidate",
+            "review",
+            "delivery"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "blocked",
+            "completed"
+          ]
+        },
+        "ui_task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delivers": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owned_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        }
       }
     },
     "gate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "status", "sha", "tree_sha", "evidence", "recorded_at"],
+      "required": [
+        "id",
+        "status",
+        "sha",
+        "tree_sha",
+        "evidence",
+        "recorded_at"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/id" },
-        "status": { "enum": ["pass", "fail"] },
-        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
-        "tree_sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
-        "evidence": { "type": "string", "minLength": 1 },
-        "recorded_at": { "$ref": "#/$defs/timestamp" }
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "sha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tree_sha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/timestamp"
+        }
       }
     },
     "review": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewer", "verdict", "sha", "evidence", "recorded_at"],
+      "required": [
+        "reviewer",
+        "verdict",
+        "sha",
+        "evidence",
+        "recorded_at"
+      ],
       "properties": {
-        "reviewer": { "$ref": "#/$defs/id" },
-        "verdict": { "enum": ["PENDING", "APPROVE", "REQUEST_CHANGES"] },
-        "sha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
-        "evidence": { "type": ["string", "null"] },
-        "recorded_at": { "$ref": "#/$defs/nullableTimestamp" }
+        "reviewer": {
+          "$ref": "#/$defs/id"
+        },
+        "verdict": {
+          "enum": [
+            "PENDING",
+            "APPROVE",
+            "REQUEST_CHANGES"
+          ]
+        },
+        "sha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        }
       }
     }
   }

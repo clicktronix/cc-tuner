@@ -155,7 +155,7 @@ install_codex_stub || exit 1
 make_repo
 STATE="$REPO/$RUNS_REL/run-1.state.json"
 if [ -f "$STATE" ] \
-  && jq -e '.schema_version == 1 and .phase == {name:"readiness",status:"in_progress"} and
+  && jq -e '.schema_version == 2 and .phase == {name:"readiness",status:"in_progress"} and
     .required_reviewers == ["deep-review","mattpocock","codex"]' "$STATE" >/dev/null \
   && runctl init run-1 --mode auto --spec docs/spec.md >/dev/null; then
   pass "state-init-idempotent"

@@ -209,8 +209,11 @@ assert_no_other_active_run() {
   current_branch="$(execute_task_current_branch)"
   for other in "$EXECUTE_TASK_RUNS_DIR"/*.state.json; do
     [ -f "$other" ] && [ ! -L "$other" ] && [ "$other" != "$STATE" ] || continue
+    # Both versions, because this scans state files that were never loaded and therefore never
+    # migrated. Matching only the current version would make a legacy run invisible here, and a
+    # second active run on one branch is precisely what this refuses.
     if jq -e --arg branch "$current_branch" \
-        '.schema_version == 1 and .branch == $branch and .status == "active"' \
+        '(.schema_version == 1 or .schema_version == 2) and .branch == $branch and .status == "active"' \
         "$other" >/dev/null 2>&1; then
       other_run="$(jq -r '.run_id // "unknown"' "$other" 2>/dev/null)"
       execute_task_die "branch '$current_branch' already has active run '$other_run'"
@@ -237,7 +240,7 @@ validate_state_shape() {
         "mode", "phase", "required_reviewers",
         "review_history", "reviews", "run_id", "schema_version", "spec", "status", "target_ref",
         "target_sha", "tasks", "updated_at"] and
-      .schema_version == 1 and
+      .schema_version == 2 and
       .run_id == $run and .branch == $branch and .target_ref == $target and .base_sha == $base and
       (.run_id | id) and (.target_sha | sha) and
       (.spec == null or (.spec | type == "string" and test("^[a-zA-Z0-9_./-]+$") and
@@ -269,9 +272,21 @@ validate_state_shape() {
       (.review_history | type == "array") and
       (.invalidations | type == "array") and
       (.fix_round | type == "number" and . >= 0 and . <= 999999 and floor == .) and
+      ([.tasks[].id] | sort) as $task_ids |
       all(.tasks[];
-        keys == ["description", "evidence", "id", "phase", "status", "ui_task_id", "updated_at"] and
+        keys == ["acceptance", "blocked_by", "checks", "delivers", "description", "evidence", "id",
+          "owned_paths", "phase", "status", "title", "ui_task_id", "updated_at"] and
         (.id | id) and (.description | type == "string" and length > 0) and
+        (.title | type == "string" and length > 0) and
+        (.delivers | type == "string" and length > 0) and
+        (.owned_paths | type == "array") and ((.owned_paths | unique | length) == (.owned_paths | length)) and
+        all(.owned_paths[]; type == "string" and length > 0) and
+        (.acceptance | type == "array") and (.checks | type == "array") and
+        # Dependencies are validated here, not only at import: a filter that edited `blocked_by`
+        # into a dangling id, a self-reference, or a duplicate would otherwise be written to disk
+        # and only surface when a task refused to start for a reason nobody could locate.
+        (.blocked_by | type == "array") and ((.blocked_by | unique | length) == (.blocked_by | length)) and
+        (.id as $self | all(.blocked_by[]; . != $self and ($task_ids | index(.) != null))) and
         (.phase as $task_phase | ["implementation", "testing", "acceptance", "candidate", "review",
           "delivery"] | index($task_phase) != null) and
         (.status as $task_status | ["pending", "in_progress", "blocked", "completed"] |
@@ -302,8 +317,39 @@ validate_state_shape() {
     ' "$checked_state" >/dev/null 2>&1
 }
 
+# One migration point, ahead of validation. A per-subcommand upgrade would leave whichever path
+# nobody exercised writing v1 records into a v2 document, and the shape check would then reject the
+# file long after the run that produced it. A migrated run gets an empty `blocked_by` for every task
+# because it recorded no dependencies — inventing edges would be a lossy upgrade dressed as a
+# faithful one. It cannot go through update_state: that validates, and a v1 document has not been
+# migrated yet.
+migrate_state_to_v2() {
+  local temporary
+  [ "$(jq -r '.schema_version // empty' "$STATE" 2>/dev/null)" = "1" ] || return 0
+  temporary="$(mktemp "$STATE.tmp.XXXXXX")" || execute_task_die "cannot create state temp file"
+  if ! jq '.schema_version = 2
+      | .tasks = [ .tasks[] | {
+          id, phase, description, status, ui_task_id, evidence, updated_at,
+          title: (.title // .description),
+          delivers: (.delivers // .description),
+          owned_paths: (.owned_paths // []),
+          acceptance: (.acceptance // []),
+          checks: (.checks // []),
+          blocked_by: (.blocked_by // [])
+        } ]' "$STATE" > "$temporary"; then
+    rm -f "$temporary"
+    execute_task_die "cannot migrate run '$EXECUTE_TASK_RUN_ID' to schema version 2"
+  fi
+  chmod 600 "$temporary" 2>/dev/null || true
+  mv "$temporary" "$STATE" || {
+    rm -f "$temporary"
+    execute_task_die "cannot install migrated state for run '$EXECUTE_TASK_RUN_ID'"
+  }
+}
+
 load_state() {
   [ -f "$STATE" ] || execute_task_die "state not found for run '$EXECUTE_TASK_RUN_ID'; run 'runctl.sh init $EXECUTE_TASK_RUN_ID'"
+  migrate_state_to_v2
   validate_state_shape \
     || execute_task_die "invalid or foreign state file for run '$EXECUTE_TASK_RUN_ID'"
 }
@@ -701,7 +747,7 @@ case "$SUBCOMMAND" in
       --arg branch "$BRANCH" --arg target "$TARGET" --arg base "$BASE" --arg target_sha "$TARGET_SHA" \
       --argjson reviewers '["deep-review","mattpocock","codex"]' '
       {
-        schema_version: 1,
+        schema_version: 2,
         run_id: $run,
         mode: $mode,
         status: "active",
@@ -826,6 +872,8 @@ case "$SUBCOMMAND" in
           .tasks |= map(if .phase == "implementation" then . else
             .status = "pending" | .evidence = null | .updated_at = $updated_at end) |
           .tasks += [{id: $task, phase: "implementation", description: $reason,
+            title: $reason, delivers: $reason,
+            owned_paths: [], acceptance: [], checks: [], blocked_by: [],
             status: "pending", ui_task_id: null, evidence: null, updated_at: $updated_at}] |
           .gates = [.gates[] | select(.id != "testing" and .id != "acceptance" and .id != "dod")] |
           .reviews = [.required_reviewers[] as $reviewer |
@@ -869,7 +917,11 @@ case "$SUBCOMMAND" in
         esac
         jq -e --arg id "$TASK_ID" 'all(.tasks[]; .id != $id)' "$STATE" >/dev/null 2>&1 \
           || execute_task_die "task '$TASK_ID' already exists"
+        # `task add` builds a task one at a time and carries no dependency information, so it writes
+        # the v2 fields at their empty values. A graph with edges is imported whole by `plan import`.
         update_state '.tasks += [{id: $id, phase: $phase, description: $description,
+          title: $description, delivers: $description,
+          owned_paths: [], acceptance: [], checks: [], blocked_by: [],
           status: "pending", ui_task_id: (if ($ui | length) == 0 then null else $ui end),
           evidence: null, updated_at: $updated_at}]' \
           --arg id "$TASK_ID" --arg phase "$TASK_PHASE" --arg description "$EVIDENCE" --arg ui "$UI_TASK_ID"

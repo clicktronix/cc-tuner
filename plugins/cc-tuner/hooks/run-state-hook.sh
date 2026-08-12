@@ -39,8 +39,11 @@ BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 ACTIVE=""
 for state in "$RUNS"/*.state.json; do
   [ -f "$state" ] && [ ! -L "$state" ] || continue
+  # Both versions during the transition. A state file written before the bump is still a run whose
+  # gates must hold; narrowing this predicate to the current version is how every gate goes quiet at
+  # once, with no error to notice.
   if jq -e --arg branch "$BRANCH" \
-      '.schema_version == 1 and .branch == $branch and .status == "active"' \
+      '(.schema_version == 1 or .schema_version == 2) and .branch == $branch and .status == "active"' \
       "$state" >/dev/null 2>&1; then
     ACTIVE="${ACTIVE}${ACTIVE:+
 }$state"

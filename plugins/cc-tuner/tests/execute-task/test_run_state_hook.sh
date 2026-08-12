@@ -243,5 +243,29 @@ else
   fail "run-state-hooks-registered"
 fi
 
+# A schema bump must not disarm the fence. This hook selects active state by its schema_version; if
+# that predicate stops matching, every gate silently allows — which is exactly how runs end up with
+# no enforcement at all while still looking like managed runs.
+for version in 1 2; do
+  VREPO="$(mktemp -d)" || exit 1
+  (
+    cd "$VREPO" && git init -q -b main && git config user.email test@example.com \
+      && git config user.name test && printf 'base\n' > file.txt && git add file.txt \
+      && git commit -qm init && git switch -qc task
+  ) || exit 1
+  CLAUDE_PROJECT_DIR="$VREPO" bash "$P" ver-run main --expected-branch task >/dev/null || exit 1
+  REPO_SAVED="$REPO"; REPO="$VREPO"
+  runctl init ver-run --mode auto >/dev/null || exit 1
+  VSTATE="$VREPO/.claude/execute-task-runs/ver-run.state.json"
+  jq --argjson v "$version" '.schema_version = $v' "$VSTATE" > "$VSTATE.tmp" && mv "$VSTATE.tmp" "$VSTATE"
+  VINPUT="$(jq -cn --arg cwd "$VREPO" '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:"file.txt"}}')"
+  OUT="$(hook pre-tool-use "$VINPUT" 2>&1)"; rc=$?
+  { [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -q 'only during implementation'; } \
+    && pass "fence-armed-for-schema-v$version" \
+    || fail "fence-armed-for-schema-v$version" "rc=$rc out=$OUT"
+  REPO="$REPO_SAVED"
+  rm -rf "$VREPO"
+done
+
 rm -rf "$REPO"
 exit "$fails"
