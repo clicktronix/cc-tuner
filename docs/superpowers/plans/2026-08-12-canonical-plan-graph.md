@@ -47,9 +47,22 @@ Same as PR 1, repeated because this plan is executed independently:
   fence stays armed for a v1 state on disk.
 - **The graph is imported atomically, through the prepared-file mechanism that already exists.**
   `runctl prepare` already owns a path outside the repository that the mutation fence permits, with
-  symlink, ownership and hard-link checks. `plan import` takes a third prepared name rather than
-  opening a second hole in the fence — a second exception would be two answers to one question.
-- **A lost UI task id never blocks the lifecycle; missing review, test or CI evidence always does.**
+  symlink, ownership and hard-link checks. `prepare` takes a third name, `plan`, rather than opening a
+  second hole in the fence — a second exception would be two answers to one question. `plan import`
+  itself accepts any readable regular file: it only reads, and the fence governs *writes*, so refusing
+  other paths would buy nothing while making the graph untestable from a fixture. `cleanup` must know
+  the `plan` name too, or the run's own scratch file blocks its teardown.
+- **A visible binding stays a precondition for starting a task; the frontier is added on top.**
+  *Revised during implementation.* This plan originally said `task start` should gate on the graph and
+  not on `ui_task_id`. That contradicts `visible-plan-before-mutation` in `workflow-contract.json` —
+  "the agent publishes a visible lifecycle plan before editing, generating, staging, or delegating task
+  paths" — which the existing `task start` enforced through exactly that field, with a test
+  (`fix-task-cannot-start-before-visible-binding`) to prove it. The repo's documented contract wins
+  over this plan. The two conditions are independent and both hold: the binding says the user can see
+  the work, the frontier says the graph permits it. "Losing a visible task never blocks the lifecycle"
+  is therefore delivered by recovery — `task bind-ui`, and re-creation on resume — not by dropping the
+  requirement.
+- **Missing review, test or CI evidence always blocks.**
 - **`/cc-tuner:plan` is the only model-invocable cc-tuner command** (`/spec` and `/run` carry
   `disable-model-invocation: true`). It therefore stops after publishing the graph, regardless of who
   invoked it — the stop is a property of the command, not a rule about direct invocation.

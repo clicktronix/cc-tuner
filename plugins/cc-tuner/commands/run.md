@@ -147,13 +147,13 @@ Resume state and enter `implementation`. This is the only phase where agents may
 or tests. Choose effort from `${CLAUDE_PLUGIN_ROOT}/references/tiering.md` and start the relevant
 visible/state task before each unit.
 
+Implement through `mattpocock-skills:tdd` on the task branch or its worktree. This is the only phase
+that may write tests: `/spec` records which check will decide the task and what failure proves the
+gap, and this phase writes it, watches it fail, and removes the gap.
+
 For a code behavior change, write the named regression test first and run the spec's first failing
 check. Confirm it fails for the expected reason; a syntax/config/environment failure is not RED. For a
 non-code exception, capture the alternative baseline promised by the DoR.
-
-Drive that cycle with `mattpocock-skills:tdd` on the task branch or its worktree. This is the only
-phase that may write tests: `/spec` records which check will decide the task and what failure proves
-the gap, and this phase writes it, watches it fail, and removes the gap.
 
 Parallelize only independent code-writing units:
 

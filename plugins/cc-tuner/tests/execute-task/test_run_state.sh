@@ -825,6 +825,10 @@ prepare_candidate && approve_all \
 DELIVERY_PREPARED="$(runctl prepare run-1 pr-body)"
 printf 'sensitive PR body\n' > "$DELIVERY_PREPARED"
 DELIVERY_PREPARED_DIR="$(dirname "$DELIVERY_PREPARED")"
+# Every name `prepare` hands out has to be a name cleanup knows. A leftover one is not ignored — the
+# teardown rmdir dies on it — so a run that used the plan file could never finish.
+DELIVERY_PREPARED_PLAN="$(runctl prepare run-1 plan)"
+printf '[]\n' > "$DELIVERY_PREPARED_PLAN"
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 WRONG_SHA="$(git -C "$REPO" rev-parse main)"
 
@@ -912,7 +916,6 @@ rm -rf "$REPO"
 # specific state effect rather than "exited non-zero": before `plan` exists every one of these
 # commands exits non-zero anyway, so a bare exit-code assertion would pass while proving nothing.
 
-GRAPH_STATE() { printf '%s/%s/run-1.state.json' "$REPO" "$RUNS_REL"; }
 
 # The canonical valid graph: two implementation slices with a real edge between them, then one task
 # per remaining lifecycle phase. Callers break one thing at a time with jq.
@@ -958,7 +961,10 @@ plan_file() {
   printf '%s\n' "$path"
 }
 
-graph_repo() { make_repo && complete_readiness; }
+graph_repo() {
+  make_repo && complete_readiness
+  GRAPH_STATE="$REPO/$RUNS_REL/run-1.state.json"
+}
 
 # 1. A blocker that names nothing in the import is a broken graph, and the message has to name it —
 #    "invalid plan" sends the author looking through every task.
@@ -995,13 +1001,30 @@ OUT="$(runctl plan run-1 import \
   && pass "duplicate-blocker-rejected" || fail "duplicate-blocker-rejected" "rc=$rc out=$OUT"
 rm -rf "$REPO"
 
-# 5. The whole point: an open blocker stops the task from starting.
+# Helper: an imported graph carries no visible ids, and `visible-plan-before-mutation` requires one
+# before a task may start. Binding every task isolates the frontier cases from the binding case.
+bind_graph_ui() {
+  while IFS= read -r tid; do
+    [ -n "$tid" ] || continue
+    runctl task run-1 bind-ui "$tid" "ui-$tid" >/dev/null 2>&1
+  done <<EOF
+$(jq -r '.tasks[].id' "$GRAPH_STATE")
+EOF
+}
+
+enter_graph_implementation() {
+  runctl plan run-1 import "$1" >/dev/null 2>&1
+  bind_graph_ui
+  runctl phase run-1 complete planning >/dev/null 2>&1
+  runctl phase run-1 enter implementation >/dev/null 2>&1
+}
+
+# 5. The whole point: an open blocker stops the task from starting even when everything else about it
+#    is in order — bound to a visible task, right phase, still pending.
 graph_repo
-runctl plan run-1 import "$(plan_file)" >/dev/null 2>&1
-runctl phase run-1 complete planning >/dev/null 2>&1
-runctl phase run-1 enter implementation >/dev/null 2>&1
+enter_graph_implementation "$(plan_file)"
 OUT="$(runctl task run-1 start authenticated-api 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -qi 'frontier'; } \
+{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'blocked by auth-boundary'; } \
   && pass "blocked-task-cannot-start" || fail "blocked-task-cannot-start" "rc=$rc out=$OUT"
 
 # 6. The frontier is exactly what may start now — not everything unfinished.
@@ -1014,25 +1037,34 @@ FRONTIER="$(runctl plan run-1 frontier 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'
 runctl task run-1 start auth-boundary >/dev/null 2>&1
 evidence "boundary implemented" task run-1 complete auth-boundary >/dev/null 2>&1
 OUT="$(runctl task run-1 start auth-boundary 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -qi 'frontier'; } \
+[ "$rc" -ne 0 ] \
   && pass "completed-task-cannot-restart" || fail "completed-task-cannot-restart" "rc=$rc out=$OUT"
 
-# 8. Readiness is a property of the graph. A task with no visible id yet still starts once its
-#    blockers are done — a lost or unrendered Claude task must not stall the run.
-[ "$(jq -r '.tasks[] | select(.id=="authenticated-api") | .ui_task_id' "$(GRAPH_STATE)")" = "null" ] \
-  && runctl task run-1 start authenticated-api >/dev/null 2>&1 \
-  && [ "$(jq -r '.tasks[] | select(.id=="authenticated-api") | .status' "$(GRAPH_STATE)")" = "in_progress" ] \
-  && pass "ui-id-is-not-required-to-start" || fail "ui-id-is-not-required-to-start"
+# 8. Once the blocker completes, the task that was refused above starts. Without this the frontier
+#    check could be refusing everything and case 5 would still pass.
+runctl task run-1 start authenticated-api >/dev/null 2>&1
+[ "$(jq -r '.tasks[] | select(.id=="authenticated-api") | .status' "$GRAPH_STATE")" = "in_progress" ] \
+  && pass "frontier-releases-a-task-when-its-blocker-completes" \
+  || fail "frontier-releases-a-task-when-its-blocker-completes"
+
+# 8b. An imported graph carries no visible ids, and `visible-plan-before-mutation` forbids starting
+#     work the user cannot see. Planning is where that is enforced for a planned task — an unbound
+#     task in implementation only arises from `phase fix`, which
+#     `fix-task-cannot-start-before-visible-binding` above already covers.
+graph_repo
+runctl plan run-1 import "$(plan_file)" >/dev/null 2>&1
+OUT="$(runctl phase run-1 complete planning 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'bound to a visible Claude task'; } \
+  && pass "planning-cannot-complete-with-unbound-tasks" \
+  || fail "planning-cannot-complete-with-unbound-tasks" "rc=$rc out=$OUT"
 rm -rf "$REPO"
 
 # 9. Recovery path: rebind a task whose visible id was lost, and it keeps working.
 graph_repo
-runctl plan run-1 import "$(plan_file)" >/dev/null 2>&1
-runctl phase run-1 complete planning >/dev/null 2>&1
-runctl phase run-1 enter implementation >/dev/null 2>&1
+enter_graph_implementation "$(plan_file)"
 runctl task run-1 bind-ui auth-boundary ui-stale >/dev/null 2>&1
 runctl task run-1 bind-ui auth-boundary ui-fresh >/dev/null 2>&1
-{ [ "$(jq -r '.tasks[] | select(.id=="auth-boundary") | .ui_task_id' "$(GRAPH_STATE)")" = "ui-fresh" ] \
+{ [ "$(jq -r '.tasks[] | select(.id=="auth-boundary") | .ui_task_id' "$GRAPH_STATE")" = "ui-fresh" ] \
   && runctl task run-1 start auth-boundary >/dev/null 2>&1; } \
   && pass "lost-ui-task-can-be-rebound" || fail "lost-ui-task-can-be-rebound"
 rm -rf "$REPO"
@@ -1041,9 +1073,9 @@ rm -rf "$REPO"
 graph_repo
 PLAN="$(plan_file)"
 runctl plan run-1 import "$PLAN" >/dev/null 2>&1
-BEFORE="$(jq -r '.tasks | length' "$(GRAPH_STATE)")"
+BEFORE="$(jq -r '.tasks | length' "$GRAPH_STATE")"
 OUT="$(runctl plan run-1 import "$PLAN" 2>&1)"; rc=$?
-AFTER="$(jq -r '.tasks | length' "$(GRAPH_STATE)")"
+AFTER="$(jq -r '.tasks | length' "$GRAPH_STATE")"
 { [ "$rc" -eq 0 ] && [ "$BEFORE" = "$AFTER" ] && [ "$AFTER" = "7" ] \
   && printf '%s' "$OUT" | grep -q 'PLAN UNCHANGED'; } \
   && pass "resume-does-not-duplicate-tasks" \
@@ -1064,13 +1096,78 @@ ONE="$(runctl plan run-1 frontier --parallel 2>/dev/null | grep -c .)"
   || fail "overlapping-owned-paths-not-in-one-frontier-batch" "frontier=$BOTH parallel=$ONE"
 rm -rf "$REPO"
 
+# 11b. The duplicate-id message has to name the id that repeats. The duplicated id is deliberately
+#      NOT the first in the graph: with `auth-boundary` duplicated, a message that printed the first
+#      id would read identically and the test could not tell the two apart.
+graph_repo
+OUT="$(runctl plan run-1 import "$(plan_file '(.[3].id) = "authenticated-api"')" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'duplicate task id authenticated-api'; } \
+  && pass "duplicate-id-message-names-the-repeated-id" \
+  || fail "duplicate-id-message-names-the-repeated-id" "rc=$rc out=$OUT"
+rm -rf "$REPO"
+
+# 11c. `prepare` owns the plan file too: the model needs a path the mutation fence permits, and
+#      cleanup has to know that name or the run's own scratch file blocks its teardown.
+graph_repo
+PREPARED_PLAN="$(runctl prepare run-1 plan)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ -f "$PREPARED_PLAN" ] && [ "$(basename "$PREPARED_PLAN")" = "plan" ]; } \
+  && pass "prepare-owns-the-plan-file" || fail "prepare-owns-the-plan-file" "rc=$rc path=$PREPARED_PLAN"
+plan_json > "$PREPARED_PLAN"
+runctl plan run-1 import "$PREPARED_PLAN" >/dev/null 2>&1 \
+  && pass "a-prepared-plan-file-imports" || fail "a-prepared-plan-file-imports"
+
+# 11d. Publishing is recorded once, refuses an empty plan, and does not restamp on a second call.
+OUT="$(runctl plan run-1 publish 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'PLAN PUBLISHED' \
+  && jq -e 'any(.gates[]; .id == "plan-published" and .status == "pass")' "$GRAPH_STATE" >/dev/null; } \
+  && pass "publish-records-the-plan-gate" || fail "publish-records-the-plan-gate" "rc=$rc out=$OUT"
+FIRST_STAMP="$(jq -r '.gates[] | select(.id=="plan-published") | .recorded_at' "$GRAPH_STATE")"
+OUT="$(runctl plan run-1 publish 2>&1)"
+{ printf '%s' "$OUT" | grep -q 'ALREADY PUBLISHED' \
+  && [ "$(jq -r '.gates[] | select(.id=="plan-published") | .recorded_at' "$GRAPH_STATE")" = "$FIRST_STAMP" ]; } \
+  && pass "publish-keeps-the-first-publication" || fail "publish-keeps-the-first-publication" "out=$OUT"
+# The gate says "this graph was published". Importing a different graph makes that false, so the
+# record goes with it rather than dating a plan the run no longer holds.
+runctl plan run-1 import "$(plan_file '(.[1].delivers) = "a different outcome"')" >/dev/null 2>&1
+jq -e 'all(.gates[]; .id != "plan-published")' "$GRAPH_STATE" >/dev/null \
+  && pass "a-changed-import-clears-the-published-record" \
+  || fail "a-changed-import-clears-the-published-record"
+# Nothing else may write that gate; one writer is what makes the record mean anything.
+runctl plan run-1 publish >/dev/null 2>&1
+OUT="$(evidence "hand-written" gate run-1 record plan-published pass 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'cannot be recorded by hand'; } \
+  && pass "plan-published-has-one-writer" || fail "plan-published-has-one-writer" "rc=$rc out=$OUT"
+rm -rf "$REPO"
+
+# 11e. An empty plan is not publishable: a published record with nothing behind it is the exact claim
+#      the gate exists to prevent.
+graph_repo
+OUT="$(runctl plan run-1 publish 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'empty plan'; } \
+  && pass "publish-refuses-an-empty-plan" || fail "publish-refuses-an-empty-plan" "rc=$rc out=$OUT"
+rm -rf "$REPO"
+
+# 11f. The graph rules are a durable invariant, not just an import gate. `plan import` refuses a
+#      dangling blocker, but a state file that acquired one some other way must be refused too —
+#      otherwise the persisted graph is weaker than the door it came through, and a task would refuse
+#      to start for a reason nothing reports.
+graph_repo
+runctl plan run-1 import "$(plan_file)" >/dev/null 2>&1
+jq '(.tasks[] | select(.id=="verify-tests") | .blocked_by) = ["nope"]' "$GRAPH_STATE" \
+  > "$GRAPH_STATE.hand" && mv "$GRAPH_STATE.hand" "$GRAPH_STATE"
+OUT="$(runctl plan run-1 frontier 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'invalid or foreign state'; } \
+  && pass "a-dangling-blocker-on-disk-is-refused" \
+  || fail "a-dangling-blocker-on-disk-is-refused" "rc=$rc out=$OUT"
+rm -rf "$REPO"
+
 # 12. A rejected import leaves the previous graph exactly as it was. A half-written plan would be a
 #     state whose frontier answers from tasks whose blockers do not exist.
 graph_repo
 runctl plan run-1 import "$(plan_file)" >/dev/null 2>&1
-SNAP_BEFORE="$(jq -S -c '.tasks' "$(GRAPH_STATE)")"
+SNAP_BEFORE="$(jq -S -c '.tasks' "$GRAPH_STATE")"
 runctl plan run-1 import "$(plan_file '(.[3].blocked_by) = ["nope"]')" >/dev/null 2>&1
-SNAP_AFTER="$(jq -S -c '.tasks' "$(GRAPH_STATE)")"
+SNAP_AFTER="$(jq -S -c '.tasks' "$GRAPH_STATE")"
 # The snapshot has to be the imported graph, not an empty list: two failed imports also leave
 # `.tasks` identical, and comparing nothing to nothing proves nothing.
 { [ "$SNAP_BEFORE" = "$SNAP_AFTER" ] \

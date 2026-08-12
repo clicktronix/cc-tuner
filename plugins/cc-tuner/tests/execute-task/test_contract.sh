@@ -13,7 +13,7 @@ RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # compared against the file it pins, so it cannot observe the sibling at all. Treat a failure here as
 # "the contract changed — was codex-tuner updated in the same breath?", not as proof that it was.
 # Known divergence at the time of writing: codex-tuner carries contract 1.1.0 with 14 invariants,
-# this repo carries 2.0.0 with 25. Re-syncing it is a coordinated cross-repository change.
+# this repo carries 2.0.0 with 26. Re-syncing it is a coordinated cross-repository change.
 EXPECTED_SHARED_CONTRACT_SHA256="2985de28a6495bdd77960a9dd66894d9fc6840f7a0b9d2d8e2087ae32baca777"
 fails=0
 

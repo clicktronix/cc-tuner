@@ -23,7 +23,10 @@ usage: runctl.sh init <run-id> [--mode interactive|auto] [--spec <path>]
        runctl.sh task <run-id> start|complete|block <task-id> [< evidence.txt]
        runctl.sh task <run-id> bind-ui <task-id> <ui-task-id>
        runctl.sh gate <run-id> record <gate-id> pass|fail [--sha <commit>] < evidence.txt
-       runctl.sh prepare <run-id> commit-message|pr-body
+       runctl.sh prepare <run-id> commit-message|pr-body|plan
+       runctl.sh plan <run-id> import <prepared-plan-file>
+       runctl.sh plan <run-id> frontier [--parallel]
+       runctl.sh plan <run-id> publish
        runctl.sh candidate <run-id> record <commit>
        runctl.sh review <run-id> record <reviewer> APPROVE|REQUEST_CHANGES <commit> < evidence.txt
        runctl.sh ci <run-id> record success|failure <commit> [--pr <number>] < evidence.txt
@@ -221,6 +224,60 @@ assert_no_other_active_run() {
   done
 }
 
+# One definition of the task-graph rules, embedded by both the state-shape check and `plan import`.
+# The import pass reports them per id while a plan is being authored; the shape check refuses to
+# persist a document that breaks them. Two copies would let one relax while the other stayed strict,
+# and the weaker of the two is the one that decides what reaches disk.
+#
+# Every membership test binds its subject first (`. as $b | ($ids | index($b))`). Piping into the
+# list rebinds `.` to the list, so `$ids | index(.)` asks whether the list contains itself — which is
+# how the first version of this passed every test while checking nothing.
+# One definition of "startable", applied by `plan frontier` to report and by `task start` to refuse.
+# Two definitions meant the frontier was a report the caller was trusted to obey, and a task with
+# open blockers started freely as long as it had a visible id — the enforcement was in the report
+# rather than in the authority.
+STARTABLE_JQ_DEF='
+  def startable($s): (.status == "pending" or .status == "blocked")
+    and all(.blocked_by[]?; . as $b | any($s.tasks[]; .id == $b and .status == "completed"));
+'
+
+GRAPH_JQ_DEFS='
+  def task_id_ok: type == "string" and test("^[a-z0-9][a-z0-9._-]{0,119}$");
+  def task_phases: ["implementation", "testing", "acceptance", "candidate", "review", "delivery"];
+  def tasks_left_in_cycles: . as $rem
+    | ($rem | map(select((.blocked_by | length) == 0) | .id)) as $ready
+    | if ($ready | length) == 0 then $rem
+      else ($rem | map(select(.id as $i | ($ready | index($i)) == null)
+                       | .blocked_by = (.blocked_by - $ready))) | tasks_left_in_cycles end;
+  def graph_errors($tasks):
+    [$tasks[] | .id] as $ids | [
+      ($ids | group_by(.) | map(select(length > 1)) | .[] | "duplicate task id \(.[0])"),
+      ($tasks[] | select((.id | task_id_ok) | not) | "invalid task id \(.id)"),
+      ($tasks[] | select(.phase as $p | (task_phases | index($p)) == null)
+        | "task \(.id) has unknown phase \(.phase)"),
+      ($tasks[] | select((.title | type) != "string" or (.title | length) == 0)
+        | "task \(.id) has no title"),
+      ($tasks[] | select((.delivers | type) != "string" or (.delivers | length) == 0)
+        | "task \(.id) does not say what it delivers"),
+      ($tasks[] | select((.owned_paths | type) != "array"
+        or (.owned_paths | unique | length) != (.owned_paths | length))
+        | "task \(.id) repeats an owned path"),
+      ($tasks[] | . as $t | .owned_paths[]
+        | select(type != "string" or length == 0 or startswith("/")
+                 or ((split("/") | index("..")) != null))
+        | "task \($t.id) owns a path outside the repository: \(.)"),
+      ($tasks[] | select((.blocked_by | type) != "array"
+        or (.blocked_by | unique | length) != (.blocked_by | length))
+        | "task \(.id) lists a duplicate blocker"),
+      ($tasks[] | . as $t | .blocked_by[] | select(. == $t.id)
+        | "task \($t.id) is blocked by itself (self-reference)"),
+      ($tasks[] | . as $t | .blocked_by[] | . as $b | select(($ids | index($b)) == null)
+        | "task \($t.id) is blocked by unknown task \($b)"),
+      ([$tasks[] | {id, blocked_by}] | tasks_left_in_cycles | select(length > 0)
+        | "blocking cycle: \(map(.id) | join(", "))")
+    ];
+'
+
 validate_state_shape() {
   local checked_state stored_branch stored_target stored_base
   checked_state="${1:-$STATE}"
@@ -231,8 +288,7 @@ validate_state_shape() {
     --arg run "$EXECUTE_TASK_RUN_ID" \
     --arg branch "$stored_branch" \
     --arg target "$stored_target" \
-    --arg base "$stored_base" '
-      def id: type == "string" and test("^[a-z0-9][a-z0-9._-]{0,119}$");
+    --arg base "$stored_base" "$GRAPH_JQ_DEFS"'
       def sha: type == "string" and test("^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$");
       def nullable_sha: . == null or sha;
       keys == ["base_sha", "blocked_reason", "branch", "candidate", "ci", "completed_at",
@@ -242,7 +298,7 @@ validate_state_shape() {
         "target_sha", "tasks", "updated_at"] and
       .schema_version == 2 and
       .run_id == $run and .branch == $branch and .target_ref == $target and .base_sha == $base and
-      (.run_id | id) and (.target_sha | sha) and
+      (.run_id | task_id_ok) and (.target_sha | sha) and
       (.spec == null or (.spec | type == "string" and test("^[a-zA-Z0-9_./-]+$") and
         (startswith("./") | not))) and
       (.mode == "interactive" or .mode == "auto") and
@@ -272,32 +328,24 @@ validate_state_shape() {
       (.review_history | type == "array") and
       (.invalidations | type == "array") and
       (.fix_round | type == "number" and . >= 0 and . <= 999999 and floor == .) and
-      ([.tasks[].id] | sort) as $task_ids |
+      # The graph rules are checked here, not only at import: a filter that edited `blocked_by` into
+      # a dangling id, a self-reference, a duplicate, or a cycle would otherwise reach disk and only
+      # surface when a task refused to start for a reason nobody could locate.
+      (graph_errors(.tasks) | length) == 0 and
       all(.tasks[];
         keys == ["acceptance", "blocked_by", "checks", "delivers", "description", "evidence", "id",
           "owned_paths", "phase", "status", "title", "ui_task_id", "updated_at"] and
-        (.id | id) and (.description | type == "string" and length > 0) and
-        (.title | type == "string" and length > 0) and
-        (.delivers | type == "string" and length > 0) and
-        (.owned_paths | type == "array") and ((.owned_paths | unique | length) == (.owned_paths | length)) and
-        all(.owned_paths[]; type == "string" and length > 0) and
+        (.description | type == "string" and length > 0) and
         (.acceptance | type == "array") and (.checks | type == "array") and
-        # Dependencies are validated here, not only at import: a filter that edited `blocked_by`
-        # into a dangling id, a self-reference, or a duplicate would otherwise be written to disk
-        # and only surface when a task refused to start for a reason nobody could locate.
-        (.blocked_by | type == "array") and ((.blocked_by | unique | length) == (.blocked_by | length)) and
-        (.id as $self | all(.blocked_by[]; . != $self and ($task_ids | index(.) != null))) and
-        (.phase as $task_phase | ["implementation", "testing", "acceptance", "candidate", "review",
-          "delivery"] | index($task_phase) != null) and
         (.status as $task_status | ["pending", "in_progress", "blocked", "completed"] |
           index($task_status) != null)) and
       all(.gates[];
         keys == ["evidence", "id", "recorded_at", "sha", "status", "tree_sha"] and
-        (.id | id) and (.sha | nullable_sha) and (.tree_sha | nullable_sha) and
+        (.id | task_id_ok) and (.sha | nullable_sha) and (.tree_sha | nullable_sha) and
         (.status == "pass" or .status == "fail") and (.evidence | type == "string" and length > 0)) and
       all(.reviews[], .review_history[];
         keys == ["evidence", "recorded_at", "reviewer", "sha", "verdict"] and
-        (.reviewer | id) and (.sha | nullable_sha) and
+        (.reviewer | task_id_ok) and (.sha | nullable_sha) and
         (.verdict as $verdict | ["PENDING", "APPROVE", "REQUEST_CHANGES"] | index($verdict) != null)) and
       (.candidate | keys == ["recorded_at", "sha", "tree_sha"]) and
       (.candidate.sha | nullable_sha) and (.candidate.tree_sha | nullable_sha) and
@@ -323,35 +371,28 @@ validate_state_shape() {
 # because it recorded no dependencies — inventing edges would be a lossy upgrade dressed as a
 # faithful one. It cannot go through update_state: that validates, and a v1 document has not been
 # migrated yet.
-migrate_state_to_v2() {
-  local temporary
-  [ "$(jq -r '.schema_version // empty' "$STATE" 2>/dev/null)" = "1" ] || return 0
-  temporary="$(mktemp "$STATE.tmp.XXXXXX")" || execute_task_die "cannot create state temp file"
-  if ! jq '.schema_version = 2
-      | .tasks = [ .tasks[] | {
-          id, phase, description, status, ui_task_id, evidence, updated_at,
-          title: (.title // .description),
-          delivers: (.delivers // .description),
-          owned_paths: (.owned_paths // []),
-          acceptance: (.acceptance // []),
-          checks: (.checks // []),
-          blocked_by: (.blocked_by // [])
-        } ]' "$STATE" > "$temporary"; then
-    rm -f "$temporary"
-    execute_task_die "cannot migrate run '$EXECUTE_TASK_RUN_ID' to schema version 2"
-  fi
-  chmod 600 "$temporary" 2>/dev/null || true
-  mv "$temporary" "$STATE" || {
-    rm -f "$temporary"
-    execute_task_die "cannot install migrated state for run '$EXECUTE_TASK_RUN_ID'"
-  }
-}
-
+# Validate first, migrate only on failure. Probing the version on every invocation would tax every
+# runctl call forever to serve a one-shot transition, and the shape check runs anyway and already
+# asserts the current version — a legacy file pays one extra pass, once. The migration goes through
+# update_state because its output is a valid v2 document: it needs the same atomic write and the same
+# refusal to install something that does not validate. A migrated run gets an empty `blocked_by` for
+# every task because it recorded no dependencies; inventing edges would be a lossy upgrade dressed as
+# a faithful one.
 load_state() {
   [ -f "$STATE" ] || execute_task_die "state not found for run '$EXECUTE_TASK_RUN_ID'; run 'runctl.sh init $EXECUTE_TASK_RUN_ID'"
-  migrate_state_to_v2
-  validate_state_shape \
+  validate_state_shape && return 0
+  [ "$(jq -r '.schema_version // empty' "$STATE" 2>/dev/null)" = "1" ] \
     || execute_task_die "invalid or foreign state file for run '$EXECUTE_TASK_RUN_ID'"
+  update_state '.schema_version = 2
+    | .tasks = [ .tasks[] | {
+        id, phase, description, status, ui_task_id, evidence, updated_at,
+        title: (.title // .description),
+        delivers: (.delivers // .description),
+        owned_paths: (.owned_paths // []),
+        acceptance: (.acceptance // []),
+        checks: (.checks // []),
+        blocked_by: (.blocked_by // [])
+      } ]'
 }
 
 acquire_lock() {
@@ -615,7 +656,9 @@ cleanup_prepared_files() {
     || execute_task_die "refusing unsafe prepared-file directory during cleanup"
   [ "$(CDPATH='' cd -- "$prepared_dir" 2>/dev/null && pwd -P || true)" = "$prepared_dir" ] \
     || execute_task_die "prepared-file directory moved before cleanup"
-  for path in "$prepared_dir/commit-message" "$prepared_dir/pr-body"; do
+  # Every name `prepare` can hand out. A name missing here survives cleanup, and the rmdir below then
+  # dies reporting an unowned entry the run itself created.
+  for path in "$prepared_dir/commit-message" "$prepared_dir/pr-body" "$prepared_dir/plan"; do
     [ ! -e "$path" ] && [ ! -L "$path" ] && continue
     [ ! -d "$path" ] || execute_task_die "refusing prepared-file directory entry during cleanup"
     rm -f -- "$path" || execute_task_die "cannot remove prepared file: $path"
@@ -782,7 +825,10 @@ case "$SUBCOMMAND" in
 
   status)
     [ "$#" -eq 2 ] || usage
-    state_paths "$2"; load_state
+    # Locked although it only prints: `load_state` migrates a pre-v2 document, so every path that
+    # reaches it can write. An unlocked reader that upgrades the file races a concurrent writer over
+    # the same rename.
+    state_paths "$2"; lock_state; load_state
     jq . "$STATE"
     ;;
 
@@ -929,11 +975,30 @@ case "$SUBCOMMAND" in
       start)
         [ "$#" -eq 4 ] || usage
         CURRENT="$(jq -r '.phase.name' "$STATE")"
-        jq -e --arg id "$TASK_ID" --arg phase "$CURRENT" '
-          any(.tasks[]; .id == $id and .phase == $phase and
-            (.ui_task_id | type == "string" and length > 0) and
-            (.status == "pending" or .status == "blocked"))
-        ' "$STATE" >/dev/null 2>&1 || execute_task_die "task '$TASK_ID' is not startable in phase '$CURRENT'"
+        # Independent conditions, all required, and the refusal names which one failed. A message that
+        # lists every possible cause tells the user nothing and cannot be asserted on: a test grepping
+        # it passes whatever the real reason was. One jq pass produces the reason, so precision costs
+        # no extra process.
+        #
+        # The visible binding upholds `visible-plan-before-mutation` from workflow-contract.json — a
+        # task the user cannot see must not start work — and a lost binding is recovered with
+        # `task bind-ui`, not by dropping the requirement. The frontier is the graph condition the
+        # binding never expressed: a bound task whose blockers were still open used to start freely.
+        START_REFUSAL="$(jq -r --arg id "$TASK_ID" --arg phase "$CURRENT" "$STARTABLE_JQ_DEF"'
+          . as $s | [.tasks[] | select(.id == $id)] as $found
+          | if ($found | length) == 0 then "there is no task with that id"
+            else $found[0] as $t
+            | if $t.phase != $phase then "it belongs to phase \($t.phase)"
+              elif $t.status == "in_progress" then "it is already in progress"
+              elif $t.status == "completed" then "it is already completed"
+              elif (($t.ui_task_id | type) != "string" or ($t.ui_task_id | length) == 0)
+                then "no visible task is bound to it"
+              elif (($t | startable($s)) | not)
+                then "it is blocked by " + ([$t.blocked_by[] | . as $b
+                  | select(any($s.tasks[]; .id == $b and .status != "completed"))] | join(", "))
+              else "" end end' "$STATE" 2>/dev/null)"
+        [ -z "$START_REFUSAL" ] \
+          || execute_task_die "task '$TASK_ID' cannot start in phase '$CURRENT': $START_REFUSAL"
         update_state '(.tasks[] | select(.id == $id)) |=
           (.status = "in_progress" | .evidence = null | .updated_at = $updated_at)' --arg id "$TASK_ID"
         ;;
@@ -962,6 +1027,107 @@ case "$SUBCOMMAND" in
     esac
     ;;
 
+  plan)
+    # The graph is written in one update or not at all. Building it from a sequence of `task add`
+    # calls would make a half-imported plan a representable state: the run would hold tasks whose
+    # blockers do not exist yet, and `frontier` would answer from it. Validation therefore runs
+    # against the whole candidate before a single field of the live state is touched.
+    [ "$#" -ge 3 ] || usage
+    state_paths "$2"; lock_state; load_state; assert_active
+    case "$3" in
+      import)
+        [ "$#" -eq 4 ] || usage
+        PLAN_FILE="$4"
+        [ -f "$PLAN_FILE" ] && [ ! -L "$PLAN_FILE" ] \
+          || execute_task_die "plan file is not a regular file: $PLAN_FILE"
+        [ "$(jq -r '.phase.name' "$STATE")" = "planning" ] \
+          || execute_task_die "the plan may be imported only during planning"
+        # Every error names the offending id: "invalid plan" sends the author through every task
+        # looking for which one it meant. All of them are reported, not just the first — an author
+        # fixing one at a time pays a validation round per typo. Rules shared with the persisted
+        # shape come from graph_errors; only what a stored graph may legitimately break is local
+        # here (a `task add` run has no owned paths and an incomplete lifecycle, both by design).
+        PLAN_ERRORS="$(jq -r "$GRAPH_JQ_DEFS"'
+          if type != "array" then ["plan must be a JSON array of task objects"]
+          elif length == 0 then ["plan is empty"]
+          else . as $plan | [
+            ($plan[] | select((keys | sort) != ["acceptance", "blocked_by", "checks", "delivers",
+              "id", "owned_paths", "phase", "title"])
+              | "task \(.id) has unexpected or missing keys: \(keys | sort | join(", "))"),
+            ($plan[] | select(.id | startswith("review-fix-"))
+              | "task id \(.id) is reserved for fix-loop tasks"),
+            ($plan[] | select(.phase == "implementation" and (.owned_paths | length) == 0)
+              | "implementation task \(.id) owns no paths"),
+            (task_phases[] | . as $p | select(([$plan[] | select(.phase == $p)] | length) == 0)
+              | "plan has no \($p) task; the lifecycle must be complete")
+          ] + graph_errors($plan) end | .[]' "$PLAN_FILE" 2>&1)" \
+          || execute_task_die "cannot validate the plan file: $PLAN_FILE"
+        [ -z "$PLAN_ERRORS" ] || execute_task_die "plan rejected:
+$PLAN_ERRORS"
+        # Idempotent on the graph, not on the record: a resume re-imports the same plan, and
+        # comparing whole task objects would call it changed because statuses had moved on.
+        if jq -e --slurpfile plan "$PLAN_FILE" '
+            def graph(f): [f[] | {id, phase, title, delivers, owned_paths, acceptance, checks,
+              blocked_by}] | sort_by(.id);
+            graph(.tasks) == graph($plan[0])' "$STATE" >/dev/null 2>&1; then
+          printf 'PLAN UNCHANGED %s\n' "$EXECUTE_TASK_RUN_ID"
+        else
+          # A published plan describes the graph that was published. Importing a different graph
+          # makes that record false, so it is cleared here rather than left to describe a plan the
+          # run no longer holds.
+          update_state '.tasks = [$plan[0][] | {
+            id, phase, title, delivers, owned_paths, acceptance, checks, blocked_by,
+            description: .delivers, status: "pending", ui_task_id: null, evidence: null,
+            updated_at: $updated_at}]
+            | .gates = [.gates[] | select(.id != "plan-published")]' --slurpfile plan "$PLAN_FILE"
+          printf 'PLAN IMPORTED %s tasks=%s\n' "$EXECUTE_TASK_RUN_ID" \
+            "$(jq -r 'length' "$PLAN_FILE")"
+        fi
+        ;;
+      frontier)
+        [ "$#" -eq 3 ] || [ "$#" -eq 4 ] || usage
+        PLAN_PARALLEL=no
+        if [ "$#" -eq 4 ]; then
+          [ "$4" = "--parallel" ] || execute_task_die "unknown frontier option '$4'"
+          PLAN_PARALLEL=yes
+        fi
+        # Startable means every blocker has completed — not "not finished yet". With --parallel,
+        # tasks whose owned paths overlap one already in the batch are dropped: two worktrees
+        # writing the same directory are not independent work, however ready both look.
+        jq -r --arg parallel "$PLAN_PARALLEL" "$STARTABLE_JQ_DEF"'
+          def touches($a; $b): any($a[]; . as $p | any($b[]; . as $q |
+            ($p | startswith($q)) or ($q | startswith($p))));
+          . as $s
+          | [ .tasks[] | select(startable($s)) ]
+          | if $parallel == "yes" then
+              reduce .[] as $t ([]; if any(.[]; touches(.owned_paths; $t.owned_paths))
+                                    then . else . + [$t] end)
+            else . end
+          | .[].id' "$STATE"
+        ;;
+      publish)
+        [ "$#" -eq 3 ] || usage
+        PLAN_TASK_COUNT="$(jq -r '.tasks | length' "$STATE")"
+        [ "$PLAN_TASK_COUNT" -gt 0 ] \
+          || execute_task_die "refusing to publish an empty plan for run '$EXECUTE_TASK_RUN_ID'"
+        # Recorded as a gate rather than a new state field: gates already are this run's record of
+        # "this happened, with evidence", and a parallel mechanism would be a second answer to the
+        # same question. Idempotent, so the record keeps the FIRST publication of the current graph —
+        # a later re-publish must not silently restamp it. `plan import` clears the gate when the
+        # graph changes, so what it dates is always the plan the run actually holds.
+        if jq -e 'any(.gates[]; .id == "plan-published")' "$STATE" >/dev/null 2>&1; then
+          printf 'PLAN ALREADY PUBLISHED %s\n' "$EXECUTE_TASK_RUN_ID"
+        else
+          update_state '.gates += [{id: "plan-published", status: "pass", sha: null, tree_sha: null,
+            evidence: $evidence, recorded_at: $updated_at}]' \
+            --arg evidence "canonical plan published with $PLAN_TASK_COUNT tasks"
+          printf 'PLAN PUBLISHED %s\n' "$EXECUTE_TASK_RUN_ID"
+        fi
+        ;;
+      *) execute_task_die "unknown plan action '$3'" ;;
+    esac
+    ;;
+
   gate)
     [ "$#" -ge 5 ] || usage
     [ "$3" = "record" ] || execute_task_die "unknown gate action '$3'"
@@ -984,6 +1150,9 @@ case "$SUBCOMMAND" in
       dor:*|testing:*|acceptance:*|dod:*) execute_task_die "gate '$GATE_ID' cannot be recorded in phase '$CURRENT'" ;;
       implementation-tree:*)
         execute_task_die "gate 'implementation-tree' is written by 'phase complete implementation' and cannot be recorded by hand"
+        ;;
+      plan-published:*)
+        execute_task_die "gate 'plan-published' is written by 'plan publish' and cannot be recorded by hand"
         ;;
       *) ;;
     esac
@@ -1027,8 +1196,8 @@ case "$SUBCOMMAND" in
     [ "$#" -eq 3 ] || usage
     state_paths "$2"; lock_state; load_state; assert_active
     case "$3" in
-      commit-message|pr-body) ;;
-      *) execute_task_die "prepared-file name must be 'commit-message' or 'pr-body'" ;;
+      commit-message|pr-body|plan) ;;
+      *) execute_task_die "prepared-file name must be 'commit-message', 'pr-body', or 'plan'" ;;
     esac
     ensure_prepared_directory
     PREPARED="$PREPARED_DIR/$3"
@@ -1147,7 +1316,7 @@ $EVIDENCE"
 
   can-advance)
     [ "$#" -eq 2 ] || usage
-    state_paths "$2"; load_state; assert_active
+    state_paths "$2"; lock_state; load_state; assert_active
     CURRENT="$(jq -r '.phase.name' "$STATE")"
     validate_phase_completion "$CURRENT"
     printf 'ADVANCE OK: %s\n' "$CURRENT"
@@ -1155,7 +1324,7 @@ $EVIDENCE"
 
   can-merge)
     [ "$#" -eq 2 ] || usage
-    state_paths "$2"; load_state; assert_active
+    state_paths "$2"; lock_state; load_state; assert_active
     [ "$(jq -r '.phase.name' "$STATE")" = "delivery" ] \
       || execute_task_die "merge requires delivery phase"
     [ "$(jq -r '.phase.status' "$STATE")" = "completed" ] \
