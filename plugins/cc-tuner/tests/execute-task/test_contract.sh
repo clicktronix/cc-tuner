@@ -121,6 +121,7 @@ else
   echo "FAIL unblock-command-lives-in-its-own-section (unblock=$unblock_line section=$loop_line)"
   fails=1
 fi
+need "run-implements-through-tdd" 'mattpocock-skills:tdd` on the task branch' "$RUN"
 need "run-same-sha-disposition" 'later evidence must name what changed the answer' "$RUN"
 need "run-reviewer-literal-ids" 'literal reviewer id `deep-review`, `mattpocock`, or `codex`' "$RUN"
 need "run-prepared-files-come-from-runctl" 'prepare "$RUN_ID" commit-message' "$RUN"

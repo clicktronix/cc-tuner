@@ -151,6 +151,10 @@ For a code behavior change, write the named regression test first and run the sp
 check. Confirm it fails for the expected reason; a syntax/config/environment failure is not RED. For a
 non-code exception, capture the alternative baseline promised by the DoR.
 
+Drive that cycle with `mattpocock-skills:tdd` on the task branch or its worktree. This is the only
+phase that may write tests: `/spec` records which check will decide the task and what failure proves
+the gap, and this phase writes it, watches it fail, and removes the gap.
+
 Parallelize only independent code-writing units:
 
 - use one isolated git worktree per unit;
