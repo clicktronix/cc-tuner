@@ -217,7 +217,8 @@ required:
   has no equivalent, because nothing has to be separately initialised.
 
   It can still be disarmed *deliberately*, by deleting the plan file before merging, and that is the
-  escape recorded above. The distinction is the whole point and is not a quibble: 0.10.0 failed with
+  escape recorded above. A pull request whose file list cannot be read at all is a third case and
+  refuses: not knowing whether this is a run is not the same as knowing it is not. The distinction is the whole point and is not a quibble: 0.10.0 failed with
   nobody doing anything, this one requires someone removing the thing that says a run is happening.
 - Failing to *determine* scope is not the same as being out of scope, and denies.
 
@@ -285,8 +286,9 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 
 ## Complexity budget
 
-- **Runtime** Bash: four small pieces and no more — the merge guard, the `SessionStart` restore hook,
-  the plan linter, and the branch→path resolver. The `--auto` frontier rule is an instruction in the
+- **Runtime** Bash: five small pieces and no more — `merge.sh` (which does the checking), the
+  `PreToolUse` hook that routes merges to it, the `SessionStart` restore hook, the plan linter, and
+  the branch→path resolver. The `--auto` frontier rule is an instruction in the
   run skill, not code, and is not counted here. An earlier
   revision listed only the first and the last, which was not a tighter budget but an inaccurate one:
   the other three exist in the design and a budget that omits them cannot be checked against it.
@@ -303,7 +305,7 @@ Nothing here blocks the decision. Each was, at some point, believed to.
 - **How long a skill's frontmatter hooks stay active — no longer load-bearing.** An earlier revision
   ranked this first, because the merge guard might have been declared in a skill's frontmatter and an
   active window of one turn would have left it inert. The guard is registered globally in `hooks.json`
-  and scopes itself on the target PR's history, so the question is no longer part of the design. It is
+  and scopes itself on the target PR's changed files, so the question is no longer part of the design. It is
   worth measuring one day; nothing waits on it. Removing a decision beat resolving it.
 - **§6 of the spike — checkbox progress — is untested.** Whether ticking `- [ ]` plus git history is
   enough to reconstruct state after a lost session. This decides how good recovery feels, not whether

@@ -99,8 +99,26 @@ OUT="$(run "$D" 42 squash "$SHA")"
 check "non-cc-tuner-pr-merges"   "MERGED pr merge 42 --squash" "$OUT"
 check "non-cc-tuner-says-so"     "not a cc-tuner run"          "$OUT"
 check "non-cc-tuner-rc0"         "rc=0"                        "$OUT"
-# ...and unchecked means unpinned: there is no reviewed SHA to pin it to.
-absent "non-cc-tuner-not-pinned" "--match-head-commit"         "$OUT"
+# Still pinned. The head can move between reading the PR and merging it whether or not cc-tuner has
+# an opinion about the contents, and an earlier revision dropped the pin here -- with a test that
+# asserted its absence, pinning the flaw instead of the head.
+check "non-cc-tuner-still-pinned" "--match-head-commit $SHA" "$OUT"
+
+# --check-only has no answer for a pull request it checks nothing about, and must not look like a
+# pass: Task 8 reads that output as evidence.
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "check-only-refuses-out-of-scope" "nothing to check" "$OUT"
+check  "check-only-out-of-scope-rc1"     "rc=1"             "$OUT"
+absent "check-only-out-of-scope-no-merge" "MERGED"          "$OUT"
+
+# --- a scope it cannot establish is not a scope out of ------------------------------------------
+# `unknown` was folded in with `no`, so a PR whose file list did not parse merged with no review, no
+# CI and no pin. Not knowing whether this is a run is not the same as knowing it is not.
+D="$(world 'null' "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "unknown-scope-refused"  "refusing rather than guessing" "$OUT"
+check  "unknown-scope-rc1"      "rc=1"                          "$OUT"
+absent "unknown-scope-no-merge" "MERGED"                        "$OUT"
 
 # --- latest verdict per author, and forgery -------------------------------------------------------
 SUPERSEDED="[$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA" | tr -d '[]'),

@@ -49,13 +49,25 @@ IN_SCOPE="$(printf '%s' "$PRJSON" | jq -r '
   if (.files | type) != "array" then "unknown"
   elif any(.files[]; .path // .filename | test("^(docs|wiki)/task-plans/.*\\.md$")) then "yes"
   else "no" end')"
-# Out of scope: merge it and say nothing more. Refusing here was a deadlock — the hook refuses a raw
+# Three answers, not two. `unknown` means the file list could not be read — bad JSON, a null, a jq
+# failure — and an earlier revision folded it in with `no`, so a PR whose scope could not be
+# established merged with no review, no CI and no pin. Not knowing whether this is a run is not the
+# same as knowing it is not.
+[ "$IN_SCOPE" != "unknown" ] \
+  || die "cannot tell whether $PR is a cc-tuner run (its file list did not parse) — refusing rather than guessing"
+
+# Out of scope: merge it, and say so. Refusing here was a deadlock — the hook refuses a raw
 # `gh pr merge` and this refused everything else, so a repository with cc-tuner installed could not
 # merge an ordinary pull request at all. The plugin must not seize work that is not its own.
-if [ "$IN_SCOPE" != "yes" ]; then
+if [ "$IN_SCOPE" = "no" ]; then
+  # --check-only must not report success for a pull request it checked nothing about. Task 8 reads
+  # that output as evidence, and "would merge, unchecked" is not evidence of a working gate.
+  [ -z "$CHECK_ONLY" ] \
+    || die "$PR carries no plan file, so there is nothing to check — --check-only has no answer here"
   printf 'cc-tuner merge: %s carries no plan file, so this is not a cc-tuner run — merging it unchecked.\n' "$PR" >&2
-  [ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s), unchecked\n' "$PR" "$STRATEGY"; exit 0; }
-  exec "$GH" pr merge "$PR" --"$STRATEGY"
+  # Still pinned. The head can move between the read above and the merge whether or not cc-tuner has
+  # an opinion about the contents, and passing the SHA the caller asked for is free.
+  exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"
 fi
 
 ME="$($GH api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"

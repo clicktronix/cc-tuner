@@ -594,8 +594,8 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
 - The eval record shows every step PASS in a real session: `spec → plan → visible tasks with edges →
   recovery preserving those edges → a live merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
-- Runtime Bash: the merge guard, the session-start hook, the plan linter, `plan-path.sh`, and the
-  `--auto` frontier
+- Runtime Bash: `merge.sh`, the `PreToolUse` hook that routes merges to it, the session-start hook,
+  the plan linter, `plan-path.sh`, and the `--auto` frontier
   check. Nothing else.
 - README states the merge guard's real coverage, without overclaiming.
 - One PR.
