@@ -1,163 +1,55 @@
 #!/usr/bin/env bash
-# PreToolUse: refuse `gh pr merge` on a cc-tuner run whose candidate is not attested.
+# PreToolUse: send merges through scripts/merge.sh, which is the thing that actually checks them.
 #
-# The one fail-closed gate. Everything else in this plugin advises; this denies.
+# This hook does NOT decide whether a merge is attested. It used to, by reading the agent's Bash
+# command and judging the merge it thought it saw, and that design failed three times running: every
+# round of better parsing produced another form that ran a merge the guard never inspected —
+# `bash -c '…'`, `eval '…'`, `/usr/local/bin/gh`, a line continuation between `pr` and `merge`,
+# `G=gh; "$G" pr merge`, `$(printf gh) pr merge`. A shell command is a program; a hook that reads it
+# as a string is guessing, and the list of forms it guesses wrong about has no end.
 #
-# Registered globally, and it scopes itself: it has an opinion only on `gh pr merge`, and only when
-# the target pull request carries a cc-tuner plan file. Outside that it allows and says nothing —
-# installing this plugin must not seize the user's ordinary merges. Inside it, every missing fact
-# denies, and the reason names which one. 0.10.0's gates allowed whenever their state file was
-# absent, which is how a plugin full of guards shipped with none of them working.
+# So verification moved to `scripts/merge.sh`, where the PR, the strategy and the SHA arrive as
+# arguments rather than as text. What is left here is one narrow rule: if this command looks like a
+# raw `gh pr merge`, refuse it and name the script that does the checking.
 #
-# WHAT IT DOES NOT COVER, stated here because a guardrail described as more than it is, is worse than
-# none:
-#   - The merge button on github.com, `git push` to the target, and the REST API all bypass any local
-#     hook entirely.
-#   - Scope is the pull request's net diff. A run that commits its plan and then deletes it in the
-#     same PR leaves scope. Detecting that needs either one API call per commit on every merge
-#     attempt, or fetch refs written into the user's repository from a hook — real cost to close an
-#     adversarial hole in a tool whose threat model is an agent's mistake, while the three bypasses
-#     above stay open.
+# WHAT THIS DOES NOT COVER, stated plainly because a guardrail described as more than it is, is worse
+# than none:
+#   - A raw merge written in a form this cannot recognise. That is a bypass of the same class as the
+#     merge button on github.com, `git push` to the target, and the REST API — none of which any local
+#     hook sees either. The difference from before is that it is no longer pretending the checking
+#     happens here.
+#   - A pull request whose plan file was committed and then deleted before merging falls outside
+#     `merge.sh`'s scope check. Recorded there.
 #
 # bash 3.2 compatible: macOS ships 3.2.57.
 set -u
 
-GH="${CC_TUNER_GH:-gh}"
-
-allow() { exit 0; }   # silence is the common case: this fires on every Bash call in every repo
-
-deny() {  # deny <reason>
-  jq -n --arg r "cc-tuner: $1" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: $r
-    }
-  }'
+deny() {  # deny <reason> -- built by hand so this works with or without jq
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cc-tuner: %s"}}' "$1"
   exit 0
 }
 
 INPUT="$(cat)"
 
-# No jq, no gate. An earlier revision allowed here, which made the one fail-closed thing in this
-# plugin fail OPEN on any machine missing a dependency -- exactly the shape of the defect being
-# fixed. Denying needs no jq, so it is written by hand.
-if ! command -v jq >/dev/null 2>&1; then
-  # This hook is registered for Bash only, so without jq the honest answer is to refuse the call
-  # rather than guess at the payload. Earlier versions matched raw substrings and were defeated by
-  # JSON spacing, then by \u escapes -- each fix was another guess at a format nobody promised.
-  printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cc-tuner: jq is not installed, so no Bash command can be checked"}}'
-  exit 0
-fi
-[ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')" = "Bash" ] || allow
+# Registered for Bash only, so without jq refusing is honest rather than guessing at the payload.
+command -v jq >/dev/null 2>&1 || deny "jq is not installed, so no Bash command can be checked"
+
+[ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')" = "Bash" ] || exit 0
 CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')"
-# Does this command run `gh pr merge`, and is it simple enough to verify?
-#
-# This is NOT a shell parser and cannot become one. Three rounds of trying produced three bypasses --
-# a literal "gh pr merge" filter missed a double space, a greedy regex judged the LAST of two merges
-# while the first ran unpinned, and token-splitting missed `/usr/local/bin/gh`, `bash -c '...'`,
-# `eval '...'` and `g\h`. A fail-closed gate cannot be built on guessing at shell syntax.
-#
-# So the rule inverts. Quotes and backslashes are stripped, `gh` is matched as a path basename, and
-# then the command must consist of exactly one merge invocation and nothing else. Anything the guard
-# cannot read as precisely that -- a pipeline, a second command, a wrapper, an eval -- is refused with
-# an instruction to run the merge on its own. `echo gh pr merge` is refused too: after quote-stripping
-# it is indistinguishable from `bash -c gh pr merge`, and over-refusing a harmless echo is the correct
-# side to err on.
-NORM="$(printf '%s' "$CMD" | tr -d '"'"'"'\\' | tr '\t' ' ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//')"
 
-MENTIONS="$(printf '%s' "$NORM" | awk '
-  { for (i = 1; i <= NF - 2; i++) {
-      base = $i; sub(/^.*\//, "", base)
-      if (base == "gh" && $(i+1) == "pr" && $(i+2) == "merge") { print "yes"; exit }
-      if (base == "gh") { for (j = i + 1; j <= NF - 1; j++)
-        if ($j == "pr" && $(j+1) == "merge") { print "yes"; exit } }
-  } }')"
-[ "$MENTIONS" = "yes" ] || allow
+# The sanctioned path checks itself, so let it through.
+case "$CMD" in *scripts/merge.sh*) exit 0 ;; esac
 
-# One invocation, standing alone. `bash -c gh pr merge 42` normalises to a command whose first word
-# is not gh, so it lands here and is refused.
-SIMPLE="$(printf '%s' "$NORM" | awk '
-  { base = $1; sub(/^.*\//, "", base)
-    if (base != "gh") { print "no"; exit }
-    seen = 0
-    for (i = 2; i <= NF; i++) {
-      if ($i == "pr" && $(i+1) == "merge") { seen = 1; i++ ; continue }
-      if ($i ~ /^#/) break                      # a comment ends the command; nothing after it runs
-      if ($i ~ /^[;|&(){}<>]/ || $i == "&&" || $i == "||") { print "no"; exit }
-      base2 = $i; sub(/^.*\//, "", base2)
-      if (base2 == "gh") { print "no"; exit }
-    }
-    print (seen ? "yes" : "no")
-  }')"
-[ "$SIMPLE" = "yes" ] \
-  || deny "this command is not a single, plain \`gh pr merge\` -- run the merge on its own so it can be checked"
-
-INVOCATION="$NORM"
-
-# The pull request named in the command, never the checked-out branch: `gh pr merge` takes a number,
-# a URL or a branch, and any of them may name a PR that is not the one in the working tree. Deriving
-# this from HEAD would let `gh pr merge 42` sail through while the guard inspected branch 7.
-TARGET="$(printf '%s' "$INVOCATION" | awk '
-  { for (i = 1; i <= NF; i++) if ($i == "merge" && $(i-1) == "pr") { start = i + 1; break } }
-  { for (i = start; i <= NF; i++) if (start && substr($i, 1, 1) != "-") { print $i; exit } }
-')"
-
-PR="$($GH pr view ${TARGET:+"$TARGET"} --json number,headRefOid,files 2>/dev/null)" \
-  || deny "cannot resolve the pull request for '${TARGET:-the current branch}', so its candidate cannot be checked"
-
-HEAD_SHA="$(printf '%s' "$PR" | jq -r '.headRefOid // empty')"
-[ -n "$HEAD_SHA" ] || deny "the pull request reports no head commit"
-
-# Scope. Failing to DETERMINE scope is not the same as being out of scope, and denies.
-IN_SCOPE="$(printf '%s' "$PR" | jq -r '
-  if (.files | type) != "array" then "unknown"
-  elif any(.files[]; .path // .filename | test("^(docs|wiki)/task-plans/.*\\.md$")) then "yes"
-  else "no" end')"
-case "$IN_SCOPE" in
-  no)      allow ;;
-  unknown) deny "cannot tell whether this pull request is a cc-tuner run" ;;
+# Otherwise: does this look like a raw merge? Newlines and backslash continuations are flattened
+# first, because `gh pr \<newline> merge` is one command to bash and was two lines to an earlier
+# version of this file. Quotes are stripped so `"$G"` and `'gh'` read the same. This is deliberately
+# broad and one-directional: it can only over-refuse, and over-refusing costs a redirection to
+# merge.sh rather than an unchecked merge.
+NORM="$(printf '%s' "$CMD" | tr '\n\t' '  ' | sed 's/\\ */ /g' | tr -d '"'\''`' | sed 's/  */ /g')"
+case "$NORM" in
+  *"pr merge"*)
+    deny "merges go through scripts/merge.sh <pr> <squash|merge|rebase> <candidate-sha>, which checks the verdict, required CI and the head SHA before calling gh"
+    ;;
 esac
 
-# One verdict review, on the exact head, from the account that would have posted it. Latest per
-# author: reviews accumulate, and counting rows instead of authors passes a superseded approval.
-ME="$($GH api user --jq .login 2>/dev/null)" || deny "cannot identify the authenticated GitHub account"
-REVIEWS="$($GH pr view ${TARGET:+"$TARGET"} --json reviews 2>/dev/null)" \
-  || deny "cannot read the pull request's reviews"
-
-VERDICT="$(printf '%s' "$REVIEWS" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
-  [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
-  | sort_by(.submittedAt) | last | .body // ""
-  | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) [0-9a-f]{7,40}$") then . else "" end')"
-
-case "$VERDICT" in
-  "cc-tuner-verdict: APPROVE $HEAD_SHA") ;;
-  "") deny "no cc-tuner verdict from $ME on $HEAD_SHA — the candidate has not been reviewed at this commit" ;;
-  *)  deny "the latest cc-tuner verdict on $HEAD_SHA is not an approval: $VERDICT" ;;
-esac
-
-# CI on that same commit. Zero checks is not green: an empty list satisfies "nothing failed" under
-# any naive reading, and absent CI is unproven CI.
-# --required, matching what /cc-tuner:spec promises. Without it an optional check that was skipped
-# or cancelled -- neither of which anyone agreed to gate on -- blocks delivery forever. The
-# consequence is stated rather than hidden: a repository with NO required checks configured produces
-# an empty list, and an empty list is not green, so it denies. Configure at least one required check,
-# or cc-tuner cannot attest CI at all.
-CHECKS="$($GH pr checks ${TARGET:+"$TARGET"} --required --json name,bucket 2>/dev/null)" \
-  || deny "cannot read required CI checks for $HEAD_SHA"
-TOTAL="$(printf '%s' "$CHECKS" | jq -r 'length // 0')"
-[ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || deny "no CI checks ran on $HEAD_SHA — absent CI is unproven CI"
-BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"
-[ "${BAD:-1}" -eq 0 ] 2>/dev/null || deny "$BAD of $TOTAL CI checks on $HEAD_SHA are not passing"
-
-# The head can move between this check and the merge. --match-head-commit closes that window on
-# GitHub's side, which no local check can do.
-PINNED="$(printf '%s' "$INVOCATION" | awk -v sha="$HEAD_SHA" '
-  { for (i = 1; i <= NF; i++) {
-      if ($i ~ /^#/) break
-      if ($i == "--match-head-commit" && $(i+1) == sha) { print "yes"; exit }
-      if ($i == "--match-head-commit=" sha)             { print "yes"; exit }
-  } }')"
-[ "$PINNED" = "yes" ] || deny "run it as: gh pr merge ... --match-head-commit $HEAD_SHA — without it the head can move between this check and the merge"
-
-allow
+exit 0

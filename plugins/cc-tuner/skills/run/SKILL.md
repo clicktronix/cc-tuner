@@ -39,7 +39,7 @@ while the plan is found from the branch, so nothing else stops plan A being work
 target, tests, Definition of Done and merge strategy.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check docs/task-plans/<the file resolve printed>.md
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printed>
 ```
 
 If `TaskList` is empty, publish the plan's slices first — two passes, `TaskCreate` then
@@ -145,15 +145,14 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
-   `|` is a pipeline to the shell, so the two strategies are two commands, not one alternation. Use
-   the one the spec names:
+   Pass the strategy the spec names:
 
    ```bash
-   gh pr merge <pr> --squash --match-head-commit <candidate-sha>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" <pr> <squash|merge|rebase> <candidate-sha>
    ```
-   ```bash
-   gh pr merge <pr> --merge --match-head-commit <candidate-sha>
-   ```
+
+   It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so
+   nothing here has to be carried forward correctly. A raw `gh pr merge` is refused by the hook.
 
    The guard refuses a merge without the pin: the head can move between the check and the merge, and
    only GitHub can close that window.

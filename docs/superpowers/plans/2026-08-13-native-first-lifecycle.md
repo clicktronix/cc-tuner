@@ -164,7 +164,7 @@ the only place that branches on it and it has no other way in.
    a spec from chat.
 2. Break the work into vertical slices — each demoable on its own, each sized to a fresh context
    window. Wide mechanical refactors are the exception: sequence them expand → migrate → contract.
-3. Write `docs/plans/<YYYY-MM-DD>-<branch-slug>.md` from the template. The filename carries the branch
+3. Write `<root>/task-plans/<YYYY-MM-DD>-<branch-slug>.md` from the template. The filename carries the branch
    slug so two branches cannot collide, and so Task 5 can find *this* branch's plan rather than the
    newest file on disk.
 
@@ -215,7 +215,7 @@ the only place that branches on it and it has no other way in.
 and edges, iterating until the user approves, and only then writes. With `--auto` it writes directly.
 
 **Not plan mode**, though an earlier revision of this plan said so. `ExitPlanMode` reads
-`~/.claude/plans/<name>.md`, a different document from the one this flow commits to `docs/plans/`, so
+`~/.claude/plans/<name>.md`, a different document from the one this flow commits to `<root>/task-plans/`, so
 wrapping the proposal in it would mean two plan documents for one plan — the duplication this ADR
 exists to remove. The cost is real and already accepted elsewhere: plan mode physically prevents a
 write before approval and a conversation does not, and the ADR already records the plan as advisory in
@@ -385,7 +385,8 @@ number, a URL, or a branch name, and any of them may name a PR that is not the o
 guard parses the argument, resolves that PR, and reads *its* head, base and history. Deriving scope
 from `HEAD` would let `gh pr merge 42` sail through while the guard inspected branch 7.
 
-**Scope is the arming, and it is the PR's net diff, read through `gh`.** The guard has an opinion when
+**Scope is the arming, and it is the PR's net diff, read through `gh`, in `merge.sh` rather than in
+the hook.** The guard has an opinion when
 the target PR's changed files include a cc-tuner plan. Failing to *determine* scope is not the same as
 being out of scope and denies. The history-based version specified in an earlier revision is not what
 was built — see the ADR for why, and for the escape it leaves open. One failure this still avoids:
@@ -415,9 +416,6 @@ reason string names which fact was missing.
 - [ ] **Step 5: `scenario-merge-guard-out-of-scope.sh`** — no commit in the PR range touched a plan
       file → `allow`, silently. Include a branch that *inherits* a plan file from `main` without
       touching it. The plugin must not seize the user's own merges.
-- [ ] **Step 6: `scenario-merge-guard-escape.sh`** — a run that committed a plan file and then deleted
-      it → still in scope, and denies without a verdict. Asserts history-based scope rather than net
-      diff.
 - [ ] **Step 7: `scenario-merge-guard-wrong-pr.sh`** — `gh pr merge <other-pr>` while a different
       branch is checked out → the guard reads the named PR, not `HEAD`. Include the case where that
       PR's objects are **not present locally**, and assert the guard neither errors into `allow` nor
@@ -465,7 +463,7 @@ nothing else, so this asks the agent to restore and cannot make it happen.
 `superpowers/hooks/session-start` is the working model, including its manual JSON escaping and its
 `printf`-instead-of-heredoc workaround for bash 5.3.
 
-- [ ] **Step 1: find this branch's plan** — `docs/plans/*-<current-branch-slug>.md`, tracked in `git`.
+- [ ] **Step 1: find this branch's plan** — `<root>/task-plans/*-<current-branch-slug>.md`, tracked in `git`.
       Not "the newest file", which picks the wrong plan the moment two branches have one. None → emit
       nothing and exit 0; silence is the correct output when there is no plan.
 - [ ] **Step 2: emit the unfinished slices, with their structure.** Per slice: number, title,

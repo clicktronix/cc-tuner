@@ -183,8 +183,16 @@ thirty-invariant list, reduced to those with something that reads them at runtim
 
 ### Enforced
 
-One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, carries a
-verdict review at that SHA, and CI is green on it.**
+One fail-closed gate, and it is a **script, not a parser**: `scripts/merge.sh <pr> <strategy> <sha>`
+re-reads the verdict, the required checks and the head from GitHub and refuses unless the PR head
+equals the reviewed SHA, carries a verdict review at that SHA, and has green required CI on it. A
+`PreToolUse` hook refuses a raw `gh pr merge` and names the script.
+
+An earlier revision put the checking in the hook, reading the agent's Bash command string. That failed
+three rounds running — `bash -c`, `eval`, an absolute path to `gh`, a line continuation, `G=gh; "$G"`,
+`$(printf gh)`. A shell command is a program, and a hook reading it as text is guessing. Moving the
+checks to a script whose inputs are three arguments ends the class; the hook keeps only a
+one-directional rule that can over-refuse but never mis-verify.
 
 **Scope, which is also the arming.** The guard has an opinion exactly when the target pull request's
 **net diff** touches a cc-tuner plan file, and none otherwise. The subject is the PR named in the

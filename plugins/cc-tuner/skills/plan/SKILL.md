@@ -56,14 +56,16 @@ or not:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 ```
 
-**Read that path out of the output and use it literally from here on.** A shell variable does not
+**Read that path out of the output and use it literally from here on** — including its directory,
+which is `wiki/task-plans/` in a repository that has a `wiki/` and `docs/task-plans/` otherwise. Do
+not type either one from memory. A shell variable does not
 survive to the next tool call, so `PLAN=$(...)` in one command and `"$PLAN"` in the next is an empty
 string — an earlier revision of this skill was written that way and would have linted nothing.
 
 Fill `${CLAUDE_SKILL_DIR}/plan-template.md` into that file, then validate it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check docs/task-plans/<the file you just wrote>.md
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path create printed>
 ```
 
 Fix what it reports and run it again until it is quiet. It refuses a slice with no `Blocked by`, a

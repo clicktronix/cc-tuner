@@ -1,194 +1,73 @@
 #!/usr/bin/env bash
-# merge-guard.sh: the one fail-closed gate.
+# merge-guard.sh: refuse a raw `gh pr merge` and point at scripts/merge.sh.
 #
-# The positive path is asserted FIRST and on purpose. Every scenario here could assert `deny` and a
-# guard that denied unconditionally would pass the lot -- 0.10.0's failure in mirror image, where
-# everything was allowed and the suite was green either way. A gate needs both directions proven.
+# The guard no longer decides whether a merge is attested -- merge.sh does, and test_merge.sh asserts
+# that. What is tested here is narrower and one-directional: the raw forms are refused, the sanctioned
+# path is not, and unrelated commands are untouched.
+#
+# The forms below are not hypothetical. Each one ran a merge past an earlier revision of this hook
+# while it believed it had checked one.
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 GUARD="$FLOW_PLUGIN/hooks/merge-guard.sh"
-SHA="abc1234def5678"
-OTHER_SHA="0000111122223333"
 
-# gh_stub <dir> — a gh whose answers are files, so a case removes one to make that call fail.
-# Every invocation appends its arguments to $dir/calls, which is how "did it ask about the PR named in
-# the command" becomes checkable.
-gh_stub() {
-  cat > "$1/gh" <<'EOF'
-#!/usr/bin/env bash
-D="$(cd "$(dirname "$0")" && pwd)"
-printf '%s\n' "$*" >> "$D/calls"
-serve() { [ -f "$D/$1" ] || exit 1; cat "$D/$1"; }
-case "$1 $2" in
-  "pr view")   case "$*" in *reviews*) serve reviews.json ;; *) serve pr.json ;; esac ;;
-  "pr checks") case "$*" in *--required*) serve checks.json ;; *) exit 1 ;; esac ;;
-  "api user")  serve user ;;
-  *) exit 1 ;;
-esac
-EOF
-  chmod +x "$1/gh"
-}
-
-# world <files-json> <reviews-json> <checks-json> -> a stub dir wired for one case
-world() {
-  local d; d="$(flow_workdir)"; gh_stub "$d"
-  printf '{"number":42,"headRefOid":"%s","files":%s}\n' "$SHA" "$1" > "$d/pr.json"
-  printf '{"reviews":%s}\n' "$2" > "$d/reviews.json"
-  printf '%s\n' "$3" > "$d/checks.json"
-  printf 'agent-bot\n' > "$d/user"
-  printf '%s' "$d"
-}
-
-PLAN_FILES='[{"path":"docs/task-plans/2026-01-01-retry.md"},{"path":"src/retry.ts"}]'
-NO_PLAN_FILES='[{"path":"src/retry.ts"}]'
-GREEN_CI='[{"name":"build","bucket":"pass"},{"name":"test","bucket":"pass"}]'
-review() { printf '[{"author":{"login":"%s"},"commit":{"oid":"%s"},"submittedAt":"%s","body":"%s"}]' "$1" "$2" "$3" "$4"; }
-APPROVED="$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA")"
-
-# fire <stub-dir> <command> -> the guard's stdout
 fire() {
-  jq -c --arg c "$2" '.tool_input.command = $c' "$FLOW_FIXTURES/pretooluse-bash.json" \
-    | CC_TUNER_GH="$1/gh" bash "$GUARD" 2>/dev/null
+  jq -c --arg c "$1" '.tool_input.command = $c' "$FLOW_FIXTURES/pretooluse-bash.json" \
+    | bash "$GUARD" 2>/dev/null
 }
-reason() { fire "$1" "$2" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty'; }
+verdict_of() { [ -n "$1" ] || { printf 'allow'; return; }
+               printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "allow"'; }
+decision() { verdict_of "$(fire "$1")"; }
 
-# An allow is SILENCE, not a JSON document saying "allow" -- so empty output is the allow case, and
-# jq must never see it. Piping nothing into jq prints nothing, which reads as neither decision.
-verdict_of() { # verdict_of <raw guard output>
-  [ -n "$1" ] || { printf 'allow'; return; }
-  printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "allow"'
-}
-decision() { verdict_of "$(fire "$1" "$2")"; }
+# --- the sanctioned path is not obstructed --------------------------------------------------------
+# Asserted first: a guard that refused everything would pass every other case in this file.
+equals "sanctioned-merge-allowed" "allow" \
+  "$(decision 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" 42 squash abc1234def')"
+equals "sanctioned-merge-silent" "" \
+  "$(fire 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" 42 squash abc1234def')"
 
-MERGE="gh pr merge 42 --squash --match-head-commit $SHA"
+# --- everything else that runs a merge ------------------------------------------------------------
+for form in \
+  'gh pr merge 42 --squash' \
+  '/usr/local/bin/gh pr merge 42 --squash' \
+  'bash -c "gh pr merge 42 --squash"' \
+  'eval "gh pr merge 42 --squash"' \
+  'G=gh; "$G" pr merge 42 --squash' \
+  '$(printf gh) pr merge 42 --squash' \
+  'gh  pr   merge 42 --squash' \
+  'gh pr merge 42 --squash && gh pr merge 99 --squash' \
+  'gh pr merge 42 --squash $(gh pr merge 99 --squash)' \
+  'gh pr merge 42 --squash --match-head-commit abc1234def'
+do
+  equals "refused: $form" "deny" "$(decision "$form")"
+done
 
-# --- the one state that is allowed ---------------------------------------------------------------
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
-equals "allows-the-attested-candidate" "allow" "$(decision "$D" "$MERGE")"
-equals "allow-is-silent"               ""      "$(fire "$D" "$MERGE")"
+# A line continuation is one command to bash and was two lines to an earlier version of this hook.
+equals "refused: line continuation" "deny" "$(decision 'gh pr \
+merge 42 --squash')"
 
-# --- one missing fact at a time, each denying ----------------------------------------------------
-# Isolated, so a guard that checks the SHA but ignores CI cannot hide inside a combined case.
-D="$(world "$PLAN_FILES" "$(review agent-bot "$OTHER_SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $OTHER_SHA")" "$GREEN_CI")"
-equals "head-moved-past-the-review" "deny" "$(decision "$D" "$MERGE")"
-check  "head-moved-reason" "has not been reviewed at this commit" "$(reason "$D" "$MERGE")"
+check "refusal-names-the-script" "scripts/merge.sh" \
+  "$(fire 'gh pr merge 42' | jq -r '.hookSpecificOutput.permissionDecisionReason')"
 
-D="$(world "$PLAN_FILES" '[]' "$GREEN_CI")"
-equals "no-verdict-denies" "deny" "$(decision "$D" "$MERGE")"
+# --- and nothing else -----------------------------------------------------------------------------
+equals "git-status-allowed"    "allow" "$(decision 'git status')"
+equals "git-merge-allowed"     "allow" "$(decision 'git merge main')"
+equals "gh-pr-view-allowed"    "allow" "$(decision 'gh pr view 42')"
+equals "non-bash-tool-allowed" "allow" \
+  "$(verdict_of "$(jq -c '.tool_name = "Read"' "$FLOW_FIXTURES/pretooluse-bash.json" | bash "$GUARD" 2>/dev/null)")"
 
-D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"fail"},{"name":"test","bucket":"pass"}]')"
-equals "red-ci-denies"  "deny"            "$(decision "$D" "$MERGE")"
-check  "red-ci-reason"  "not passing"     "$(reason "$D" "$MERGE")"
-
-# Zero checks is not green: an empty list satisfies "nothing failed" under any naive reading.
-D="$(world "$PLAN_FILES" "$APPROVED" '[]')"
-equals "zero-checks-denies" "deny"                  "$(decision "$D" "$MERGE")"
-check  "zero-checks-reason" "absent CI is unproven" "$(reason "$D" "$MERGE")"
-
-# --- the reproduction of the original defect -----------------------------------------------------
-# In 0.10.0 the equivalent state -- a run in progress with nothing recorded -- allowed everything.
-D="$(world "$PLAN_FILES" '[]' '[]')"
-equals "inert-gate-denies" "deny" "$(decision "$D" "$MERGE")"
-
-# --- the other direction: outside a run, the plugin has no opinion --------------------------------
-D="$(world "$NO_PLAN_FILES" '[]' '[]')"
-equals "out-of-scope-allows" "allow" "$(decision "$D" "$MERGE")"
-equals "out-of-scope-silent" ""      "$(fire "$D" "$MERGE")"
-
-# ...and it fires on nothing else at all.
-D="$(world "$PLAN_FILES" '[]' '[]')"
-equals "unrelated-bash-allows" "allow" "$(decision "$D" "git status")"
-equals "gh-pr-view-allows"     "allow" "$(decision "$D" "gh pr view 42")"
-equals "non-bash-tool-allows"  "allow" \
-  "$(verdict_of "$(jq -c '.tool_name = "Read"' "$FLOW_FIXTURES/pretooluse-bash.json" \
-     | CC_TUNER_GH="$D/gh" bash "$GUARD" 2>/dev/null)")"
-
-# --- latest verdict per author, not any matching row ---------------------------------------------
-SUPERSEDED="[$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA" | tr -d '[]'),
-$(review agent-bot "$SHA" 2026-02-02T00:00:00Z "cc-tuner-verdict: REQUEST_CHANGES $SHA" | tr -d '[]')]"
-D="$(world "$PLAN_FILES" "$SUPERSEDED" "$GREEN_CI")"
-equals "superseded-approval-denies" "deny"              "$(decision "$D" "$MERGE")"
-check  "superseded-reason"          "is not an approval" "$(reason "$D" "$MERGE")"
-
-# --- forgery ------------------------------------------------------------------------------------
-D="$(world "$PLAN_FILES" "$(review someone-else "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA")" "$GREEN_CI")"
-equals "wrong-author-denies" "deny" "$(decision "$D" "$MERGE")"
-
-D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "I think cc-tuner-verdict: APPROVE $SHA is fine")" "$GREEN_CI")"
-equals "marker-inside-prose-denies" "deny" "$(decision "$D" "$MERGE")"
-
-D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $OTHER_SHA")" "$GREEN_CI")"
-equals "marker-naming-another-sha-denies" "deny" "$(decision "$D" "$MERGE")"
-
-# --- the merge command must pin the head ---------------------------------------------------------
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
-equals "unpinned-merge-denies" "deny"                  "$(decision "$D" "gh pr merge 42 --squash")"
-check  "unpinned-reason"       "--match-head-commit"   "$(reason "$D" "gh pr merge 42 --squash")"
-equals "wrong-pin-denies"      "deny"                  "$(decision "$D" "gh pr merge 42 --match-head-commit $OTHER_SHA")"
-
-# The pin must be an argument bash actually hands to gh, not a substring of the command line. Both of
-# these used to pass a whole-string match while the flag never reached gh.
-equals "pin-in-a-comment-denies" "deny" \
-  "$(decision "$D" "gh pr merge 42 --squash # --match-head-commit $SHA")"
-equals "pin-in-another-command-denies" "deny" \
-  "$(decision "$D" "echo --match-head-commit $SHA; gh pr merge 42 --squash")"
-equals "pin-after-a-separator-denies" "deny" \
-  "$(decision "$D" "gh pr merge 42 --squash && echo --match-head-commit $SHA")"
-equals "equals-form-of-the-pin-allows" "allow" \
-  "$(decision "$D" "gh pr merge 42 --squash --match-head-commit=$SHA")"
-
-# Whitespace is not syntax. A literal "gh pr merge" filter missed this entirely.
-equals "double-space-still-checked" "deny" "$(decision "$D" "gh  pr   merge 42 --squash")"
-
-# Two merges in one command: the first runs before anything can be verified, so a parser that judged
-# the last occurrence approved a command whose first merge was unpinned.
-equals "two-merges-denied" "deny" \
-  "$(decision "$D" "gh pr merge 42 --squash && gh pr merge 42 --squash --match-head-commit $SHA")"
-check "two-merges-reason" "run the merge on its own" \
-  "$(reason "$D" "gh pr merge 42 --squash && gh pr merge 42 --squash --match-head-commit $SHA")"
-
-# Without jq there is no gate, so there is no merge either. Allowing here made the one fail-closed
-# thing in the plugin fail open on any machine missing a dependency.
+# --- without jq there is no check, so there is no merge -------------------------------------------
 NOJQ="$(flow_workdir)"; mkdir -p "$NOJQ/bin"
-for u in bash cat sed awk grep; do ln -sf "$(command -v $u)" "$NOJQ/bin/$u" 2>/dev/null; done
-jq -c --arg c "$MERGE" '.tool_input.command = $c' "$FLOW_FIXTURES/pretooluse-bash.json" > "$NOJQ/payload.json"
-NOJQ_OUT="$(PATH="$NOJQ/bin" CC_TUNER_GH="$D/gh" bash "$GUARD" < "$NOJQ/payload.json" 2>/dev/null)"
-check "no-jq-denies" '"permissionDecision":"deny"' "$NOJQ_OUT"
-check "no-jq-says-why" 'jq is not installed' "$NOJQ_OUT"
+for u in bash cat sed tr; do ln -sf "$(command -v $u)" "$NOJQ/bin/$u" 2>/dev/null; done
+jq -c '.tool_input.command = "gh pr merge 42 --squash"' "$FLOW_FIXTURES/pretooluse-bash.json" > "$NOJQ/p.json"
+NOJQ_OUT="$(PATH="$NOJQ/bin" bash "$GUARD" < "$NOJQ/p.json" 2>/dev/null)"
+check "no-jq-denies"   '"permissionDecision":"deny"' "$NOJQ_OUT"
+check "no-jq-says-why" 'jq is not installed'         "$NOJQ_OUT"
 
-# The fallback cannot parse JSON, so it must not depend on how the JSON is spaced. It matched the
-# exact string "tool_name":"Bash" before, and a payload written with spaces walked through.
-SPACED="$NOJQ/spaced.json"
-printf '%s' '{"tool_name" : "Bash", "tool_input" : {"command" : "gh pr merge 42 --squash"}}' > "$SPACED"
-check "no-jq-ignores-json-spacing" '"permissionDecision":"deny"' \
-  "$(PATH="$NOJQ/bin" CC_TUNER_GH="$D/gh" bash "$GUARD" < "$SPACED" 2>/dev/null)"
-
-# --- the guard reads the PR named in the command, not the checked-out branch ----------------------
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
-fire "$D" "gh pr merge 77 --squash --match-head-commit $SHA" >/dev/null
-check "asks-about-the-named-pr" "pr view 77" "$(cat "$D/calls")"
-
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
-fire "$D" "gh pr merge https://github.com/o/r/pull/91 --squash --match-head-commit $SHA" >/dev/null
-check "accepts-a-url-target" "pull/91" "$(cat "$D/calls")"
-
-# --- a fact it cannot establish is not a fact ----------------------------------------------------
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/pr.json"
-equals "unresolvable-pr-denies" "deny" "$(decision "$D" "$MERGE")"
-
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/checks.json"
-equals "unreadable-ci-denies" "deny" "$(decision "$D" "$MERGE")"
-
-D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/user"
-equals "unknown-identity-denies" "deny" "$(decision "$D" "$MERGE")"
-
-# --- a documented gap, asserted so it stays visible ----------------------------------------------
-# Scope is the PR's net diff, so a run that commits its plan and then deletes it in the same PR is
-# out of scope and merges freely. This is recorded in the guard's header beside the larger bypasses
-# (the web button, git push, the API). The assertion is here so the gap cannot be forgotten, and so
-# that closing it later shows up as a failing test rather than silently drifting from the docs.
-D="$(world "$NO_PLAN_FILES" '[]' '[]')"
-equals "documented-gap-deleted-plan-escapes" "allow" "$(decision "$D" "$MERGE")"
+# The fallback cannot parse JSON, so it must not depend on how the JSON is spaced or escaped.
+printf '%s' '{"tool_name" : "Bash", "tool_input" : {"command" : "gh pr merge 42"}}' > "$NOJQ/spaced.json"
+check "no-jq-ignores-json-shape" '"permissionDecision":"deny"' \
+  "$(PATH="$NOJQ/bin" bash "$GUARD" < "$NOJQ/spaced.json" 2>/dev/null)"
 
 exit $fails
