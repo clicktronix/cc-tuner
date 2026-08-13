@@ -48,6 +48,20 @@ the skill produced" is asserting about a fixture the test itself wrote. That is 
 an end-to-end costume — the same shape as the 82 green `grep` assertions over Markdown. The scenario
 tier tests the **validator**; the eval tier tests that the skill's output **passes** it.
 
+## The public signature, defined once
+
+Every task below and the eval use exactly these. Fixing the wording in one place stops the eval from
+exercising a shape the skills do not have:
+
+```
+/cc-tuner:spec [--auto] <path-to-spec>
+/cc-tuner:plan [--auto] <path-to-spec>      # reads the spec, writes and publishes the plan
+/cc-tuner:run  [--auto] <path-to-spec>      # reads the plan for this branch, works it
+```
+
+`--auto` is a flag in the same position everywhere. `/run` takes the spec path, not the plan path: the
+plan is found from the branch, so passing it would be a second way to say the same thing.
+
 ## Task graph
 
 | task | blocked by |
@@ -221,17 +235,21 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
   an override — cc-tuner never rewrites another plugin's skill, it only decides where in the sequence
   each one is invoked. The placement, which an earlier draft left as a single sentence:
 
-  | method | where it runs | why there |
-  |---|---|---|
-  | `research`, `domain-modeling` | before `/plan`, on the spec | read-only; their output shapes slices |
-  | `grill-with-docs` | inside `/spec` | the Definition of Ready is what it sharpens |
-  | `prototype` | after the branch exists, inside the slice that needs it | it writes, and its output is throwaway — it must not land on a shared branch |
-  | `tdd` | inside a slice, around its deciding check | the slice's check is the red/green boundary |
-  | `diagnosing-bugs` | on a failing deciding check, before any fix | stops a fix landing ahead of a diagnosis |
-  | `code-review`, deep-review | on the candidate SHA, before the verdict review is posted | they must see what the verdict attests to |
+  The axis is **what each method persists**, not whether it feels exploratory. An earlier draft called
+  `research` and `domain-modeling` read-only and put `prototype` on the task branch; both are backwards.
 
-  Only two rules are enforceable and both are ordering: nothing that writes runs before the branch
-  exists, and nothing reviews a SHA that has since moved.
+  | method | workspace | why |
+  |---|---|---|
+  | `grill-with-docs` | inside `/spec`, no branch | it sharpens the Definition of Ready, and writes only the spec |
+  | `research`, `domain-modeling` | **task branch, created first** | their output is kept and committed — a saved artifact is a write, however much reading produced it |
+  | `prototype` | **disposable branch or worktree** | its output is throwaway by definition; landing it on the task branch is how a spike becomes the implementation by accident |
+  | `tdd` | task branch, around the slice's deciding check | that check is the red/green boundary |
+  | `diagnosing-bugs` — reading | task branch | inspection persists nothing |
+  | `diagnosing-bugs` — probe edits | **disposable workspace** | instrumentation, bisect stubs and print statements are experiments, and an experiment that lands is a regression waiting |
+  | `code-review`, deep-review | on the candidate SHA | they must see exactly what the verdict attests to |
+
+  Three enforceable rules, all ordering: nothing that persists runs before the task branch exists;
+  anything throwaway runs somewhere throwaway; nothing reviews a SHA that has since moved.
 - Under `--auto` only: refuse to start a task whose `blockedBy` is non-empty. The platform stores the
   edge and does not enforce it, and unattended there is nobody watching.
 - Stop at each delivery boundary without `--auto`.
@@ -271,11 +289,26 @@ are not gates. See the ADR, **What the gate can actually check**.
 
 **Who writes the verdict — the producer, without which the gate reads nothing.** Nothing in today's
 flow posts a GitHub review; `cc-codex-triage` returns its verdict into the chat. So the flow gains one
-step: **after Codex returns a verdict, the run posts it as a PR review on the current head** —
-`gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <sha>"`. Fixed marker, verdict word,
-and the SHA repeated in the body so a copied review from another PR is visibly wrong. Expected author
-is the authenticated `gh` user. `REQUEST_CHANGES → APPROVE` needs no special handling: a later review
-supersedes under latest-per-author below.
+step — but its precondition is the whole point, and an earlier draft omitted it: "after Codex returns
+a verdict" would publish `APPROVE` whatever the verdict said, which is a fail-open dressed as a gate.
+
+**The verdict is published only on an authoritative `--required` approval marker at the exact head
+SHA.** Not on a `COMMENT`, not on a `REQUEST_CHANGES`, and not on an approval recorded against a SHA
+the branch has since moved past. Anything else, and nothing is posted — the gate then denies, which is
+the correct outcome for a review that did not approve.
+
+The order is fixed, because every pair of these is wrong in the other sequence:
+
+1. create the PR — a review needs something to attach to;
+2. run the reviews against its head SHA;
+3. obtain the `--required` approval marker at that SHA;
+4. publish the verdict review — `gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <sha>"`,
+   fixed marker, verdict word, and the SHA repeated so a review copied from another PR is visibly
+   wrong;
+5. check CI on that same SHA.
+
+Expected author is the authenticated `gh` user. `REQUEST_CHANGES → APPROVE` needs no special handling:
+a later review supersedes under latest-per-author below.
 
 This is written by the party the gate constrains, and that is stated rather than hidden — the SHA is
 GitHub's and cannot be backdated, the verdict word is not. It is the ADR's guardrail, not a proof.
@@ -296,9 +329,13 @@ number, a URL, or a branch name, and any of them may name a PR that is not the o
 guard parses the argument, resolves that PR, and reads *its* head, base and history. Deriving scope
 from `HEAD` would let `gh pr merge 42` sail through while the guard inspected branch 7.
 
-**Scope is the arming, and it is history-based.** The guard has an opinion when **any commit in the
-target PR's range touched a cc-tuner plan file** — `git log --name-only <base>..<head>`, not the net
-diff. Two failures this avoids, in opposite directions:
+**Scope is the arming, and it is history-based — read from GitHub, not from the local clone.** The
+guard has an opinion when **any commit in the target PR's range touched a cc-tuner plan file**. Since
+the command may name a PR that was never fetched here, `git log <base>..<head>` can fail on objects
+this clone does not have — and a scope check that errors is a scope check that says "not my business".
+Read the range through `gh` (`gh pr view --json commits`, or `gh api` for the files per commit); fall
+back to an explicit fetch only if that is unavailable, and treat a failure to determine scope as
+**deny**, never as out-of-scope. Two failures this avoids, in opposite directions:
 
 - Net diff against base would put every branch descended from a `main` that already carries a plan
   file into scope, dragging unrelated merges into the gate.
@@ -327,7 +364,9 @@ reason string names which fact was missing.
       it → still in scope, and denies without a verdict. Asserts history-based scope rather than net
       diff.
 - [ ] **Step 7: `scenario-merge-guard-wrong-pr.sh`** — `gh pr merge <other-pr>` while a different
-      branch is checked out → the guard reads the named PR, not `HEAD`.
+      branch is checked out → the guard reads the named PR, not `HEAD`. Include the case where that
+      PR's objects are **not present locally**, and assert the guard neither errors into `allow` nor
+      silently treats it as out-of-scope.
 - [ ] **Step 8: `scenario-merge-guard-stale-verdict.sh`** — two reviews from the same author on the
       head SHA, the later one negative → `deny`. Asserts latest-per-author rather than any-row-matches.
 - [ ] **Step 9: `bash tests/run.sh`**, green.
@@ -369,17 +408,24 @@ nothing else, so this asks the agent to restore and cannot make it happen.
 - [ ] **Step 1: find this branch's plan** — `docs/plans/*-<current-branch-slug>.md`, tracked in `git`.
       Not "the newest file", which picks the wrong plan the moment two branches have one. None → emit
       nothing and exit 0; silence is the correct output when there is no plan.
-- [ ] **Step 2: emit the unfinished slices, with their structure.** Per slice: number, title, `Status`,
-      `Blocked by`, and its unticked acceptance criteria. **Not a flat list of `- [ ]` lines** — those
-      are criteria inside a slice, so emitting them alone would restore a set of checkboxes with no
-      titles and no edges, and the dependency graph would be silently lost. Extract via
+- [ ] **Step 2: emit the unfinished slices, with their structure.** Per slice: number, title,
+      `Blocked by`, and its unticked acceptance criteria. No `Status` field — progress is derived from
+      the checkboxes and there is no second record of it. **Not a flat list of `- [ ]` lines** either:
+      those are criteria inside a slice, so emitting them alone would restore a set of checkboxes with
+      no titles and no edges, and the dependency graph would be silently lost. Extract via
       `plan-lint.sh`'s parser rather than a second one written here.
+- [ ] **Step 2b: emit finished slices that are still referenced.** An unfinished slice's `Blocked by`
+      may name a slice that is already done. Restoring only the unfinished ones leaves that edge
+      pointing at a task that does not exist, and the restored graph is quietly wrong. Emit every
+      referenced blocker, marked done, so the agent can create it `completed` and wire the edge — or
+      omit the edge deliberately. Silently dropping it is the one option that must not happen.
 - [ ] **Step 3: make the instruction idempotent** — call `TaskList` first, create only the slices that
       are missing, then re-apply `addBlockedBy` for edges not already present. Written this way even
       though `compact` is excluded, so a future trigger change cannot silently double the plan.
 - [ ] **Step 4: `scenario-restore.sh`** — a half-done plan emits exactly the unfinished slices **with
       their `Blocked by` values**; a finished plan emits nothing; a branch with no plan file emits
-      nothing.
+      nothing. Plus the case the naive implementation gets wrong: **an unfinished Slice 3 blocked by a
+      finished Slice 2** must emit Slice 2 as well, marked done — not an edge into nothing.
 - [ ] **Step 5: `bash tests/run.sh`**, commit — `Restore the plan on session start`.
 
 **Acceptance:** `clear` is covered as well as `startup`; the emitted context carries slice titles and
@@ -455,18 +501,30 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
 - Create: `plugins/cc-tuner/tests/eval/README.md` — how to run it and what it costs
 - Create: `plugins/cc-tuner/tests/eval/fixture-spec.md`
 
+- [ ] **Step 0: run against THIS checkout, and prove it.** Launch with
+      `claude --plugin-dir <repo>/plugins/cc-tuner`, which the reference designates for local plugin
+      testing and which takes precedence over an installed marketplace copy. Then **record the
+      resolved plugin path and the repository SHA in the eval log**. Without this the eval can exercise
+      the installed 0.10.0 and report a pass — which is not a hypothetical, it is precisely the
+      original defect: sessions holding a frozen `${CLAUDE_PLUGIN_ROOT}` while everyone read the new
+      code.
 - [ ] **Step 1: attended, the whole flow.** In a scratch repository, `/cc-tuner:plan <spec>` **and then
       `/cc-tuner:run <spec>`** — the eval exists to exercise the shipped commands, and a plan that is
       never run proves only half of what the branch replaced. Confirm: plan mode asks for approval,
       the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
       delivery boundary. The edges are the part a one-pass implementation would silently drop.
-- [ ] **Step 2: `--auto`, the whole flow.** `/cc-tuner:plan --auto <spec>` then `/cc-tuner:run --auto`:
-      no plan-mode prompt, plan committed, tasks created, boundaries not stopped at, and a task whose
-      `blockedBy` is non-empty refused when attempted out of order.
-- [ ] **Step 2b: the verdict producer.** Confirm the run actually posts the verdict review, and that
-      `gh pr view --json reviews` returns it with `commit.oid` equal to the head SHA. The gate reads
-      this; nothing else in the eval proves it gets written.
+- [ ] **Step 2: `--auto`, the whole flow.** `/cc-tuner:plan --auto <spec>` then
+      `/cc-tuner:run --auto <spec>` — same signature, `--auto` in the same position: no plan-mode
+      prompt, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
+      is non-empty refused when attempted out of order.
+- [ ] **Step 2b: producer → guard, the whole positive path.** Confirm the run posts the verdict review
+      **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with
+      `commit.oid` equal to the head SHA, and then **run the guard's check against that real PR and CI
+      and confirm it returns `allow`** — invoking the check directly, not by attempting a merge.
+      Steps 4 below and the scenarios cover denial; without this the live positive path is never
+      exercised end to end, and a producer that writes a marker the guard cannot read would pass
+      everything.
 - [ ] **Step 3: recovery, asserted on the graph.** Start a fresh session in that repository. Confirm
       the `SessionStart` context arrives and that the rebuilt `TaskList` carries **the same
       `blockedBy` edges as before**, not merely the same number of rows. Then `/clear` and confirm the
@@ -500,12 +558,16 @@ public command still pointing at the old runtime.
 
 **Keep:** `prereq-check.sh`, reduced to the capability checks something still reads.
 
-- [ ] **Step 1: free every surviving consumer of `lib.sh` FIRST.** Eight files source it; four are
-      deleted here, but **`prereq-check.sh` (line 39), `scripts/smoke-verify/mark.sh` and
-      `hooks/smoke-verify-hook.sh` survive**, and deleting `lib.sh` in the same commit breaks all
-      three — green-at-every-commit violated. Inline into each the handful of helpers it actually
-      uses, including `execute_task_manifest_roots` if anything still needs it after Task 6, run the
-      suite, commit. Only then is `lib.sh` free to go.
+- [ ] **Step 1: free the one surviving consumer of `execute-task/lib.sh` FIRST.** `prereq-check.sh`
+      sources it at line 39 and survives this task, so deleting `lib.sh` in the same commit breaks it —
+      green-at-every-commit violated. Inline the helpers it actually uses, including
+      `execute_task_manifest_roots` if it still needs it after Task 6, run the suite, commit. Only
+      then is `lib.sh` free to go.
+
+      **`smoke-verify` is not a consumer.** `mark.sh` and `smoke-verify-hook.sh` source their own
+      `scripts/smoke-verify/lib.sh`; an earlier draft listed them here on the strength of a
+      `grep -l lib.sh`, which matches the string anywhere including comments. Checking who sources
+      *which* file is the difference between a correct deletion order and a broken one.
 - [ ] **Step 2: handle a legacy run — a warning plus one real refusal.** A repository still holding
       `.claude/execute-task-runs/*.state.json` is mid-flight on a runtime that no longer exists; left
       unhandled the old machinery does not merely disappear, it silently fails open — the defect being
@@ -530,8 +592,10 @@ public command still pointing at the old runtime.
 - [ ] **Step 6: reduce the thirty invariants** to those with something that reads them at runtime.
       Cap at seven, per the ADR's complexity budget.
 
-**Acceptance:** the tree has no `*.state.json` code path, an existing legacy run is detected rather
-than silently ignored, and `tests/run.sh` is green at every commit in the sequence.
+**Acceptance:** nothing in the tree **creates or modifies** a `*.state.json`; the only code that still
+mentions one is the **read-only** legacy detector, so "an existing legacy run is detected" and "no
+state-file code path" are not in conflict — an earlier draft asserted both without saying which kind
+of access survives. And `tests/run.sh` is green at every commit in the sequence.
 
 ---
 

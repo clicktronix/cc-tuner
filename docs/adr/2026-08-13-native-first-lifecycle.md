@@ -176,16 +176,20 @@ thirty-invariant list, reduced to those with something that reads them at runtim
 One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, carries a
 verdict review at that SHA, and CI is green on it.**
 
-**Scope, which is also the arming.** The guard has an opinion exactly when the current branch carries
-a committed cc-tuner plan file, and none otherwise. Two properties follow, and both are required:
+**Scope, which is also the arming.** The guard has an opinion exactly when **some commit in the target
+pull request's history touched a cc-tuner plan file**, and none otherwise. The subject is the PR named
+in the command, not the branch that happens to be checked out, and the test is history rather than the
+net diff — otherwise deleting the plan file before merging would walk straight out of scope. Three
+properties follow, and all are required:
 
 - Outside a run cc-tuner does not touch the user's ordinary merges. A global fail-closed hook that
   denied every `gh pr merge` in every repository the plugin is installed in would be a regression, not
   a guardrail.
 - Inside a run the gate cannot go inert the way 0.10.0's did. Its scope condition *is* its evidence:
-  a run exists only if the plan file is committed, and `/plan` commits it before `/run` will start. The
-  old failure — run in progress, state file absent, every gate allowing — has no equivalent here,
+  a run exists only if the plan file was committed, and `/plan` commits it before `/run` will start.
+  The old failure — run in progress, state file absent, every gate allowing — has no equivalent here,
   because the thing that says "a run is happening" is the same thing `git` guarantees is present.
+- Failing to *determine* scope is not the same as being out of scope, and denies.
 
 Earlier drafts armed this from `UserPromptSubmit`. That is dropped: it added a second store answering
 a question the branch already answers, which is exactly the duplication this ADR removes elsewhere.
