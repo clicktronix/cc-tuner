@@ -209,6 +209,12 @@ The verdict itself travels in review prose the author can edit, so it is a guard
 the same standing this ADR already gives the merge interception. Saying otherwise would rebuild the
 thing being deleted: a gate that reads a record its own subject controls.
 
+**The flow gains the step that writes it.** Nothing today posts a GitHub review — `cc-codex-triage`
+returns its verdict into the chat — so `/run` now posts the verdict as a review on the current head
+once Codex returns it. Naming the reader without the writer is its own failure: a gate checking a
+record nobody produces denies forever, and a gate that always denies is indistinguishable from a
+broken one until somebody turns it off.
+
 **The other two reviews stay mandatory steps of the flow and are not gates.** Deep-review and the
 `mattpocock` review run and must be addressed; they simply have no durable, unforgeable home, and
 counting them would be counting the author's own word twice.

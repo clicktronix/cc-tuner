@@ -39,7 +39,7 @@ branch exists to remove.
   repositories, real invocations of the plugin's scripts and hooks with real JSON payloads on stdin,
   assertions on exit code, `permissionDecision`, and files produced. This tier can prove everything
   about the **guard and the hooks**, because those are shell programs with observable inputs.
-- **Eval tier** (Task 7, authenticated, costs tokens, run by hand). A real Claude Code session driving
+- **Eval tier** (Task 8, authenticated, costs tokens, run by hand). A real Claude Code session driving
   `spec → plan → run`. This tier is the **only** one that can prove a skill causes `TaskCreate` to be
   called, because in the scenario tier no producer exists.
 
@@ -160,7 +160,6 @@ the only place that branches on it and it has no other way in.
 
    ```markdown
    ## Slice 3 — Wire the retry budget
-   Status: pending
    Blocked by: 1, 2
    Owned paths: src/retry/, tests/retry/
    Deciding check: pnpm test tests/retry
@@ -170,9 +169,15 @@ the only place that branches on it and it has no other way in.
    - [ ] exhaustion is observable in the returned error
    ```
 
-   `Status` and `Blocked by` are slice-level; `- [ ]` lines are **acceptance criteria inside a slice**
+   `Blocked by` and the rest are slice-level; `- [ ]` lines are **acceptance criteria inside a slice**
    and are not slices. Conflating the two is what an earlier draft of Task 5 did, and it would have
    restored a list of criteria with no titles and no edges.
+
+   **One source of progress: the checkboxes.** A slice is done when every one of its criteria is
+   ticked, and unfinished otherwise. An earlier draft carried a slice-level `Status:` as well, while
+   the execution skill only ever ticked checkboxes — two records of the same fact, one of them never
+   written. That is the duplication this ADR removes elsewhere, so the field is gone and progress is
+   derived.
 4. Run `plan-lint.sh` on it and fix what it reports.
 5. Commit the plan file. It is the store; an uncommitted plan does not survive anything.
 6. Publish to native tasks **in two passes** — `TaskCreate` for every slice, then
@@ -182,7 +187,7 @@ the only place that branches on it and it has no other way in.
 **`--auto` vs attended:** attended, the skill wraps the proposal in plan mode so the user approves
 before anything is written. With `--auto` it writes and publishes directly.
 
-- [ ] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks `Status` or
+- [ ] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks
       `Blocked by`, if a named blocker matches no slice number, or if a `- [ ]` line sits outside any
       slice. The linter is the definition of "parsable"; Task 5's hook and this script must not each
       grow their own parser, so the hook calls this one to extract slices.
@@ -195,7 +200,7 @@ before anything is written. With `--auto` it writes and publishes directly.
 - [ ] **Step 5: commit** — `Add cc-tuner:plan skill and plan validator`.
 
 **Acceptance:** the linter rejects a dangling blocker. That the *skill* produces a plan the linter
-accepts is Task 7's assertion, and is not claimed here.
+accepts is Task 8's assertion, and is not claimed here.
 
 ---
 
@@ -213,7 +218,20 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
 - Tick `- [x]` in the plan file and commit it when a task completes. Two stores, one write each — the
   plan file is what survives the session, the task list is what is visible in it.
 - Create the task branch **before** any write-capable method runs. Method placement is ordering, not
-  an override.
+  an override — cc-tuner never rewrites another plugin's skill, it only decides where in the sequence
+  each one is invoked. The placement, which an earlier draft left as a single sentence:
+
+  | method | where it runs | why there |
+  |---|---|---|
+  | `research`, `domain-modeling` | before `/plan`, on the spec | read-only; their output shapes slices |
+  | `grill-with-docs` | inside `/spec` | the Definition of Ready is what it sharpens |
+  | `prototype` | after the branch exists, inside the slice that needs it | it writes, and its output is throwaway — it must not land on a shared branch |
+  | `tdd` | inside a slice, around its deciding check | the slice's check is the red/green boundary |
+  | `diagnosing-bugs` | on a failing deciding check, before any fix | stops a fix landing ahead of a diagnosis |
+  | `code-review`, deep-review | on the candidate SHA, before the verdict review is posted | they must see what the verdict attests to |
+
+  Only two rules are enforceable and both are ordering: nothing that writes runs before the branch
+  exists, and nothing reviews a SHA that has since moved.
 - Under `--auto` only: refuse to start a task whose `blockedBy` is non-empty. The platform stores the
   edge and does not enforce it, and unattended there is nobody watching.
 - Stop at each delivery boundary without `--auto`.
@@ -251,6 +269,19 @@ anyway, contradicting the repository's own evidence file. The gate checks the on
 external and reachable; deep-review and the `mattpocock` review remain mandatory steps of the flow and
 are not gates. See the ADR, **What the gate can actually check**.
 
+**Who writes the verdict — the producer, without which the gate reads nothing.** Nothing in today's
+flow posts a GitHub review; `cc-codex-triage` returns its verdict into the chat. So the flow gains one
+step: **after Codex returns a verdict, the run posts it as a PR review on the current head** —
+`gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <sha>"`. Fixed marker, verdict word,
+and the SHA repeated in the body so a copied review from another PR is visibly wrong. Expected author
+is the authenticated `gh` user. `REQUEST_CHANGES → APPROVE` needs no special handling: a later review
+supersedes under latest-per-author below.
+
+This is written by the party the gate constrains, and that is stated rather than hidden — the SHA is
+GitHub's and cannot be backdated, the verdict word is not. It is the ADR's guardrail, not a proof.
+**Defining the reader without the writer was the hole**: a gate that checks a record nobody produces
+denies forever, which reads as "strict" right up until someone disables it.
+
 **One `gh` interface, and it is `gh pr view --json reviews`.** Verified live against this repository's
 PR #19: each element carries `author.login`, `state`, `submittedAt`, `body` and **`commit.oid`** — not
 `commit_id`, which is the REST shape returned through `gh api`. The plan names one interface so the
@@ -260,36 +291,57 @@ guard and its scenarios cannot drift onto different field names.
 earlier verdict was superseded, must count once, by their most recent `submittedAt` on the candidate
 SHA. Counting rows instead of authors is a false pass waiting to happen.
 
-**Scope is the arming, and there is no arm file.** The guard has an opinion exactly when **this PR's
-diff against its base adds or modifies a cc-tuner plan file**. Merely having one on the branch is not
-enough: once a plan file merges to `main`, every later branch inherits it and would drag every
-unrelated merge into the gate. Outside scope the guard returns `allow` and says nothing. Inside scope
-every missing fact denies — no PR, no verdict review at the head SHA, red or absent CI, or a `gh` call
-that failed. The reason string names which fact was missing.
+**Resolve the target PR from the command, never from the local branch.** `gh pr merge` accepts a
+number, a URL, or a branch name, and any of them may name a PR that is not the one checked out. The
+guard parses the argument, resolves that PR, and reads *its* head, base and history. Deriving scope
+from `HEAD` would let `gh pr merge 42` sail through while the guard inspected branch 7.
 
-- [ ] **Step 1: write the guard**, deny-by-default within scope, reading reviews through the one named
-      interface.
-- [ ] **Step 2: `scenario-merge-guard-denies.sh`** — in scope, a verdict review on an **older** SHA
-      than the head → `deny`. This is the case the whole SHA binding exists for.
-- [ ] **Step 3: `scenario-inert-gate.sh`** — the reproduction of the original defect. In scope, **no
-      reviews at all, no CI record** → must `deny`. In 0.10.0 the equivalent state allowed. This is
-      the single assertion that distinguishes this branch from what shipped.
-- [ ] **Step 4: `scenario-merge-guard-out-of-scope.sh`** — the PR's diff touches no plan file → `allow`,
-      silently. Include a branch that *inherits* a plan file from `main` without modifying it, since
-      that is the case a naive scope check gets wrong. Guards the other direction: the plugin must not
-      seize the user's own merges.
-- [ ] **Step 5: `scenario-merge-guard-stale-verdict.sh`** — two reviews from the same author on the
+**Scope is the arming, and it is history-based.** The guard has an opinion when **any commit in the
+target PR's range touched a cc-tuner plan file** — `git log --name-only <base>..<head>`, not the net
+diff. Two failures this avoids, in opposite directions:
+
+- Net diff against base would put every branch descended from a `main` that already carries a plan
+  file into scope, dragging unrelated merges into the gate.
+- Net diff would also let a run *escape* the gate: commit the plan, delete it, and the net diff no
+  longer contains it. History cannot be un-written the same way.
+
+Outside scope the guard returns `allow` and says nothing. Inside scope every missing fact denies — no
+resolvable PR, no verdict review at the head SHA, red or absent CI, or a `gh` call that failed. The
+reason string names which fact was missing.
+
+- [ ] **Step 1: write the guard**, deny-by-default within scope, resolving the PR from the command and
+      reading reviews through the one named interface.
+- [ ] **Step 2: the positive path first — `scenario-merge-guard-allows.sh`.** In scope, a verdict
+      review from the expected author on the **exact head SHA**, CI green on that SHA → `allow`.
+      **Without this scenario a guard that denies unconditionally passes the whole suite**, which is a
+      broken product with a green test run — the same shape as 0.10.0 in mirror image.
+- [ ] **Step 3: three independent mutations of that fixture**, each `deny`, in one scenario file:
+      advance the head SHA past the review; remove the verdict review; turn CI red. Each isolates one
+      fact, so a guard that ignores CI but checks the SHA cannot hide behind a combined case.
+- [ ] **Step 4: `scenario-inert-gate.sh`** — the reproduction of the original defect. In scope, **no
+      reviews at all, no CI record** → must `deny`. In 0.10.0 the equivalent state allowed.
+- [ ] **Step 5: `scenario-merge-guard-out-of-scope.sh`** — no commit in the PR range touched a plan
+      file → `allow`, silently. Include a branch that *inherits* a plan file from `main` without
+      touching it. The plugin must not seize the user's own merges.
+- [ ] **Step 6: `scenario-merge-guard-escape.sh`** — a run that committed a plan file and then deleted
+      it → still in scope, and denies without a verdict. Asserts history-based scope rather than net
+      diff.
+- [ ] **Step 7: `scenario-merge-guard-wrong-pr.sh`** — `gh pr merge <other-pr>` while a different
+      branch is checked out → the guard reads the named PR, not `HEAD`.
+- [ ] **Step 8: `scenario-merge-guard-stale-verdict.sh`** — two reviews from the same author on the
       head SHA, the later one negative → `deny`. Asserts latest-per-author rather than any-row-matches.
-- [ ] **Step 6: `bash tests/run.sh`**, green.
-- [ ] **Step 7: prove the guard by reverting it.** `cp merge-guard.sh merge-guard.sh.premutation`,
-      stub the decision to `allow`, run the scenarios, confirm steps 2, 3 and 5 go RED while step 4
-      stays green, restore from the copy. Never `git checkout --` here — it would destroy uncommitted
-      work in this branch.
-- [ ] **Step 8: commit** — `Add fail-closed merge guard`, with the RED/GREEN evidence in the body.
+- [ ] **Step 9: `bash tests/run.sh`**, green.
+- [ ] **Step 10: prove the guard by mutating it, in both directions.** `cp merge-guard.sh
+      merge-guard.sh.premutation`; stub the decision to `allow` and confirm steps 3, 4, 6 and 8 go RED
+      while 2, 5 and 7 stay green; then stub it to `deny` and confirm steps 2, 5 and 7 go RED. Restore
+      from the copy. A one-direction mutation proof cannot tell a working guard from a stuck one.
+      Never `git checkout --` here — it would destroy uncommitted work in this branch.
+- [ ] **Step 11: commit** — `Add fail-closed merge guard`, with the RED/GREEN evidence in the body.
 
-**Acceptance:** the guard denies when its evidence is absent, denies when the verdict is stale or
-superseded, and stays silent when no run is happening. All three directions asserted, because any one
-alone is a different bug.
+**Acceptance:** the guard allows the one correct state, denies each single missing fact, follows the PR
+named in the command, cannot be escaped by deleting the plan file, and stays silent outside a run.
+Proven by mutation in both directions — a guard stuck on `deny` must fail the suite as loudly as one
+stuck on `allow`.
 
 **Stated limit, to be repeated in the README:** `gh pr merge` is not the only route to a merge. The web
 button, `git push` and the API bypass any local hook. This is a guardrail against an agent's mistake
@@ -342,17 +394,23 @@ That the agent then rebuilds a `TaskList` whose `blockedBy` matches is Task 8's 
 
 **Files:**
 - Modify: `plugins/cc-tuner/scripts/setup/doctor.sh`
-- Delete: the companion-plugin manifest resolver
 
 `claude plugin list --json` returns `id`, `version`, `scope`, `enabled`, `installPath` and
-`projectPath` directly. Every line of the resolver that recomputes one of those goes.
+`projectPath` directly, so `doctor.sh` stops calling the manifest resolver.
 
-- [ ] **Step 1: replace the resolver** with the one `claude plugin list --json` call.
-- [ ] **Step 2: drop `tracker: none` everywhere it is named**, not only in `/run` — it also appears in
-      `commands/spec.md:140`, in the spec template, and in the tests that assert it. It was always
-      inconsistent, since `/run` requires a PR and GitHub CI unconditionally. Removing it from one of
-      three sites leaves a documented option that no longer exists.
-- [ ] **Step 3: `grep -rn 'tracker: none' plugins/`** returns nothing.
+**The resolver itself is not deleted here.** `execute_task_manifest_roots` lives in `lib.sh`, which is
+sourced by eight files including `runctl.sh`, `prereq-check.sh` and both hooks. Removing it while
+those consumers exist breaks them in the same commit. This task changes the one caller that has a
+native replacement; the function goes in Task 9, after its remaining consumers do.
+
+- [ ] **Step 1: point `doctor.sh` at `claude plugin list --json`** and stop it calling the resolver.
+- [ ] **Step 2: retire the `none` tracker everywhere it is expressible**, not only in `/run`. It is
+      written several ways: the prose at `commands/spec.md:140`, the **template's `tracker: gh|none`
+      at `commands/spec.md:124`**, and any config or test that accepts it as a value. It was always
+      inconsistent, since `/run` requires a PR and GitHub CI unconditionally.
+- [ ] **Step 3: check semantically, not by literal string.** `grep -rn 'tracker: none'` misses
+      `tracker: gh|none`, a `["gh","none"]` array, and the template — the exact miss that left it
+      behind last time. Grep for the **field**, `grep -rn 'tracker' plugins/`, and read each hit.
 - [ ] **Step 4: `bash tests/run.sh`**, commit — `Simplify doctor onto claude plugin list`.
 
 ---
@@ -397,12 +455,18 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
 - Create: `plugins/cc-tuner/tests/eval/README.md` — how to run it and what it costs
 - Create: `plugins/cc-tuner/tests/eval/fixture-spec.md`
 
-- [ ] **Step 1: attended run.** In a scratch repository: `/cc-tuner:plan <spec>` → confirm plan mode
-      asks for approval, the plan file is committed, `plan-lint.sh` accepts it, and `TaskList` shows
-      the slices **with their `blockedBy` edges**. The edges are the part a one-pass implementation
-      would silently drop.
-- [ ] **Step 2: `--auto` run.** Same spec, `--auto`: no plan-mode prompt, plan committed, tasks
-      created, and a task whose `blockedBy` is non-empty is refused when attempted out of order.
+- [ ] **Step 1: attended, the whole flow.** In a scratch repository, `/cc-tuner:plan <spec>` **and then
+      `/cc-tuner:run <spec>`** — the eval exists to exercise the shipped commands, and a plan that is
+      never run proves only half of what the branch replaced. Confirm: plan mode asks for approval,
+      the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
+      `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
+      delivery boundary. The edges are the part a one-pass implementation would silently drop.
+- [ ] **Step 2: `--auto`, the whole flow.** `/cc-tuner:plan --auto <spec>` then `/cc-tuner:run --auto`:
+      no plan-mode prompt, plan committed, tasks created, boundaries not stopped at, and a task whose
+      `blockedBy` is non-empty refused when attempted out of order.
+- [ ] **Step 2b: the verdict producer.** Confirm the run actually posts the verdict review, and that
+      `gh pr view --json reviews` returns it with `commit.oid` equal to the head SHA. The gate reads
+      this; nothing else in the eval proves it gets written.
 - [ ] **Step 3: recovery, asserted on the graph.** Start a fresh session in that repository. Confirm
       the `SessionStart` context arrives and that the rebuilt `TaskList` carries **the same
       `blockedBy` edges as before**, not merely the same number of rows. Then `/clear` and confirm the
@@ -436,16 +500,29 @@ public command still pointing at the old runtime.
 
 **Keep:** `prereq-check.sh`, reduced to the capability checks something still reads.
 
-- [ ] **Step 1: rewrite `prereq-check.sh` off `lib.sh` FIRST.** It sources it at line 39
-      (`. "$(...)/lib.sh"`), so deleting `lib.sh` while keeping `prereq-check.sh` breaks it in the same
-      commit and violates green-at-every-commit. Inline the handful of helpers it actually uses, run
-      the suite, commit — then `lib.sh` is free to go.
-- [ ] **Step 2: add a hard stop for a legacy run.** A repository that still has
-      `.claude/execute-task-runs/*.state.json` is mid-flight on a runtime that no longer exists. The
-      `SessionStart` hook detects it and stops with an instruction to finish or adopt the run under
-      the new flow. Without this the old runtime does not merely disappear — it silently fails open,
-      which is the defect being deleted, reintroduced by the deletion itself. Migration of the state
-      is explicitly not offered; detection is.
+- [ ] **Step 1: free every surviving consumer of `lib.sh` FIRST.** Eight files source it; four are
+      deleted here, but **`prereq-check.sh` (line 39), `scripts/smoke-verify/mark.sh` and
+      `hooks/smoke-verify-hook.sh` survive**, and deleting `lib.sh` in the same commit breaks all
+      three — green-at-every-commit violated. Inline into each the handful of helpers it actually
+      uses, including `execute_task_manifest_roots` if anything still needs it after Task 6, run the
+      suite, commit. Only then is `lib.sh` free to go.
+- [ ] **Step 2: handle a legacy run — a warning plus one real refusal.** A repository still holding
+      `.claude/execute-task-runs/*.state.json` is mid-flight on a runtime that no longer exists; left
+      unhandled the old machinery does not merely disappear, it silently fails open — the defect being
+      deleted, reintroduced by the deletion.
+
+      **`SessionStart` cannot stop anything.** The reference is explicit: *"Can block? No — shows
+      stderr to user only."* An earlier draft of this step specified a hard stop there, which would
+      have shipped a warning labelled as a gate. So it splits:
+
+      - `SessionStart` emits an **advisory** notice naming the leftover file and what to do — finish
+        the run under the old plugin version, or delete the state and re-plan. Advisory, and called
+        that.
+      - the **merge guard** — already fail-closed and already in a blocking event — denies while a
+        legacy state file is present. That places the one real refusal where a mistake actually costs
+        something, and adds no new fence.
+
+      Migration of the old state is explicitly not offered; detection is.
 - [ ] **Step 3: delete, one commit per subsystem**, so a bisect can land between them.
 - [ ] **Step 4: `bash tests/run.sh`** after each — green at every one.
 - [ ] **Step 5: `grep -rn runctl plugins/ docs/`** — no live reference survives. A doc naming a deleted
