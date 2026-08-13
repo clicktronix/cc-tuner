@@ -1,10 +1,10 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. Two things gate acceptance, both bearing on whether the single fail-closed gate
-works: how long a skill's frontmatter hooks stay active (unmeasured — see **Open**), and whether the
-narrowing under **Where the three attestations live** is acceptable, since it retires any reviewer
-that cannot post a pull-request review.
+**Status:** proposed. One measurement gates acceptance — how long a skill's frontmatter hooks stay
+active (see **Open**) — and one narrowing needs confirming: the merge gate checks **one** SHA-bound
+verdict plus CI, not three approvals, because GitHub makes three unreachable here. See
+**What the gate can actually check**.
 **Supersedes:** the approach shipped through 0.10.0, in which `/cc-tuner:run` carried its own state
 machine, mutation fence and gate protocol.
 
@@ -159,7 +159,8 @@ The visible plan, dependency edges, statuses, plan-mode approval, and the hook e
 - **The committed Markdown plan as the single readable store** — owned paths, acceptance, deciding
   checks, `Blocked by`, and `- [ ]` progress. Two independent measurements force this: `metadata`
   written through `TaskCreate` cannot be read back, and nothing survives a new session.
-- Candidate SHA before review; three reviews bound to that SHA; current-head CI; DoD before merge.
+- Candidate SHA before review; three reviews run against that SHA — one of them checkable by the gate,
+  the other two mandatory steps of the flow; current-head CI; DoD before merge.
 - Method placement — by ordering the branch, not by overriding the skills.
 
 ### Deleted
@@ -172,8 +173,8 @@ thirty-invariant list, reduced to those with something that reads them at runtim
 
 ### Enforced
 
-One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, with three
-approvals on it and green CI.**
+One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, carries a
+verdict review at that SHA, and CI is green on it.**
 
 **Scope, which is also the arming.** The guard has an opinion exactly when the current branch carries
 a committed cc-tuner plan file, and none otherwise. Two properties follow, and both are required:
@@ -189,12 +190,28 @@ a committed cc-tuner plan file, and none otherwise. Two properties follow, and b
 Earlier drafts armed this from `UserPromptSubmit`. That is dropped: it added a second store answering
 a question the branch already answers, which is exactly the duplication this ADR removes elsewhere.
 
-**Where the three attestations live.** They are three GitHub pull-request reviews on the candidate SHA.
-GitHub stamps each review with a `commit_id` the plugin does not write and cannot forge, so
-`gh pr view --json reviews` answers "three approvals on this exact SHA" with no local state at all.
-The consequence is deliberate and narrowing: **an attestation that cannot be posted as a PR review does
-not count.** A reviewer that only ever spoke into the chat has no durable home now that the state file
-is gone, and pretending otherwise would recreate a gate that reads something nobody wrote.
+**What the gate can actually check, which is less than three approvals.** §8 of the spike measured
+this and an earlier draft of this ADR contradicted it. GitHub refuses to let an author approve their
+own pull request, and all three of cc-tuner's reviewers act as the PR author — so their reviews come
+back `COMMENTED`, never `APPROVED`. "Three approvals" is not a policy choice the user can make; it is
+unreachable without three separate GitHub identities or Apps, which is the opposite of simplifying
+this plugin.
+
+What survives is weaker and true:
+
+- **One machine-checkable verdict bound to the candidate SHA.** A review exists on the exact head SHA,
+  from the expected author, whose body carries the verdict. GitHub stamps the SHA and the plugin
+  cannot forge it — a local file claiming "we reviewed X" can be written any time, a review at X can
+  only exist if X was head when it was submitted. The SHA binding is external and strong.
+- **Green CI on that same SHA**, which GitHub also owns.
+
+The verdict itself travels in review prose the author can edit, so it is a guardrail, not a proof —
+the same standing this ADR already gives the merge interception. Saying otherwise would rebuild the
+thing being deleted: a gate that reads a record its own subject controls.
+
+**The other two reviews stay mandatory steps of the flow and are not gates.** Deep-review and the
+`mattpocock` review run and must be addressed; they simply have no durable, unforgeable home, and
+counting them would be counting the author's own word twice.
 
 Under `--auto` only, one further check refuses to start a task whose `blockedBy` is non-empty — because
 that is the one thing the platform stores but does not enforce, and nobody is watching.
