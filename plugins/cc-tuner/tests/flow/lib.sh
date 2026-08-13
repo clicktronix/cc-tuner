@@ -49,14 +49,15 @@ equals() {
 # function returns, fires its own EXIT trap, and deletes the directory before the caller can use it.
 FLOW_ROOT="$(mktemp -d)" || { printf 'FATAL: mktemp failed\n'; exit 1; }
 trap 'rm -rf "$FLOW_ROOT"' EXIT
-FLOW_SEQ=0
 
 # flow_workdir -> prints a fresh directory, removed when the suite exits.
+#
+# mktemp, not a counter. A counter incremented here is lost: callers say `d="$(flow_workdir)"`, the
+# function runs in that subshell, and the new value dies with it -- so every call returned the same
+# path, and the second flow_repo tried to git init over the first. Same subshell trap that ate the
+# EXIT handler, wearing different clothes. Nothing in this file may depend on state surviving a call.
 flow_workdir() {
-  FLOW_SEQ=$((FLOW_SEQ + 1))
-  local d="$FLOW_ROOT/w$FLOW_SEQ"
-  mkdir -p "$d" || { printf 'FATAL: mkdir %s failed\n' "$d"; exit 1; }
-  printf '%s' "$d"
+  mktemp -d "$FLOW_ROOT/w.XXXXXX" || { printf 'FATAL: mktemp under %s failed\n' "$FLOW_ROOT"; exit 1; }
 }
 
 # flow_repo [dir] -> initialises a git repo with one commit and prints its path.

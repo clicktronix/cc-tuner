@@ -53,7 +53,22 @@ check  "passing-test-prints-PASS" "PASS must-pass" "$OUT"
 absent "passing-test-prints-no-FAIL" "FAIL" "$OUT"
 equals "passing-test-exits-zero" "0" "$RC"
 
-# --- 2. the repository builder produces something git will answer questions about -----------------
+# --- 2. two work directories are two directories --------------------------------------------------
+# The first version numbered them with a counter incremented inside the function. Callers invoke it
+# through `$(...)`, so the increment died in the subshell and every call handed back the same path --
+# which surfaced as the second flow_repo trying to git init over the first, several tests later.
+A="$(flow_workdir)"; B="$(flow_workdir)"
+if [ "$A" != "$B" ]; then pass "workdirs-are-distinct"; else fail "workdirs-are-distinct (both $A)"; fi
+
+# Two repositories in a row, because that is the shape that broke: the failure was not in flow_repo.
+R1="$(flow_repo)"; R2="$(flow_repo)"
+if [ "$R1" != "$R2" ] && [ -d "$R1/.git" ] && [ -d "$R2/.git" ]; then
+  pass "two-repos-are-independent"
+else
+  fail "two-repos-are-independent (r1=$R1 r2=$R2)"
+fi
+
+# --- 3. the repository builder produces something git will answer questions about -----------------
 R="$(flow_repo)"
 equals "repo-is-a-worktree" "true" "$(cd "$R" && git rev-parse --is-inside-work-tree 2>&1)"
 # A repo with no commit has no HEAD, and the merge guard resolves ranges against one.
