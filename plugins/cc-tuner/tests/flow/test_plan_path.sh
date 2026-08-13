@@ -9,6 +9,11 @@ set -u
 
 PLAN_PATH="$FLOW_PLUGIN/scripts/plan-path.sh"
 
+# Path grammar is shared with merge.sh and must not depend on a checkout or branch.
+OUT="$(bash "$PLAN_PATH" pattern 2>&1; printf 'rc=%s\n' "$?")"
+check "pattern-covers-docs-and-wiki" '^(docs|wiki)/task-plans/.*\.md$' "$OUT"
+check "pattern-outside-repo-rc0"     'rc=0'                              "$OUT"
+
 # run <repo> <mode> -> stdout+stderr, then a final line rc=<code>
 run() { ( cd "$1" && bash "$PLAN_PATH" "$2" 2>&1; printf 'rc=%s\n' "$?" ); }
 

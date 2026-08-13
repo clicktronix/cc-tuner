@@ -68,9 +68,9 @@ jq -e '
 # each of these is enforced somewhere, not that the enforcer reads the JSON.
 #   spec-before-run                                -> /run stops when plan-path.sh resolve finds none
 #   one-spec-one-branch-one-pr                     -> plan-path.sh resolve, fail-closed on 0 and on >1
-#   review-bound-to-candidate                     -> merge-guard.sh, verdict at the exact head SHA
-#   current-sha-ci-verification                   -> merge-guard.sh, required checks on that SHA
-#   changes-invalidate-downstream-evidence        -> merge-guard.sh, a moved head loses its verdict
+#   review-bound-to-candidate                     -> merge.sh, verdict at the exact head SHA
+#   current-sha-ci-verification                   -> merge.sh, required checks on that SHA
+#   changes-invalidate-downstream-evidence        -> merge.sh, a moved head loses its verdict
 #   red-green-regression-proof                    -> the run skill, asserted below
 #   definition-of-done-before-merge               -> the run skill, asserted below
 
@@ -98,9 +98,9 @@ fi
 # thirty of its phrases. That machine is gone, so those assertions went with it -- a phrase test whose
 # subject no longer exists is not a weakened test, it is a test of nothing.
 #
-# What is left pins only what the merge guard READS. The guard's own behaviour is covered by
-# tests/flow/test_merge_guard.sh against real payloads; these assert that the skill still tells the
-# agent to produce what that guard requires. Supporting the scenario tier, never replacing it.
+# What is left pins only what merge.sh reads. Its behaviour is covered by tests/flow/test_merge.sh;
+# these assert that the skill still tells the agent to produce what the script requires. Supporting
+# the scenario tier, never replacing it.
 need "run-resolves-the-plan"        'plan-path.sh" resolve' "$RUN"
 need "run-validates-the-plan"       'plan-lint.sh" check' "$RUN"
 need "run-ticks-the-plan-file"      '- [x]' "$RUN"
@@ -120,7 +120,7 @@ need "plan-two-pass-publication"    'addBlockedBy' "$PLAN_SKILL"
 need "plan-commits-the-plan"        'Commit the plan file' "$PLAN_SKILL"
 # The pin is no longer the skill's to remember: merge.sh always adds it. What the skill must still
 # say is that merges go through that script rather than a raw gh call.
-need "run-no-raw-gh-merge" 'A raw `gh pr merge` is refused' "$RUN"
+need "run-no-raw-gh-merge" 'Do not replace it with a raw `gh pr merge`' "$RUN"
 need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-always-runs" 'Always perform the review; small-diff thresholds only decide' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
@@ -138,9 +138,9 @@ release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" 
 # Three checks stood here: a nine-phase count, an index of twenty contract invariants named in
 # run.md's Verification section, and a walk asserting nine phrases appeared in delivery order. All
 # three measured the shape of the state machine. It is gone, and a test that counts the phases of a
-# thing with no phases cannot be repaired, only deleted. What replaced their subject -- the guard --
-# is covered by tests/flow/test_merge_guard.sh against real payloads, which is a stronger check than
-# any of them were.
+# thing with no phases cannot be repaired, only deleted. What replaced their subject -- merge.sh --
+# is covered by tests/flow/test_merge.sh against its actual argument boundary, which is a stronger
+# check than any of them were.
 
 if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" "$CONFIG" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"

@@ -5,21 +5,20 @@
 **Branch:** `refactor/native-first-lifecycle` — one branch, one PR.
 
 **Goal:** replace cc-tuner's own lifecycle machinery with the platform's, leaving a skill, one
-fail-closed merge guard, and a setup check.
+checked merge path, and a setup check.
 
 **Architecture:** the committed Markdown plan is the only readable store; native tasks are the visible
 plan; `git`/`gh` hold the delivery facts. Nothing keeps a second copy of any of them.
 
 **Shape borrowed from prior art, not invented here:** `superpowers:writing-plans` (a dated plan file
 under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → create tasks → work them),
-`mattpocock:to-tickets` (vertical slices, each declaring `Blocked by`), and
-`mattpocock:git-guardrails` (a 24-line `PreToolUse` script that denies one command class).
+`mattpocock:to-tickets` (vertical slices, each declaring `Blocked by`).
 
 ## Global constraints
 
 - **Bash 3.2.** macOS system bash. No associative arrays, no `${var^^}`, no `mapfile`.
-- **Every guard ships a test that fails when the guard is reverted.** A test that stays green against
-  a reverted guard is not a test of that guard.
+- **Every checked behaviour ships a test that fails when it is reverted.** A test that stays green
+  against a reverted check is not a test of that behaviour.
 - **`tests/run.sh` is green at every commit.** A deliberately failing check is proven by mutating the
   thing it guards, never by committing it red. A red suite makes `git bisect` useless and trains
   everyone to ignore the signal.
@@ -35,10 +34,10 @@ under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → c
 The distinction matters more than any single task here, because getting it wrong is the defect this
 branch exists to remove.
 
-- **Scenario tier** (`tests/scenarios/`, runs in `tests/run.sh`, no auth, no cost). Real git
+- **Scenario tier** (`plugins/cc-tuner/tests/flow/`, discovered by `tests/run.sh`, no auth, no cost). Real git
   repositories, real invocations of the plugin's scripts and hooks with real JSON payloads on stdin,
   assertions on exit code, `permissionDecision`, and files produced. This tier can prove everything
-  about the **guard and the hooks**, because those are shell programs with observable inputs.
+  about the **scripts and hooks**, because those are shell programs with observable inputs.
 - **Eval tier** (Task 8, authenticated, costs tokens, run by hand). A real Claude Code session driving
   `spec → plan → run`. This tier is the **only** one that can prove a skill causes `TaskCreate` to be
   called, because in the scenario tier no producer exists.
@@ -69,12 +68,11 @@ path: the plan is found from the branch, so passing it would be a second way to 
 ## A decision removed rather than resolved
 
 An earlier version of this plan opened with a measurement: how long a skill's frontmatter hooks stay
-active, because the merge guard might be declared there instead of in `hooks.json`.
+active, because a merge hook might have been declared there.
 
-**That measurement is no longer needed, because the choice is gone.** The guard is registered
-globally in `hooks.json`, matching `Bash`, and it scopes *itself* — it acts only on `gh pr merge`, and
-only when the target PR's changed files include a cc-tuner plan file. Skill-lifetime semantics never enter
-the design, so an undefined boundary in the platform cannot make the gate inert.
+**That measurement is no longer needed, because the choice is gone.** There is no merge hook. `/run`
+invokes `merge.sh` directly, and the script scopes itself from the target PR's changed files.
+Skill-lifetime semantics never enter the design.
 
 This is the better kind of simplification: not answering a hard question, but arranging things so it
 is never asked. The measurement remains interesting and is recorded as an open item in the ADR — it is
@@ -88,7 +86,7 @@ simply not on this branch's path.
 | 1 — *(removed — see "A decision removed rather than resolved")* | — |
 | 2 — `/cc-tuner:plan` and the plan validator | 0 |
 | 3 — execution skill | 2 |
-| 4 — merge guard | 0 |
+| 4 — checked merge path | 0 |
 | 5 — `SessionStart` restore | 2 |
 | 6 — `doctor` | — |
 | 7 — `commands/` → `skills/` | 3 |
@@ -106,36 +104,35 @@ by the eval: the old runtime stays until a real session has been observed comple
 **Blocked by:** none.
 
 **Files:**
-- Create: `plugins/cc-tuner/tests/scenarios/lib.sh` — builds a throwaway git repo in `$TMPDIR`,
+- Create: `plugins/cc-tuner/tests/flow/lib.sh` — builds a throwaway git repo in `$TMPDIR`,
   returns its path, registers cleanup.
-- Create: `plugins/cc-tuner/tests/scenarios/run.sh` — runs every `scenario-*.sh` in the directory.
-- Create: `plugins/cc-tuner/tests/scenarios/fixtures/` — hook payloads captured verbatim during the
+- Create: `plugins/cc-tuner/tests/flow/fixtures/` — hook payloads captured verbatim during the
   spike, one JSON file per event.
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-harness-selftest.sh`
-- Modify: `plugins/cc-tuner/tests/run.sh` — call `scenarios/run.sh`.
+- Create: `plugins/cc-tuner/tests/flow/test_harness_selftest.sh`
+- Modify: `tests/run.sh` — discover `plugins/cc-tuner/tests/*/test_*.sh`.
 
-This task ships the machinery and **one** scenario: the harness proving itself. The guard scenarios
-belong to Task 4, alongside the guard, so no commit in between is red.
+This task ships the machinery and **one** scenario: the harness proving itself. Checked-merge
+scenarios belong to Task 4, alongside the script, so no commit in between is red.
 
-- [ ] **Step 1: write `lib.sh` and `run.sh`.** A scenario is a script that exits non-zero on failure;
-      `run.sh` reports each by name and fails if any did.
-- [ ] **Step 2: write `scenario-harness-selftest.sh`** — builds a repo, asserts it is a git repo with
+- [ ] **Step 1: write `lib.sh` and register the tier in `tests/run.sh`.** Each test exits non-zero on
+      failure; the repository runner reports each by name and fails if any did.
+- [ ] **Step 2: write `test_harness_selftest.sh`** — builds a repo, asserts it is a git repo with
       the expected fixture layout, and asserts that a deliberately failing assertion inside a
-      sub-scenario is reported as a failure by `run.sh`. Without this, "all scenarios passed" and
+      subprocess is reported as a failure. Without this, "all scenarios passed" and
       "no scenario ran" look identical, which is how the original defect hid.
 - [ ] **Step 3: `bash tests/run.sh`.** Green, including the new tier.
 - [ ] **Step 4: commit** — `Add end-to-end scenario harness`.
 
-**Acceptance:** deleting the body of a scenario's assertion makes `run.sh` fail, and an empty scenario
-directory is reported rather than silently passing.
+**Acceptance:** deleting the body of an assertion makes the test fail, and a missing flow tier is
+reported rather than silently passing.
 
 ---
 
 ## Task 1: *(removed)*
 
 The measurement of skill frontmatter hook lifetime, which this task used to specify, is no longer on
-this branch's path. The merge guard is registered globally in `hooks.json` and scopes itself, so the
-skill lifecycle never enters the design — see **A decision removed rather than resolved** above.
+this branch's path. `/run` invokes the checked merge script directly, so the skill lifecycle never
+enters the design — see **A decision removed rather than resolved** above.
 
 The experiment is still worth running one day, and stays recorded as an open item in the ADR. Nothing
 here is blocked on it.
@@ -151,8 +148,8 @@ here is blocked on it.
 - Create: `plugins/cc-tuner/skills/plan/plan-template.md`
 - Create: `plugins/cc-tuner/scripts/plan-lint.sh` — the validator
 - Create: `plugins/cc-tuner/scripts/plan-path.sh` — the one branch→path resolver
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-plan-lint.sh`
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-plan-path.sh`
+- Create: `plugins/cc-tuner/tests/flow/test_plan_lint.sh`
+- Create: `plugins/cc-tuner/tests/flow/test_plan_path.sh`
 
 **Frontmatter:** `disable-model-invocation: true` — a plan is produced when asked for, never inferred.
 `argument-hint: '[--auto] <path-to-spec>'`. The mode is an argument, because the skill's own body is
@@ -225,7 +222,7 @@ attended mode.
       `Blocked by`, if a named blocker matches no slice number, or if a `- [ ]` line sits outside any
       slice. The linter is the definition of "parsable"; Task 5's hook and this script must not each
       grow their own parser, so the hook calls this one to extract slices.
-- [ ] **Step 2: write `scenario-plan-lint.sh`** — four hand-written fixtures: one valid, one with a
+- [ ] **Step 2: write `test_plan_lint.sh`** — four hand-written fixtures: one valid, one with a
       dangling blocker, one missing `Blocked by`, one with an orphan checkbox. Assert the linter
       accepts the first and rejects the rest. **This tests the linter, not the skill** — no session
       runs here, so nothing about the skill's behaviour is being asserted.
@@ -291,15 +288,14 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
 
 ---
 
-## Task 4: The merge check
+## Task 4: The checked merge path
 
 **Blocked by:** Task 0 (the harness).
 
 **Files:**
 - Create: `plugins/cc-tuner/scripts/merge.sh` — the check, and the merge
-- Create: `plugins/cc-tuner/hooks/merge-guard.sh` — refuses a raw `gh pr merge` and names the script
-- Modify: `plugins/cc-tuner/hooks/hooks.json` — `PreToolUse`, matcher `Bash`
-- Create: `plugins/cc-tuner/tests/flow/test_merge.sh`, `test_merge_guard.sh`
+- Modify: `plugins/cc-tuner/scripts/plan-path.sh` — expose the shared plan-path pattern
+- Create: `plugins/cc-tuner/tests/flow/test_merge.sh`
 
 **The checking is a script, not a parser.** `merge.sh <pr> <squash|merge> <candidate-sha>` re-reads the
 verdict review, the required CI checks and the head SHA from GitHub, refuses unless all three agree at
@@ -310,32 +306,30 @@ Each round of better parsing produced another form that ran a merge the hook nev
 `bash -c`, `eval`, `/usr/local/bin/gh`, a line continuation between `pr` and `merge`, `G=gh; "$G"`,
 `$(printf gh)`, and a whitelist for the wrapper's own path that let `echo scripts/merge.sh; gh pr
 merge …` through. A shell command is a program; a hook reading it as text is guessing, and that list
-does not end. Moving the checks to a script whose inputs are three arguments ends the class.
-
-**The hook's rule is one-directional.** It can over-refuse — `echo gh pr merge` is refused — but it
-cannot mis-verify, because it verifies nothing. A raw merge in a form it does not recognise is a
-bypass of the same class as the merge button on github.com.
+does not end. Moving the checks to a script whose inputs are three arguments ends the class. The
+global command-string hook is deleted rather than refined again; ordinary merge commands remain
+outside cc-tuner's boundary.
 
 **Out of scope means merge, not refuse.** A pull request with no plan file goes straight through
-`merge.sh` unchecked. Refusing there was a deadlock: the hook refuses raw merges and the script
-refused everything else, so a repository with cc-tuner installed could not merge an ordinary pull
-request at all.
+`merge.sh` unchecked but still head-pinned. Refusing there made the wrapper unusable for ordinary
+pull requests.
 
 - [ ] **Step 1: write `merge.sh`**, deny-by-default within scope, pass-through outside it, and
       `--check-only` so the eval can observe the positive path without merging.
 - [ ] **Step 2: the positive path first.** In scope, verdict at the head, green required CI → merges,
       with the pin. Without this, a script that refused everything would pass every other case.
 - [ ] **Step 3: one missing fact at a time**, each refusing: head moved past the review; no verdict;
-      red CI; zero required checks. Plus zero-recorded, which is the 0.10.0 reproduction.
+      red CI; zero required checks; unreadable paginated file list. Plus zero-recorded, which is the
+      0.10.0 reproduction.
 - [ ] **Step 4: the caller's belief is checked** — a SHA that is no longer the head refuses.
 - [ ] **Step 5: forgery** — wrong author, marker inside other prose, superseded by a later
       `REQUEST_CHANGES`.
-- [ ] **Step 6: the hook**, with every historical bypass form as a case, and the sanctioned wrapper
-      call allowed — not by a whitelist, but because it contains no `pr merge`.
+- [ ] **Step 6: large-PR scope.** Put the plan after file 100 and prove the paginated endpoint keeps
+      it in scope; prove an API failure refuses rather than guessing.
 - [ ] **Step 7: `bash tests/run.sh`**, green, then commit.
 
 **Acceptance:** the positive path merges, each single missing fact refuses, an ordinary pull request
-still merges, and every bypass form listed above is refused.
+still merges through the explicit wrapper, and scope remains correct beyond 100 changed files.
 
 ---
 
@@ -346,7 +340,7 @@ still merges, and every bypass form listed above is refused.
 **Files:**
 - Create: `plugins/cc-tuner/hooks/session-start.sh`
 - Modify: `plugins/cc-tuner/hooks/hooks.json` — `"matcher": "startup|clear"`.
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-restore.sh`
+- Create: `plugins/cc-tuner/tests/flow/test_session_start.sh`
 
 **`compact` is deliberately excluded.** §4 of the spike measured the task graph surviving compaction
 and resume byte for byte; asking for a restore there would duplicate every row.
@@ -379,7 +373,7 @@ nothing else, so this asks the agent to restore and cannot make it happen.
 - [ ] **Step 3: make the instruction idempotent** — call `TaskList` first, create only the slices that
       are missing, then re-apply `addBlockedBy` for edges not already present. Written this way even
       though `compact` is excluded, so a future trigger change cannot silently double the plan.
-- [ ] **Step 4: `scenario-restore.sh`** — a half-done plan emits exactly the unfinished slices **with
+- [ ] **Step 4: `test_session_start.sh`** — a half-done plan emits exactly the unfinished slices **with
       their `Blocked by` values**; a finished plan emits nothing; a branch with no plan file emits
       nothing. Plus the case the naive implementation gets wrong: **an unfinished Slice 3 blocked by a
       finished Slice 2** must emit Slice 2 as well, marked done — not an edge into nothing.
@@ -499,29 +493,28 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       the same position: no approval
       question, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
       is non-empty refused when attempted out of order.
-- [ ] **Step 2b: producer → guard, the whole positive path.** Confirm the run posts the verdict review
+- [ ] **Step 2b: producer → checked path, the whole positive path.** Confirm the run posts the verdict review
       **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with
       `commit.oid` equal to the head SHA, and then **run `merge.sh --check-only <pr> <strategy> <sha>`
       against that real PR and CI and confirm it reports the candidate would be accepted** — the flag
       exists for exactly this, because a check that can only be run by merging is one nobody runs
       twice.
       Steps 4 below and the scenarios cover denial; without this the live positive path is never
-      exercised end to end, and a producer that writes a marker the guard cannot read would pass
+      exercised end to end, and a producer that writes a marker the checked path cannot read would pass
       everything.
 - [ ] **Step 3: recovery, asserted on the graph.** Start a fresh session in that repository. Confirm
       the `SessionStart` context arrives and that the rebuilt `TaskList` carries **the same
       `blockedBy` edges as before**, not merely the same number of rows. Then `/clear` and confirm the
       same. Then `/compact` and confirm **no duplication**.
-- [ ] **Step 4: the merge guard, live.** On a PR whose head SHA carries no verdict review, attempt
-      `gh pr merge` and confirm the denial reaches the agent as a refusal it reports, not a silent
-      retry.
+- [ ] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
+      `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
 - [ ] **Step 5: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
 **Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4 and 5. An
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most
 fall outside acceptance: step 0, which proves the eval tested this checkout rather than the installed
-version, and step 2b, the only live proof that the producer writes something the guard can read.
+version, and step 2b, the only live proof that the producer writes something the checked path can read.
 **A step recorded as not-yet-run leaves
 this task incomplete and Task 9 blocked** — an earlier draft allowed not-yet-run to count, which would
 have let the deletion proceed on no evidence at all. A step recorded as passing on the strength of
@@ -567,9 +560,8 @@ public command still pointing at the old runtime.
       - `SessionStart` emits an **advisory** notice naming the leftover file and what to do — finish
         the run under the old plugin version, or delete the state and re-plan. Advisory, and called
         that.
-      - the **merge guard** — already fail-closed and already in a blocking event — denies while a
-        legacy state file is present. That places the one real refusal where a mistake actually costs
-        something, and adds no new fence.
+      - `merge.sh` denies while a legacy state file is present. That places the one real refusal at
+        delivery without adding a new global fence.
 
       Migration of the old state is explicitly not offered; detection is.
 - [ ] **Step 3: delete, one commit per subsystem**, so a bisect can land between them.
@@ -589,13 +581,12 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
 ## Definition of done for the branch
 
 - `tests/run.sh` green **at every commit**, and the harness demonstrably able to report a failure.
-- The merge guard denies when its evidence is absent or stale, and stays silent outside a run — all
-  proven by mutation, evidence in the commit.
+- `merge.sh` denies when in-scope evidence is absent or stale, passes through an out-of-scope PR with
+  an exact-head pin, and refuses when scope cannot be determined — all proven by mutation.
 - The eval record shows every step PASS in a real session: `spec → plan → visible tasks with edges →
-  recovery preserving those edges → a live merge denial`.
+  recovery preserving those edges → a live checked merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
-- Runtime Bash: `merge.sh`, the `PreToolUse` hook that routes merges to it, the session-start hook,
-  the plan linter, `plan-path.sh`, and the `--auto` frontier
-  check. Nothing else.
-- README states the merge guard's real coverage, without overclaiming.
+- Runtime Bash: `merge.sh`, the session-start hook, the plan linter and `plan-path.sh`. The `--auto`
+  frontier rule is an instruction, not runtime code. Nothing else.
+- README states the checked merge path's real coverage, without overclaiming.
 - One PR.

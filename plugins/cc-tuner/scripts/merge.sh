@@ -13,9 +13,9 @@
 # the strategy and the SHA as three values, verifies them itself, and only then calls `gh`. Nothing
 # has to guess what a string would have done.
 #
-# The guard's remaining job is much smaller and honestly bounded: deny a raw `gh pr merge` when it can
-# see one, and say to use this. A raw merge it cannot see is in the same class as the merge button on
-# github.com — a bypass this plugin does not claim to prevent.
+# `/run` calls this script directly. Raw CLI commands, the web button, the API and direct pushes are
+# outside its boundary; trying to recognise every equivalent Bash program created bypasses and also
+# blocked unrelated merges, so the global command-string hook was removed.
 #
 # bash 3.2 compatible: macOS ships 3.2.57.
 set -u
@@ -39,7 +39,7 @@ command -v jq >/dev/null 2>&1 || die "jq is required to check the candidate"
 # which PR and which SHA they believe they are merging — and both are checked against what GitHub says.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
 # second call to the same endpoint -- a whole network round trip per merge for nothing.
-PRJSON="$($GH pr view "$PR" --json headRefOid,files,reviews 2>/dev/null)" \
+PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews 2>/dev/null)" \
   || die "cannot resolve pull request '$PR'"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
@@ -47,20 +47,24 @@ HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
 [ "$HEAD_SHA" = "$SHA" ] \
   || die "the head of $PR is $HEAD_SHA, not the $SHA you asked to merge — the branch moved"
 
-IN_SCOPE="$(printf '%s' "$PRJSON" | jq -r '
-  if (.files | type) != "array" then "unknown"
-  elif any(.files[]; .path // .filename | test("^(docs|wiki)/task-plans/.*\\.md$")) then "yes"
-  else "no" end')"
-# Three answers, not two. `unknown` means the file list could not be read — bad JSON, a null, a jq
-# failure — and an earlier revision folded it in with `no`, so a PR whose scope could not be
-# established merged with no review, no CI and no pin. Not knowing whether this is a run is not the
-# same as knowing it is not.
-[ "$IN_SCOPE" != "unknown" ] \
-  || die "cannot tell whether $PR is a cc-tuner run (its file list did not parse) — refusing rather than guessing"
+# `gh pr view --json files` asks GraphQL for only the first 100 nodes. Scope is therefore read from
+# the paginated REST endpoint instead: a large PR must not become unchecked precisely when its plan
+# falls after item 100. The path grammar comes from the same resolver that creates the plan.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)" || die "cannot resolve the plugin scripts directory"
+PLAN_PATTERN="$(bash "$SCRIPT_DIR/plan-path.sh" pattern)" \
+  || die "cannot read the plan-path contract"
+FILES="$("$GH" api "repos/{owner}/{repo}/pulls/$PR/files" --paginate --jq '.[].filename' 2>/dev/null)" \
+  || die "cannot tell whether $PR is a cc-tuner run (its file list could not be read) — refusing rather than guessing"
+IN_SCOPE=no
+if printf '%s\n' "$FILES" | grep -Eq "$PLAN_PATTERN"; then
+  IN_SCOPE=yes
+else
+  MATCH_RC=$?
+  [ "$MATCH_RC" -eq 1 ] \
+    || die "cannot tell whether $PR is a cc-tuner run (its file list could not be matched) — refusing rather than guessing"
+fi
 
-# Out of scope: merge it, and say so. Refusing here was a deadlock — the hook refuses a raw
-# `gh pr merge` and this refused everything else, so a repository with cc-tuner installed could not
-# merge an ordinary pull request at all. The plugin must not seize work that is not its own.
+# Out of scope: merge it, and say so. The plugin must not seize work that is not its own.
 if [ "$IN_SCOPE" = "no" ]; then
   # --check-only must not report success for a pull request it checked nothing about. Task 8 reads
   # that output as evidence, and "would merge, unchecked" is not evidence of a working gate.
@@ -72,12 +76,14 @@ if [ "$IN_SCOPE" = "no" ]; then
   exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"
 fi
 
-ME="$($GH api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"
+ME="$("$GH" api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"
 
+# One definition of the marker. The embedded SHA is the exact GitHub head, not a second broad
+# 7-to-40-hex grammar that can disagree with the comparison below.
 VERDICT="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
   [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
   | sort_by(.submittedAt) | last | .body // ""
-  | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) [0-9a-f]{7,40}$") then . else "" end')"
+  | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$") then . else "" end')"
 case "$VERDICT" in
   "cc-tuner-verdict: APPROVE $HEAD_SHA") ;;
   "") die "no cc-tuner verdict from $ME on $HEAD_SHA — the candidate has not been reviewed at this commit" ;;
@@ -92,7 +98,7 @@ esac
 # CI" for a repository that simply has no branch protection, sending the operator to look for a
 # failing check that does not exist.
 CHECKS_ERR="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-checks.XXXXXX")" || die "cannot create a temporary file"
-if ! CHECKS="$($GH pr checks "$PR" --required --json name,bucket 2>"$CHECKS_ERR")"; then
+if ! CHECKS="$("$GH" pr checks "$PR" --required --json name,bucket 2>"$CHECKS_ERR")"; then
   if grep -q 'no checks reported' "$CHECKS_ERR"; then
     rm -f "$CHECKS_ERR"
     die "$PR has no required checks configured on GitHub — absent CI is unproven CI, so configure at least one required check"

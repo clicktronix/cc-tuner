@@ -138,11 +138,10 @@ agree at that exact commit, and pins the head with `--match-head-commit` so it c
 the check and the merge. On a pull request that carries no cc-tuner plan it merges straight through:
 the plugin must not seize work that is not its own.
 
-A `PreToolUse` hook refuses a raw `gh pr merge` and names that script. The hook does no checking of
-its own — an earlier design tried to judge merges by reading the agent's Bash command, and every
-round of better parsing found another form it had not seen. It can now over-refuse but never
-mis-verify, and a raw merge in a form it fails to recognise is a bypass of the same class as the merge
-button on github.com, `git push` and the REST API, none of which any local hook sees either.
+`/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:
+earlier versions tried to judge arbitrary Bash text and alternated between bypasses and blocking
+unrelated merges. A raw CLI call, the merge button on github.com, `git push` and the REST API can all
+bypass this checked path. It is workflow discipline, not a local security boundary.
 
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).

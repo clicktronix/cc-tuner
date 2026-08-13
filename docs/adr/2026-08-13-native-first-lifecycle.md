@@ -3,12 +3,12 @@
 **Date:** 2026-08-13
 **Status:** proposed. Moved back from accepted: the authenticated eval has not run, so nothing has
 yet observed a real session completing this flow, and until it does "accepted" claims evidence that
-does not exist. The two questions below are settled. The skill-hook measurement is
-no longer a gate on anything: the merge guard is registered globally and scopes itself, so the
-question left the design rather than being answered. And the narrowing — **one** SHA-bound verdict
+does not exist. The two questions below are settled. The skill-hook measurement is no longer
+load-bearing because `/run` invokes the checked merge script directly; the question left the design
+rather than being answered. And the narrowing — **one** SHA-bound verdict
 plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing
 self-approval; reversing it would mean running three separate GitHub identities or Apps, which is the
-opposite of this ADR's purpose. See **What the gate can actually check**.
+opposite of this ADR's purpose. See **What the checked path can actually verify**.
 **Supersedes:** the approach shipped through 0.10.0, in which `/cc-tuner:run` carried its own state
 machine, mutation fence and gate protocol.
 
@@ -115,10 +115,9 @@ The task graph — rows, statuses and `blockedBy` edges — survives `/compact` 
 
 And one that reframes the whole enforcement story:
 
-3. **Every gate is inert without state.** With no `.claude/execute-task-runs/`, the shipped hook
-   returned `rc=0` for both an `Edit` and a `gh pr merge`. The merge guard — the one piece worth
-   keeping — fails open exactly like the rest. A design that keeps one fail-closed gate must say what
-   *arms* it, or the original defect survives the simplification untouched.
+3. **Every state-backed gate is inert without state.** With no `.claude/execute-task-runs/`, the
+   shipped hook returned `rc=0` for both an `Edit` and a `gh pr merge`. The replacement therefore
+   cannot depend on a separate init ritual: `/run` calls the checked delivery script directly.
 
 ### What the documentation adds, and what it leaves open
 
@@ -169,7 +168,7 @@ recorded under **Consequences**.
 - **The committed Markdown plan as the single readable store** — owned paths, acceptance, deciding
   checks, `Blocked by`, and `- [ ]` progress. Two independent measurements force this: `metadata`
   written through `TaskCreate` cannot be read back, and nothing survives a new session.
-- Candidate SHA before review; three reviews run against that SHA — one of them checkable by the gate,
+- Candidate SHA before review; three reviews run against that SHA — one of them checkable by the script,
   the other two mandatory steps of the flow; current-head CI; DoD before merge.
 - Method placement — by ordering the branch, not by overriding the skills.
 
@@ -181,37 +180,36 @@ companion plugins (`claude plugin list --json` returns `scope`, `version`, `inst
 and `enabled` directly); the Markdown journal as a second state; generation/reclaim locks; and the
 thirty-invariant list, reduced to those with something that reads them at runtime.
 
-### Enforced
+### Checked delivery path
 
-One fail-closed gate, and it is a **script, not a parser**: `scripts/merge.sh <pr> <strategy> <sha>`
+The flow has one fail-closed checked path, and it is a **script, not a parser**:
+`scripts/merge.sh <pr> <strategy> <sha>`
 re-reads the verdict, the required checks and the head from GitHub and refuses unless the PR head
-equals the reviewed SHA, carries a verdict review at that SHA, and has green required CI on it. A
-`PreToolUse` hook refuses a raw `gh pr merge` and names the script.
+equals the reviewed SHA, carries a verdict review at that SHA, and has green required CI on it.
 
 An earlier revision put the checking in the hook, reading the agent's Bash command string. That failed
 three rounds running — `bash -c`, `eval`, an absolute path to `gh`, a line continuation, `G=gh; "$G"`,
 `$(printf gh)`. A shell command is a program, and a hook reading it as text is guessing. Moving the
-checks to a script whose inputs are three arguments ends the class; the hook keeps only a
-one-directional rule that can over-refuse but never mis-verify.
+checks to a script whose inputs are three arguments ends the class; removing the global parser also
+stops cc-tuner from intercepting unrelated merges.
 
-**Scope, which is also the arming.** The guard has an opinion exactly when the target pull request's
+**Scope.** The script applies cc-tuner checks exactly when the target pull request's
 **net diff** touches a cc-tuner plan file, and none otherwise. The subject is the PR named in the
-command, never the branch that happens to be checked out.
+arguments, never the branch that happens to be checked out. It reads the changed files through the
+paginated REST endpoint; `gh pr view --json files` returns only the first 100 GraphQL nodes.
 
 An earlier revision of this ADR specified the PR's commit *history* instead, to close one hole: a run
 that commits its plan and then deletes it before merging leaves the net diff and so leaves scope. That
 is not what was built, and rather than leave the decision record and the code disagreeing, the record
 now describes the code. The reason: history costs one API call per commit on every merge attempt, or
-fetch refs written into the user's repository from a hook, and it closes an adversarial hole in a tool
-whose stated threat model is an agent's mistake — while the web button, `git push` and the REST API
-bypass the guard entirely and stay open. The escape is documented in the guard's header beside those,
-and asserted in the scenarios so it cannot be forgotten. Three properties follow, and all are
-required:
+fetch refs written into the user's repository, and it closes an adversarial hole in a tool whose
+stated threat model is an agent's mistake — while raw CLI, the web button, `git push` and the REST API
+bypass the checked path entirely. The escape is documented beside those routes and asserted in the
+scenarios so it cannot be forgotten. Three properties follow:
 
-- Outside a run cc-tuner does not touch the user's ordinary merges. A global fail-closed hook that
-  denied every `gh pr merge` in every repository the plugin is installed in would be a regression, not
-  a guardrail.
-- Inside a run the gate does not go inert the way 0.10.0's did *by accident*. Its scope condition is
+- Outside a run cc-tuner does not touch the user's ordinary merge commands. Calling `merge.sh`
+  explicitly for an out-of-scope PR still gives a head-pinned pass-through path.
+- Inside a run the checked path does not go inert the way 0.10.0's did *by accident*. Its scope is
   its evidence: a run exists only if the plan file was committed, and `/plan` commits it before `/run`
   will start. The old failure — run in progress, state file absent, every gate silently allowing —
   has no equivalent, because nothing has to be separately initialised.
@@ -225,7 +223,7 @@ required:
 Earlier drafts armed this from `UserPromptSubmit`. That is dropped: it added a second store answering
 a question the branch already answers, which is exactly the duplication this ADR removes elsewhere.
 
-**What the gate can actually check, which is less than three approvals.** §8 of the spike measured
+**What the checked path can actually verify, which is less than three approvals.** §8 of the spike measured
 this and an earlier draft of this ADR contradicted it. GitHub refuses to let an author approve their
 own pull request, and all three of cc-tuner's reviewers act as the PR author — so their reviews come
 back `COMMENTED`, never `APPROVED`. "Three approvals" is not a policy choice the user can make; it is
@@ -240,15 +238,15 @@ What survives is weaker and true:
   only exist if X was head when it was submitted. The SHA binding is external and strong.
 - **Green CI on that same SHA**, which GitHub also owns.
 
-The verdict itself travels in review prose the author can edit, so it is a guardrail, not a proof —
-the same standing this ADR already gives the merge interception. Saying otherwise would rebuild the
-thing being deleted: a gate that reads a record its own subject controls.
+The verdict itself travels in review prose the author can edit, so it is a guardrail, not a proof.
+Saying otherwise would rebuild the thing being deleted: a check that reads a record its own subject
+controls.
 
 **The flow gains the step that writes it.** Nothing today posts a GitHub review — `cc-codex-triage`
 returns its verdict into the chat — so `/run` now posts the verdict as a review on the current head
-once Codex returns it. Naming the reader without the writer is its own failure: a gate checking a
-record nobody produces denies forever, and a gate that always denies is indistinguishable from a
-broken one until somebody turns it off.
+once Codex returns it. Naming the reader without the writer is its own failure: a checked path reading
+a record nobody produces denies forever, and a script that always denies is indistinguishable from a
+broken one until somebody routes around it.
 
 **The other two reviews stay mandatory steps of the flow and are not gates.** Deep-review and the
 `mattpocock` review run and must be addressed; they simply have no durable, unforgeable home, and
@@ -260,12 +258,12 @@ here as runtime enforcement; it is not, and cannot easily be: nothing outside th
 which task the agent picked. Calling it enforcement while it is a paragraph is the overclaim this ADR
 exists to remove, so it is named for what it is and counted with the advisory half of the design.
 
-`gh pr merge` is not the only route to a merge; the web button, `git push` and the API bypass any local
-hook. This is a guardrail against an agent's mistake and must not be described as anything stronger.
+Raw `gh pr merge`, the web button, `git push` and the API all bypass the checked script. This is
+workflow discipline against an agent's mistake and must not be described as anything stronger.
 
 ## Consequences
 
-- The runtime becomes a skill, one merge hook and a setup check. No new language: with no state
+- The runtime becomes a skill, one checked merge script and a setup check. No new language: with no state
   machine there is no controller to port, and what remains reads `git`, `gh` and the plan file.
 - **The plan is advisory in attended mode.** With the mutation fence gone, nothing stops an edit before
   a plan exists except the model following its instructions and the user watching. Recorded as a
@@ -286,14 +284,13 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 
 ## Complexity budget
 
-- **Runtime** Bash: five small pieces and no more — `merge.sh` (which does the checking), the
-  `PreToolUse` hook that routes merges to it, the `SessionStart` restore hook, the plan linter, and
-  the branch→path resolver. The `--auto` frontier rule is an instruction in the
-  run skill, not code, and is not counted here. An earlier
-  revision listed only the first and the last, which was not a tighter budget but an inaccurate one:
-  the other three exist in the design and a budget that omits them cannot be checked against it.
+- **Runtime** Bash: four small pieces and no more — `merge.sh`, the `SessionStart` restore hook, the
+  plan linter, and the branch→path resolver. The `--auto` frontier rule is an instruction in the
+  run skill, not code, and is not counted here. An earlier revision listed only the first and the
+  last, which was not a tighter budget but an inaccurate one: the other two exist in the design and
+  a budget that omits them cannot be checked against it.
   Setup-time checks are a separate category with a separate home (`/cc-tuner:setup` doctor).
-- One fail-closed gate, and a stated answer for what arms it.
+- One checked delivery path, fail-closed whenever it cannot determine whether its target is in scope.
 - No more than seven normative invariants, each with something that reads it at runtime.
 - **End-to-end scenarios are the primary test.** Phrase-matching assertions may support them, never
   replace them.
@@ -303,10 +300,9 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 Nothing here blocks the decision. Each was, at some point, believed to.
 
 - **How long a skill's frontmatter hooks stay active — no longer load-bearing.** An earlier revision
-  ranked this first, because the merge guard might have been declared in a skill's frontmatter and an
-  active window of one turn would have left it inert. The guard is registered globally in `hooks.json`
-  and scopes itself on the target PR's changed files, so the question is no longer part of the design. It is
-  worth measuring one day; nothing waits on it. Removing a decision beat resolving it.
+  ranked this first because a merge hook might have been declared there. There is no merge hook in
+  this design; `/run` invokes the checked script directly. It is worth measuring one day, but nothing
+  waits on it.
 - **§6 of the spike — checkbox progress — is untested.** Whether ticking `- [ ]` plus git history is
   enough to reconstruct state after a lost session. This decides how good recovery feels, not whether
   anything is enforced.

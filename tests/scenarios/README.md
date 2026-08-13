@@ -35,7 +35,7 @@ row says so.
 | task-run/dor-first-failing-check | partial hold | passes | guidance removes the RED arm's option to discover/invent missing contract details during the run |
 | task-run/false-green-regression-test | holds unaided | passes | not load-bearing in isolation; retained as cheap regression and machine-gate specification |
 | task-run/implementation-only-parallelism | **reproduced** | passes | **load-bearing** — RED parallelizes review and proposes multiple PRs; GREEN confines delegation to code writing |
-| task-run/request-changes-blocks-merge | partial hold | passes | guidance requires a fresh approval after disposition; tree changes also require a new immutable candidate and all three fresh approvals |
+| task-run/request-changes-blocks-merge | partial hold | passes | guidance requires a fresh review after disposition; tree changes also require a new immutable candidate, all review steps, and a fresh machine-checkable verdict |
 | task-run/stale-review-after-fix | partial hold | passes | guidance invalidates testing, acceptance, every review, CI, and DoD rather than only reviewer sign-off |
 | task-run/reviewer-unavailable-fails-closed | holds unaided | passes | not load-bearing in isolation; retained for machine-enforced reviewer/lens completeness |
 | task-run/current-sha-ci | holds unaided | passes | not load-bearing in isolation; retained for exact-SHA hosted-check enforcement |

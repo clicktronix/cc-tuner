@@ -320,10 +320,9 @@ Edit src/slug.py          → rc=0   (allowed)
 gh pr merge 1 --squash    → rc=0   (allowed)
 ```
 
-Two commands reproduce the entire Marqa/Stokli failure. And it qualifies §8: **the merge guard is
-inert too.** The guard called "the one proven piece" is proven only *given state*; with none it allows
-the merge like everything else. Any design that keeps one fail-closed gate must therefore answer what
-arms it, not only what it checks — otherwise the same defect survives the simplification intact.
+Two commands reproduce the entire Marqa/Stokli failure. And it qualifies §8: **the shipped
+state-backed merge guard was inert too.** The guard called "the one proven piece" was proven only
+*given state*; with none it allowed the merge like everything else.
 
 ### What a slash invocation looks like to a hook — MEASURED 2026-08-13
 
@@ -355,7 +354,7 @@ Two further facts the payload gives for free:
 Arming is a side effect, so a hook that only writes a sentinel and exits 0 is enough for the
 bootstrap — but if the design ever wants the prompt refused outright, that is a separate measurement.
 
-## 8. Exact-SHA review and the merge guard — MEASURED 2026-08-13
+## 8. Exact-SHA review and the checked merge path — MEASURED 2026-08-13
 
 **A PR review is a working attestation vehicle, and the SHA is GitHub's, not ours.**
 
@@ -437,9 +436,10 @@ that produces it is measured rather than inherited.
 Plan mode is an approval surface, not an architecture: it creates no tasks, its file lives at
 `~/.claude/plans/<generated-name>.md` outside the repository, and it is interactive by construction.
 
-The merge guard remains the one fail-closed gate — but §7 measured that it is **inert without state**,
-exactly like every other gate. A design that keeps one gate must say what arms it, or it keeps the
-defect that started this and deletes only the code around it.
+At measurement time the proposed merge guard still depended on explicit state, and §7 showed that it
+was inert without that state. The accepted design removes both the state dependency and the global
+command parser: `/run` invokes a checked merge script directly. That is a workflow path, not a claim
+that raw CLI, web/API merges or direct pushes are locally prevented.
 
 ### The method finding
 

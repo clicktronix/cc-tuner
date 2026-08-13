@@ -124,10 +124,10 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    ```
 
    On `REQUEST_CHANGES`, publish that instead. Never publish `APPROVE` for a review that did not
-   approve — the guard reads this and nothing else.
+   approve — the checked merge script reads this and nothing else.
 5. **A published approval stands until the SHA changes.** GitHub does not overwrite reviews, so a
    finding that requires a code change needs a new commit and therefore a new candidate, at which
-   point the guard denies by construction because the head no longer matches. A finding that does
+   point the script denies by construction because the head no longer matches. A finding that does
    *not* require a change — refuted with a concrete `file:line`, or deferred by the user — leaves the
    candidate alone: re-run the required review on the same SHA and publish its verdict. An earlier
    revision called the approval "terminal", which reads as forbidding that and would have pushed the
@@ -152,14 +152,15 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    ```
 
    It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so
-   nothing here has to be carried forward correctly. A raw `gh pr merge` is refused by the hook.
+   nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:
+   arbitrary shell and web/API merges are outside the boundary this local workflow can enforce.
 
-   The guard refuses a merge without the pin: the head can move between the check and the merge, and
-   only GitHub can close that window.
+   The script refuses a merge without the pin: the head can move between the check and the merge,
+   and only GitHub can close that window.
 9. **Reconcile after the merge**, as the spec requires: sync the target, delete the branch, close the
    issue.
 
-## When the guard denies
+## When the checked merge path denies
 
-Its reason names the missing fact. Fix the fact. Do not route around it — the guard is the only gate
-in this plugin, and `gh pr merge` is already not the only way to merge.
+Its reason names the missing fact. Fix the fact. Do not route around it: the script is the checked
+delivery path, while raw CLI, web/API merge and direct pushes are explicitly outside its coverage.

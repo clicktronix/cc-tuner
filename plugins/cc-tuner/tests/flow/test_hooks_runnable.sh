@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Every command hooks.json registers must actually run the way Claude Code runs it.
 #
-# This exists because it did not. merge-guard.sh and session-start.sh shipped mode 100644 while
-# hooks.json invoked them directly, so both exited 126, permission denied — the merge guard and the
-# whole recovery path never ran in a live session. Every other suite passed, because every other
-# suite invoked them as `bash "$HOOK"`, which ignores the executable bit.
+# This exists because new hooks once shipped mode 100644 while hooks.json invoked them directly, so
+# they exited 126, permission denied. Every other suite passed because it invoked them as
+# `bash "$HOOK"`, which ignores the executable bit.
 #
 # That is the defect this whole tier was built to prevent, committed inside the tier itself: a test
 # that exercises the code by a route the product does not use is testing something the product is not

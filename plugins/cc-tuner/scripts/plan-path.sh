@@ -7,6 +7,7 @@
 #
 #   plan-path.sh create    prints the canonical path for a plan that does not exist yet
 #   plan-path.sh resolve   prints the one existing plan for this branch; fails on none and on several
+#   plan-path.sh pattern   prints the repository-relative plan-path pattern used by delivery checks
 #
 # Fail-closed on both ends. `resolve` refusing zero matches and refusing two is the whole point: no
 # match may mean no plan or a renamed branch, two matches mean two plans with equal claim, and a
@@ -16,6 +17,13 @@
 set -u
 
 MODE="${1:-}"
+
+# This is path grammar, not repository state. Keep it usable before resolving a checkout so callers
+# do not need to copy the docs/wiki rule or invent a fake branch merely to ask what a plan looks like.
+if [ "$MODE" = "pattern" ]; then
+  printf '^(docs|wiki)/task-plans/.*\\.md$\n'
+  exit 0
+fi
 
 # NOT docs/plans. `/cc-tuner:spec` writes specs to <root>/PLANS/, and on macOS's case-insensitive
 # APFS `docs/PLANS` and `docs/plans` are the same directory -- so specs and plans would share one
@@ -85,6 +93,6 @@ case "$MODE" in
     esac
     ;;
   *)
-    die "usage: plan-path.sh create|resolve"
+    die "usage: plan-path.sh create|resolve|pattern"
     ;;
 esac

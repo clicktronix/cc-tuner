@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # merge.sh: the only sanctioned way to merge a cc-tuner run, and the thing that actually checks one.
 #
-# These assertions used to live against the PreToolUse hook, which read the agent's Bash string and
-# tried to judge the merge inside it. That failed three rounds running -- see the hook's header for
-# the list of forms it guessed wrong about. Here the PR, the strategy and the SHA are arguments, so
-# there is nothing to parse and nothing to guess.
+# These assertions used to live against a PreToolUse hook that tried to judge arbitrary Bash text.
+# Here the PR, strategy and SHA are arguments, so there is nothing to parse and nothing to guess.
 #
 # The positive path is asserted FIRST and on purpose: every case here could assert refusal, and a
 # script that refused unconditionally would pass the lot.
@@ -22,6 +20,11 @@ D="$(cd "$(dirname "$0")" && pwd)"
 printf '%s\n' "$*" >> "$D/calls"
 serve() { [ -f "$D/$1" ] || exit 1; cat "$D/$1"; }
 case "$1 $2" in
+  "api user")  serve user ;;
+  "api repos/"*)
+    case "$*" in *--paginate*) ;; *) exit 1 ;; esac
+    [ ! -f "$D/api-fail" ] || exit 1
+    serve api-files ;;
   "pr view")   serve pr.json ;;
   "pr checks")
     # Real `gh pr checks --required` exits 1 and reports on stderr when the branch requires nothing;
@@ -30,7 +33,6 @@ case "$1 $2" in
     case "$*" in *--required*) ;; *) exit 1 ;; esac
     if [ -f "$D/checks-none" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
     serve checks.json ;;
-  "api user")  serve user ;;
   "pr merge")  printf 'MERGED %s\n' "$*" ;;
   *) exit 1 ;;
 esac
@@ -40,8 +42,8 @@ EOF
 
 world() {  # world <files-json> <reviews-json> <checks-json> [head-sha]
   local d; d="$(flow_workdir)"; gh_stub "$d"
-  # One document, because merge.sh makes one `gh pr view` call for all three fields.
-  printf '{"headRefOid":"%s","files":%s,"reviews":%s}\n' "${4:-$SHA}" "$1" "$2" > "$d/pr.json"
+  printf '{"headRefOid":"%s","reviews":%s}\n' "${4:-$SHA}" "$2" > "$d/pr.json"
+  printf '%s' "$1" | jq -r '.[]? | (.path // .filename // empty)' > "$d/api-files"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
   printf '%s' "$d"
@@ -125,10 +127,32 @@ check  "check-only-refuses-out-of-scope" "nothing to check" "$OUT"
 check  "check-only-out-of-scope-rc1"     "rc=1"             "$OUT"
 absent "check-only-out-of-scope-no-merge" "MERGED"          "$OUT"
 
+# The marker grammar has one SHA definition. An abbreviated SHA is not attributed to this head and
+# must not be misdiagnosed as a valid marker carrying a non-approval.
+D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE abc1234")" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "abbreviated-sha-refused"          "has not been reviewed at this commit" "$OUT"
+absent "abbreviated-sha-not-misdiagnosed" "is not an approval"                  "$OUT"
+
+# `gh pr view --json files` is capped at 100. The checked path instead requires `--paginate` on the
+# REST endpoint, so a plan at item 101 remains in scope.
+D="$(world "$NO_PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+: > "$D/api-files"
+i=0
+while [ "$i" -lt 100 ]; do
+  printf 'src/f%s.ts\n' "$i" >> "$D/api-files"
+  i=$((i + 1))
+done
+printf 'docs/task-plans/2026-01-01-retry.md\n' >> "$D/api-files"
+check "paginated-files-find-plan" "MERGED" "$(run "$D" 42 squash "$SHA")"
+
+printf 'src/f0.ts\nsrc/f1.ts\n' > "$D/api-files"
+check "paginated-files-find-no-plan" "not a cc-tuner run" "$(run "$D" 42 squash "$SHA")"
+
 # --- a scope it cannot establish is not a scope out of ------------------------------------------
-# `unknown` was folded in with `no`, so a PR whose file list did not parse merged with no review, no
-# CI and no pin. Not knowing whether this is a run is not the same as knowing it is not.
-D="$(world 'null' "$APPROVED" "$GREEN_CI")"
+# An API failure is not evidence that the PR is out of scope. Earlier code folded unknown into no
+# and merged with no review or CI.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/api-fail"
 OUT="$(run "$D" 42 squash "$SHA")"
 check  "unknown-scope-refused"  "refusing rather than guessing" "$OUT"
 check  "unknown-scope-rc1"      "rc=1"                          "$OUT"
@@ -169,6 +193,9 @@ absent "check-only-refusal-no-merge" "MERGED" "$OUT"
 # --- facts it cannot establish are not facts ------------------------------------------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/pr.json"
 check "unresolvable-pr-refused" "cannot resolve" "$(run "$D" 42 squash "$SHA")"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/api-files"
+check "unreadable-file-list-refused" "refusing rather than guessing" "$(run "$D" 42 squash "$SHA")"
 
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/user"
 check "unknown-identity-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
