@@ -113,6 +113,35 @@ And one that reframes the whole enforcement story:
    keeping — fails open exactly like the rest. A design that keeps one fail-closed gate must say what
    *arms* it, or the original defect survives the simplification untouched.
 
+### What the documentation adds, and what it leaves open
+
+Read against the reference docs after the spike. Kept separate from the section above because none of
+it was observed here — it constrains the design, it does not report behaviour.
+
+- **A hook cannot invoke a tool.** *"Invoke Claude Code tools — NO. Hooks can only emit JSON/text."*
+  A hook can emit `hookSpecificOutput.additionalContext` and nothing more. Recovery therefore cannot
+  be performed by a hook; it can only be *asked for*.
+- **`SessionStart` matches on more than `startup`** — `startup`, `resume`, `clear`, `compact`, `fork`.
+  `/clear` empties the session's tasks exactly as a new session does, so a restore keyed only to
+  `startup` has a hole. `superpowers` registers `startup|clear|compact`.
+- **`TaskCreate` takes no dependency argument** (`subject`, `description`, `activeForm`, `metadata`).
+  Edges exist only through `TaskUpdate.addBlockedBy`, so publishing a plan is inherently two-pass.
+  The same reference lists the fields `TaskList` and `TaskGet` return — `metadata` is in neither,
+  which is the documented form of what §1 of the spike measured.
+- **A skill may declare its own hooks** in frontmatter, *"scoped to the component's lifecycle and only
+  run when that component is active."* If an inline skill stays active across turns this removes the
+  arming problem outright. **Nothing defines when a non-forked skill finishes**, and the neighbouring
+  frontmatter fields are documented to clear "when you send your next message" — so the active window
+  may well be one turn, in which case a guard declared this way is inert for a multi-turn run. That is
+  the same failure this ADR exists to remove, so it is a measurement, not an assumption. See **Open**.
+
+### Rejected: `disallowed-tools` as the mutation fence
+
+The frontmatter field removes tools from the pool while a skill is active — a native Write/Edit fence
+with no Bash at all. It is rejected because the documented lifetime is one message: *"The restriction
+clears when you send your next message."* A run spans many turns, so the fence would lapse after the
+first one. Recorded here so it is not proposed again.
+
 ## Decision
 
 ### The platform owns
@@ -140,9 +169,11 @@ thirty-invariant list, reduced to those with something that reads them at runtim
 
 One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, with three
 approvals on it and green CI.** Armed from `UserPromptSubmit`, which was measured to carry the raw
-slash text before any tool call. Under `--auto` only, one further check refuses to start a task whose
-`blockedBy` is non-empty — because that is the one thing the platform stores but does not enforce, and
-nobody is watching.
+slash text before any tool call. If a skill's frontmatter hooks turn out to stay active for the whole
+run, that arming file goes away and the guard is declared on the skill instead — the gate is the
+decision, the arming mechanism follows the measurement. Under `--auto` only, one further check refuses
+to start a task whose `blockedBy` is non-empty — because that is the one thing the platform stores but
+does not enforce, and nobody is watching.
 
 `gh pr merge` is not the only route to a merge; the web button, `git push` and the API bypass any local
 hook. This is a guardrail against an agent's mistake and must not be described as anything stronger.
@@ -155,8 +186,11 @@ hook. This is a guardrail against an agent's mistake and must not be described a
   a plan exists except the model following its instructions and the user watching. Recorded as a
   decision rather than a side effect: the observed failure was never an agent bypassing the fence, it
   was the fence being inert because state did not exist.
-- Recovery is part of the normal flow, not an error path — a fresh session reads the plan and
-  re-creates the unticked tasks, keyed off `SessionStart.source == "startup"`.
+- **Recovery is asked for, not performed.** It is part of the normal flow rather than an error path,
+  but a hook cannot call `TaskCreate`: on `startup`, `clear` or `compact` the hook injects the plan
+  file's unticked lines as context and the agent re-creates the tasks. So recovery carries exactly the
+  same standing as the plan itself — advisory, and dependent on the model following its instructions.
+  Any claim that a session "will" restore its tasks is a claim about the model, not about a gate.
 - `tracker: none` is dropped from `/run`: it was already inconsistent, since `/run` requires a PR and
   GitHub CI unconditionally.
 
@@ -171,8 +205,16 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 
 ## Open
 
+In priority order, by what each one decides.
+
+- **How long a skill's frontmatter hooks stay active.** This decides whether the single fail-closed
+  gate needs an arming file at all — and, if the active window is one turn, whether a guard declared
+  that way fires during a run or is inert. It is the only open item that can leave the merge guard
+  silently not working, which is the defect this ADR is written against. Measure first, in a
+  disposable repository, the same way the rest of this was measured.
 - **§6 of the spike — checkbox progress — is untested.** Whether ticking `- [ ]` plus git history is
-  enough to reconstruct state after a lost session is the one thing here resting on judgement.
+  enough to reconstruct state after a lost session. This decides how good recovery feels, not whether
+  anything is enforced, so it ranks below the item above.
 - A session that has already loaded an older version of a command cannot be repaired by anything
   shipped in a newer one. Only a reload or a cache purge fixes an existing session — which is what
   produced the original symptom, and what no amount of enforcement would have prevented.
