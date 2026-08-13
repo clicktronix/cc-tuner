@@ -9,7 +9,7 @@ Optional stable repository defaults for `/cc-tuner:run`. Save a customized copy 
   stable for this repository; task-specific exceptions stay in the spec.
 - **ci**: the checks the target branch requires on GitHub, and how to observe them.
 - **merge**: `squash` or `merge`, plus the default target branch.
-- **tracker**: `gh` or `none`.
+- **tracker**: `gh` — the only value; a run needs a GitHub PR and GitHub CI regardless.
 - **board**: project title and owner, or `none`.
 
 Task-specific first-failure proof, branch, target, scope, acceptance criteria, waivers, and

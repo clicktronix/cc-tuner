@@ -8,8 +8,7 @@
     }
   },
   "tracker_values": [
-    "gh",
-    "none"
+    "gh"
   ],
   "lifecycle_order": [
     "readiness",

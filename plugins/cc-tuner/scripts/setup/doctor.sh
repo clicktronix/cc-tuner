@@ -6,17 +6,16 @@
 # Exit 0 when nothing is MISS, 1 otherwise. bash 3.2 compatible: macOS ships 3.2.57.
 #
 # Test seams (all default to the real thing):
-#   HOME                 plugin root ($HOME/.claude/plugins), the same location prereq-check.sh
-#                        and the delivery gate resolve
+#   CC_TUNER_PLUGIN_LIST_CMD  command whose stdout is the installed-plugin JSON
+#                             (default: claude plugin list --json)
 #   CC_TUNER_MCP_CMD     command whose stdout is parsed for MCP servers (default: claude mcp list)
 #   CC_TUNER_HOME        home dir for user-level checks (default: $HOME)
 set -u
 
 MODE="${1:-quick}"          # quick | full — full adds the MCP probe, which health-checks every
                             # configured server and can sit for 30s per unreachable one.
-HERE="$(cd "$(dirname "$0")" && pwd)"
-PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 UHOME="${CC_TUNER_HOME:-$HOME}"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 miss=0
 
 say()  { printf '%s\n' "$1"; }
@@ -53,22 +52,43 @@ if command -v gh >/dev/null 2>&1; then
 fi
 
 # --- 3. companion plugins ------------------------------------------------------------------------
-# Delegated to the existing checker rather than duplicated: it already knows the anchor paths.
-PREREQ="$PLUGIN_ROOT/scripts/execute-task/prereq-check.sh"
-if [ -f "$PREREQ" ]; then
-  if out="$(bash "$PREREQ" 2>&1)"; then
-    ok "companion plugins (mattpocock-skills, cc-codex-triage)"
+# `claude plugin list --json` is the platform's own answer, so nothing here parses a plugin manifest.
+# What it does NOT answer is which installation applies: it returns one row per installation, and on
+# 2.1.231 cc-tuner comes back twice — `scope: project` with a `projectPath` and `scope: user` without
+# one, both `enabled: true`, with no `active` field. So the selection rule still has to exist, or the
+# reported version is a coin flip between two installs. Same total order the delivery gate applies:
+# local, then project, then user; a row scoped to a different project cannot answer for this repo.
+PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
+
+plugin_here() {  # plugin_here <id> -> "<version> (<scope>)" for the install that applies here
+  printf '%s' "$PLUGIN_LIST" | jq -r --arg id "$1" --arg project "$REPO_ROOT" '
+    [ .[]? | select(.id == $id and (
+        .scope == "user"
+        or ((.scope == "project" or .scope == "local") and .projectPath == $project)
+      )) ]
+    | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
+    | .[0] // empty | "\(.version) (\(.scope))"
+  ' 2>/dev/null
+}
+
+companion() {  # companion <id> <what needs it> <install hint>
+  found="$(plugin_here "$1")"
+  if [ -n "$found" ]; then
+    ok "$1 $found — $2"
   else
-    printf '%s\n' "$out" | while IFS= read -r line; do
-      case "$line" in
-        MISSING:*) say "MISS ${line#MISSING: }" ;;
-        *)         say "     $line" ;;
-      esac
-    done
-    miss=1
+    bad "$1 not installed for this repo — $2; install: $3"
   fi
+}
+
+if [ -z "$PLUGIN_LIST" ] || ! command -v jq >/dev/null 2>&1; then
+  warn "could not list installed plugins — companion plugin checks skipped"
 else
-  warn "prereq-check.sh not found at $PREREQ — cannot verify companion plugins"
+  companion 'mattpocock-skills@mattpocock' \
+    'grilling + domain-modeling in /cc-tuner:spec, code-review in /cc-tuner:run' \
+    '/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
+  companion 'cc-codex-triage@cc-codex-triage' \
+    'required-review gate in /cc-tuner:run' \
+    '/plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage'
 fi
 
 # --- 4. MCP servers (full mode only) -------------------------------------------------------------
@@ -93,13 +113,13 @@ else
 fi
 
 # --- 5. what is installed in THIS repo -----------------------------------------------------------
-if ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-  [ -f "$ROOT/.claude/rules/task-flow.md" ] \
+if [ -n "$REPO_ROOT" ]; then
+  [ -f "$REPO_ROOT/.claude/rules/task-flow.md" ] \
     && ok "task-flow rule installed" \
     || warn "task-flow rule not installed here — /cc-tuner:task-flow-setup"
-  [ -f "$ROOT/.claude/rules/git-flow.md" ] \
+  [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
     && warn "legacy git-flow.md still present — /cc-tuner:task-flow-setup migrates it (keeps your cached board field IDs)"
-  [ -f "$ROOT/.claude/smoke-verify.cfg" ] \
+  [ -f "$REPO_ROOT/.claude/smoke-verify.cfg" ] \
     && ok "smoke-verify gate opted in" \
     || say "     smoke-verify not opted in here (frontend repos only — /cc-tuner:smoke-verify-setup)"
 else

@@ -121,7 +121,7 @@ auto_ready: yes|no — <reason when no>
 ci: <required GitHub checks on the target branch, and how to observe them>
 target_test: <exact command>
 full_test: <exact command>
-tracker: gh|none
+tracker: gh
 board: <project title + owner | none>
 ```
 
@@ -136,8 +136,8 @@ the DoR is complete, and every `[eyes]` criterion has a machine replacement or w
 capability, not execution mode; only `/run --auto` requests an unattended run.
 
 Inspect the diff, stage the spec path explicitly, and commit it on the task branch with a Conventional
-Commit. When `tracker: gh`, create or update the issue so it and the spec link to each other; with
-`tracker: none`, record why there is no issue. The run state starts in `/run`.
+Commit. `tracker` is always `gh`: create or update the issue so it and the spec link to each other.
+The run state starts in `/run`.
 
 ## 6. Hand off
 

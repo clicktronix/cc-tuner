@@ -14,7 +14,7 @@ RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # "the contract changed — was codex-tuner updated in the same breath?", not as proof that it was.
 # Known divergence at the time of writing: codex-tuner carries contract 1.1.0 with 14 invariants,
 # this repo carries 2.0.0 with 25. Re-syncing it is a coordinated cross-repository change.
-EXPECTED_SHARED_CONTRACT_SHA256="7a4fdb14d2b4ff94b3701f2e0eb344f5333e9a460e5bf8942205847c30216906"
+EXPECTED_SHARED_CONTRACT_SHA256="60402aa123609aa4cf6907aad97ba9f03b1f3ca90776cd7c26c9881e65bbb67c"
 fails=0
 
 need() {
@@ -46,7 +46,7 @@ jq -e '
   .name == "clicktronix-development-flow" and
   .version == "2.0.0" and
   .defaults.small_diff == {"max_changed_lines": 50, "max_changed_files": 5} and
-  .tracker_values == ["gh", "none"] and
+  .tracker_values == ["gh"] and
   .lifecycle_order == ["readiness", "planning", "implementation", "testing", "acceptance", "candidate", "review", "delivery", "completion"] and
   .delivery_order == ["stage", "guard", "commit_candidate", "review_candidate", "push", "pull_request", "current_sha_ci", "definition_of_done", "merge", "reconcile"] and
   .review_lenses == [
@@ -79,7 +79,7 @@ need "spec-first-failing-check" 'First failing check: <exact command>; expected 
 need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC"
 need "spec-full-regression" 'Full regression: <exact command>' "$SPEC"
 need "spec-dod" '## Definition of Done' "$SPEC"
-need "spec-github-tracker" 'tracker: gh|none' "$SPEC"
+need "spec-github-tracker" 'tracker: gh' "$SPEC"
 need "run-loads-contract" '${CLAUDE_PLUGIN_ROOT}/workflow-contract.json' "$RUN"
 need "run-loads-tiering-reference" '${CLAUDE_PLUGIN_ROOT}/references/tiering.md' "$RUN"
 need "run-structured-state" 'runctl.sh` is the source of truth' "$RUN"

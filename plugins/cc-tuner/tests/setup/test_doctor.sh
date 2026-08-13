@@ -15,30 +15,33 @@ absent() {
   if printf '%s' "$3" | grep -q "$2"; then echo "FAIL $1 (unwanted /$2/ present)"; fails=1; else echo "PASS $1"; fi
 }
 
-mkenv() { # builds $STUB (PATH) + $CACHE (plugins) + $H (home) + $R (repo)
+mkenv() { # builds $STUB (PATH) + $H (home) + $R (repo, physical path in $RP)
   T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
-  STUB="$T/bin"; FAKE_HOME="$T/plugin-home"; CACHE="$FAKE_HOME/.claude/plugins"; H="$T/home"; R="$T/repo"
-  mkdir -p "$STUB" "$CACHE" "$H/.claude" "$R"
+  STUB="$T/bin"; FAKE_HOME="$T/plugin-home"; H="$T/home"; R="$T/repo"
+  mkdir -p "$STUB" "$FAKE_HOME" "$H/.claude" "$R"
   for u in sed tr grep head dirname bash cat; do
     src="$(command -v "$u")" && ln -s "$src" "$STUB/$u"
   done
   ( cd "$R" && git init -q -b main 2>/dev/null ) || true
+  RP="$(cd "$R" && pwd -P)"   # `git rev-parse --show-toplevel` resolves symlinks; projectPath must match
 }
 tool() { ln -s "$(command -v "$1")" "$STUB/$1" 2>/dev/null || true; }   # expose a real tool
 ghstub() { printf '#!/bin/sh\n[ "$1" = auth ] || exit 0\ncat <<EOF\n  - Token scopes: %s\nEOF\n' "$1" > "$STUB/gh"; chmod +x "$STUB/gh"; }
-plugins_ok() {   # anchors prereq-check.sh looks for: mattpocock-skills (grilling + code-review) + cc-codex-triage
-  mkdir -p "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling" \
-           "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling" \
-           "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review" \
-           "$CACHE/cache/m/cc-codex-triage/1/commands" \
-           "$CACHE/cache/m/cc-codex-triage/1/scripts"
-  touch "$CACHE/cache/m/mattpocock-skills/1/skills/productivity/grilling/SKILL.md" \
-        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/domain-modeling/SKILL.md" \
-        "$CACHE/cache/m/mattpocock-skills/1/skills/engineering/code-review/SKILL.md"
-  printf '%s\n' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
-    > "$CACHE/cache/m/cc-codex-triage/1/scripts/review-state.sh"
-  printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' \
-    > "$CACHE/cache/m/cc-codex-triage/1/commands/review.md"
+# Stand in for `claude plugin list --json`; $1 is the JSON array it prints, with `__REPO__` standing
+# for this fixture's repo path. Pass it as a single-quoted literal: bash 3.2 brace-expands a quoted
+# command substitution used as a function argument, which shreds JSON objects into separate words.
+claude_plugins() {
+  { printf '#!/bin/sh\ncat <<%s\n' "'PLUGINS_EOF'"
+    printf '%s\n' "$1" | sed "s|__REPO__|$RP|g"
+    printf 'PLUGINS_EOF\n'
+  } > "$STUB/claude"
+  chmod +x "$STUB/claude"
+}
+plugins_ok() {   # both companions installed user-wide
+  claude_plugins '[
+    {"id":"mattpocock-skills@mattpocock","version":"1.0.0","scope":"user","enabled":true},
+    {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
+  ]'
 }
 run() { ( cd "${1:-$R}" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
           bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
@@ -48,6 +51,7 @@ mkenv; tool git; tool jq; tool python3; ghstub "'gist', 'project', 'repo'"; plug
 OUT="$(run)"; rc=$?
 check   "baseline-exit0"      "doctor: no blockers" "$OUT"
 absent  "baseline-no-miss"    "MISS"                "$OUT"
+check   "baseline-version"    "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
 [ $rc -eq 0 ] || { echo "FAIL baseline-rc (rc=$rc)"; fails=1; }
 rm -rf "$T"
 
@@ -73,11 +77,46 @@ check "read-project-not-accepted" "MISS gh token lacks the 'project' scope" "$OU
 rm -rf "$T"
 
 # --- companion plugins absent -> MISS lines carrying the install hints ---------------------------
-mkenv; tool git; tool jq; ghstub "'project'"        # no plugins_ok
+mkenv; tool git; tool jq; ghstub "'project'"; claude_plugins '[]'
 OUT="$(run)"; rc=$?
 check "plugins-missing-flagged" "MISS mattpocock-skills"            "$OUT"
 check "plugins-missing-hint"    "/plugin install mattpocock-skills" "$OUT"
 [ $rc -eq 1 ] && echo "PASS plugins-missing-rc1" || { echo "FAIL plugins-missing-rc1 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# --- `claude plugin list` unavailable -> degraded, not a blocker ---------------------------------
+mkenv; tool git; tool jq; ghstub "'project'"        # no claude on PATH
+OUT="$(run)"; rc=$?
+check  "plugin-list-unavailable-warned" "WARN could not list installed plugins" "$OUT"
+absent "plugin-list-unavailable-no-miss" "MISS"                                 "$OUT"
+[ $rc -eq 0 ] || { echo "FAIL plugin-list-unavailable-rc0 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# --- an install scoped to ANOTHER project cannot answer for this repo -----------------------------
+mkenv; tool git; tool jq; ghstub "'project'"
+claude_plugins '[
+  {"id":"mattpocock-skills@mattpocock","version":"9.9.9","scope":"project","enabled":true,"projectPath":"/somewhere/else"},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
+]'
+OUT="$(run)"
+check  "foreign-project-ignored"  "MISS mattpocock-skills" "$OUT"
+absent "foreign-version-not-used" "9.9.9"                  "$OUT"
+rm -rf "$T"
+
+# --- precedence: this repo's project-scoped install wins over the user-wide one -------------------
+# `claude plugin list --json` returns every installation with `enabled: true` and no `active` field,
+# so without this order doctor reports whichever row happens to come first — a coin flip on version.
+mkenv; tool git; tool jq; ghstub "'project'"
+claude_plugins '[
+  {"id":"mattpocock-skills@mattpocock","version":"1.0.0","scope":"user","enabled":true},
+  {"id":"mattpocock-skills@mattpocock","version":"2.0.0","scope":"project","enabled":true,"projectPath":"__REPO__"},
+  {"id":"mattpocock-skills@mattpocock","version":"9.9.9","scope":"project","enabled":true,"projectPath":"/somewhere/else"},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
+]'
+OUT="$(run)"
+check  "project-scope-wins"    "mattpocock-skills@mattpocock 2.0.0 (project)" "$OUT"
+absent "user-scope-not-chosen" "mattpocock-skills@mattpocock 1.0.0"           "$OUT"
+absent "other-project-not-chosen" "9.9.9"                                     "$OUT"
 rm -rf "$T"
 
 # --- legacy git-flow.md in the repo -> migration warning -----------------------------------------
