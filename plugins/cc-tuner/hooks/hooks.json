@@ -19,6 +19,12 @@
         "hooks": [
           {
             "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/merge-guard.sh",
+            "timeout": 30,
+            "statusMessage": "cc-tuner: checking the merge candidate"
+          },
+          {
+            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-state-hook.sh pre-tool-use",
             "timeout": 30,
             "statusMessage": "cc-tuner: checking merge readiness"
