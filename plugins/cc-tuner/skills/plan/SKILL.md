@@ -49,14 +49,21 @@ The approval is a conversation, not a document. Plan mode would produce a second
 
 ## Write, validate, commit
 
+Ask for the path — it prints one line, and refuses if a plan for this branch already exists, tracked
+or not:
+
 ```bash
-PLAN="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 ```
 
-Fill `${CLAUDE_SKILL_DIR}/plan-template.md` into `$PLAN`. Then:
+**Read that path out of the output and use it literally from here on.** A shell variable does not
+survive to the next tool call, so `PLAN=$(...)` in one command and `"$PLAN"` in the next is an empty
+string — an earlier revision of this skill was written that way and would have linted nothing.
+
+Fill `${CLAUDE_SKILL_DIR}/plan-template.md` into that file, then validate it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check "$PLAN"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check docs/plans/<the file you just wrote>.md
 ```
 
 Fix what it reports and run it again until it is quiet. It refuses a slice with no `Blocked by`, a
@@ -75,6 +82,15 @@ Two passes, because `TaskCreate` takes no dependency argument:
 
 Then `TaskList` and check the edges are the ones in the file. The edges are the half a one-pass
 implementation drops silently, and a task list without them looks finished when it is not.
+
+## Hand off
+
+Print the plan path and the next command, carrying the same spec path and the same mode:
+
+```text
+/cc-tuner:run <the spec path you were given>
+/cc-tuner:run --auto <the spec path you were given>
+```
 
 ## What this skill does not do
 

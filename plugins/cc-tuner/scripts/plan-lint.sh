@@ -44,6 +44,21 @@ case "$MODE" in check|slices) ;; *) die "usage: plan-lint.sh check|slices <file>
 awk -v mode="$MODE" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 
+# reaches(from, target, ...) -- does `from` transitively block back to `target`?
+function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
+  if (depth > 0 && from == target) return 1
+  if (from in path) return 0
+  path[from] = 1
+  if (!(from in blk) || blk[from] == "" || blk[from] ~ /^([Nn]one|-)$/) return 0
+  m = split(blk[from], parts, /[ \t]*,[ \t]*/)
+  for (j = 1; j <= m; j++) {
+    p = parts[j]; gsub(/[^0-9]/, "", p)
+    if (p == "" || !(p in ex)) continue
+    if (reaches(p, target, blk, ex, path, depth + 1)) return 1
+  }
+  return 0
+}
+
 /^##[ \t]+[Ss]lice[ \t]+[0-9]+/ {
   n = $0; sub(/^##[ \t]+[Ss]lice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n) + 0
   title = $0; sub(/^##[ \t]+[Ss]lice[ \t]+[0-9]+[ \t]*/, "", title)
@@ -54,6 +69,14 @@ function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
   order[++count] = n
   titles[n] = trim(title)
   cur = n
+  next
+}
+
+/^[ \t]*(Owned paths|Deciding check|Delivers)[ \t]*:/ {
+  if (cur == "") next
+  k = $0; sub(/[ \t]*:.*$/, "", k); sub(/^[ \t]+/, "", k)
+  v = $0; sub(/^[^:]*:[ \t]*/, "", v)
+  if (trim(v) != "") has[cur, k] = 1
   next
 }
 
@@ -86,6 +109,11 @@ END {
     # slice with none can never be done: it stays open forever and the restore hook resurrects it in
     # every session. A plan that cannot finish is worth catching where it is written.
     if (total[n] + 0 == 0) err[++e] = "slice " n " has no acceptance criteria, so it can never be done"
+    # Owned paths is load-bearing: /cc-tuner:run decides which slices may run in parallel by whether
+    # theirs overlap. Deciding check and Delivers are what make a slice checkable and demoable.
+    split("Owned paths|Deciding check|Delivers", req, "|")
+    for (r = 1; r <= 3; r++)
+      if (!((n SUBSEP req[r]) in has)) err[++e] = "slice " n " has no \"" req[r] "\" line"
     if (!(n in blocked)) {
       err[++e] = "slice " n " has no \"Blocked by\" line (use \"Blocked by: none\" when it has none)"
       continue
@@ -99,6 +127,16 @@ END {
       if (p == n)         { err[++e] = "slice " n " is blocked by itself"; continue }
       if (!(p in seen))   { err[++e] = "slice " n " is blocked by slice " p ", which does not exist" }
     }
+  }
+
+  # Cycles. A plan whose slices block each other has no frontier at all: nothing can ever start, and
+  # the restore hook would resurrect the whole graph every session. Only self-blocking was caught
+  # before, which is the one-hop case of this.
+  for (i = 1; i <= count; i++) {
+    n = order[i]
+    delete seenpath
+    if (reaches(n, n, blocked, seen, seenpath, 0))
+      err[++e] = "slice " n " is part of a blocking cycle, so no slice in it can ever start"
   }
 
   if (mode == "check") {

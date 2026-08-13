@@ -147,12 +147,16 @@ The run state starts in `/run`.
 
 ## 6. Hand off
 
-Print the spec path and one appropriate next command:
+Print the spec path and the next command. **It is `/cc-tuner:plan`, never `/cc-tuner:run`.** `/run`
+works a committed plan and stops when there is none, so handing the user straight to it reproduces the
+exact complaint this rework began with — "why do I still not see a plan".
 
 ```text
-/cc-tuner:run docs/PLANS/2026-07-31-thing.md
-/cc-tuner:run --auto docs/PLANS/2026-07-31-thing.md
+/cc-tuner:plan docs/PLANS/2026-07-31-thing.md
+/cc-tuner:plan --auto docs/PLANS/2026-07-31-thing.md
 ```
+
+`/plan` publishes the visible task list and then names `/cc-tuner:run` itself.
 
 Offer `--auto` only when `auto_ready: yes`. State the current branch and target so a later session can
 verify both before editing.

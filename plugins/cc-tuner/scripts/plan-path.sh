@@ -41,13 +41,26 @@ case "$MODE" in
     # A second plan for one branch is the ambiguity `resolve` refuses. Failing here, where the fix is
     # obvious, beats writing the file and failing later in a hook with no context.
     existing="$(git ls-files -- "$PATTERN" 2>/dev/null)"
+    # Untracked files count too. `git ls-files` sees only what is committed, so an earlier revision
+    # happily returned a path that already had a file on it, and the caller's Write overwrote a plan
+    # that was merely not committed yet.
+    for f in $PATTERN; do
+      [ -e "$f" ] || continue
+      case "$existing" in *"$f"*) ;; *) existing="${existing:+$existing
+}$f (untracked)" ;; esac
+    done
     if [ -n "$existing" ]; then
       printf 'plan-path: a plan for %s already exists:\n' "$BRANCH" >&2
       printf '%s\n' "$existing" | sed 's/^/  /' >&2
       printf 'edit it, or remove it first.\n' >&2
       exit 1
     fi
-    printf '%s/%s-%s.md\n' "$DIR" "$(date -u +%Y-%m-%d)" "$SLUG"
+    CANDIDATE="$DIR/$(date -u +%Y-%m-%d)-$SLUG.md"
+    [ ! -e "$CANDIDATE" ] || {
+      printf 'plan-path: %s already exists on disk\n' "$CANDIDATE" >&2
+      exit 1
+    }
+    printf '%s\n' "$CANDIDATE"
     ;;
   resolve)
     # Tracked files only. An uncommitted plan does not survive the session it was written in, which

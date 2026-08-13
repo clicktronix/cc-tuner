@@ -37,17 +37,42 @@ deny() {  # deny <reason>
   exit 0
 }
 
-command -v jq >/dev/null 2>&1 || allow
-
 INPUT="$(cat)"
+
+# No jq, no gate. An earlier revision allowed here, which made the one fail-closed thing in this
+# plugin fail OPEN on any machine missing a dependency -- exactly the shape of the defect being
+# fixed. Denying needs no jq, so it is written by hand.
+if ! command -v jq >/dev/null 2>&1; then
+  case "$INPUT" in
+    *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*)
+      case "$INPUT" in
+        *"gh pr merge"*)
+          printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cc-tuner: jq is not installed, so the merge candidate cannot be checked"}}'
+          ;;
+      esac
+      ;;
+  esac
+  exit 0
+fi
 [ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')" = "Bash" ] || allow
 CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')"
 case "$CMD" in *"gh pr merge"*) ;; *) allow ;; esac
 
+# Isolate the actual `gh pr merge` invocation before reading anything out of it.
+#
+# Matching against the whole command string is not a check. An earlier revision did, and both of
+# these passed it while bash never handed the flag to gh:
+#     gh pr merge 42 --squash    # --match-head-commit <sha>
+#     echo --match-head-commit <sha>; gh pr merge 42 --squash
+# So the segment runs from `gh pr merge` to the first thing that ends a simple command.
+INVOCATION="$(printf '%s' "$CMD" | sed -n 's/.*\(gh[[:space:]][[:space:]]*pr[[:space:]][[:space:]]*merge.*\)/\1/p' \
+  | sed -e 's/[[:space:]]#.*$//' -e 's/;.*$//' -e 's/&&.*$//' -e 's/||.*$//' -e 's/|.*$//')"
+[ -n "$INVOCATION" ] || allow
+
 # The pull request named in the command, never the checked-out branch: `gh pr merge` takes a number,
 # a URL or a branch, and any of them may name a PR that is not the one in the working tree. Deriving
 # this from HEAD would let `gh pr merge 42` sail through while the guard inspected branch 7.
-TARGET="$(printf '%s' "$CMD" | awk '
+TARGET="$(printf '%s' "$INVOCATION" | awk '
   { for (i = 1; i <= NF; i++) if ($i == "merge" && $(i-1) == "pr") { start = i + 1; break } }
   { for (i = start; i <= NF; i++) if (start && substr($i, 1, 1) != "-") { print $i; exit } }
 ')"
@@ -87,8 +112,13 @@ esac
 
 # CI on that same commit. Zero checks is not green: an empty list satisfies "nothing failed" under
 # any naive reading, and absent CI is unproven CI.
-CHECKS="$($GH pr checks ${TARGET:+"$TARGET"} --json name,bucket 2>/dev/null)" \
-  || deny "cannot read CI checks for $HEAD_SHA"
+# --required, matching what /cc-tuner:spec promises. Without it an optional check that was skipped
+# or cancelled -- neither of which anyone agreed to gate on -- blocks delivery forever. The
+# consequence is stated rather than hidden: a repository with NO required checks configured produces
+# an empty list, and an empty list is not green, so it denies. Configure at least one required check,
+# or cc-tuner cannot attest CI at all.
+CHECKS="$($GH pr checks ${TARGET:+"$TARGET"} --required --json name,bucket 2>/dev/null)" \
+  || deny "cannot read required CI checks for $HEAD_SHA"
 TOTAL="$(printf '%s' "$CHECKS" | jq -r 'length // 0')"
 [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || deny "no CI checks ran on $HEAD_SHA — absent CI is unproven CI"
 BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"
@@ -96,9 +126,11 @@ BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length
 
 # The head can move between this check and the merge. --match-head-commit closes that window on
 # GitHub's side, which no local check can do.
-case "$CMD" in
-  *"--match-head-commit $HEAD_SHA"*) ;;
-  *) deny "run it as: gh pr merge ... --match-head-commit $HEAD_SHA — without it the head can move between this check and the merge" ;;
-esac
+PINNED="$(printf '%s' "$INVOCATION" | awk -v sha="$HEAD_SHA" '
+  { for (i = 1; i <= NF; i++) {
+      if ($i == "--match-head-commit" && $(i+1) == sha) { print "yes"; exit }
+      if ($i == "--match-head-commit=" sha)             { print "yes"; exit }
+  } }')"
+[ "$PINNED" = "yes" ] || deny "run it as: gh pr merge ... --match-head-commit $HEAD_SHA — without it the head can move between this check and the merge"
 
 allow

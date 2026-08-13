@@ -34,17 +34,26 @@ context() { fire "$1" | jq -r '.hookSpecificOutput.additionalContext // empty' 2
 
 HALF='## Slice 1 — Seed the config
 Blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [x] budget key exists
 
 ## Slice 2 — Wire the budget
 Blocked by: 1
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [x] read from config
 - [ ] exhaustion is observable
 
 ## Slice 3 — Ship it
 Blocked by: 2
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [ ] released
 '
@@ -74,14 +83,63 @@ check "tells-it-to-read-tasklist-first" "Read TaskList first" "$C"
 check "orders-create-before-edges"      "1. TaskCreate"       "$C"
 check "orders-edges-before-completion"  "2. TaskUpdate addBlockedBy" "$C"
 
+# --- started from a subdirectory ------------------------------------------------------------------
+# plan-path.sh prints a repo-relative path, so a hook that stayed in the payload's cwd resolved the
+# plan and then could not open it -- reporting a perfectly good plan as unparsable. A wrong answer,
+# not a missing one, and the common case: sessions start in subdirectories all the time.
+mkdir -p "$R/src/deep"
+SUB="$(jq -c --arg cwd "$R/src/deep" '.source = "startup" | .cwd = $cwd' "$FLOW_FIXTURES/sessionstart.json" \
+  | bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // empty')"
+check  "subdirectory-still-restores" "Slice 2 — Wire the budget" "$SUB"
+absent "subdirectory-does-not-claim-broken" "does not parse"     "$SUB"
+
+# --- completed blockers are followed transitively -------------------------------------------------
+# done 1 -> done 2 -> open 3. Emitting only the direct blockers of open slices dropped Slice 1 and
+# with it the 2 -> 1 edge: a graph that looks complete and is not.
+CHAIN='## Slice 1 — Foundation
+Blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [x] a
+
+## Slice 2 — Middle
+Blocked by: 1
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [x] b
+
+## Slice 3 — Top
+Blocked by: 2
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [ ] c
+'
+R6="$(repo_with_plan feature/chain 2026-01-01-feature-chain.md "$CHAIN")"
+C6="$(context "$R6")"
+check "transitive-blocker-emitted"  "Slice 1 — Foundation" "$C6"
+check "direct-blocker-emitted"      "Slice 2 — Middle"     "$C6"
+check "open-slice-emitted"          "Slice 3 — Top"        "$C6"
+
 # --- silence is a correct output, and the common one ---------------------------------------------
 DONE='## Slice 1 — Seed
 Blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [x] a
 
 ## Slice 2 — Wire
 Blocked by: 1
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [x] b
 '
@@ -113,6 +171,9 @@ equals "names-the-event"   "SessionStart"  "$(fire "$R" | jq -r '.hookSpecificOu
 # the object precisely so this cannot happen; the assertion is what keeps it that way.
 NASTY='## Slice 1 — He said "run \\ now"
 Blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [ ] a "quoted" \\ backslashed criterion
 '

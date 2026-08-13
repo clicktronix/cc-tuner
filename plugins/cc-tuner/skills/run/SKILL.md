@@ -16,9 +16,18 @@ publish, migration, force-push, or work outside the plan.
 
 ## Before starting
 
+**Read the spec named in `$ARGUMENTS`.** No path, or no such file → stop. It is not decoration: the
+spec carries the target branch, the merge strategy, `auto_ready`, the test plan, the acceptance
+criteria and the Definition of Done. Everything below that says "as the spec requires" reads it from
+there, and a run that never opened it is a run following defaults nobody chose.
+
+If `auto_ready` is not `yes`, `--auto` is refused — say which unmet condition blocks it.
+
+Then resolve the plan, in one command so the path is not carried between tool calls:
+
 ```bash
-PLAN="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve)"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check "$PLAN"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check \
+  "$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve)"
 ```
 
 `resolve` fails when the branch has no committed plan, or more than one. Either way, stop: run
@@ -68,9 +77,30 @@ The axis is what a method **persists**, not whether it feels exploratory.
 `/cc-tuner:spec` created the task branch before any of this, because its own grilling phase writes
 `CONTEXT.md` and ADRs.
 
+## Proving a slice, before it counts as done
+
+A slice is done when its acceptance criteria hold **and** you can show why you believe it. An earlier
+revision of this skill said only "work it, complete it", which is not a discipline — it is a hope.
+
+- **RED before GREEN.** Write the failing check first and run it; record the failure. A check that
+  was never seen failing has not been shown to test anything.
+- **Prove the guard by removing it.** Revert the behaviour the check guards and confirm the check
+  goes RED. Copy the file first (`cp x x.premutation`), never `git checkout --`. Run `bash -n` on the
+  mutant: a mutation that breaks the syntax proves only that broken files fail.
+- **Run what the spec's test plan names** — its targeted checks during the slice, its full regression
+  once before the candidate.
+- **A human-only acceptance criterion (`[eyes]`) is not self-servable.** Under `--auto`, stop and ask.
+  A waiver is the user's to give, recorded with who and when.
+
 ## Delivery
 
-1. **Push and open the PR.** Its head is the candidate SHA from here on.
+**A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the
+Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned. This
+is the rule the original complaint was about: one review round then a `REQUEST_CHANGES` left standing.
+
+1. **Push and open the PR.** Its head is the candidate SHA from here on. The working tree must be
+   clean at that commit: a candidate with uncommitted changes is a review of something nobody can
+   fetch.
 2. **Review that SHA.** deep-review and `mattpocock-skills:code-review` run and must be addressed.
    They are mandatory steps, not gates — they have no durable, unforgeable home, and counting the
    author's own word twice would not make it evidence.
@@ -86,14 +116,23 @@ The axis is what a method **persists**, not whether it feels exploratory.
 5. **A published approval is terminal for its SHA.** GitHub does not overwrite reviews, so a finding
    made afterwards needs a new commit and therefore a new candidate. The guard then denies by
    construction, because the head no longer matches the review.
-6. **Merge, pinning the head:**
+6. **On `REQUEST_CHANGES`, loop.** Fix, re-run the slice's checks and the full regression, commit —
+   which makes a new candidate SHA — then review that SHA and publish its verdict. Repeat until it
+   approves. Stopping at one round with `REQUEST_CHANGES` standing is not a finished review, and is
+   precisely what shipped before.
+7. **Check the Definition of Done from the spec** before merging. Every item, named, with what
+   satisfied it.
+8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
+   pin the head:
 
    ```bash
-   gh pr merge "$PR" --squash --match-head-commit "$CANDIDATE_SHA"
+   gh pr merge "$PR" --"$MERGE_STRATEGY" --match-head-commit "$CANDIDATE_SHA"
    ```
 
-   The guard refuses a merge without it: the head can move between the check and the merge, and only
-   GitHub can close that window.
+   The guard refuses a merge without the pin: the head can move between the check and the merge, and
+   only GitHub can close that window.
+9. **Reconcile after the merge**, as the spec requires: sync the target, delete the branch, close the
+   issue.
 
 ## When the guard denies
 

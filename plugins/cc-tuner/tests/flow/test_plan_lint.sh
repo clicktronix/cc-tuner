@@ -118,6 +118,39 @@ Blocked by: none
 OUT="$(lint check "$P")"
 check "duplicate-slice-message" "declared twice" "$OUT"
 
+# A cycle has no frontier at all: nothing can ever start, and the restore hook would resurrect the
+# whole graph every session. Self-blocking, caught before, is only its one-hop case.
+P="$(plan cycle '## Slice 1 — A
+Blocked by: 2
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — B
+Blocked by: 1
+Owned paths: b/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+')"
+OUT="$(lint check "$P")"
+check "cycle-message" "part of a blocking cycle" "$OUT"
+check "cycle-rc1"     "rc=1"                     "$OUT"
+
+# Owned paths is load-bearing: /cc-tuner:run decides what may run in parallel by whether they overlap.
+P="$(plan missingfields '## Slice 1 — A
+Blocked by: none
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check "requires-owned-paths"    'has no "Owned paths" line'    "$OUT"
+check "requires-deciding-check" 'has no "Deciding check" line' "$OUT"
+check "requires-delivers"       'has no "Delivers" line'       "$OUT"
+
 P="$(plan empty '# A plan with prose and nothing else
 ')"
 OUT="$(lint check "$P")"
@@ -138,6 +171,9 @@ absent "slices-emits-nothing-on-bad" "SLICE	1"                          "$OUT"
 # --- "none" and "-" both mean no blockers --------------------------------------------------------
 P="$(plan dash '## Slice 1 — A
 Blocked by: -
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [ ] a
 ')"

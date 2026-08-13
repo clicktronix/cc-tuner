@@ -22,7 +22,7 @@ printf '%s\n' "$*" >> "$D/calls"
 serve() { [ -f "$D/$1" ] || exit 1; cat "$D/$1"; }
 case "$1 $2" in
   "pr view")   case "$*" in *reviews*) serve reviews.json ;; *) serve pr.json ;; esac ;;
-  "pr checks") serve checks.json ;;
+  "pr checks") case "$*" in *--required*) serve checks.json ;; *) exit 1 ;; esac ;;
   "api user")  serve user ;;
   *) exit 1 ;;
 esac
@@ -126,6 +126,26 @@ D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 equals "unpinned-merge-denies" "deny"                  "$(decision "$D" "gh pr merge 42 --squash")"
 check  "unpinned-reason"       "--match-head-commit"   "$(reason "$D" "gh pr merge 42 --squash")"
 equals "wrong-pin-denies"      "deny"                  "$(decision "$D" "gh pr merge 42 --match-head-commit $OTHER_SHA")"
+
+# The pin must be an argument bash actually hands to gh, not a substring of the command line. Both of
+# these used to pass a whole-string match while the flag never reached gh.
+equals "pin-in-a-comment-denies" "deny" \
+  "$(decision "$D" "gh pr merge 42 --squash # --match-head-commit $SHA")"
+equals "pin-in-another-command-denies" "deny" \
+  "$(decision "$D" "echo --match-head-commit $SHA; gh pr merge 42 --squash")"
+equals "pin-after-a-separator-denies" "deny" \
+  "$(decision "$D" "gh pr merge 42 --squash && echo --match-head-commit $SHA")"
+equals "equals-form-of-the-pin-allows" "allow" \
+  "$(decision "$D" "gh pr merge 42 --squash --match-head-commit=$SHA")"
+
+# Without jq there is no gate, so there is no merge either. Allowing here made the one fail-closed
+# thing in the plugin fail open on any machine missing a dependency.
+NOJQ="$(flow_workdir)"; mkdir -p "$NOJQ/bin"
+for u in bash cat sed awk grep; do ln -sf "$(command -v $u)" "$NOJQ/bin/$u" 2>/dev/null; done
+jq -c --arg c "$MERGE" '.tool_input.command = $c' "$FLOW_FIXTURES/pretooluse-bash.json" > "$NOJQ/payload.json"
+NOJQ_OUT="$(PATH="$NOJQ/bin" CC_TUNER_GH="$D/gh" bash "$GUARD" < "$NOJQ/payload.json" 2>/dev/null)"
+check "no-jq-denies" '"permissionDecision":"deny"' "$NOJQ_OUT"
+check "no-jq-says-why" 'jq is not installed' "$NOJQ_OUT"
 
 # --- the guard reads the PR named in the command, not the checked-out branch ----------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"

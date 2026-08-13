@@ -45,6 +45,16 @@ check "create-refuses-second-plan" "already exists" "$OUT"
 check "create-names-the-existing"  "2026-01-01-retry.md" "$OUT"
 check "create-refusal-rc1"         "rc=1"            "$OUT"
 
+# An untracked file on the canonical path counts. git ls-files sees only what is committed, so an
+# earlier revision returned a path that already had a file on it and the caller's Write overwrote a
+# plan that was merely not committed yet.
+R2b="$(flow_repo)"
+( cd "$R2b" && git checkout -q -b untracked && mkdir -p docs/plans \
+  && printf '# draft\n' > "docs/plans/$TODAY-untracked.md" )
+OUT="$(run "$R2b" create)"
+check "create-refuses-untracked-collision" "already exists" "$OUT"
+check "create-untracked-rc1"               "rc=1"           "$OUT"
+
 # --- resolve ------------------------------------------------------------------------------------
 OUT="$(run "$R2" resolve)"
 check "resolve-finds-the-one" "docs/plans/2026-01-01-retry.md" "$OUT"

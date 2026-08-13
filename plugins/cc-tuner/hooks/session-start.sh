@@ -24,6 +24,12 @@ INPUT="$(cat)"
 CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)"
 [ -n "$CWD" ] && [ -d "$CWD" ] && cd "$CWD" 2>/dev/null
 
+# Then to the repository root, because plan-path.sh prints a repo-relative path. Without this, a
+# session started in a subdirectory resolved the plan and then failed to open it, and reported a
+# perfectly good plan as unparsable -- a wrong answer, not a missing one.
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" 2>/dev/null || exit 0
+
 emit() {  # emit <context text> -- jq builds the JSON so the text cannot break out of the string
   jq -n --arg ctx "$1" \
     '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
@@ -55,6 +61,19 @@ END {
     }
   }
   if (!any) exit 0
+
+  # Transitively, because a done slice can be blocked by another done slice. Restoring only the
+  # direct blockers of open slices dropped `done 1 -> done 2 -> open 3` back to two rows and lost the
+  # 2 -> 1 edge -- a graph that looks complete and is not.
+  do {
+    added = 0
+    for (s in need) {
+      if (blocked[s] == "-" || blocked[s] == "") continue
+      m = split(blocked[s], b, /[ \t]*,[ \t]*/)
+      for (j = 1; j <= m; j++)
+        if (state[b[j]] == "done" && !(b[j] in need)) { need[b[j]] = 1; added = 1 }
+    }
+  } while (added)
 
   for (i = 1; i <= n; i++) {
     s = order[i]
