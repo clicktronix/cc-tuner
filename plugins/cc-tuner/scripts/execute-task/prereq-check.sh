@@ -32,11 +32,40 @@ if [ -e "$MANIFEST" ]; then
   fi
 fi
 
-# The selection rule itself lives in lib.sh, shared with the required-review verifier: this script
-# and that gate must agree on which installation is active, and a second copy of the filter is how
-# they would stop agreeing.
-# shellcheck source=lib.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+# Inlined from lib.sh, which goes with the rest of the state machine.
+#
+# It was sourced so this script and the delivery gate could not disagree about which installation is
+# active. That gate is being deleted, so the sharing has nothing left to share with, and sourcing a
+# file scheduled for removal would break this script in the commit that removes it.
+#
+# Total order, not manifest order: local, then project, then user. Grouping any two would leave the
+# choice to entry order, so two readers of one manifest could pick different installs and both be
+# "right".
+execute_task_manifest_roots() {
+  local manifest="$1" key="$2" project="$3"
+  [ -f "$manifest" ] && [ -n "$project" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
+  jq -r --arg key "$key" --arg project "$project" '
+    .plugins[$key] // [] |
+    if type == "array" then
+      [ .[]? | select(
+          .scope == "user" or
+          ((.scope == "project" or .scope == "local") and .projectPath == $project)
+        ) ]
+      | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
+      | .[] | .installPath // empty
+    else empty end
+  ' "$manifest" 2>/dev/null
+}
+
+execute_task_codex_root_qualifies() {
+  local root="$1" review="$1/commands/review.md" state="$1/scripts/review-state.sh"
+  [ -f "$review" ] && [ -f "$state" ] \
+    && grep -qF -- '--required' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"
+}
 
 manifest_roots() {
   [ "$MANIFEST_MODE" = "active" ] || return 1

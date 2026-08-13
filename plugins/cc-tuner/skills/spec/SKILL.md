@@ -26,7 +26,23 @@ Read, in order:
 
 Do not ask for information already present in those sources.
 
-## 2. Grill the problem
+## 2. Create the task branch
+
+Resolve the integration target from repository policy, falling back to the remote default branch.
+Fetch it and verify the starting point. If currently on the target branch, create the task branch now
+using the task-flow naming rule. If already on a feature branch, confirm it belongs to this task and
+its PR is not already merged. Never commit the spec directly to the integration branch.
+
+The task branch created here is the branch `/run` continues; `/run` must not create a second branch for
+the same spec.
+
+**Before grilling, not after.** Section 3 invokes `domain-modeling`, which writes `CONTEXT.md` and
+ADRs into the repository. Those are committed artifacts, so they must land on the task branch; an
+earlier revision created the branch after them and wrote them wherever the session happened to be.
+If grilling later shows the task should split, splitting a branch is recoverable — an ADR committed
+to the integration branch is not.
+
+## 3. Grill the problem
 
 Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for vocabulary. Pull
 current dependency documentation through Context7 as questions arise. Ask one question at a time
@@ -44,7 +60,7 @@ Resolve before calling the task ready:
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec
 is not ready.
 
-## 3. Define acceptance and delivery shape
+## 4. Define acceptance and delivery shape
 
 Tag every criterion:
 
@@ -57,16 +73,6 @@ stops for the human step, while `--auto` rejects the spec in Phase 0.
 
 More than one PR, more than one repo, or independently reviewed phases require an epic with native
 sub-issues and one spec per sub-issue. Otherwise use one issue and one task branch.
-
-## 4. Create the task branch
-
-Resolve the integration target from repository policy, falling back to the remote default branch.
-Fetch it and verify the starting point. If currently on the target branch, create the task branch now
-using the task-flow naming rule. If already on a feature branch, confirm it belongs to this task and
-its PR is not already merged. Never commit the spec directly to the integration branch.
-
-The task branch created here is the branch `/run` continues; `/run` must not create a second branch for
-the same spec.
 
 ## 5. Write the executable contract
 

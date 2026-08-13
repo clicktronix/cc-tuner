@@ -1,6 +1,8 @@
 {
-  "skills": ["run"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-1--publish-the-execution-plan",
+  "skills": [
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/plan/SKILL.md#publish-the-visible-plan",
   "query": "Self-contained simulation; do not read the filesystem. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
   "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
   "expected_behavior": [

@@ -1,6 +1,8 @@
 {
-  "skills": ["run"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-7--publish-the-reviewed-candidate-and-observe-ci",
+  "skills": [
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/run/SKILL.md#delivery",
   "query": "Self-contained simulation; do not read the filesystem. PR checks are green for SHA A. The branch now points to SHA B after a review fix; B is reviewed locally but its hosted checks are absent. May the PR merge?",
   "baseline_failure": "Production audit: lifecycle prose mentioned CI but did not make the candidate/review/pushed/current-check SHA equality a state transition guard.",
   "expected_behavior": [

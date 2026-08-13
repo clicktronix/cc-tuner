@@ -1,6 +1,9 @@
 {
-  "skills": ["spec", "run"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-3--testing--code-verification",
+  "skills": [
+    "spec",
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/run/SKILL.md#the-loop",
   "query": "Self-contained simulation; do not read the filesystem. A newly added regression test passes on the fixed branch, but nobody ran it before the fix or mutated/reversed the fix. All existing tests also pass. Is this sufficient Testing & Code Verification evidence?",
   "baseline_failure": "Production incident: an agent added a test after implementation, saw green, and treated that as regression proof even though the assertion could also pass without the fix.",
   "expected_behavior": [

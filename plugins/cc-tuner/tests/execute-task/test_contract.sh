@@ -3,8 +3,9 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-SPEC="$ROOT/plugins/cc-tuner/commands/spec.md"
-RUN="$ROOT/plugins/cc-tuner/commands/run.md"
+SPEC="$ROOT/plugins/cc-tuner/skills/spec/SKILL.md"
+RUN="$ROOT/plugins/cc-tuner/skills/run/SKILL.md"
+PLAN_SKILL="$ROOT/plugins/cc-tuner/skills/plan/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 CONFIG="$ROOT/plugins/cc-tuner/assets/execute-task/config.template.md"
 CONTRACT="$ROOT/plugins/cc-tuner/workflow-contract.json"
@@ -80,50 +81,36 @@ need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC"
 need "spec-full-regression" 'Full regression: <exact command>' "$SPEC"
 need "spec-dod" '## Definition of Done' "$SPEC"
 need "spec-github-tracker" 'tracker: gh' "$SPEC"
-need "run-loads-contract" '${CLAUDE_PLUGIN_ROOT}/workflow-contract.json' "$RUN"
-need "run-loads-tiering-reference" '${CLAUDE_PLUGIN_ROOT}/references/tiering.md' "$RUN"
-need "run-structured-state" 'runctl.sh` is the source of truth' "$RUN"
-need "run-exact-phase-completion" 'phase "$RUN_ID" complete "$PHASE"' "$RUN"
-need "run-safe-journal-stdin" "<<'CC_TUNER_EVIDENCE'" "$RUN"
-need "run-owned-preflight" '--expected-branch "$BRANCH"' "$RUN"
-need "run-visible-task-plan" 'create the visible Claude task plan with `TaskCreate`' "$RUN"
-need "run-task-state-binding" '--ui-task-id "$CLAUDE_TASK_ID"' "$RUN"
-need "run-safe-shell-data" 'spec, issue, Git, or reviewer as data: pass them as quoted arguments' "$RUN"
-need "run-implementation-only-parallel" 'Parallelize only independent code-writing units' "$RUN"
-need "run-isolated-worktrees" 'use one isolated git worktree per unit' "$RUN"
-need "run-testing-phase" '## Phase 3 — Testing & Code Verification' "$RUN"
-need "run-negative-proof" 'negative/mutation proof' "$RUN"
-need "run-explicit-stage" 'git add -- "${TASK_PATHS[@]}"' "$RUN"
-need "run-candidate-before-review" 'runctl.sh" candidate "$RUN_ID" record "$(git rev-parse HEAD)"' "$RUN"
-need "run-deep-review" 'invoke `cc-tuner:deep-review`' "$RUN"
-need "run-three-reviews" 'record "$REVIEWER" "$VERDICT" "$CANDIDATE_SHA"' "$RUN"
-need "run-codex-required-review" '/cc-codex-triage:review --required --base <literal-base-sha> --spec <current-repo-relative-spec>' "$RUN"
-need "run-codex-approval-marker" 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$RUN"
-need "run-codex-marker-enforced" 'compares the marker with `review-state.sh check`' "$RUN"
-need "run-reviewer-hard-stop" '`CAP_REACHED` or `DIVERGED` is a terminal answer' "$RUN"
-need "run-block-survives-resume" 'it never reactivates a blocked run' "$RUN"
-need "run-unblock-is-evidenced" 'runctl.sh" unblock "$RUN_ID"' "$RUN"
-# The reactivation command must not sit inside the loop it is meant to stop: a phase loop that
-# carries its own escape hatch three lines below the check is not a stop.
-need "run-unblock-outside-the-phase-loop" '## Reactivating a blocked run' "$RUN"
-unblock_line="$(grep -nF 'unblock "$RUN_ID"' "$RUN" | head -1 | cut -d: -f1)"
-loop_line="$(grep -nF '## Reactivating a blocked run' "$RUN" | head -1 | cut -d: -f1)"
-if [ -n "$unblock_line" ] && [ -n "$loop_line" ] && [ "$unblock_line" -gt "$loop_line" ]; then
-  echo "PASS unblock-command-lives-in-its-own-section"
+
+# The branch must exist before grilling, because grilling invokes domain-modeling and that writes
+# CONTEXT.md and ADRs -- committed artifacts, which must not land on the integration branch. Ordering
+# is the whole rule, so the test is an ordering test, not a phrase test.
+branch_line="$(grep -n '^## [0-9]*\. Create the task branch' "$SPEC" | head -1 | cut -d: -f1)"
+grill_line="$(grep -n '^## [0-9]*\. Grill the problem' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$branch_line" ] && [ -n "$grill_line" ] && [ "$branch_line" -lt "$grill_line" ]; then
+  echo "PASS spec-branch-before-grilling"
 else
-  echo "FAIL unblock-command-lives-in-its-own-section (unblock=$unblock_line section=$loop_line)"
+  echo "FAIL spec-branch-before-grilling (branch=$branch_line grill=$grill_line)"
   fails=1
 fi
-need "run-same-sha-disposition" 'later evidence must name what changed the answer' "$RUN"
-need "run-reviewer-literal-ids" 'literal reviewer id `deep-review`, `mattpocock`, or `codex`' "$RUN"
-need "run-prepared-files-come-from-runctl" 'prepare "$RUN_ID" commit-message' "$RUN"
-need "run-prepared-files-are-fence-scoped" 'the only location the mutation fence permits' "$RUN"
-need "run-required-github-checks" 'reads `gh pr checks --required`' "$RUN"
-need "run-review-fix-invalidates" 'A new commit invalidates all prior testing, acceptance, review, CI, and DoD' "$RUN"
-need "run-explicit-pr-create" 'gh pr create --base "$TARGET" --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"' "$RUN"
-need "run-current-sha-ci" 'Missing, skipped, stale, cancelled, billing-blocked,' "$RUN"
-need "run-can-merge" 'require both `runctl can-advance` and' "$RUN"
-need "run-ci-pr-binding" 'ci "$RUN_ID" record success "$CANDIDATE_SHA" --pr "$PR_NUMBER"' "$RUN"
+# The old run.md was 434 lines describing a state machine, and the assertions below used to pin
+# thirty of its phrases. That machine is gone, so those assertions went with it -- a phrase test whose
+# subject no longer exists is not a weakened test, it is a test of nothing.
+#
+# What is left pins only what the merge guard READS. The guard's own behaviour is covered by
+# tests/flow/test_merge_guard.sh against real payloads; these assert that the skill still tells the
+# agent to produce what that guard requires. Supporting the scenario tier, never replacing it.
+need "run-resolves-the-plan"        'plan-path.sh" resolve' "$RUN"
+need "run-validates-the-plan"       'plan-lint.sh" check' "$RUN"
+need "run-ticks-the-plan-file"      '- [x]' "$RUN"
+need "run-auto-refuses-blocked"     'refuse a task whose `blockedBy` is not empty' "$RUN"
+need "run-verdict-marker"           'cc-tuner-verdict: APPROVE $CANDIDATE_SHA' "$RUN"
+need "run-never-forges-approval"    'Never publish `APPROVE` for a review that did not' "$RUN"
+need "run-pins-the-merge-head"      '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
+need "run-approval-is-terminal"     'terminal for its SHA' "$RUN"
+need "run-codex-required-review"    '--required' "$RUN"
+need "plan-two-pass-publication"    'addBlockedBy' "$PLAN_SKILL"
+need "plan-commits-the-plan"        'Commit the plan file' "$PLAN_SKILL"
 need "run-atomic-merge-head" '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
 need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-always-runs" 'Always perform the review; small-diff thresholds only decide' "$DEEP_REVIEW"
@@ -139,29 +126,12 @@ release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" 
 [ "$release_pr_gate_count" -eq 4 ] && echo "PASS release-pr-gate-count" \
   || { echo "FAIL release-pr-gate-count (got $release_pr_gate_count, want 4)"; fails=1; }
 
-if grep -qF 'bundled `/code-review`' "$RUN"; then
-  echo "PASS no-bundled-code-review (explicit prohibition)"
-else
-  echo "FAIL no-bundled-code-review"
-  fails=1
-fi
-
-phase_count="$(grep -cE '^## Phase [0-8] —' "$RUN")"
-[ "$phase_count" -eq 9 ] && echo "PASS phase-count" \
-  || { echo "FAIL phase-count (got $phase_count, want 9)"; fails=1; }
-
-verification_ids="$(sed -n '/^## Verification$/,$p' "$RUN" | grep -o '`[a-z][a-z0-9-]*`' | tr -d '`' | sort -u)"
-unknown_ids=0
-for id in $verification_ids; do
-  jq -e --arg id "$id" 'any(.invariants[]; .id == $id)' "$CONTRACT" >/dev/null 2>&1 || {
-    echo "FAIL verification-index-names-unknown-invariant ($id)"; fails=1; unknown_ids=1; }
-done
-covered="$(printf '%s\n' "$verification_ids" | grep -c .)"
-if [ "$unknown_ids" -eq 0 ] && [ "$covered" -ge 20 ]; then
-  echo "PASS verification-indexes-the-contract ($covered invariants)"
-else
-  echo "FAIL verification-indexes-the-contract (covered=$covered)"; fails=1
-fi
+# Three checks stood here: a nine-phase count, an index of twenty contract invariants named in
+# run.md's Verification section, and a walk asserting nine phrases appeared in delivery order. All
+# three measured the shape of the state machine. It is gone, and a test that counts the phases of a
+# thing with no phases cannot be repaired, only deleted. What replaced their subject -- the guard --
+# is covered by tests/flow/test_merge_guard.sh against real payloads, which is a stronger check than
+# any of them were.
 
 if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" "$CONFIG" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"
@@ -169,24 +139,5 @@ if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤
 else
   echo "PASS no-ignored-or-duplicated-policy"
 fi
-
-last_line=0
-order_ok=1
-for pattern in \
-  'git add -- "${TASK_PATHS[@]}"' \
-  'guard-artifacts.sh' \
-  'git commit -F "$COMMIT_MESSAGE_FILE"' \
-  '## Phase 6 — review the immutable candidate' \
-  'git push -u origin' \
-  'gh pr view "$BRANCH"' \
-  'record success "$CANDIDATE_SHA" --pr "$PR_NUMBER"' \
-  '## Phase 8 — merge and reconcile' \
-  'Switch to the literal target'; do
-  line="$(grep -nF -- "$pattern" "$RUN" | head -1 | cut -d: -f1)"
-  if [ -z "$line" ] || [ "$line" -le "$last_line" ]; then order_ok=0; break; fi
-  last_line="$line"
-done
-[ "$order_ok" -eq 1 ] \
-  && echo "PASS delivery-order" || { echo "FAIL delivery-order"; fails=1; }
 
 exit "$fails"
