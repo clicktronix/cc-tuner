@@ -11,7 +11,7 @@ Skills:
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
 
-The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria; **`/cc-tuner:run [--auto] <spec>`** continues that branch through implementation, PR, CI, and merge. Without `--auto` it stops at phase boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
+The task loop is three commands, deliberately split: **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria; **`/cc-tuner:plan [--auto] <spec>`** breaks it into vertical slices, commits the plan file, and publishes them as native tasks with their blocking edges; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto` each stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
 
 ## Why this exists
@@ -40,13 +40,11 @@ plugins/
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     references/
       tiering.md                    # effort-selection guidance; policy stays in the contract
-    commands/
-      run.md                        # /cc-tuner:run [--auto] <spec> executor
-      setup.md                      # /cc-tuner:setup env check + installer orchestration
-      spec.md                       # /cc-tuner:spec interactive spec writer
-      task-flow-setup.md            # /cc-tuner:task-flow-setup rule installer
-      smoke-verify-setup.md         # /cc-tuner:smoke-verify-setup gate opt-in
-      statusline-setup.md           # /cc-tuner:statusline-setup installer
+    skills/
+      run/SKILL.md                  # /cc-tuner:run [--auto] <spec> executor
+      plan/SKILL.md                 # /cc-tuner:plan [--auto] <spec> slices and publishes the plan
+      spec/SKILL.md                 # /cc-tuner:spec interactive spec writer
+      setup/SKILL.md                # /cc-tuner:setup env check + installer orchestration
     hooks/
       hooks.json                    # Stop hook registration
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)

@@ -13,9 +13,12 @@ RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # Change-detection for THIS repo's copy of the shared contract, nothing more: the constant is
 # compared against the file it pins, so it cannot observe the sibling at all. Treat a failure here as
 # "the contract changed — was codex-tuner updated in the same breath?", not as proof that it was.
-# Known divergence at the time of writing: codex-tuner carries contract 1.1.0 with 14 invariants,
-# this repo carries 2.0.0 with 25. Re-syncing it is a coordinated cross-repository change.
-EXPECTED_SHARED_CONTRACT_SHA256="60402aa123609aa4cf6907aad97ba9f03b1f3ca90776cd7c26c9881e65bbb67c"
+# DIVERGENCE, WIDENED DELIBERATELY: this repo now carries 3.0.0 with 7 invariants. The 25 of 2.0.0
+# described the state machine that was deleted -- phases, structured run state, resume-before-phase,
+# an immutable candidate tree. Leaving them would have meant a green suite affirming two contracts
+# that contradict each other. codex-tuner still carries 1.1.0 with 14 and now needs its own pass;
+# that is a coordinated cross-repository change and is NOT done.
+EXPECTED_SHARED_CONTRACT_SHA256="2e8b97a35406a2c46d1434f833028eadd33298ef27d71ff0317a1cf9b87e71e9"
 fails=0
 
 need() {
@@ -45,33 +48,29 @@ actual_contract_sha256="$(contract_sha256 "$CONTRACT")"
 
 jq -e '
   .name == "clicktronix-development-flow" and
-  .version == "2.0.0" and
-  .defaults.small_diff == {"max_changed_lines": 50, "max_changed_files": 5} and
+  .version == "3.0.0" and
   .tracker_values == ["gh"] and
-  .lifecycle_order == ["readiness", "planning", "implementation", "testing", "acceptance", "candidate", "review", "delivery", "completion"] and
-  .delivery_order == ["stage", "guard", "commit_candidate", "review_candidate", "push", "pull_request", "current_sha_ci", "definition_of_done", "merge", "reconcile"] and
-  .review_lenses == [
-    "correctness and edge cases",
-    "specification and scope",
-    "repository standards",
-    "architecture and systemic effects",
-    "security and data safety",
-    "tests and operability"
-  ] and
-  .sensitive_surfaces == [
-    "authentication, authorization, secrets, and cryptography",
-    "migrations and destructive data operations",
-    "public APIs, persisted schemas, and cross-service contracts",
-    "money, payments, pricing, billing, and entitlements",
-    "infrastructure, CI, deployment, and release configuration",
-    "security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and server-side allowlists"
-  ] and
-  (.invariants | length) == 25 and
-  ([.invariants[].id] | unique | length) == 25 and
-  ([.invariants[].id] | contains(["structured-run-state", "visible-plan-before-mutation", "red-green-regression-proof", "implementation-only-fanout", "immutable-candidate-before-review", "exhaustive-review-no-cap", "reviewer-hard-stop-is-not-approval", "changes-invalidate-downstream-evidence", "definition-of-done-before-merge", "post-merge-reconciliation-only"])) and
+  (has("lifecycle_order") | not) and
+  .delivery_order == ["plan", "implement", "prove", "candidate", "review", "verdict",
+                      "current_sha_ci", "definition_of_done", "merge", "reconcile"] and
+  (.invariants | length) == 7 and
+  ([.invariants[].id] | unique | length) == 7 and
+  ([.invariants[].id] | contains(["spec-before-run", "one-spec-one-branch-one-pr",
+    "red-green-regression-proof", "review-bound-to-candidate",
+    "changes-invalidate-downstream-evidence", "current-sha-ci-verification",
+    "definition-of-done-before-merge"])) and
   all(.invariants[]; (keys == ["id", "requirement"]) and (.requirement | length > 0))
 ' "$CONTRACT" >/dev/null 2>&1 \
   && echo "PASS semantic-contract" || { echo "FAIL semantic-contract"; fails=1; }
+
+# Each surviving invariant has something that READS it at runtime, which is the ADR's whole test for
+# whether an invariant earns its place:
+#   spec-before-run, one-spec-one-branch-one-pr   -> plan-path.sh resolve, fail-closed on 0 and on >1
+#   review-bound-to-candidate                     -> merge-guard.sh, verdict at the exact head SHA
+#   current-sha-ci-verification                   -> merge-guard.sh, required checks on that SHA
+#   changes-invalidate-downstream-evidence        -> merge-guard.sh, a moved head loses its verdict
+#   red-green-regression-proof                    -> the run skill, asserted below
+#   definition-of-done-before-merge               -> the run skill, asserted below
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
 need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC"
@@ -109,6 +108,13 @@ need "run-never-forges-approval"    'Never publish `APPROVE` for a review that d
 need "run-pins-the-merge-head"      '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
 need "run-approval-is-terminal"     'terminal for its SHA' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
+need "run-red-before-green"         'RED before GREEN' "$RUN"
+need "run-mutation-proof"           'Prove the guard by removing it' "$RUN"
+need "run-dod-before-merge"         'Definition of Done from the spec' "$RUN"
+need "run-request-changes-loop"     'On `REQUEST_CHANGES`, loop' "$RUN"
+need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"
+need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
+need "spec-hands-off-to-plan"       '/cc-tuner:plan docs/PLANS' "$SPEC"
 need "plan-two-pass-publication"    'addBlockedBy' "$PLAN_SKILL"
 need "plan-commits-the-plan"        'Commit the plan file' "$PLAN_SKILL"
 need "run-atomic-merge-head" '--match-head-commit "$CANDIDATE_SHA"' "$RUN"

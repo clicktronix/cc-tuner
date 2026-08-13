@@ -114,13 +114,21 @@ These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipel
 neither well: its intake step was marked "human gate, always", so full autonomy was structurally
 impossible, while the interactive work was compressed into one step of ten.
 
-Run progress lives in `.claude/execute-task-runs/<run-id>.state.json`, with ownership, allowed phase
-transitions, task bindings, gates, candidate identity, reviews, CI, and DoD recorded structurally.
-`journal.sh append` accepts evidence over stdin so backticks and command substitutions in logs cannot
-execute in the shell. A run that hits a condition only a human can resolve is blocked; `resume`
-reports that and refuses, and only an explicit `runctl.sh unblock` — which journals the decision —
-reactivates it. The visible Claude task list is recreated from structured state after compaction
-or resume.
+Run progress lives in the committed plan file and in Claude Code's own task list. There is no state
+file: the plan's `- [x]` ticks are the record that survives a session, the task list is the record
+that is visible inside one, and `git` and `gh` hold the delivery facts. Nothing keeps a second copy.
+
+The task list survives `/compact` and resume unchanged, which was measured, so nothing is restored
+there. A genuinely new session — `startup` or `/clear` — starts with an empty list, and a
+`SessionStart` hook asks the agent to rebuild it from the plan, emitting the unfinished slices with
+their blocking edges and every finished slice they still depend on. It asks: a command hook cannot
+call `TaskCreate`, so recovery is advisory in exactly the way the plan itself is.
+
+One thing denies rather than advises. A `PreToolUse` guard refuses `gh pr merge` on a pull request
+carrying a cc-tuner plan unless its head SHA has a verdict review from the authenticated account,
+required CI is green on that same SHA, and the command pins the head with `--match-head-commit`. It
+allows silently on any pull request that is not a cc-tuner run. It is a guardrail against an agent's
+mistake, not a policy: the merge button on github.com, `git push` and the REST API all bypass it.
 
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).

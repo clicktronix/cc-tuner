@@ -1,6 +1,6 @@
 {
   "name": "clicktronix-development-flow",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "defaults": {
     "small_diff": {
       "max_changed_lines": 50,
@@ -10,24 +10,13 @@
   "tracker_values": [
     "gh"
   ],
-  "lifecycle_order": [
-    "readiness",
-    "planning",
-    "implementation",
-    "testing",
-    "acceptance",
+  "delivery_order": [
+    "plan",
+    "implement",
+    "prove",
     "candidate",
     "review",
-    "delivery",
-    "completion"
-  ],
-  "delivery_order": [
-    "stage",
-    "guard",
-    "commit_candidate",
-    "review_candidate",
-    "push",
-    "pull_request",
+    "verdict",
     "current_sha_ci",
     "definition_of_done",
     "merge",
@@ -59,84 +48,16 @@
       "requirement": "Each specification owns one named task branch and one pull request."
     },
     {
-      "id": "definition-of-ready-before-implementation",
-      "requirement": "Implementation starts only after the specification records the baseline, expected first failure, targeted and full checks, environment, data, acceptance, scope, and delivery source."
-    },
-    {
-      "id": "explicit-auto-readiness",
-      "requirement": "Unattended execution requires auto_ready: yes in the specification."
-    },
-    {
-      "id": "clean-run-baseline",
-      "requirement": "A run starts or restarts only from a clean task worktree."
-    },
-    {
-      "id": "structured-run-state",
-      "requirement": "Machine-readable owned state is authoritative for phases, tasks, gates, candidate identity, reviews, CI, and DoD; journal prose is audit narrative only."
-    },
-    {
-      "id": "visible-plan-before-mutation",
-      "requirement": "The agent publishes a visible lifecycle plan before editing, generating, staging, or delegating task paths."
-    },
-    {
-      "id": "resume-before-every-phase",
-      "requirement": "Every phase after readiness resumes and validates persisted state before any other action."
-    },
-    {
-      "id": "hitl-stops-at-boundaries",
-      "requirement": "Interactive mode stops at declared delivery boundaries and requires separate confirmation before merge."
-    },
-    {
       "id": "red-green-regression-proof",
       "requirement": "A behavior change demonstrates the specified regression check failing for the expected reason before the fix and passing afterward, or records an explicit non-code alternative."
-    },
-    {
-      "id": "machine-and-human-acceptance",
-      "requirement": "Every criterion names its machine check or human verification step and records the result."
-    },
-    {
-      "id": "implementation-only-fanout",
-      "requirement": "Only independent code-writing units may run concurrently, with isolated worktrees and non-overlapping owned paths; lifecycle gates remain sequential."
-    },
-    {
-      "id": "owner-verifies-delegation",
-      "requirement": "The owning agent reads every delegated diff, verifies scoped checks, integrates it, and retains final acceptance and delivery judgement."
-    },
-    {
-      "id": "testing-before-candidate",
-      "requirement": "Targeted, full, static, build, runtime, negative-path, and final-diff checks required by the specification pass before candidate creation."
-    },
-    {
-      "id": "immutable-candidate-before-review",
-      "requirement": "Review begins only after explicit staging, artifact guard, commit, and a clean candidate SHA/tree record."
-    },
-    {
-      "id": "exhaustive-review-no-cap",
-      "requirement": "All applicable review lenses run against one candidate, validated findings are never truncated to an arbitrary count, and incomplete review fails closed."
     },
     {
       "id": "review-bound-to-candidate",
       "requirement": "Every required review approval records the exact candidate commit and tree; invocation or partial output is not approval."
     },
     {
-      "id": "reviewer-hard-stop-is-not-approval",
-      "requirement": "A reviewer cap, divergence, timeout, or unavailability is a terminal non-approval: the run reports it and blocks for a user decision, and reviewer state is never reset to escape a verdict."
-    },
-    {
       "id": "changes-invalidate-downstream-evidence",
       "requirement": "Any candidate change returns the run to implementation and invalidates prior testing, acceptance, review, CI, and DoD evidence."
-    },
-    {
-      "id": "sensitive-diffs-require-review-fanout",
-      "requirement": "Deep review always runs. Its lenses may run serially only for a candidate that is within both small_diff thresholds and touches no sensitive surface; a sensitive-surface candidate, or one beyond either threshold, fans out independent lenses against the same immutable candidate."
-    },
-    {
-      "id": "intentional-staging-before-commit",
-      "requirement": "Only explicit task paths are staged, and the staged diff is inspected before the candidate commit."
-    },
-    {
-      "id": "ordered-delivery",
-      "requirement": "Lifecycle and delivery follow the declared orders without skipping or reordering gates."
     },
     {
       "id": "current-sha-ci-verification",
@@ -145,10 +66,6 @@
     {
       "id": "definition-of-done-before-merge",
       "requirement": "All pre-merge Definition of Done evidence is complete and bound to the candidate before merge is allowed."
-    },
-    {
-      "id": "post-merge-reconciliation-only",
-      "requirement": "After merge, only task-lifecycle reconciliation is authorized; deploy, publish, and migration remain forbidden."
     }
   ]
 }
