@@ -90,11 +90,17 @@ OUT="$(run "$D" 42 squash "$SHA")"
 check "stale-sha-refused"  "the branch moved" "$OUT"
 absent "stale-sha-no-merge" "MERGED"          "$OUT"
 
-# --- outside a run, this is not our business ------------------------------------------------------
-D="$(world "$NO_PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+# --- outside a run, this is not our business, so it merges --------------------------------------
+# Refusing here was a deadlock: the hook refuses a raw `gh pr merge` and this refused everything with
+# no plan file, so a repository with cc-tuner installed could not merge an ordinary pull request at
+# all. There must always be a path, and for work that is not a cc-tuner run the path is "just merge".
+D="$(world "$NO_PLAN_FILES" '[]' '[]')"
 OUT="$(run "$D" 42 squash "$SHA")"
-check  "non-cc-tuner-pr-refused" "not a cc-tuner run" "$OUT"
-absent "non-cc-tuner-no-merge"   "MERGED"             "$OUT"
+check "non-cc-tuner-pr-merges"   "MERGED pr merge 42 --squash" "$OUT"
+check "non-cc-tuner-says-so"     "not a cc-tuner run"          "$OUT"
+check "non-cc-tuner-rc0"         "rc=0"                        "$OUT"
+# ...and unchecked means unpinned: there is no reviewed SHA to pin it to.
+absent "non-cc-tuner-not-pinned" "--match-head-commit"         "$OUT"
 
 # --- latest verdict per author, and forgery -------------------------------------------------------
 SUPERSEDED="[$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA" | tr -d '[]'),
@@ -113,6 +119,20 @@ D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 check "missing-arguments-refused" "usage:"        "$(run "$D" 42 squash)"
 check "bad-strategy-refused"      "strategy must" "$(run "$D" 42 fast-forward "$SHA")"
 check "merge-strategy-accepted"   "rc=0"          "$(run "$D" 42 merge "$SHA")"
+# rebase was accepted for one revision, offering a strategy no spec is allowed to declare.
+check "rebase-refused"            "strategy must" "$(run "$D" 42 rebase "$SHA")"
+
+# --check-only proves the candidate would be accepted without merging it. The eval has to observe the
+# positive path, and a check that can only be run by merging is one nobody will run twice.
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "check-only-reports-pass" "verdict, required CI and head all check out" "$OUT"
+check  "check-only-rc0"          "rc=0"                                        "$OUT"
+absent "check-only-does-not-merge" "MERGED"                                    "$OUT"
+
+D="$(world "$PLAN_FILES" '[]' "$GREEN_CI")"
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "check-only-still-refuses" "rc=1"   "$OUT"
+absent "check-only-refusal-no-merge" "MERGED" "$OUT"
 
 # --- facts it cannot establish are not facts ------------------------------------------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/pr.json"

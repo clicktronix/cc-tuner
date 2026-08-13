@@ -27,6 +27,13 @@ equals "sanctioned-merge-allowed" "allow" \
 equals "sanctioned-merge-silent" "" \
   "$(fire 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" 42 squash abc1234def')"
 
+# Not because the path is whitelisted -- there is no exception for it. An earlier revision had one,
+# and it let anything through that merely mentioned the path.
+equals "mentioning-the-script-does-not-excuse-a-raw-merge" "deny" \
+  "$(decision 'echo scripts/merge.sh; gh pr merge 42 --squash')"
+equals "the-path-in-a-comment-does-not-either" "deny" \
+  "$(decision 'gh pr merge 42 --squash # scripts/merge.sh')"
+
 # --- everything else that runs a merge ------------------------------------------------------------
 for form in \
   'gh pr merge 42 --squash' \

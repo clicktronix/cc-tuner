@@ -132,11 +132,17 @@ there. A genuinely new session — `startup` or `/clear` — starts with an empt
 their blocking edges and every finished slice they still depend on. It asks: a command hook cannot
 call `TaskCreate`, so recovery is advisory in exactly the way the plan itself is.
 
-One thing denies rather than advises. A `PreToolUse` guard refuses `gh pr merge` on a pull request
-carrying a cc-tuner plan unless its head SHA has a verdict review from the authenticated account,
-required CI is green on that same SHA, and the command pins the head with `--match-head-commit`. It
-allows silently on any pull request that is not a cc-tuner run. It is a guardrail against an agent's
-mistake, not a policy: the merge button on github.com, `git push` and the REST API all bypass it.
+One thing checks rather than advises. `scripts/merge.sh <pr> <squash|merge> <candidate-sha>` re-reads
+the verdict review, the required CI checks and the head SHA from GitHub, refuses unless all three
+agree at that exact commit, and pins the head with `--match-head-commit` so it cannot move between
+the check and the merge. On a pull request that carries no cc-tuner plan it merges straight through:
+the plugin must not seize work that is not its own.
+
+A `PreToolUse` hook refuses a raw `gh pr merge` and names that script. The hook does no checking of
+its own — an earlier design tried to judge merges by reading the agent's Bash command, and every
+round of better parsing found another form it had not seen. It can now over-refuse but never
+mis-verify, and a raw merge in a form it fails to recognise is a bypass of the same class as the merge
+button on github.com, `git push` and the REST API, none of which any local hook sees either.
 
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).

@@ -37,8 +37,12 @@ command -v jq >/dev/null 2>&1 || deny "jq is not installed, so no Bash command c
 [ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')" = "Bash" ] || exit 0
 CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')"
 
-# The sanctioned path checks itself, so let it through.
-case "$CMD" in *scripts/merge.sh*) exit 0 ;; esac
+# No exception for merge.sh, deliberately. A `bash .../merge.sh 42 squash <sha>` call contains no
+# "pr merge" and never reaches the rule below, so the exception bought nothing — and it let anything
+# through that merely mentioned the path:
+#     echo scripts/merge.sh; gh pr merge 42 --squash
+#     gh pr merge 42 --squash # scripts/merge.sh
+# A special case that is unnecessary and exploitable is only exploitable.
 
 # Otherwise: does this look like a raw merge? Newlines and backslash continuations are flattened
 # first, because `gh pr \<newline> merge` is one command to bash and was two lines to an earlier
@@ -48,7 +52,7 @@ case "$CMD" in *scripts/merge.sh*) exit 0 ;; esac
 NORM="$(printf '%s' "$CMD" | tr '\n\t' '  ' | sed 's/\\ */ /g' | tr -d '"'\''`' | sed 's/  */ /g')"
 case "$NORM" in
   *"pr merge"*)
-    deny "merges go through scripts/merge.sh <pr> <squash|merge|rebase> <candidate-sha>, which checks the verdict, required CI and the head SHA before calling gh"
+    deny "merges go through scripts/merge.sh <pr> <squash|merge> <candidate-sha>. On a cc-tuner run it checks the verdict, required CI and the head SHA first; on any other pull request it merges straight through, so this is also how you merge something unrelated"
     ;;
 esac
 

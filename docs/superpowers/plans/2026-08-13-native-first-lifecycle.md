@@ -291,158 +291,51 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
 
 ---
 
-## Task 4: The merge guard
+## Task 4: The merge check
 
 **Blocked by:** Task 0 (the harness).
 
 **Files:**
-- Create: `plugins/cc-tuner/hooks/merge-guard.sh`
-- Modify: `plugins/cc-tuner/hooks/hooks.json` — `PreToolUse`, matcher `Bash`. Registered globally, with
-  no skill-frontmatter alternative: the guard scopes itself, so nothing is gained by tying it to a
-  skill's lifetime and an undefined lifetime could only make it inert.
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-merge-guard-denies.sh`
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-merge-guard-out-of-scope.sh`
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-inert-gate.sh`
+- Create: `plugins/cc-tuner/scripts/merge.sh` — the check, and the merge
+- Create: `plugins/cc-tuner/hooks/merge-guard.sh` — refuses a raw `gh pr merge` and names the script
+- Modify: `plugins/cc-tuner/hooks/hooks.json` — `PreToolUse`, matcher `Bash`
+- Create: `plugins/cc-tuner/tests/flow/test_merge.sh`, `test_merge_guard.sh`
 
-**The gate:** deny `gh pr merge` unless the PR head SHA carries a verdict review from the expected
-author and CI is green on that same SHA. Modelled on `block-dangerous-git.sh` — read stdin, match the
-command, emit a decision. Around 30 lines.
+**The checking is a script, not a parser.** `merge.sh <pr> <squash|merge> <candidate-sha>` re-reads the
+verdict review, the required CI checks and the head SHA from GitHub, refuses unless all three agree at
+that exact commit, and always adds `--match-head-commit` itself.
 
-**Not three approvals.** §8 of the spike measured that GitHub refuses self-approval and all three
-reviewers act as the PR author, so their reviews return `COMMENTED` and `APPROVED` is unreachable
-without three separate GitHub identities. An earlier draft of this plan specified three approvals
-anyway, contradicting the repository's own evidence file. The gate checks the one thing that is both
-external and reachable; deep-review and the `mattpocock` review remain mandatory steps of the flow and
-are not gates. See the ADR, **What the gate can actually check**.
+Four earlier revisions put this in the hook, judging the merge inside the agent's Bash command string.
+Each round of better parsing produced another form that ran a merge the hook never inspected:
+`bash -c`, `eval`, `/usr/local/bin/gh`, a line continuation between `pr` and `merge`, `G=gh; "$G"`,
+`$(printf gh)`, and a whitelist for the wrapper's own path that let `echo scripts/merge.sh; gh pr
+merge …` through. A shell command is a program; a hook reading it as text is guessing, and that list
+does not end. Moving the checks to a script whose inputs are three arguments ends the class.
 
-**Who writes the verdict — the producer, without which the gate reads nothing.** Nothing in today's
-flow posts a GitHub review; `cc-codex-triage` returns its verdict into the chat. So the flow gains one
-step — but its precondition is the whole point, and an earlier draft omitted it: "after Codex returns
-a verdict" would publish `APPROVE` whatever the verdict said, which is a fail-open dressed as a gate.
+**The hook's rule is one-directional.** It can over-refuse — `echo gh pr merge` is refused — but it
+cannot mis-verify, because it verifies nothing. A raw merge in a form it does not recognise is a
+bypass of the same class as the merge button on github.com.
 
-**The verdict is published only on an authoritative `--required` approval marker at the exact head
-SHA.** Not on a `COMMENT`, not on a `REQUEST_CHANGES`, and not on an approval recorded against a SHA
-the branch has since moved past. Anything else, and nothing is posted — the gate then denies, which is
-the correct outcome for a review that did not approve.
+**Out of scope means merge, not refuse.** A pull request with no plan file goes straight through
+`merge.sh` unchecked. Refusing there was a deadlock: the hook refuses raw merges and the script
+refused everything else, so a repository with cc-tuner installed could not merge an ordinary pull
+request at all.
 
-The order is fixed, because every pair of these is wrong in the other sequence:
+- [ ] **Step 1: write `merge.sh`**, deny-by-default within scope, pass-through outside it, and
+      `--check-only` so the eval can observe the positive path without merging.
+- [ ] **Step 2: the positive path first.** In scope, verdict at the head, green required CI → merges,
+      with the pin. Without this, a script that refused everything would pass every other case.
+- [ ] **Step 3: one missing fact at a time**, each refusing: head moved past the review; no verdict;
+      red CI; zero required checks. Plus zero-recorded, which is the 0.10.0 reproduction.
+- [ ] **Step 4: the caller's belief is checked** — a SHA that is no longer the head refuses.
+- [ ] **Step 5: forgery** — wrong author, marker inside other prose, superseded by a later
+      `REQUEST_CHANGES`.
+- [ ] **Step 6: the hook**, with every historical bypass form as a case, and the sanctioned wrapper
+      call allowed — not by a whitelist, but because it contains no `pr merge`.
+- [ ] **Step 7: `bash tests/run.sh`**, green, then commit.
 
-1. create the PR — a review needs something to attach to;
-2. run the reviews against its head SHA;
-3. obtain the `--required` approval marker at that SHA;
-4. publish the verdict review — `gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <sha>"`,
-   fixed marker, verdict word, and the SHA repeated so a review copied from another PR is visibly
-   wrong;
-5. check CI on that same SHA.
-
-Expected author is the authenticated `gh` user.
-
-**Negative verdicts are published too.** An earlier draft published only approvals and declared a
-published approval "terminal for its SHA" — a rule the agent was asked to honour, with nothing
-enforcing it. The failure is concrete: a later `REQUEST_CHANGES` on the same SHA is never posted, the
-old `APPROVE` still stands, latest-per-author sees one row, and the gate allows a merge the reviewer
-rejected. "Fewer moving parts" bought a fail-open.
-
-So both verdicts are published — `cc-tuner-verdict: APPROVE <sha>` and
-`cc-tuner-verdict: REQUEST_CHANGES <sha>` — and latest-per-author does the rest, which is what it was
-already there for. One extra call, and the retraction path exists in data rather than in an
-instruction.
-
-**The merge command itself must pin the SHA.** Even with a correct verdict, reading `gh pr checks`
-and then allowing the merge is a time-of-check/time-of-use gap: the head can move between the two.
-`gh pr merge` accepts **`--match-head-commit SHA`** — *"Commit SHA that the pull request head must
-match to allow merge"* — so the guard **denies any `gh pr merge` that does not carry
-`--match-head-commit <the SHA it just verified>`**. GitHub then rejects the merge atomically if the
-head moved, which is a guarantee no local check can make.
-
-**What "CI is green" means, exactly.** Not a vibe — one contract, so the guard and the eval cannot
-read it differently:
-
-- Read the checks for the candidate SHA through `gh pr checks <pr> --json name,state,bucket` (or the
-  equivalent `gh api` on that SHA).
-- Green means: at least one check ran, and **every** check is in a passing terminal state. Pending,
-  skipped-as-required, cancelled and failed are all not-green.
-- **Zero checks is not green.** A repository with no CI configured, or a workflow that never
-  triggered, produces an empty list — and an empty list satisfies "no check failed" under any naive
-  reading. Deny, and say so in the reason: absent CI is unproven CI.
-
-This is written by the party the gate constrains, and that is stated rather than hidden — the SHA is
-GitHub's and cannot be backdated, the verdict word is not. It is the ADR's guardrail, not a proof.
-**Defining the reader without the writer was the hole**: a gate that checks a record nobody produces
-denies forever, which reads as "strict" right up until someone disables it.
-
-**One `gh` interface, and it is `gh pr view --json reviews`.** Verified live against this repository's
-PR #19: each element carries `author.login`, `state`, `submittedAt`, `body` and **`commit.oid`** — not
-`commit_id`, which is the REST shape returned through `gh api`. The plan names one interface so the
-guard and its scenarios cannot drift onto different field names.
-
-**Latest verdict per distinct author.** Reviews accumulate; an author who commented twice, or whose
-earlier verdict was superseded, must count once, by their most recent `submittedAt` on the candidate
-SHA. Counting rows instead of authors is a false pass waiting to happen.
-
-**Resolve the target PR from the command, never from the local branch.** `gh pr merge` accepts a
-number, a URL, or a branch name, and any of them may name a PR that is not the one checked out. The
-guard parses the argument, resolves that PR, and reads *its* head, base and history. Deriving scope
-from `HEAD` would let `gh pr merge 42` sail through while the guard inspected branch 7.
-
-**Scope is the arming, and it is the PR's net diff, read through `gh`, in `merge.sh` rather than in
-the hook.** The guard has an opinion when
-the target PR's changed files include a cc-tuner plan. Failing to *determine* scope is not the same as
-being out of scope and denies. The history-based version specified in an earlier revision is not what
-was built — see the ADR for why, and for the escape it leaves open. One failure this still avoids:
-
-- Net diff against base would put every branch descended from a `main` that already carries a plan
-  file into scope, dragging unrelated merges into the gate.
-- Net diff would also let a run *escape* the gate: commit the plan, delete it, and the net diff no
-  longer contains it. History cannot be un-written the same way.
-
-Outside scope the guard returns `allow` and says nothing. Inside scope every missing fact denies — no
-resolvable PR, no verdict review at the head SHA, red or absent CI, or a `gh` call that failed. The
-reason string names which fact was missing.
-
-- [ ] **Step 1: write the guard**, deny-by-default within scope, resolving the PR from the command and
-      reading reviews through the one named interface.
-- [ ] **Step 2: the positive path first — `scenario-merge-guard-allows.sh`.** In scope, a verdict
-      review from the expected author on the **exact head SHA**, CI green on that SHA → `allow`.
-      **Without this scenario a guard that denies unconditionally passes the whole suite**, which is a
-      broken product with a green test run — the same shape as 0.10.0 in mirror image.
-- [ ] **Step 3: four independent mutations of that fixture**, each `deny`, in one scenario file:
-      advance the head SHA past the review; remove the verdict review; turn CI red; **and remove every
-      check so the list is empty**. Each isolates one fact, so a guard that ignores CI but checks the
-      SHA cannot hide behind a combined case — and the empty-checks case is the one a naive
-      "nothing failed" implementation passes.
-- [ ] **Step 4: `scenario-inert-gate.sh`** — the reproduction of the original defect. In scope, **no
-      reviews at all, no CI record** → must `deny`. In 0.10.0 the equivalent state allowed.
-- [ ] **Step 5: `scenario-merge-guard-out-of-scope.sh`** — no commit in the PR range touched a plan
-      file → `allow`, silently. Include a branch that *inherits* a plan file from `main` without
-      touching it. The plugin must not seize the user's own merges.
-- [ ] **Step 7: `scenario-merge-guard-wrong-pr.sh`** — `gh pr merge <other-pr>` while a different
-      branch is checked out → the guard reads the named PR, not `HEAD`. Include the case where that
-      PR's objects are **not present locally**, and assert the guard neither errors into `allow` nor
-      silently treats it as out-of-scope.
-- [ ] **Step 8: `scenario-merge-guard-stale-verdict.sh`** — two reviews from the same author on the
-      head SHA, the later one negative → `deny`. Asserts latest-per-author rather than any-row-matches.
-- [ ] **Step 8b: forgery mutations**, each `deny`: a correct marker from the **wrong author**; a body
-      that merely *contains* the marker text inside other prose; a marker whose embedded SHA differs
-      from the head. A guard matched with a loose `grep` passes all three.
-- [ ] **Step 8c: `scenario-merge-guard-unpinned.sh`** — everything valid, but the command omits
-      `--match-head-commit` → `deny`. Then the same command with the correct SHA → `allow`.
-- [ ] **Step 9: `bash tests/run.sh`**, green.
-- [ ] **Step 10: prove the guard by mutating it, in both directions.** `cp merge-guard.sh
-      merge-guard.sh.premutation`; stub the decision to `allow` and confirm steps 3, 4, 6 and 8 go RED
-      while 2, 5 and 7 stay green; then stub it to `deny` and confirm steps 2, 5 and 7 go RED. Restore
-      from the copy. A one-direction mutation proof cannot tell a working guard from a stuck one.
-      Never `git checkout --` here — it would destroy uncommitted work in this branch.
-- [ ] **Step 11: commit** — `Add fail-closed merge guard`, with the RED/GREEN evidence in the body.
-
-**Acceptance:** the guard allows the one correct state, denies each single missing fact, follows the PR
-named in the command, cannot be escaped by deleting the plan file, and stays silent outside a run.
-Proven by mutation in both directions — a guard stuck on `deny` must fail the suite as loudly as one
-stuck on `allow`.
-
-**Stated limit, to be repeated in the README:** `gh pr merge` is not the only route to a merge. The web
-button, `git push` and the API bypass any local hook. This is a guardrail against an agent's mistake
-and must not be described as anything stronger.
+**Acceptance:** the positive path merges, each single missing fact refuses, an ordinary pull request
+still merges, and every bypass form listed above is refused.
 
 ---
 
@@ -608,8 +501,10 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       is non-empty refused when attempted out of order.
 - [ ] **Step 2b: producer → guard, the whole positive path.** Confirm the run posts the verdict review
       **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with
-      `commit.oid` equal to the head SHA, and then **run the guard's check against that real PR and CI
-      and confirm it returns `allow`** — invoking the check directly, not by attempting a merge.
+      `commit.oid` equal to the head SHA, and then **run `merge.sh --check-only <pr> <strategy> <sha>`
+      against that real PR and CI and confirm it reports the candidate would be accepted** — the flag
+      exists for exactly this, because a check that can only be run by merging is one nobody runs
+      twice.
       Steps 4 below and the scenarios cover denial; without this the live positive path is never
       exercised end to end, and a producer that writes a marker the guard cannot read would pass
       everything.

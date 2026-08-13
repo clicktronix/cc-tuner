@@ -148,7 +148,7 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    Pass the strategy the spec names:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" <pr> <squash|merge|rebase> <candidate-sha>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" <pr> <squash|merge> <candidate-sha>
    ```
 
    It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The only sanctioned way to merge a cc-tuner run.
 #
-#   merge.sh <pr> <squash|merge|rebase> <candidate-sha>
+#   merge.sh [--check-only] <pr> <squash|merge> <candidate-sha>
 #
 # Why this exists, after three attempts at the other design: the guard used to read the agent's Bash
 # command string and decide whether the merge inside it was attested. That cannot work. A shell
@@ -24,10 +24,15 @@ GH="${CC_TUNER_GH:-gh}"
 
 die() { printf 'cc-tuner merge: %s\n' "$1" >&2; exit 1; }
 
+CHECK_ONLY=""
+case "${1:-}" in --check-only) CHECK_ONLY=1; shift ;; esac
+
 PR="${1:-}"; STRATEGY="${2:-}"; SHA="${3:-}"
 [ -n "$PR" ] && [ -n "$STRATEGY" ] && [ -n "$SHA" ] \
-  || die "usage: merge.sh <pr> <squash|merge|rebase> <candidate-sha>"
-case "$STRATEGY" in squash|merge|rebase) ;; *) die "strategy must be squash, merge or rebase" ;; esac
+  || die "usage: merge.sh [--check-only] <pr> <squash|merge> <candidate-sha>"
+# squash and merge only, matching what a spec is allowed to declare. rebase was accepted here and by
+# /run for one revision, offering a strategy no spec can ask for.
+case "$STRATEGY" in squash|merge) ;; *) die "strategy must be squash or merge" ;; esac
 command -v jq >/dev/null 2>&1 || die "jq is required to check the candidate"
 
 # Every fact is re-read here, from GitHub, at merge time. Nothing is carried in from the caller except
@@ -44,7 +49,14 @@ IN_SCOPE="$(printf '%s' "$PRJSON" | jq -r '
   if (.files | type) != "array" then "unknown"
   elif any(.files[]; .path // .filename | test("^(docs|wiki)/task-plans/.*\\.md$")) then "yes"
   else "no" end')"
-[ "$IN_SCOPE" = "yes" ] || die "$PR is not a cc-tuner run (no plan file in its diff); merge it yourself"
+# Out of scope: merge it and say nothing more. Refusing here was a deadlock — the hook refuses a raw
+# `gh pr merge` and this refused everything else, so a repository with cc-tuner installed could not
+# merge an ordinary pull request at all. The plugin must not seize work that is not its own.
+if [ "$IN_SCOPE" != "yes" ]; then
+  printf 'cc-tuner merge: %s carries no plan file, so this is not a cc-tuner run — merging it unchecked.\n' "$PR" >&2
+  [ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s), unchecked\n' "$PR" "$STRATEGY"; exit 0; }
+  exec "$GH" pr merge "$PR" --"$STRATEGY"
+fi
 
 ME="$($GH api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"
 REVIEWS="$($GH pr view "$PR" --json reviews 2>/dev/null)" || die "cannot read reviews for $PR"
@@ -70,4 +82,9 @@ BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length
 
 # --match-head-commit closes the window between the checks above and the merge itself, on GitHub's
 # side, which nothing local can do.
+# --check-only stops here, having proved the candidate would be accepted. The eval needs to observe
+# the positive path without actually merging, and a check that can only be run by merging is one
+# nobody will run twice.
+[ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s) at %s: verdict, required CI and head all check out\n' "$PR" "$STRATEGY" "$HEAD_SHA"; exit 0; }
+
 exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"
