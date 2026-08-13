@@ -119,6 +119,28 @@ absent "user-scope-not-chosen" "mattpocock-skills@mattpocock 1.0.0"           "$
 absent "other-project-not-chosen" "9.9.9"                                     "$OUT"
 rm -rf "$T"
 
+# --- a disabled install is not an install --------------------------------------------------------
+# A disabled plugin does not load its commands, so `/review --required` cannot run. Reporting it `ok`
+# would be a false green in the one tool whose job is to say whether the environment works.
+mkenv; tool git; tool jq; ghstub "'project'"
+claude_plugins '[
+  {"id":"mattpocock-skills@mattpocock","version":"1.0.0","scope":"user","enabled":true},
+  {"id":"mattpocock-skills@mattpocock","version":"2.0.0","scope":"project","enabled":false,"projectPath":"__REPO__"},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
+]'
+OUT="$(run)"
+absent "disabled-install-not-chosen" "mattpocock-skills@mattpocock 2.0.0" "$OUT"
+check  "disabled-falls-back-to-enabled" "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
+
+# ...and when the only install is disabled, that is a MISS, not a silent pass.
+claude_plugins '[
+  {"id":"mattpocock-skills@mattpocock","version":"2.0.0","scope":"user","enabled":false},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
+]'
+OUT="$(run)"
+check "only-install-disabled-misses" "MISS mattpocock-skills@mattpocock" "$OUT"
+rm -rf "$T"
+
 # --- legacy git-flow.md in the repo -> migration warning -----------------------------------------
 mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
 mkdir -p "$R/.claude/rules"; echo legacy > "$R/.claude/rules/git-flow.md"

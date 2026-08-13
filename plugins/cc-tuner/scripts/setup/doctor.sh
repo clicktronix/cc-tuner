@@ -58,11 +58,16 @@ fi
 # one, both `enabled: true`, with no `active` field. So the selection rule still has to exist, or the
 # reported version is a coin flip between two installs. Same total order the delivery gate applies:
 # local, then project, then user; a row scoped to a different project cannot answer for this repo.
+#
+# `enabled: false` is skipped: a disabled plugin does not load its commands, so `/review --required`
+# would not run. Reporting `ok` for one is a false green in the tool whose only job is to say whether
+# the environment works. The delivery gate's resolver does not filter this, which is a divergence for
+# as long as that resolver survives — it is deleted with the rest of the state machine.
 PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
 
 plugin_here() {  # plugin_here <id> -> "<version> (<scope>)" for the install that applies here
   printf '%s' "$PLUGIN_LIST" | jq -r --arg id "$1" --arg project "$REPO_ROOT" '
-    [ .[]? | select(.id == $id and (
+    [ .[]? | select(.id == $id and (.enabled != false) and (
         .scope == "user"
         or ((.scope == "project" or .scope == "local") and .projectPath == $project)
       )) ]
