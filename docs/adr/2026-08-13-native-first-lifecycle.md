@@ -1,10 +1,12 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. One measurement gates acceptance — how long a skill's frontmatter hooks stay
-active (see **Open**) — and one narrowing needs confirming: the merge gate checks **one** SHA-bound
-verdict plus CI, not three approvals, because GitHub makes three unreachable here. See
-**What the gate can actually check**.
+**Status:** accepted. Both things that held it at proposed are settled. The skill-hook measurement is
+no longer a gate on anything: the merge guard is registered globally and scopes itself, so the
+question left the design rather than being answered. And the narrowing — **one** SHA-bound verdict
+plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing
+self-approval; reversing it would mean running three separate GitHub identities or Apps, which is the
+opposite of this ADR's purpose. See **What the gate can actually check**.
 **Supersedes:** the approach shipped through 0.10.0, in which `/cc-tuner:run` carried its own state
 machine, mutation fence and gate protocol.
 
@@ -261,16 +263,16 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 
 ## Open
 
-In priority order, by what each one decides.
+Nothing here blocks the decision. Each was, at some point, believed to.
 
-- **How long a skill's frontmatter hooks stay active.** This decides whether the single fail-closed
-  gate needs an arming file at all — and, if the active window is one turn, whether a guard declared
-  that way fires during a run or is inert. It is the only open item that can leave the merge guard
-  silently not working, which is the defect this ADR is written against. Measure first, in a
-  disposable repository, the same way the rest of this was measured.
+- **How long a skill's frontmatter hooks stay active — no longer load-bearing.** An earlier revision
+  ranked this first, because the merge guard might have been declared in a skill's frontmatter and an
+  active window of one turn would have left it inert. The guard is registered globally in `hooks.json`
+  and scopes itself on the target PR's history, so the question is no longer part of the design. It is
+  worth measuring one day; nothing waits on it. Removing a decision beat resolving it.
 - **§6 of the spike — checkbox progress — is untested.** Whether ticking `- [ ]` plus git history is
   enough to reconstruct state after a lost session. This decides how good recovery feels, not whether
-  anything is enforced, so it ranks below the item above.
+  anything is enforced.
 - A session that has already loaded an older version of a command cannot be repaired by anything
   shipped in a newer one. Only a reload or a cache purge fixes an existing session — which is what
   produced the original symptom, and what no amount of enforcement would have prevented.

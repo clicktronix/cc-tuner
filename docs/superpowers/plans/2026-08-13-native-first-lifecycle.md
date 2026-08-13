@@ -54,30 +54,48 @@ Every task below and the eval use exactly these. Fixing the wording in one place
 exercising a shape the skills do not have:
 
 ```
-/cc-tuner:spec [--auto] <path-to-spec>
-/cc-tuner:plan [--auto] <path-to-spec>      # reads the spec, writes and publishes the plan
-/cc-tuner:run  [--auto] <path-to-spec>      # reads the plan for this branch, works it
+/cc-tuner:spec <issue number | URL | free-text description>   # produces the spec
+/cc-tuner:plan [--auto] <path-to-spec>                        # writes and publishes the plan
+/cc-tuner:run  [--auto] <path-to-spec>                        # works this branch's plan
 ```
 
-`--auto` is a flag in the same position everywhere. `/run` takes the spec path, not the plan path: the
-plan is found from the branch, so passing it would be a second way to say the same thing.
+`/spec` takes the raw thing, not a spec path — it is what *creates* the spec, and an earlier draft
+wrote `/spec <path-to-spec>`, which is circular. It has no `--auto`: producing a spec unattended is
+not a mode this flow offers.
+
+`--auto` is a flag in the same position on the other two. `/run` takes the spec path, not the plan
+path: the plan is found from the branch, so passing it would be a second way to say the same thing.
+
+## A decision removed rather than resolved
+
+An earlier version of this plan opened with a measurement: how long a skill's frontmatter hooks stay
+active, because the merge guard might be declared there instead of in `hooks.json`.
+
+**That measurement is no longer needed, because the choice is gone.** The guard is registered
+globally in `hooks.json`, matching `Bash`, and it scopes *itself* — it acts only on `gh pr merge`, and
+only when the target PR's history contains a cc-tuner plan file. Skill-lifetime semantics never enter
+the design, so an undefined boundary in the platform cannot make the gate inert.
+
+This is the better kind of simplification: not answering a hard question, but arranging things so it
+is never asked. The measurement remains interesting and is recorded as an open item in the ADR — it is
+simply not on this branch's path.
 
 ## Task graph
 
 | task | blocked by |
 |---|---|
 | 0 — scenario harness | — |
-| 1 — measure skill-hook lifetime | — |
+| 1 — *(removed — see "A decision removed rather than resolved")* | — |
 | 2 — `/cc-tuner:plan` and the plan validator | 0 |
 | 3 — execution skill | 2 |
-| 4 — merge guard | 0, 1 |
+| 4 — merge guard | 0 |
 | 5 — `SessionStart` restore | 2 |
 | 6 — `doctor` | — |
 | 7 — `commands/` → `skills/` | 3 |
 | 8 — authenticated eval | 4, 5, 7 |
 | 9 — deletion | 6, 8 |
 
-Tasks 0, 1 and 6 start at once. The eval runs **after** the migration, because the thing it must
+Tasks 0 and 6 start at once. The eval runs **after** the migration, because the thing it must
 exercise is the final public `/cc-tuner:run`, not an intermediate one. Deletion is last and is blocked
 by the eval: the old runtime stays until a real session has been observed completing the new one.
 
@@ -113,35 +131,14 @@ directory is reported rather than silently passing.
 
 ---
 
-## Task 1: Measure how long a skill's frontmatter hooks stay active
+## Task 1: *(removed)*
 
-**Blocked by:** none.
+The measurement of skill frontmatter hook lifetime, which this task used to specify, is no longer on
+this branch's path. The merge guard is registered globally in `hooks.json` and scopes itself, so the
+skill lifecycle never enters the design — see **A decision removed rather than resolved** above.
 
-The ADR's top open item. It decides whether the merge guard can be declared on the skill instead of in
-`hooks.json`, and — worse — whether a guard declared that way is inert for a multi-turn run.
-
-**Files:** none in this repo. A disposable repository, as with the original spike.
-
-- [ ] **Step 1: build the probe.** A skill whose frontmatter declares
-      `hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: command, command: <dump.sh> }] }] }`,
-      pointing at the spike's one-file-per-event `dump.sh`. Reuse it verbatim — it is already
-      race-free.
-- [ ] **Step 2: invoke the skill, then run a `Bash` call in the SAME turn.** Expect an event file.
-      A silent probe here means the mechanism does not work at all, not that the window is short.
-- [ ] **Step 3: send a new user message, then run another `Bash` call.** This is the experiment.
-- [ ] **Step 4: send a third message and repeat.** Two post-invocation turns, so a single quiet turn
-      cannot be mistaken for a closed window.
-- [ ] **Step 5: control.** Register the same script in `hooks.json` for the same matcher and confirm it
-      fires on every turn. Without this, a probe that never fires proves nothing — the error the spike
-      made four times.
-- [ ] **Step 6: before recording any negative result, confirm the session has finished writing.**
-      A transcript read mid-flight produced two wrong conclusions in the spike.
-- [ ] **Step 7: record the result in `docs/spike-native-flow.md`** as a new numbered section, with the
-      same MEASURED / NOT STARTED marking as the rest, and commit.
-
-**Acceptance:** the record states, from observation, whether a frontmatter hook fires (a) in the
-invoking turn, (b) in a later turn of the same session. Either answer unblocks Task 4; no answer does
-not.
+The experiment is still worth running one day, and stays recorded as an open item in the ADR. Nothing
+here is blocked on it.
 
 ---
 
@@ -168,6 +165,15 @@ the only place that branches on it and it has no other way in.
 3. Write `docs/plans/<YYYY-MM-DD>-<branch-slug>.md` from the template. The filename carries the branch
    slug so two branches cannot collide, and so Task 5 can find *this* branch's plan rather than the
    newest file on disk.
+
+   **One resolver, shared, fail-closed.** `plan-path.sh` is the only code that turns a branch into a
+   plan path, and both the skill and the restore hook call it. Computing the slug independently in two
+   places is a second parser for one question — the thing this ADR deletes elsewhere — and the two
+   would drift on the first branch name containing a slash or an uppercase letter. The resolver
+   defines the normalisation once (lowercase, every character outside `[a-z0-9]` to `-`, runs
+   collapsed, ends trimmed), and **exits non-zero on zero matches and on more than one**. Neither is
+   guessable: no match may mean no plan or a renamed branch, and two matches mean two plans with equal
+   claim. A resolver that picks one is a resolver that is sometimes silently wrong.
 
    **Each slice is one unambiguously parsable record**, because Task 5 has to rebuild the graph from
    this file alone and a hook is a shell script, not a reader:
@@ -238,18 +244,25 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
   The axis is **what each method persists**, not whether it feels exploratory. An earlier draft called
   `research` and `domain-modeling` read-only and put `prototype` on the task branch; both are backwards.
 
+  **This forces the branch earlier than `/run`.** `commands/spec.md:31` invokes `grilling` with
+  `domain-modeling`, and `domain-modeling` writes `CONTEXT.md` and ADRs — so `/spec` persists to the
+  repository before `/run` is ever called. An earlier draft placed `grill-with-docs` "inside `/spec`,
+  no branch, writes only the spec", which is wrong twice. **The task branch is created by `/spec`,
+  before its grilling phase**, and the rule below is what makes that non-negotiable.
+
   | method | workspace | why |
   |---|---|---|
-  | `grill-with-docs` | inside `/spec`, no branch | it sharpens the Definition of Ready, and writes only the spec |
-  | `research`, `domain-modeling` | **task branch, created first** | their output is kept and committed — a saved artifact is a write, however much reading produced it |
+  | `grill-with-docs`, `grilling` | **task branch, created by `/spec` first** | it calls `domain-modeling`, which writes `CONTEXT.md` and ADRs — it is not spec-only |
+  | `research`, `domain-modeling` | **task branch** | their output is kept and committed — a saved artifact is a write, however much reading produced it |
   | `prototype` | **disposable branch or worktree** | its output is throwaway by definition; landing it on the task branch is how a spike becomes the implementation by accident |
   | `tdd` | task branch, around the slice's deciding check | that check is the red/green boundary |
   | `diagnosing-bugs` — reading | task branch | inspection persists nothing |
   | `diagnosing-bugs` — probe edits | **disposable workspace** | instrumentation, bisect stubs and print statements are experiments, and an experiment that lands is a regression waiting |
   | `code-review`, deep-review | on the candidate SHA | they must see exactly what the verdict attests to |
 
-  Three enforceable rules, all ordering: nothing that persists runs before the task branch exists;
-  anything throwaway runs somewhere throwaway; nothing reviews a SHA that has since moved.
+  Three enforceable rules, all ordering: nothing that persists runs before the task branch exists —
+  which is why `/spec` creates it, not `/run`; anything throwaway runs somewhere throwaway; nothing
+  reviews a SHA that has since moved.
 - Under `--auto` only: refuse to start a task whose `blockedBy` is non-empty. The platform stores the
   edge and does not enforce it, and unattended there is nobody watching.
 - Stop at each delivery boundary without `--auto`.
@@ -266,12 +279,13 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
 
 ## Task 4: The merge guard
 
-**Blocked by:** Task 0 (the harness) and Task 1 (decides where it is registered).
+**Blocked by:** Task 0 (the harness).
 
 **Files:**
 - Create: `plugins/cc-tuner/hooks/merge-guard.sh`
-- Modify: `plugins/cc-tuner/hooks/hooks.json` — or, if Task 1 shows frontmatter hooks stay active
-  across turns, `skills/execute/SKILL.md` frontmatter instead.
+- Modify: `plugins/cc-tuner/hooks/hooks.json` — `PreToolUse`, matcher `Bash`. Registered globally, with
+  no skill-frontmatter alternative: the guard scopes itself, so nothing is gained by tying it to a
+  skill's lifetime and an undefined lifetime could only make it inert.
 - Create: `plugins/cc-tuner/tests/scenarios/scenario-merge-guard-denies.sh`
 - Create: `plugins/cc-tuner/tests/scenarios/scenario-merge-guard-out-of-scope.sh`
 - Create: `plugins/cc-tuner/tests/scenarios/scenario-inert-gate.sh`
@@ -307,8 +321,27 @@ The order is fixed, because every pair of these is wrong in the other sequence:
    wrong;
 5. check CI on that same SHA.
 
-Expected author is the authenticated `gh` user. `REQUEST_CHANGES → APPROVE` needs no special handling:
-a later review supersedes under latest-per-author below.
+Expected author is the authenticated `gh` user.
+
+**A published approval is terminal for its SHA.** Only approvals are published, so the lifecycle is
+asymmetric and an earlier draft left the dangerous half unsaid: once `cc-tuner-verdict: APPROVE <sha>`
+exists, a later `REQUEST_CHANGES` **on the same SHA cannot retract it** — nothing overwrites a GitHub
+review, and latest-per-author does not help when the later verdict was never posted. So the rule is
+stated rather than discovered: a finding made after publication requires **a new commit and therefore
+a new candidate SHA**, at which point the old approval no longer matches the head and the gate denies
+by construction. Publishing negative verdicts too would also work; it is not chosen, because one
+marker with one meaning is fewer moving parts than two.
+
+**What "CI is green" means, exactly.** Not a vibe — one contract, so the guard and the eval cannot
+read it differently:
+
+- Read the checks for the candidate SHA through `gh pr checks <pr> --json name,state,bucket` (or the
+  equivalent `gh api` on that SHA).
+- Green means: at least one check ran, and **every** check is in a passing terminal state. Pending,
+  skipped-as-required, cancelled and failed are all not-green.
+- **Zero checks is not green.** A repository with no CI configured, or a workflow that never
+  triggered, produces an empty list — and an empty list satisfies "no check failed" under any naive
+  reading. Deny, and say so in the reason: absent CI is unproven CI.
 
 This is written by the party the gate constrains, and that is stated rather than hidden — the SHA is
 GitHub's and cannot be backdated, the verdict word is not. It is the ADR's guardrail, not a proof.
@@ -352,9 +385,11 @@ reason string names which fact was missing.
       review from the expected author on the **exact head SHA**, CI green on that SHA → `allow`.
       **Without this scenario a guard that denies unconditionally passes the whole suite**, which is a
       broken product with a green test run — the same shape as 0.10.0 in mirror image.
-- [ ] **Step 3: three independent mutations of that fixture**, each `deny`, in one scenario file:
-      advance the head SHA past the review; remove the verdict review; turn CI red. Each isolates one
-      fact, so a guard that ignores CI but checks the SHA cannot hide behind a combined case.
+- [ ] **Step 3: four independent mutations of that fixture**, each `deny`, in one scenario file:
+      advance the head SHA past the review; remove the verdict review; turn CI red; **and remove every
+      check so the list is empty**. Each isolates one fact, so a guard that ignores CI but checks the
+      SHA cannot hide behind a combined case — and the empty-checks case is the one a naive
+      "nothing failed" implementation passes.
 - [ ] **Step 4: `scenario-inert-gate.sh`** — the reproduction of the original defect. In scope, **no
       reviews at all, no CI record** → must `deny`. In 0.10.0 the equivalent state allowed.
 - [ ] **Step 5: `scenario-merge-guard-out-of-scope.sh`** — no commit in the PR range touched a plan
@@ -417,8 +452,14 @@ nothing else, so this asks the agent to restore and cannot make it happen.
 - [ ] **Step 2b: emit finished slices that are still referenced.** An unfinished slice's `Blocked by`
       may name a slice that is already done. Restoring only the unfinished ones leaves that edge
       pointing at a task that does not exist, and the restored graph is quietly wrong. Emit every
-      referenced blocker, marked done, so the agent can create it `completed` and wire the edge — or
-      omit the edge deliberately. Silently dropping it is the one option that must not happen.
+      referenced blocker, marked done.
+
+      **One algorithm, not a choice.** An earlier draft offered "create it completed, or omit the edge
+      deliberately", while the eval asserts the restored graph matches the original — two instructions
+      that cannot both be satisfied. The sequence is fixed: **create every referenced completed slice
+      as a task, wire all `addBlockedBy` edges, then mark those slices `completed`.** In that order,
+      because an edge cannot be added to a task that does not exist yet, and marking first would leave
+      the wiring to a second pass that may not happen.
 - [ ] **Step 3: make the instruction idempotent** — call `TaskList` first, create only the slices that
       are missing, then re-apply `addBlockedBy` for edges not already present. Written this way even
       though `compact` is excluded, so a future trigger change cannot silently double the plan.
@@ -445,9 +486,10 @@ That the agent then rebuilds a `TaskList` whose `blockedBy` matches is Task 8's 
 `projectPath` directly, so `doctor.sh` stops calling the manifest resolver.
 
 **The resolver itself is not deleted here.** `execute_task_manifest_roots` lives in `lib.sh`, which is
-sourced by eight files including `runctl.sh`, `prereq-check.sh` and both hooks. Removing it while
-those consumers exist breaks them in the same commit. This task changes the one caller that has a
-native replacement; the function goes in Task 9, after its remaining consumers do.
+sourced by the execute-task scripts and `run-state-hook.sh`. Removing it while those consumers exist
+breaks them in the same commit. This task changes the one caller that has a native replacement; the
+function goes in Task 9, after its remaining consumers do. (`smoke-verify` is not among them — it has
+its own `scripts/smoke-verify/lib.sh`.)
 
 - [ ] **Step 1: point `doctor.sh` at `claude plugin list --json`** and stop it calling the resolver.
 - [ ] **Step 2: retire the `none` tracker everywhere it is expressible**, not only in `/run`. It is
@@ -508,9 +550,12 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       the installed 0.10.0 and report a pass — which is not a hypothetical, it is precisely the
       original defect: sessions holding a frozen `${CLAUDE_PLUGIN_ROOT}` while everyone read the new
       code.
-- [ ] **Step 1: attended, the whole flow.** In a scratch repository, `/cc-tuner:plan <spec>` **and then
-      `/cc-tuner:run <spec>`** — the eval exists to exercise the shipped commands, and a plan that is
-      never run proves only half of what the branch replaced. Confirm: plan mode asks for approval,
+- [ ] **Step 1: attended, the whole flow, starting at `/spec`.** In a scratch repository:
+      `/cc-tuner:spec <description>`, then `/cc-tuner:plan <spec>`, then `/cc-tuner:run <spec>`. An
+      earlier draft began at `/plan` while claiming to prove `spec → plan → run`; `/spec` is also
+      where the task branch is created and where `domain-modeling` first writes, so skipping it skips
+      the placement rule entirely. Confirm the branch exists before `CONTEXT.md` is written, and then:
+      plan mode asks for approval,
       the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
       delivery boundary. The edges are the part a one-pass implementation would silently drop.
@@ -535,7 +580,11 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
 - [ ] **Step 5: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
-**Acceptance:** all five steps observed PASS in a real session. **A step recorded as not-yet-run leaves
+**Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4 and 5. An
+earlier draft said "all five steps" while listing seven, which would have let the two that matter most
+fall outside acceptance: step 0, which proves the eval tested this checkout rather than the installed
+version, and step 2b, the only live proof that the producer writes something the guard can read.
+**A step recorded as not-yet-run leaves
 this task incomplete and Task 9 blocked** — an earlier draft allowed not-yet-run to count, which would
 have let the deletion proceed on no evidence at all. A step recorded as passing on the strength of
 reading the skill's text is the exact failure mode this branch exists to remove.
