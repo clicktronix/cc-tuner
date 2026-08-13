@@ -1,7 +1,10 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** accepted
+**Status:** proposed. Two things gate acceptance, both bearing on whether the single fail-closed gate
+works: how long a skill's frontmatter hooks stay active (unmeasured — see **Open**), and whether the
+narrowing under **Where the three attestations live** is acceptable, since it retires any reviewer
+that cannot post a pull-request review.
 **Supersedes:** the approach shipped through 0.10.0, in which `/cc-tuner:run` carried its own state
 machine, mutation fence and gate protocol.
 
@@ -118,9 +121,11 @@ And one that reframes the whole enforcement story:
 Read against the reference docs after the spike. Kept separate from the section above because none of
 it was observed here — it constrains the design, it does not report behaviour.
 
-- **A hook cannot invoke a tool.** *"Invoke Claude Code tools — NO. Hooks can only emit JSON/text."*
-  A hook can emit `hookSpecificOutput.additionalContext` and nothing more. Recovery therefore cannot
-  be performed by a hook; it can only be *asked for*.
+- **A `command` hook cannot create a task.** *"Invoke Claude Code tools — NO. Hooks can only emit
+  JSON/text."* It emits `hookSpecificOutput.additionalContext` and nothing more, so recovery cannot be
+  performed by the hook — only *asked for*. Stated narrowly on purpose: handler types `agent` and
+  `mcp_tool` do reach further (an `agent` handler spawns a subagent that can use tools), but neither
+  writes the invoking session's task list, and cc-tuner ships `command` handlers.
 - **`SessionStart` matches on more than `startup`** — `startup`, `resume`, `clear`, `compact`, `fork`.
   `/clear` empties the session's tasks exactly as a new session does, so a restore keyed only to
   `startup` has a hole. `superpowers` registers `startup|clear|compact`.
@@ -168,12 +173,31 @@ thirty-invariant list, reduced to those with something that reads them at runtim
 ### Enforced
 
 One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, with three
-approvals on it and green CI.** Armed from `UserPromptSubmit`, which was measured to carry the raw
-slash text before any tool call. If a skill's frontmatter hooks turn out to stay active for the whole
-run, that arming file goes away and the guard is declared on the skill instead — the gate is the
-decision, the arming mechanism follows the measurement. Under `--auto` only, one further check refuses
-to start a task whose `blockedBy` is non-empty — because that is the one thing the platform stores but
-does not enforce, and nobody is watching.
+approvals on it and green CI.**
+
+**Scope, which is also the arming.** The guard has an opinion exactly when the current branch carries
+a committed cc-tuner plan file, and none otherwise. Two properties follow, and both are required:
+
+- Outside a run cc-tuner does not touch the user's ordinary merges. A global fail-closed hook that
+  denied every `gh pr merge` in every repository the plugin is installed in would be a regression, not
+  a guardrail.
+- Inside a run the gate cannot go inert the way 0.10.0's did. Its scope condition *is* its evidence:
+  a run exists only if the plan file is committed, and `/plan` commits it before `/run` will start. The
+  old failure — run in progress, state file absent, every gate allowing — has no equivalent here,
+  because the thing that says "a run is happening" is the same thing `git` guarantees is present.
+
+Earlier drafts armed this from `UserPromptSubmit`. That is dropped: it added a second store answering
+a question the branch already answers, which is exactly the duplication this ADR removes elsewhere.
+
+**Where the three attestations live.** They are three GitHub pull-request reviews on the candidate SHA.
+GitHub stamps each review with a `commit_id` the plugin does not write and cannot forge, so
+`gh pr view --json reviews` answers "three approvals on this exact SHA" with no local state at all.
+The consequence is deliberate and narrowing: **an attestation that cannot be posted as a PR review does
+not count.** A reviewer that only ever spoke into the chat has no durable home now that the state file
+is gone, and pretending otherwise would recreate a gate that reads something nobody wrote.
+
+Under `--auto` only, one further check refuses to start a task whose `blockedBy` is non-empty — because
+that is the one thing the platform stores but does not enforce, and nobody is watching.
 
 `gh pr merge` is not the only route to a merge; the web button, `git push` and the API bypass any local
 hook. This is a guardrail against an agent's mistake and must not be described as anything stronger.
@@ -187,10 +211,15 @@ hook. This is a guardrail against an agent's mistake and must not be described a
   decision rather than a side effect: the observed failure was never an agent bypassing the fence, it
   was the fence being inert because state did not exist.
 - **Recovery is asked for, not performed.** It is part of the normal flow rather than an error path,
-  but a hook cannot call `TaskCreate`: on `startup`, `clear` or `compact` the hook injects the plan
-  file's unticked lines as context and the agent re-creates the tasks. So recovery carries exactly the
-  same standing as the plan itself — advisory, and dependent on the model following its instructions.
-  Any claim that a session "will" restore its tasks is a claim about the model, not about a gate.
+  but a hook cannot call `TaskCreate`: the hook injects the plan file's unticked lines as context and
+  the agent re-creates the tasks. So recovery carries exactly the same standing as the plan itself —
+  advisory, and dependent on the model following its instructions. Any claim that a session "will"
+  restore its tasks is a claim about the model, not about a gate.
+- **Recovery runs on `startup` and `clear`, not on `compact`.** §4 measured that the task graph
+  survives compaction and resume byte for byte, so asking for a restore there would duplicate every
+  row. The instruction is written to be idempotent regardless — read `TaskList` first, create only what
+  is missing — because a rule that depends on the trigger being exactly right is one trigger change
+  away from silently doubling the plan.
 - `tracker: none` is dropped from `/run`: it was already inconsistent, since `/run` requires a PR and
   GitHub CI unconditionally.
 

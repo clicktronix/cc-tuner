@@ -20,12 +20,33 @@ under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → c
 - **Bash 3.2.** macOS system bash. No associative arrays, no `${var^^}`, no `mapfile`.
 - **Every guard ships a test that fails when the guard is reverted.** A test that stays green against
   a reverted guard is not a test of that guard.
+- **`tests/run.sh` is green at every commit.** A deliberately failing check is proven by mutating the
+  thing it guards, never by committing it red. A red suite makes `git bisect` useless and trains
+  everyone to ignore the signal.
 - **One rule, one home.** No second copy of a rule, and no second parser for a question something
   already answers.
-- **`git`, `gh`, `jq` only.** No new runtime dependency and no new language.
+- **`git`, `gh`, `jq` only** in the shipped runtime. No new runtime dependency and no new language.
 - **Commits:** short imperative subject. No Claude attribution trailer.
-- **Deletion comes after replacement.** Nothing that works today is removed before the thing that
-  replaces it runs green.
+- **Migration precedes deletion.** Nothing that works today is removed before the thing that replaces
+  it runs green, and no commit leaves a public command pointing at a deleted script.
+
+## Two tiers of test, and what each can prove
+
+The distinction matters more than any single task here, because getting it wrong is the defect this
+branch exists to remove.
+
+- **Scenario tier** (`tests/scenarios/`, runs in `tests/run.sh`, no auth, no cost). Real git
+  repositories, real invocations of the plugin's scripts and hooks with real JSON payloads on stdin,
+  assertions on exit code, `permissionDecision`, and files produced. This tier can prove everything
+  about the **guard and the hooks**, because those are shell programs with observable inputs.
+- **Eval tier** (Task 7, authenticated, costs tokens, run by hand). A real Claude Code session driving
+  `spec → plan → run`. This tier is the **only** one that can prove a skill causes `TaskCreate` to be
+  called, because in the scenario tier no producer exists.
+
+**The trap, stated so nobody falls into it:** a scenario that asserts something about "the plan file
+the skill produced" is asserting about a fixture the test itself wrote. That is a parser test wearing
+an end-to-end costume — the same shape as the 82 green `grep` assertions over Markdown. The scenario
+tier tests the **validator**; the eval tier tests that the skill's output **passes** it.
 
 ## Task graph
 
@@ -33,25 +54,23 @@ under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → c
 |---|---|
 | 0 — scenario harness | — |
 | 1 — measure skill-hook lifetime | — |
-| 2 — `/cc-tuner:plan` | 0 |
+| 2 — `/cc-tuner:plan` and the plan validator | 0 |
 | 3 — execution skill | 2 |
 | 4 — merge guard | 0, 1 |
 | 5 — `SessionStart` restore | 2 |
 | 6 — `doctor` | — |
-| 7 — deletion | 3, 4, 5, 6 |
-| 8 — `commands/` → `skills/` | 7 |
+| 7 — authenticated eval | 3, 4, 5 |
+| 8 — `commands/` → `skills/` | 3 |
+| 9 — deletion | 6, 7, 8 |
 
-Tasks 0, 1 and 6 can start at once. Nothing is deleted until every replacement is green.
+Tasks 0, 1 and 6 start at once. Deletion is last and is blocked by the eval: the old runtime stays
+until a real session has been observed completing the new one.
 
 ---
 
-## Task 0: End-to-end scenario harness
+## Task 0: Scenario harness
 
-**Blocked by:** none — starts immediately.
-
-The defect this whole branch exists to fix is not the state machine, it is that 82 assertions were
-green while `spec → plan → run` could not start. Nothing else in this plan may land until there is a
-test that would have caught that.
+**Blocked by:** none.
 
 **Files:**
 - Create: `plugins/cc-tuner/tests/scenarios/lib.sh` — builds a throwaway git repo in `$TMPDIR`,
@@ -59,38 +78,32 @@ test that would have caught that.
 - Create: `plugins/cc-tuner/tests/scenarios/run.sh` — runs every `scenario-*.sh` in the directory.
 - Create: `plugins/cc-tuner/tests/scenarios/fixtures/` — hook payloads captured verbatim during the
   spike, one JSON file per event.
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-harness-selftest.sh`
 - Modify: `plugins/cc-tuner/tests/run.sh` — call `scenarios/run.sh`.
 
-**What a scenario is:** a real git repository on disk, a real invocation of the plugin's scripts and
-hooks with a real JSON payload on stdin, and an assertion on the observable outcome — the exit code,
-the `permissionDecision`, or a file the flow was supposed to produce. Never a `grep` over Markdown.
+This task ships the machinery and **one** scenario: the harness proving itself. The guard scenarios
+belong to Task 4, alongside the guard, so no commit in between is red.
 
-- [ ] **Step 1: write the failing scenario first.** `scenario-merge-guard-denies.sh`: a repo with no
-      approvals, a `gh pr merge` payload, expected `permissionDecision: deny`. It fails now because
-      no guard exists yet — that failure is the point, and Task 4 turns it green.
-- [ ] **Step 2: write `scenario-inert-gate.sh`** — the reproduction of the original defect. Drive the
-      guard in a repo where the arming state is *absent* and assert it does **not** silently allow.
-      This is the assertion whose absence let 0.10.0 ship.
-- [ ] **Step 3: `bash tests/run.sh`.** Expect the two new scenarios to FAIL and every existing check to
-      PASS. Record both in the commit message.
+- [ ] **Step 1: write `lib.sh` and `run.sh`.** A scenario is a script that exits non-zero on failure;
+      `run.sh` reports each by name and fails if any did.
+- [ ] **Step 2: write `scenario-harness-selftest.sh`** — builds a repo, asserts it is a git repo with
+      the expected fixture layout, and asserts that a deliberately failing assertion inside a
+      sub-scenario is reported as a failure by `run.sh`. Without this, "all scenarios passed" and
+      "no scenario ran" look identical, which is how the original defect hid.
+- [ ] **Step 3: `bash tests/run.sh`.** Green, including the new tier.
 - [ ] **Step 4: commit** — `Add end-to-end scenario harness`.
 
-**Acceptance:** a scenario can fail. Verify by stubbing the guard to always allow and confirming
-`scenario-merge-guard-denies.sh` goes red.
-
-**Deliberately out of scope, and named rather than omitted:** model-in-the-loop scenarios via
-`claude -p`. They are the only way to test whether the *model* follows the skill, they cost tokens and
-need auth, and they do not belong in `tests/run.sh`. If they are wanted they are a separate tier with
-a separate entry point — but then the plan's advisory half stays untested, and the ADR says so.
+**Acceptance:** deleting the body of a scenario's assertion makes `run.sh` fail, and an empty scenario
+directory is reported rather than silently passing.
 
 ---
 
 ## Task 1: Measure how long a skill's frontmatter hooks stay active
 
-**Blocked by:** none — runs in parallel with Task 0.
+**Blocked by:** none.
 
-This is the ADR's top open item. It decides whether Task 4 needs an arming file at all, and — worse —
-whether a guard declared in frontmatter fires during a run or is inert.
+The ADR's top open item. It decides whether the merge guard can be declared on the skill instead of in
+`hooks.json`, and — worse — whether a guard declared that way is inert for a multi-turn run.
 
 **Files:** none in this repo. A disposable repository, as with the original spike.
 
@@ -104,8 +117,8 @@ whether a guard declared in frontmatter fires during a run or is inert.
 - [ ] **Step 4: send a third message and repeat.** Two post-invocation turns, so a single quiet turn
       cannot be mistaken for a closed window.
 - [ ] **Step 5: control.** Register the same script in `hooks.json` for the same matcher and confirm it
-      fires on every turn. Without this, a probe that never fires proves nothing — which is the error
-      the spike made four times.
+      fires on every turn. Without this, a probe that never fires proves nothing — the error the spike
+      made four times.
 - [ ] **Step 6: before recording any negative result, confirm the session has finished writing.**
       A transcript read mid-flight produced two wrong conclusions in the spike.
 - [ ] **Step 7: record the result in `docs/spike-native-flow.md`** as a new numbered section, with the
@@ -117,42 +130,51 @@ not.
 
 ---
 
-## Task 2: `/cc-tuner:plan` — produce the plan
+## Task 2: `/cc-tuner:plan` and the plan validator
 
 **Blocked by:** Task 0.
 
 **Files:**
 - Create: `plugins/cc-tuner/skills/plan/SKILL.md`
 - Create: `plugins/cc-tuner/skills/plan/plan-template.md`
-- Create: `plugins/cc-tuner/tests/scenarios/scenario-plan-shape.sh`
+- Create: `plugins/cc-tuner/scripts/plan-lint.sh` — the validator
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-plan-lint.sh`
 
-**Frontmatter:** `disable-model-invocation: true` — the plan is produced when asked for, never
-inferred. `argument-hint: '<path-to-spec>'`.
+**Frontmatter:** `disable-model-invocation: true` — a plan is produced when asked for, never inferred.
+`argument-hint: '[--auto] <path-to-spec>'`. The mode is an argument, because the skill's own body is
+the only place that branches on it and it has no other way in.
 
 **What the skill instructs, and nothing more:**
 
 1. Read the committed spec named in `$ARGUMENTS`. No path, or no such file → stop. Never reconstruct
    a spec from chat.
-2. Break the work into vertical slices — each one demoable on its own, each sized to a fresh context
+2. Break the work into vertical slices — each demoable on its own, each sized to a fresh context
    window. Wide mechanical refactors are the exception: sequence them expand → migrate → contract.
-3. Write `docs/plans/<YYYY-MM-DD>-<slug>.md` from the template: per slice a title, what it delivers,
-   `Blocked by`, owned paths, the deciding check, and acceptance criteria as `- [ ]`.
-4. Commit the plan file. It is the store; an uncommitted plan does not survive anything.
-5. Publish to native tasks **in two passes** — `TaskCreate` for every slice first, then
+3. Write `docs/plans/<YYYY-MM-DD>-<branch-slug>.md` from the template: per slice a title, what it
+   delivers, `Blocked by`, owned paths, the deciding check, and acceptance criteria as `- [ ]`. The
+   filename carries the branch slug so two branches cannot collide, and so Task 5 can find *this*
+   branch's plan rather than the newest file on disk.
+4. Run `plan-lint.sh` on it and fix what it reports.
+5. Commit the plan file. It is the store; an uncommitted plan does not survive anything.
+6. Publish to native tasks **in two passes** — `TaskCreate` for every slice, then
    `TaskUpdate addBlockedBy` to wire the edges. `TaskCreate` takes no dependency argument, so one pass
    is impossible.
 
-**Interactive vs `--auto`:** interactively the skill wraps the proposal in plan mode so the user
-approves before anything is written. Under `--auto` it writes and publishes directly.
+**`--auto` vs attended:** attended, the skill wraps the proposal in plan mode so the user approves
+before anything is written. With `--auto` it writes and publishes directly.
 
-- [ ] **Step 1: write `scenario-plan-shape.sh`** — given a fixture spec, assert the produced plan file
-      parses: every slice has `Blocked by`, acceptance lines are `- [ ]`, and every named blocker
-      matches an existing slice title. Fails now, no skill exists.
-- [ ] **Step 2: write the template**, then the SKILL.md.
-- [ ] **Step 3: `bash tests/run.sh`** — the scenario turns green.
-- [ ] **Step 4: commit** — `Add cc-tuner:plan skill`.
+- [ ] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks
+      `Blocked by`, if acceptance lines are not `- [ ]`, or if a named blocker matches no slice title.
+- [ ] **Step 2: write `scenario-plan-lint.sh`** — three hand-written fixtures: one valid, one with a
+      dangling blocker, one with a missing `Blocked by`. Assert the linter accepts the first and
+      rejects the other two. **This tests the linter, not the skill** — no session runs here, so
+      nothing about the skill's behaviour is being asserted.
+- [ ] **Step 3: write the template, then the SKILL.md.**
+- [ ] **Step 4: `bash tests/run.sh`**, green.
+- [ ] **Step 5: commit** — `Add cc-tuner:plan skill and plan validator`.
 
-**Acceptance:** a slice naming a nonexistent blocker fails the scenario.
+**Acceptance:** the linter rejects a dangling blocker. That the *skill* produces a plan the linter
+accepts is Task 7's assertion, and is not claimed here.
 
 ---
 
@@ -163,9 +185,9 @@ approves before anything is written. Under `--auto` it writes and publishes dire
 **Files:**
 - Create: `plugins/cc-tuner/skills/execute/SKILL.md`
 
-**Carry only what changes behaviour.** `TaskList` already returns `blockedBy` and `owner`, and the
-task tools already instruct the model to take tasks in ID order and to verify `blockedBy` is empty
-before starting. Restating that is a no-op paid for in context every turn. What is **not** default:
+**Carry only what changes behaviour.** `TaskList` already returns `blockedBy` and `owner`, and the task
+tools already instruct the model to take tasks in ID order and to verify `blockedBy` is empty before
+starting. Restating that is a no-op paid for in context every turn. What is **not** default:
 
 - Tick `- [x]` in the plan file and commit it when a task completes. Two stores, one write each — the
   plan file is what survives the session, the task list is what is visible in it.
@@ -187,30 +209,47 @@ before starting. Restating that is a no-op paid for in context every turn. What 
 
 ## Task 4: The merge guard
 
-**Blocked by:** Task 0 (needs the scenario) and Task 1 (decides the arming).
+**Blocked by:** Task 0 (the harness) and Task 1 (decides where it is registered).
 
 **Files:**
 - Create: `plugins/cc-tuner/hooks/merge-guard.sh`
 - Modify: `plugins/cc-tuner/hooks/hooks.json` — or, if Task 1 shows frontmatter hooks stay active
-  across turns, `skills/execute/SKILL.md` frontmatter instead, and no arming file.
+  across turns, `skills/execute/SKILL.md` frontmatter instead.
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-merge-guard-denies.sh`
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-merge-guard-out-of-scope.sh`
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-inert-gate.sh`
 
-**The one fail-closed gate:** deny `gh pr merge` unless the PR head SHA equals the reviewed SHA, that
-SHA carries three approvals, and CI is green on it. Modelled on `block-dangerous-git.sh` — read stdin,
-match the command, emit a decision. Around 30 lines.
+**The gate:** deny `gh pr merge` unless the PR head SHA equals the candidate SHA, that SHA carries
+three approving pull-request reviews, and CI is green on it. Modelled on `block-dangerous-git.sh` —
+read stdin, match the command, emit a decision. Around 30 lines.
 
-- [ ] **Step 1: write the guard.** Deny is the default when the facts cannot be established. An
-      unreadable state, an absent PR, a failed `gh` call — every one of them denies. The reason string
-      says which fact was missing.
-- [ ] **Step 2: register it**, by whichever mechanism Task 1 established.
-- [ ] **Step 3: `bash tests/run.sh`** — `scenario-merge-guard-denies.sh` and `scenario-inert-gate.sh`
-      both turn green.
-- [ ] **Step 4: prove the guard by reverting it.** `cp merge-guard.sh merge-guard.sh.premutation`,
-      stub the decision to `allow`, run the scenarios, confirm both go RED, restore from the copy.
-      Never `git checkout --` here — it would destroy uncommitted work in this branch.
-- [ ] **Step 5: commit** — `Add fail-closed merge guard`, with the RED/GREEN evidence in the body.
+**Scope is the arming, and there is no arm file.** The guard has an opinion exactly when the current
+branch carries a committed cc-tuner plan file. Outside that it returns `allow` and says nothing —
+otherwise installing cc-tuner would block every unrelated merge in every repository. Inside that scope
+every missing fact denies: no plan, no PR, fewer than three approvals on the head SHA, red CI, or a
+`gh` call that failed. The reason string names which fact was missing.
 
-**Acceptance:** the guard denies when its state is absent. That single assertion is the whole
-difference from 0.10.0.
+**Three approvals means three GitHub PR reviews on the candidate SHA.** `gh pr view --json reviews`
+returns each review's `commit_id` and `state`; GitHub stamps the `commit_id` and the plugin cannot
+forge it. An attestation that was never posted as a PR review does not count and the guard cannot see
+it — that narrowing is in the ADR and is the price of deleting the local state file.
+
+- [ ] **Step 1: write the guard**, deny-by-default within scope.
+- [ ] **Step 2: `scenario-merge-guard-denies.sh`** — plan file present, one approval → `deny`.
+- [ ] **Step 3: `scenario-inert-gate.sh`** — the reproduction of the original defect. Plan file
+      present, **no reviews at all, no CI record** → must `deny`. In 0.10.0 the equivalent state
+      allowed. This is the single assertion that distinguishes this branch from what shipped.
+- [ ] **Step 4: `scenario-merge-guard-out-of-scope.sh`** — no plan file on the branch → `allow`,
+      silently. Guards the other direction: the plugin must not seize the user's own merges.
+- [ ] **Step 5: `bash tests/run.sh`**, green.
+- [ ] **Step 6: prove the guard by reverting it.** `cp merge-guard.sh merge-guard.sh.premutation`,
+      stub the decision to `allow`, run the scenarios, confirm steps 2 and 3 go RED while step 4 stays
+      green, restore from the copy. Never `git checkout --` here — it would destroy uncommitted work
+      in this branch.
+- [ ] **Step 7: commit** — `Add fail-closed merge guard`, with the RED/GREEN evidence in the body.
+
+**Acceptance:** the guard denies when its evidence is absent and stays silent when no run is happening.
+Both directions asserted, because either one alone is a different bug.
 
 **Stated limit, to be repeated in the README:** `gh pr merge` is not the only route to a merge. The web
 button, `git push` and the API bypass any local hook. This is a guardrail against an agent's mistake
@@ -220,27 +259,33 @@ and must not be described as anything stronger.
 
 ## Task 5: `SessionStart` restore
 
-**Blocked by:** Task 2 (nothing to restore before a plan file exists).
+**Blocked by:** Task 2.
 
 **Files:**
 - Create: `plugins/cc-tuner/hooks/session-start.sh`
-- Modify: `plugins/cc-tuner/hooks/hooks.json` — `"matcher": "startup|clear|compact"`.
+- Modify: `plugins/cc-tuner/hooks/hooks.json` — `"matcher": "startup|clear"`.
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-restore.sh`
 
-**A hook cannot call `TaskCreate`.** It emits `hookSpecificOutput.additionalContext` and nothing else,
-so this asks the agent to restore and cannot make it happen. `superpowers/hooks/session-start` is the
-working model, including its manual JSON escaping and its `printf`-instead-of-heredoc workaround for
-bash 5.3.
+**`compact` is deliberately excluded.** §4 of the spike measured the task graph surviving compaction
+and resume byte for byte; asking for a restore there would duplicate every row.
 
-- [ ] **Step 1: find the current plan** — the newest `docs/plans/*.md` reachable from `HEAD` with at
-      least one unticked `- [ ]`. None → emit nothing and exit 0. Silence is the correct output when
-      there is no plan.
-- [ ] **Step 2: emit the unticked lines** as `additionalContext`, with one instruction: re-create these
-      as tasks before doing anything else.
-- [ ] **Step 3: scenario** — a repo with a half-ticked plan produces context naming exactly the
-      unticked slices; a repo with a fully ticked plan produces nothing.
-- [ ] **Step 4: commit** — `Restore the plan on session start`.
+**A `command` hook cannot call `TaskCreate`.** It emits `hookSpecificOutput.additionalContext` and
+nothing else, so this asks the agent to restore and cannot make it happen.
+`superpowers/hooks/session-start` is the working model, including its manual JSON escaping and its
+`printf`-instead-of-heredoc workaround for bash 5.3.
 
-**Acceptance:** `clear` and `compact` are covered, not only `startup`.
+- [ ] **Step 1: find this branch's plan** — `docs/plans/*-<current-branch-slug>.md`, tracked in `git`.
+      Not "the newest file", which picks the wrong plan the moment two branches have one. None → emit
+      nothing and exit 0; silence is the correct output when there is no plan.
+- [ ] **Step 2: emit the unticked lines** as `additionalContext`, with an **idempotent** instruction:
+      call `TaskList` first and create only the slices that are missing. Written this way even though
+      `compact` is excluded, so that a future trigger change cannot silently double the plan.
+- [ ] **Step 3: `scenario-restore.sh`** — half-ticked plan produces context naming exactly the unticked
+      slices; fully ticked plan produces nothing; a branch with no plan file produces nothing.
+- [ ] **Step 4: `bash tests/run.sh`**, commit — `Restore the plan on session start`.
+
+**Acceptance:** `clear` is covered as well as `startup`, and the emitted instruction is idempotent
+against an already-populated task list.
 
 ---
 
@@ -250,7 +295,6 @@ bash 5.3.
 
 **Files:**
 - Modify: `plugins/cc-tuner/scripts/setup/doctor.sh`
-- Modify: `plugins/cc-tuner/commands/run.md` (until Task 8 moves it)
 - Delete: the companion-plugin manifest resolver
 
 `claude plugin list --json` returns `id`, `version`, `scope`, `enabled`, `installPath` and
@@ -258,14 +302,74 @@ bash 5.3.
 
 - [ ] **Step 1: replace the resolver** with the one `claude plugin list --json` call.
 - [ ] **Step 2: drop `tracker: none`** from `/run` — it was always inconsistent, since `/run` requires
-      a PR and GitHub CI unconditionally.
+      a PR and GitHub CI unconditionally. Edit it wherever `/run` lives at the time; Task 8 moves it.
 - [ ] **Step 3: `bash tests/run.sh`**, commit — `Simplify doctor onto claude plugin list`.
 
 ---
 
-## Task 7: Deletion
+## Task 7: Authenticated eval
 
-**Blocked by:** Tasks 3, 4, 5, 6 — every replacement green first.
+**Blocked by:** Tasks 3, 4, 5.
+
+The only tier that can prove a skill causes `TaskCreate` to be called. It runs by hand, costs tokens,
+and needs auth, so it is **not** part of `tests/run.sh` — but it blocks deletion, because without it
+nothing has observed the replacement actually working.
+
+**Files:**
+- Create: `plugins/cc-tuner/tests/eval/README.md` — how to run it and what it costs
+- Create: `plugins/cc-tuner/tests/eval/fixture-spec.md`
+
+- [ ] **Step 1: attended run.** In a scratch repository: `/cc-tuner:plan <spec>` → confirm plan mode
+      asks for approval, the plan file is committed, `plan-lint.sh` accepts it, and `TaskList` shows
+      the slices **with their `blockedBy` edges**. The edges are the part a one-pass implementation
+      would silently drop.
+- [ ] **Step 2: `--auto` run.** Same spec, `--auto`: no plan-mode prompt, plan committed, tasks
+      created, and a task whose `blockedBy` is non-empty is refused when attempted out of order.
+- [ ] **Step 3: recovery.** Start a fresh session in that repository. Confirm the `SessionStart` hook's
+      context arrives and the agent re-creates only the unticked slices. Then run `/clear` and confirm
+      the same. Then `/compact` and confirm **no duplication**.
+- [ ] **Step 4: the merge guard, live.** Attempt `gh pr merge` on a PR with fewer than three approvals
+      on the head SHA and confirm the denial reaches the agent as a refusal it reports, not a silent
+      retry.
+- [ ] **Step 5: record every outcome** in `tests/eval/README.md` with the date and the session's
+      observed behaviour, in the same MEASURED style as the spike. Commit.
+
+**Acceptance:** every step observed in a real session, or the step is recorded as not-yet-run. A step
+recorded as passing on the strength of reading the skill's text is exactly the failure mode this whole
+branch exists to remove.
+
+---
+
+## Task 8: `commands/` → `skills/`
+
+**Blocked by:** Task 3.
+
+Custom commands and skills are the same mechanism now, and skills are the recommended form because
+they carry supporting files. `commands/run.md` is 434 lines — the largest single unit in the plugin,
+in the form that cannot split. **This runs before deletion**, so no commit leaves a public command
+pointing at a script that is about to be removed.
+
+**Files:**
+- Move: `commands/*.md` → `skills/<name>/SKILL.md`
+- Create: `skills/run/references/*.md` for the material that is reference rather than instruction
+
+- [ ] **Step 1: move each command**, preserving its frontmatter.
+- [ ] **Step 2: rewrite `run`** onto the new runtime — the skill, the plan file, `git`/`gh`. This is
+      where the last live references to `runctl.sh`, `journal.sh` and the prepared-file machinery
+      leave the tree, which is why it precedes Task 9.
+- [ ] **Step 3: split it** — instructions stay in `SKILL.md`, reference moves behind a pointer. Target
+      under 150 lines in the body; the median skill in both reference plugins is under 180.
+- [ ] **Step 4: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
+- [ ] **Step 5: `bash tests/run.sh`**, commit — `Move commands to skills`.
+
+**Acceptance:** `grep -rn 'runctl\|journal\.sh' plugins/*/commands plugins/*/skills` returns nothing.
+
+---
+
+## Task 9: Deletion
+
+**Blocked by:** Tasks 6, 7, 8 — every replacement green, the eval observed, and no public command
+still pointing at the old runtime.
 
 **Delete:**
 - `scripts/execute-task/runctl.sh` (1179) and `lib.sh` (287)
@@ -278,8 +382,8 @@ bash 5.3.
 
 **Keep:** `prereq-check.sh`, reduced to the capability checks something still reads.
 
-- [ ] **Step 1: delete, in one commit per subsystem** so a bisect can land between them.
-- [ ] **Step 2: `bash tests/run.sh`** after each.
+- [ ] **Step 1: delete, one commit per subsystem**, so a bisect can land between them.
+- [ ] **Step 2: `bash tests/run.sh`** after each — green at every one.
 - [ ] **Step 3: `grep -rn runctl plugins/ docs/`** — no live reference survives. A doc naming a deleted
       script is a broken instruction, not a stale comment.
 - [ ] **Step 4: reduce the thirty invariants** to those with something that reads them at runtime.
@@ -289,31 +393,14 @@ bash 5.3.
 
 ---
 
-## Task 8: `commands/` → `skills/`
-
-**Blocked by:** Task 7.
-
-Custom commands and skills are the same mechanism now, and skills are the recommended form because
-they carry supporting files. `commands/run.md` is 434 lines — the largest single unit in the plugin,
-in the form that cannot split.
-
-**Files:**
-- Move: `commands/*.md` → `skills/<name>/SKILL.md`
-- Create: `skills/run/references/*.md` for the material that is reference rather than instruction
-
-- [ ] **Step 1: move each command**, preserving its frontmatter.
-- [ ] **Step 2: split `run`** — instructions stay in `SKILL.md`, reference moves behind a pointer.
-      Target under 150 lines in the body; the median skill in both reference plugins is under 180.
-- [ ] **Step 3: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
-- [ ] **Step 4: `bash tests/run.sh`**, commit — `Move commands to skills`.
-
----
-
 ## Definition of done for the branch
 
-- `bash tests/run.sh` green, and every scenario demonstrably able to fail.
-- The merge guard denies when its state is absent — proven by mutation, evidence in the commit.
+- `tests/run.sh` green **at every commit**, and the harness demonstrably able to report a failure.
+- The merge guard denies when its evidence is absent and stays silent outside a run — both proven by
+  mutation, evidence in the commit.
+- The eval record shows a real session completing `spec → plan → visible tasks with edges → recovery`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
-- Runtime Bash: the merge guard, the session-start hook, and the `--auto` frontier check. Nothing else.
+- Runtime Bash: the merge guard, the session-start hook, the plan linter, and the `--auto` frontier
+  check. Nothing else.
 - README states the merge guard's real coverage, without overclaiming.
 - One PR.
