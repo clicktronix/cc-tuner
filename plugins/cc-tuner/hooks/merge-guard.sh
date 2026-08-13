@@ -31,25 +31,33 @@ deny() {  # deny <reason> -- built by hand so this works with or without jq
 
 INPUT="$(cat)"
 
-# Registered for Bash only, so without jq refusing is honest rather than guessing at the payload.
-command -v jq >/dev/null 2>&1 || deny "jq is not installed, so no Bash command can be checked"
+# Without jq the payload cannot be parsed, so the fallback matches the raw text and refuses only what
+# looks like a merge. An earlier revision refused EVERY Bash call here — `ls` included — which bricks
+# the shell on any machine missing a dependency and is precisely the "global fail-closed hook would be
+# a regression" the ADR forbids. Fail closed about the subject, not about the registration.
+if ! command -v jq >/dev/null 2>&1; then
+  case "$INPUT" in *"pr merge"*) deny "jq is not installed, so this merge cannot be routed to merge.sh" ;; esac
+  exit 0
+fi
 
-[ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')" = "Bash" ] || exit 0
-CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')"
+# One jq call for both fields, and the normalising done with builtins. This hook runs on EVERY Bash
+# command in every session, so its cost is paid constantly: two jq invocations plus a tr/sed/tr/sed
+# pipeline was seven forks per call, ~29ms, to answer "not a merge" almost every time. One fork and
+# parameter expansion is ~15ms, with identical verdicts on every case in the suite.
+FIELDS="$(printf '%s' "$INPUT" | jq -r '.tool_name, (.tool_input.command // "")' 2>/dev/null)"
+TOOL="${FIELDS%%
+*}"
+[ "$TOOL" = "Bash" ] || exit 0
+CMD="${FIELDS#*
+}"
 
-# No exception for merge.sh, deliberately. A `bash .../merge.sh 42 squash <sha>` call contains no
-# "pr merge" and never reaches the rule below, so the exception bought nothing — and it let anything
-# through that merely mentioned the path:
-#     echo scripts/merge.sh; gh pr merge 42 --squash
-#     gh pr merge 42 --squash # scripts/merge.sh
-# A special case that is unnecessary and exploitable is only exploitable.
+# Quotes, backticks and backslashes go, so `"$G"`, `'gh'` and `g\h` all read alike; then whitespace
+# collapses so a line continuation or a double space cannot hide the words.
+NORM="${CMD//[\"\'\`\\]/}"
+NORM="${NORM//$'\n'/ }"
+NORM="${NORM//$'\t'/ }"
+while [ "$NORM" != "${NORM//  / }" ]; do NORM="${NORM//  / }"; done
 
-# Otherwise: does this look like a raw merge? Newlines and backslash continuations are flattened
-# first, because `gh pr \<newline> merge` is one command to bash and was two lines to an earlier
-# version of this file. Quotes are stripped so `"$G"` and `'gh'` read the same. This is deliberately
-# broad and one-directional: it can only over-refuse, and over-refusing costs a redirection to
-# merge.sh rather than an unchecked merge.
-NORM="$(printf '%s' "$CMD" | tr '\n\t' '  ' | sed 's/\\ */ /g' | tr -d '"'\''`' | sed 's/  */ /g')"
 case "$NORM" in
   *"pr merge"*)
     deny "merges go through scripts/merge.sh <pr> <squash|merge> <candidate-sha>. On a cc-tuner run it checks the verdict, required CI and the head SHA first; on any other pull request it merges straight through, so this is also how you merge something unrelated"

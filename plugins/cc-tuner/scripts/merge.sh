@@ -37,7 +37,9 @@ command -v jq >/dev/null 2>&1 || die "jq is required to check the candidate"
 
 # Every fact is re-read here, from GitHub, at merge time. Nothing is carried in from the caller except
 # which PR and which SHA they believe they are merging — and both are checked against what GitHub says.
-PRJSON="$($GH pr view "$PR" --json number,headRefOid,files 2>/dev/null)" \
+# One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
+# second call to the same endpoint -- a whole network round trip per merge for nothing.
+PRJSON="$($GH pr view "$PR" --json headRefOid,files,reviews 2>/dev/null)" \
   || die "cannot resolve pull request '$PR'"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
@@ -71,9 +73,8 @@ if [ "$IN_SCOPE" = "no" ]; then
 fi
 
 ME="$($GH api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"
-REVIEWS="$($GH pr view "$PR" --json reviews 2>/dev/null)" || die "cannot read reviews for $PR"
 
-VERDICT="$(printf '%s' "$REVIEWS" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
+VERDICT="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
   [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
   | sort_by(.submittedAt) | last | .body // ""
   | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) [0-9a-f]{7,40}$") then . else "" end')"
@@ -85,8 +86,21 @@ esac
 
 # --required, and zero checks is not green: an empty list satisfies "nothing failed" under any naive
 # reading, and absent CI is unproven CI.
-CHECKS="$($GH pr checks "$PR" --required --json name,bucket 2>/dev/null)" \
-  || die "cannot read required CI checks for $HEAD_SHA"
+# `gh pr checks --required` does NOT return an empty list when the branch requires nothing: it exits
+# non-zero and says "no checks reported" on stderr. runctl.sh has carried that knowledge, and a
+# comment explaining it, since before this rewrite; reading only the exit status reports "cannot read
+# CI" for a repository that simply has no branch protection, sending the operator to look for a
+# failing check that does not exist.
+CHECKS_ERR="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-checks.XXXXXX")" || die "cannot create a temporary file"
+if ! CHECKS="$($GH pr checks "$PR" --required --json name,bucket 2>"$CHECKS_ERR")"; then
+  if grep -q 'no checks reported' "$CHECKS_ERR"; then
+    rm -f "$CHECKS_ERR"
+    die "$PR has no required checks configured on GitHub — absent CI is unproven CI, so configure at least one required check"
+  fi
+  rm -f "$CHECKS_ERR"
+  die "cannot read required CI checks for $HEAD_SHA"
+fi
+rm -f "$CHECKS_ERR"
 TOTAL="$(printf '%s' "$CHECKS" | jq -r 'length // 0')"
 [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || die "no required CI checks ran on $HEAD_SHA — absent CI is unproven CI"
 BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"

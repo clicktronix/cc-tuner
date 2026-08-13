@@ -60,7 +60,7 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
 }
 
 /^##[ \t]+[Ss]lice[ \t]+[0-9]+/ {
-  n = $0; sub(/^##[ \t]+[Ss]lice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n) + 0
+  n = $0; sub(/^##[ \t]+[Ss]lice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n)
   title = $0; sub(/^##[ \t]+[Ss]lice[ \t]+[0-9]+[ \t]*/, "", title)
   sub(/^[-—–:][ \t]*/, "", title)
 
@@ -154,8 +154,16 @@ END {
   for (i = 1; i <= count; i++) {
     n = order[i]
     state = (total[n] > 0 && done[n] == total[n]) ? "done" : "open"
+    # Normalised, not raw. The restore hook reads this field and does not re-parse it: emitting the
+    # text as written meant Blocked by: #1 validated here, because the check strips non-digits, and
+    # then arrived at the hook as #1, which matched no slice, so the edge vanished silently.
     b = (n in blocked) ? blocked[n] : ""
-    if (b ~ /^([Nn]one)$/ || b == "") b = "-"
+    if (b ~ /^([Nn]one)$/ || b == "") { b = "-" } else {
+      m = split(b, parts, /[ \t]*,[ \t]*/); b = ""
+      for (j = 1; j <= m; j++) { p = parts[j]; gsub(/[^0-9]/, "", p)
+        if (p != "") b = (b == "") ? p : b "," p }
+      if (b == "") b = "-"
+    }
     printf "SLICE\t%s\t%s\t%s\t%s\n", n, state, b, titles[n]
     for (k = 1; k <= cn[n]; k++) {
       printf "CRIT\t%s\t%s\t%s\n", n, (ct[n, k] ? "done" : "open"), ci[n, k]

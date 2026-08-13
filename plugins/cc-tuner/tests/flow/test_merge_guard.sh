@@ -64,17 +64,19 @@ equals "gh-pr-view-allowed"    "allow" "$(decision 'gh pr view 42')"
 equals "non-bash-tool-allowed" "allow" \
   "$(verdict_of "$(jq -c '.tool_name = "Read"' "$FLOW_FIXTURES/pretooluse-bash.json" | bash "$GUARD" 2>/dev/null)")"
 
-# --- without jq there is no check, so there is no merge -------------------------------------------
+# --- without jq, refuse the merge and nothing else -------------------------------------------------
+# An earlier revision denied EVERY Bash call here, so a machine without jq could not run `ls`. Fail
+# closed about the subject, not about the hook's registration.
 NOJQ="$(flow_workdir)"; mkdir -p "$NOJQ/bin"
-for u in bash cat sed tr; do ln -sf "$(command -v $u)" "$NOJQ/bin/$u" 2>/dev/null; done
-jq -c '.tool_input.command = "gh pr merge 42 --squash"' "$FLOW_FIXTURES/pretooluse-bash.json" > "$NOJQ/p.json"
-NOJQ_OUT="$(PATH="$NOJQ/bin" bash "$GUARD" < "$NOJQ/p.json" 2>/dev/null)"
-check "no-jq-denies"   '"permissionDecision":"deny"' "$NOJQ_OUT"
-check "no-jq-says-why" 'jq is not installed'         "$NOJQ_OUT"
+for u in bash cat; do ln -sf "$(command -v $u)" "$NOJQ/bin/$u" 2>/dev/null; done
+nojq() { printf '%s' "$1" > "$NOJQ/p.json"; PATH="$NOJQ/bin" bash "$GUARD" < "$NOJQ/p.json" 2>/dev/null; }
 
-# The fallback cannot parse JSON, so it must not depend on how the JSON is spaced or escaped.
-printf '%s' '{"tool_name" : "Bash", "tool_input" : {"command" : "gh pr merge 42"}}' > "$NOJQ/spaced.json"
+check  "no-jq-denies-a-merge" '"permissionDecision":"deny"' \
+  "$(nojq '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 42"}}')"
+equals "no-jq-allows-everything-else" "" \
+  "$(nojq '{"tool_name":"Bash","tool_input":{"command":"ls"}}')"
+# It cannot parse JSON, so it must not depend on how the JSON is spaced.
 check "no-jq-ignores-json-shape" '"permissionDecision":"deny"' \
-  "$(PATH="$NOJQ/bin" bash "$GUARD" < "$NOJQ/spaced.json" 2>/dev/null)"
+  "$(nojq '{"tool_name" : "Bash", "tool_input" : {"command" : "gh pr merge 42"}}')"
 
 exit $fails

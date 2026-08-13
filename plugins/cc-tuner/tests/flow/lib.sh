@@ -60,10 +60,10 @@ flow_workdir() {
   mktemp -d "$FLOW_ROOT/w.XXXXXX" || { printf 'FATAL: mktemp under %s failed\n' "$FLOW_ROOT"; exit 1; }
 }
 
-# flow_repo [dir] -> initialises a git repo with one commit and prints its path.
-# A repo with no commits has no HEAD, and half the things under test ask git about a range.
+# flow_repo -> initialises a git repo with one commit and prints its path.
+# A repo with no commits has no HEAD, and plan-path.sh asks git for the current branch.
 flow_repo() {
-  local d="${1:-$(flow_workdir)/repo}"
+  local d; d="$(flow_workdir)/repo"
   mkdir -p "$d"
   (
     cd "$d" || exit 1
@@ -75,23 +75,4 @@ flow_repo() {
     git commit -q -m 'seed'
   ) || { printf 'FATAL: could not create repo at %s\n' "$d"; exit 1; }
   printf '%s' "$d"
-}
-
-# flow_payload <fixture-name> [jq-filter] -> prints a hook payload, optionally transformed.
-# The fixtures are payloads captured from a live session, not invented ones: a test built on a guessed
-# payload shape proves the guess, not the product.
-flow_payload() {
-  local f="$FLOW_FIXTURES/$1.json"
-  [ -f "$f" ] || { printf 'FATAL: no fixture %s\n' "$1" >&2; exit 1; }
-  if [ "$#" -ge 2 ]; then jq -c "$2" "$f"; else jq -c . "$f"; fi
-}
-
-# flow_hook <script> <payload> -> runs a hook script with the payload on stdin.
-# Prints its stdout, then a final line `rc=<exit code>`, so a caller can assert on both without
-# losing one to the other.
-flow_hook() {
-  local script="$1" payload="$2" out rc
-  out="$(printf '%s' "$payload" | bash "$script" 2>&1)"
-  rc=$?
-  printf '%s\nrc=%s\n' "$out" "$rc"
 }

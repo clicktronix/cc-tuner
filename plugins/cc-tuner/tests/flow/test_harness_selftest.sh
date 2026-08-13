@@ -71,37 +71,21 @@ fi
 # --- 3. the repository builder produces something git will answer questions about -----------------
 R="$(flow_repo)"
 equals "repo-is-a-worktree" "true" "$(cd "$R" && git rev-parse --is-inside-work-tree 2>&1)"
-# A repo with no commit has no HEAD, and the merge guard resolves ranges against one.
+# A repo with no commit has no HEAD, and plan-path.sh cannot name a branch without one.
 if (cd "$R" && git rev-parse --verify -q HEAD >/dev/null); then
   pass "repo-has-a-commit"
 else
   fail "repo-has-a-commit (HEAD does not resolve)"
 fi
 
-# --- 3. fixtures are real payloads and still carry the fields later tasks read --------------------
-# These were captured from a live session during the spike, then scrubbed of local paths. A fixture
-# invented from the documentation would only ever prove that the documentation was read.
-P="$(flow_payload pretooluse-bash)"
-equals "bash-fixture-event"   "PreToolUse" "$(printf '%s' "$P" | jq -r '.hook_event_name')"
-equals "bash-fixture-tool"    "Bash"       "$(printf '%s' "$P" | jq -r '.tool_name')"
-equals "bash-fixture-command" "string"     "$(printf '%s' "$P" | jq -r '.tool_input.command | type')"
-
-S="$(flow_payload sessionstart)"
-equals "session-fixture-event"  "SessionStart" "$(printf '%s' "$S" | jq -r '.hook_event_name')"
-equals "session-fixture-source" "string"       "$(printf '%s' "$S" | jq -r '.source | type')"
-
-# The payload transform is what every later test uses to build its case from one captured fixture.
-M="$(flow_payload pretooluse-bash '.tool_input.command = "gh pr merge 42 --squash"')"
-equals "payload-override" "gh pr merge 42 --squash" "$(printf '%s' "$M" | jq -r '.tool_input.command')"
-
-# --- 4. a hook runner reports stdout and exit code, without losing either -------------------------
-cat > "$W/hook.sh" <<'EOF'
-IN="$(cat)"
-printf 'saw:%s\n' "$(printf '%s' "$IN" | jq -r '.tool_name')"
-exit 2
-EOF
-OUT="$(flow_hook "$W/hook.sh" "$P")"
-check "hook-stdout-survives" "saw:Bash" "$OUT"
-check "hook-rc-survives"     "rc=2"     "$OUT"
+# --- 4. the fixtures are real payloads, and still carry what later suites read -------------------
+# Captured from a live session during the spike, then scrubbed of local paths. A fixture invented
+# from the documentation would only ever prove that the documentation was read. Asserted with plain
+# jq: wrapping that in a helper bought two abstractions no product test ever called.
+equals "bash-fixture-event"   "PreToolUse"   "$(jq -r '.hook_event_name' "$FLOW_FIXTURES/pretooluse-bash.json")"
+equals "bash-fixture-tool"    "Bash"         "$(jq -r '.tool_name' "$FLOW_FIXTURES/pretooluse-bash.json")"
+equals "bash-fixture-command" "string"       "$(jq -r '.tool_input.command | type' "$FLOW_FIXTURES/pretooluse-bash.json")"
+equals "session-fixture-event"  "SessionStart" "$(jq -r '.hook_event_name' "$FLOW_FIXTURES/sessionstart.json")"
+equals "session-fixture-source" "string"       "$(jq -r '.source | type' "$FLOW_FIXTURES/sessionstart.json")"
 
 exit $fails

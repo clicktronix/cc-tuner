@@ -22,8 +22,14 @@ D="$(cd "$(dirname "$0")" && pwd)"
 printf '%s\n' "$*" >> "$D/calls"
 serve() { [ -f "$D/$1" ] || exit 1; cat "$D/$1"; }
 case "$1 $2" in
-  "pr view")   case "$*" in *reviews*) serve reviews.json ;; *) serve pr.json ;; esac ;;
-  "pr checks") case "$*" in *--required*) serve checks.json ;; *) exit 1 ;; esac ;;
+  "pr view")   serve pr.json ;;
+  "pr checks")
+    # Real `gh pr checks --required` exits 1 and reports on stderr when the branch requires nothing;
+    # it never returns an empty array. A stub that returns [] tests a CLI that does not exist -- the
+    # comment runctl.sh has carried since before this rewrite.
+    case "$*" in *--required*) ;; *) exit 1 ;; esac
+    if [ -f "$D/checks-none" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
+    serve checks.json ;;
   "api user")  serve user ;;
   "pr merge")  printf 'MERGED %s\n' "$*" ;;
   *) exit 1 ;;
@@ -34,8 +40,8 @@ EOF
 
 world() {  # world <files-json> <reviews-json> <checks-json> [head-sha]
   local d; d="$(flow_workdir)"; gh_stub "$d"
-  printf '{"number":42,"headRefOid":"%s","files":%s}\n' "${4:-$SHA}" "$1" > "$d/pr.json"
-  printf '{"reviews":%s}\n' "$2" > "$d/reviews.json"
+  # One document, because merge.sh makes one `gh pr view` call for all three fields.
+  printf '{"headRefOid":"%s","files":%s,"reviews":%s}\n' "${4:-$SHA}" "$1" "$2" > "$d/pr.json"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
   printf '%s' "$d"
@@ -74,7 +80,15 @@ check "no-verdict-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
 D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"fail"},{"name":"test","bucket":"pass"}]')"
 check "red-ci-refused" "not passing" "$(run "$D" 42 squash "$SHA")"
 
-# Zero required checks is not green: an empty list satisfies "nothing failed" under any naive reading.
+# A branch that requires nothing does not report an empty list -- gh exits 1 and says so on stderr.
+# Reading only the exit status called that "cannot read CI", sending the operator to hunt a failing
+# check that does not exist.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "no-required-checks-refused"  "no required checks configured" "$OUT"
+absent "no-required-checks-no-merge" "MERGED"                        "$OUT"
+
+# And the empty-array shape too, in case a future gh ever produces it.
 D="$(world "$PLAN_FILES" "$APPROVED" '[]')"
 check "zero-required-checks-refused" "absent CI is unproven CI" "$(run "$D" 42 squash "$SHA")"
 

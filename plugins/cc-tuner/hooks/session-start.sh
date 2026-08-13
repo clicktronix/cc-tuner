@@ -54,13 +54,11 @@ END {
   for (i = 1; i <= n; i++) {
     s = order[i]
     if (state[s] != "open") continue
-    any = 1
     if (blocked[s] != "-") {
       m = split(blocked[s], b, /[ \t]*,[ \t]*/)
       for (j = 1; j <= m; j++) if (state[b[j]] == "done") need[b[j]] = 1
     }
   }
-  if (!any) exit 0
 
   # Transitively, because a done slice can be blocked by another done slice. Restoring only the
   # direct blockers of open slices dropped `done 1 -> done 2 -> open 3` back to two rows and lost the
@@ -68,7 +66,7 @@ END {
   do {
     added = 0
     for (s in need) {
-      if (blocked[s] == "-" || blocked[s] == "") continue
+      if (blocked[s] == "-") continue
       m = split(blocked[s], b, /[ \t]*,[ \t]*/)
       for (j = 1; j <= m; j++)
         if (state[b[j]] == "done" && !(b[j] in need)) { need[b[j]] = 1; added = 1 }
