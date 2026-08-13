@@ -63,7 +63,7 @@ string — an earlier revision of this skill was written that way and would have
 Fill `${CLAUDE_SKILL_DIR}/plan-template.md` into that file, then validate it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check docs/plans/<the file you just wrote>.md
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check docs/task-plans/<the file you just wrote>.md
 ```
 
 Fix what it reports and run it again until it is quiet. It refuses a slice with no `Blocked by`, a

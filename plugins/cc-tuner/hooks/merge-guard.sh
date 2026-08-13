@@ -43,31 +43,57 @@ INPUT="$(cat)"
 # plugin fail OPEN on any machine missing a dependency -- exactly the shape of the defect being
 # fixed. Denying needs no jq, so it is written by hand.
 if ! command -v jq >/dev/null 2>&1; then
-  case "$INPUT" in
-    *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*)
-      case "$INPUT" in
-        *"gh pr merge"*)
-          printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cc-tuner: jq is not installed, so the merge candidate cannot be checked"}}'
-          ;;
-      esac
-      ;;
-  esac
+  # This hook is registered for Bash only, so without jq the honest answer is to refuse the call
+  # rather than guess at the payload. Earlier versions matched raw substrings and were defeated by
+  # JSON spacing, then by \u escapes -- each fix was another guess at a format nobody promised.
+  printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cc-tuner: jq is not installed, so no Bash command can be checked"}}'
   exit 0
 fi
 [ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')" = "Bash" ] || allow
 CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')"
-case "$CMD" in *"gh pr merge"*) ;; *) allow ;; esac
-
-# Isolate the actual `gh pr merge` invocation before reading anything out of it.
+# Does this command run `gh pr merge`, and is it simple enough to verify?
 #
-# Matching against the whole command string is not a check. An earlier revision did, and both of
-# these passed it while bash never handed the flag to gh:
-#     gh pr merge 42 --squash    # --match-head-commit <sha>
-#     echo --match-head-commit <sha>; gh pr merge 42 --squash
-# So the segment runs from `gh pr merge` to the first thing that ends a simple command.
-INVOCATION="$(printf '%s' "$CMD" | sed -n 's/.*\(gh[[:space:]][[:space:]]*pr[[:space:]][[:space:]]*merge.*\)/\1/p' \
-  | sed -e 's/[[:space:]]#.*$//' -e 's/;.*$//' -e 's/&&.*$//' -e 's/||.*$//' -e 's/|.*$//')"
-[ -n "$INVOCATION" ] || allow
+# This is NOT a shell parser and cannot become one. Three rounds of trying produced three bypasses --
+# a literal "gh pr merge" filter missed a double space, a greedy regex judged the LAST of two merges
+# while the first ran unpinned, and token-splitting missed `/usr/local/bin/gh`, `bash -c '...'`,
+# `eval '...'` and `g\h`. A fail-closed gate cannot be built on guessing at shell syntax.
+#
+# So the rule inverts. Quotes and backslashes are stripped, `gh` is matched as a path basename, and
+# then the command must consist of exactly one merge invocation and nothing else. Anything the guard
+# cannot read as precisely that -- a pipeline, a second command, a wrapper, an eval -- is refused with
+# an instruction to run the merge on its own. `echo gh pr merge` is refused too: after quote-stripping
+# it is indistinguishable from `bash -c gh pr merge`, and over-refusing a harmless echo is the correct
+# side to err on.
+NORM="$(printf '%s' "$CMD" | tr -d '"'"'"'\\' | tr '\t' ' ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//')"
+
+MENTIONS="$(printf '%s' "$NORM" | awk '
+  { for (i = 1; i <= NF - 2; i++) {
+      base = $i; sub(/^.*\//, "", base)
+      if (base == "gh" && $(i+1) == "pr" && $(i+2) == "merge") { print "yes"; exit }
+      if (base == "gh") { for (j = i + 1; j <= NF - 1; j++)
+        if ($j == "pr" && $(j+1) == "merge") { print "yes"; exit } }
+  } }')"
+[ "$MENTIONS" = "yes" ] || allow
+
+# One invocation, standing alone. `bash -c gh pr merge 42` normalises to a command whose first word
+# is not gh, so it lands here and is refused.
+SIMPLE="$(printf '%s' "$NORM" | awk '
+  { base = $1; sub(/^.*\//, "", base)
+    if (base != "gh") { print "no"; exit }
+    seen = 0
+    for (i = 2; i <= NF; i++) {
+      if ($i == "pr" && $(i+1) == "merge") { seen = 1; i++ ; continue }
+      if ($i ~ /^#/) break                      # a comment ends the command; nothing after it runs
+      if ($i ~ /^[;|&(){}<>]/ || $i == "&&" || $i == "||") { print "no"; exit }
+      base2 = $i; sub(/^.*\//, "", base2)
+      if (base2 == "gh") { print "no"; exit }
+    }
+    print (seen ? "yes" : "no")
+  }')"
+[ "$SIMPLE" = "yes" ] \
+  || deny "this command is not a single, plain \`gh pr merge\` -- run the merge on its own so it can be checked"
+
+INVOCATION="$NORM"
 
 # The pull request named in the command, never the checked-out branch: `gh pr merge` takes a number,
 # a URL or a branch, and any of them may name a PR that is not the one in the working tree. Deriving
@@ -86,7 +112,7 @@ HEAD_SHA="$(printf '%s' "$PR" | jq -r '.headRefOid // empty')"
 # Scope. Failing to DETERMINE scope is not the same as being out of scope, and denies.
 IN_SCOPE="$(printf '%s' "$PR" | jq -r '
   if (.files | type) != "array" then "unknown"
-  elif any(.files[]; .path // .filename | test("^docs/plans/.*\\.md$")) then "yes"
+  elif any(.files[]; .path // .filename | test("^(docs|wiki)/task-plans/.*\\.md$")) then "yes"
   else "no" end')"
 case "$IN_SCOPE" in
   no)      allow ;;
@@ -128,6 +154,7 @@ BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length
 # GitHub's side, which no local check can do.
 PINNED="$(printf '%s' "$INVOCATION" | awk -v sha="$HEAD_SHA" '
   { for (i = 1; i <= NF; i++) {
+      if ($i ~ /^#/) break
       if ($i == "--match-head-commit" && $(i+1) == sha) { print "yes"; exit }
       if ($i == "--match-head-commit=" sha)             { print "yes"; exit }
   } }')"

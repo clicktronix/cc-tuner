@@ -14,8 +14,8 @@ repo_with_plan() {
   (
     cd "$r" || exit 1
     git checkout -q -b "$1"
-    mkdir -p docs/plans
-    printf '%s' "$3" > "docs/plans/$2"
+    mkdir -p docs/task-plans
+    printf '%s' "$3" > "docs/task-plans/$2"
     git add -A && git commit -q -m 'add plan'
   ) || { printf 'FATAL: setup failed\n'; exit 1; }
   printf '%s' "$r"
@@ -61,7 +61,7 @@ Delivers: behaviour
 # --- a half-done plan restores the open slices, with their edges ---------------------------------
 R="$(repo_with_plan feature/retry 2026-01-01-feature-retry.md "$HALF")"
 C="$(context "$R")"
-check "names-the-plan-file"   "docs/plans/2026-01-01-feature-retry.md" "$C"
+check "names-the-plan-file"   "docs/task-plans/2026-01-01-feature-retry.md" "$C"
 check "emits-open-slice-2"    "Slice 2 — Wire the budget"              "$C"
 check "emits-open-slice-3"    "Slice 3 — Ship it"                      "$C"
 check "carries-the-edge"      "Blocked by: 1"                          "$C"
@@ -125,6 +125,13 @@ C6="$(context "$R6")"
 check "transitive-blocker-emitted"  "Slice 1 — Foundation" "$C6"
 check "direct-blocker-emitted"      "Slice 2 — Middle"     "$C6"
 check "open-slice-emitted"          "Slice 3 — Top"        "$C6"
+# The node is not the graph. Restoring Slice 2 without its own "Blocked by: 1" gave back three tasks
+# and one of the two edges -- a plan that looks whole and has lost a dependency. Assert the pairing,
+# not a count: only one slice here has that edge, so counting proves nothing about which one carries it.
+equals "transitive-blocker-keeps-its-edge" "Blocked by: 1" \
+  "$(printf '%s' "$C6" | grep -A1 'Slice 2 — Middle' | sed -n '2p' | sed 's/^ *//')"
+equals "done-blocker-with-no-edge-says-so" "Blocked by: -" \
+  "$(printf '%s' "$C6" | grep -A1 'Slice 1 — Foundation' | sed -n '2p' | sed 's/^ *//')"
 
 # --- silence is a correct output, and the common one ---------------------------------------------
 DONE='## Slice 1 — Seed

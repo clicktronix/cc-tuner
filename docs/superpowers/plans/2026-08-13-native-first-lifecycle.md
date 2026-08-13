@@ -73,7 +73,7 @@ active, because the merge guard might be declared there instead of in `hooks.jso
 
 **That measurement is no longer needed, because the choice is gone.** The guard is registered
 globally in `hooks.json`, matching `Bash`, and it scopes *itself* — it acts only on `gh pr merge`, and
-only when the target PR's history contains a cc-tuner plan file. Skill-lifetime semantics never enter
+only when the target PR's changed files include a cc-tuner plan file. Skill-lifetime semantics never enter
 the design, so an undefined boundary in the platform cannot make the gate inert.
 
 This is the better kind of simplification: not answering a hard question, but arranging things so it
@@ -211,8 +211,15 @@ the only place that branches on it and it has no other way in.
    `TaskUpdate addBlockedBy` to wire the edges. `TaskCreate` takes no dependency argument, so one pass
    is impossible.
 
-**`--auto` vs attended:** attended, the skill wraps the proposal in plan mode so the user approves
-before anything is written. With `--auto` it writes and publishes directly.
+**`--auto` vs attended:** attended, the skill presents the numbered slices and asks about granularity
+and edges, iterating until the user approves, and only then writes. With `--auto` it writes directly.
+
+**Not plan mode**, though an earlier revision of this plan said so. `ExitPlanMode` reads
+`~/.claude/plans/<name>.md`, a different document from the one this flow commits to `docs/plans/`, so
+wrapping the proposal in it would mean two plan documents for one plan — the duplication this ADR
+exists to remove. The cost is real and already accepted elsewhere: plan mode physically prevents a
+write before approval and a conversation does not, and the ADR already records the plan as advisory in
+attended mode.
 
 - [ ] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks
       `Blocked by`, if a named blocker matches no slice number, or if a `- [ ]` line sits outside any
@@ -378,13 +385,10 @@ number, a URL, or a branch name, and any of them may name a PR that is not the o
 guard parses the argument, resolves that PR, and reads *its* head, base and history. Deriving scope
 from `HEAD` would let `gh pr merge 42` sail through while the guard inspected branch 7.
 
-**Scope is the arming, and it is history-based — read from GitHub, not from the local clone.** The
-guard has an opinion when **any commit in the target PR's range touched a cc-tuner plan file**. Since
-the command may name a PR that was never fetched here, `git log <base>..<head>` can fail on objects
-this clone does not have — and a scope check that errors is a scope check that says "not my business".
-Read the range through `gh` (`gh pr view --json commits`, or `gh api` for the files per commit); fall
-back to an explicit fetch only if that is unavailable, and treat a failure to determine scope as
-**deny**, never as out-of-scope. Two failures this avoids, in opposite directions:
+**Scope is the arming, and it is the PR's net diff, read through `gh`.** The guard has an opinion when
+the target PR's changed files include a cc-tuner plan. Failing to *determine* scope is not the same as
+being out of scope and denies. The history-based version specified in an earlier revision is not what
+was built — see the ADR for why, and for the escape it leaves open. One failure this still avoids:
 
 - Net diff against base would put every branch descended from a `main` that already carries a plan
   file into scope, dragging unrelated merges into the gate.
@@ -593,7 +597,7 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       earlier draft began at `/plan` while claiming to prove `spec → plan → run`; `/spec` is also
       where the task branch is created and where `domain-modeling` first writes, so skipping it skips
       the placement rule entirely. Confirm the branch exists before `CONTEXT.md` is written, and then:
-      plan mode asks for approval,
+      /plan presents the slices and waits for approval before writing anything,
       the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
       delivery boundary. The edges are the part a one-pass implementation would silently drop.
@@ -601,8 +605,8 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       continuation of step 1: reusing that workspace would let `--auto` inherit the attended run's
       plan file and task list, and it would pass without ever creating either. `/cc-tuner:spec`, then
       `/cc-tuner:plan --auto <spec>`, then `/cc-tuner:run --auto <spec>` — same signature, `--auto` in
-      the same position: no plan-mode
-      prompt, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
+      the same position: no approval
+      question, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
       is non-empty refused when attempted out of order.
 - [ ] **Step 2b: producer → guard, the whole positive path.** Confirm the run posts the verdict review
       **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with

@@ -16,12 +16,19 @@
 set -u
 
 MODE="${1:-}"
-DIR="docs/plans"
+
+# NOT docs/plans. `/cc-tuner:spec` writes specs to <root>/PLANS/, and on macOS's case-insensitive
+# APFS `docs/PLANS` and `docs/plans` are the same directory -- so specs and plans would share one
+# folder and, with matching dates and slugs, could collide as files. git stores literal paths, so the
+# two spellings also disagree about what exists. A distinct directory removes the whole class.
+# The root follows the spec's own convention: wiki/ when the repo uses it, docs/ otherwise.
+DIR="docs/task-plans"
 
 die() { printf 'plan-path: %s\n' "$1" >&2; exit 1; }
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not a git repository"
 cd "$ROOT" || die "cannot enter $ROOT"
+[ -d wiki ] && DIR="wiki/task-plans"
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || die "cannot read the current branch"
 [ "$BRANCH" != "HEAD" ] || die "detached HEAD has no branch to key a plan to"
@@ -32,7 +39,7 @@ SLUG="$(printf '%s' "$BRANCH" \
   | sed -e 's/[^a-z0-9]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')"
 [ -n "$SLUG" ] || die "branch '$BRANCH' has no usable slug"
 
-# The date prefix is matched by shape, not by wildcard. `docs/plans/*-main.md` would also match
+# The date prefix is matched by shape, not by wildcard. `<dir>/*-main.md` would also match
 # `2026-08-13-rewrite-main.md`; anchoring `????-??-??-` to the front cannot.
 PATTERN="$DIR/????-??-??-$SLUG.md"
 

@@ -88,7 +88,11 @@ routes the agent to do it.
 
 ## /spec and /run
 
-The task loop, split in two on purpose.
+The task loop is split in three. `/cc-tuner:spec` does the asking, creates the task branch, and
+commits machine-checkable acceptance criteria. `/cc-tuner:plan` breaks the spec into vertical slices
+with explicit blocking edges, commits the plan file, and publishes the slices as native tasks.
+`/cc-tuner:run` works that plan to a merged pull request. Each takes `--auto` except `/spec`; without
+it they stop at delivery boundaries.
 
 `/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, issue, architecture,
 code, tests, and consumers, grills requirements via `mattpocock-skills:grilling` plus
@@ -97,12 +101,16 @@ baseline, first failing check and expected failure, targeted/full checks, enviro
 acceptance criterion names its deciding machine or human step; every `[eyes]` item records a machine
 replacement or waiver. Its DoD binds verification, reviews, PR head, and CI to the same candidate.
 
-`/cc-tuner:run [--auto] <spec>` executes it. It first publishes a visible `TaskCreate` plan, then
-implements, performs explicit Testing & Code Verification, commits an immutable candidate, runs
-`cc-tuner:deep-review`, mattpocock review, and Codex review to exact-SHA approval, then opens the PR and
-accepts only current-head CI. Independent code-writing units alone may fan out into isolated
-worktrees; the parent owns integration and every later gate. Structured run state enforces phase
-transitions; the Markdown journal is audit narrative, not truth.
+`/cc-tuner:plan [--auto] <spec>` slices it. Each slice is a tracer bullet with explicit `Blocked by`
+edges; the plan is committed and then published as native tasks, in two passes because `TaskCreate`
+takes no dependency argument.
+
+`/cc-tuner:run [--auto] <spec>` works that plan. It takes the frontier in order, proves each slice
+RED→GREEN with a mutation, ticks it off in the committed file, then commits a candidate, runs
+`cc-tuner:deep-review`, the mattpocock review and Codex's required review at that exact SHA, publishes
+the verdict as a pull-request review, and merges only with green required CI on the same commit and
+`--match-head-commit` pinning it. Independent code-writing units alone may fan out into isolated
+worktrees; the parent owns integration and every later gate.
 
 Without `--auto`, `/run` stops at delivery boundaries and again before merge. With `--auto`, it runs
 unattended only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
@@ -145,7 +153,7 @@ match; `deep-review` is also available directly as `/cc-tuner:deep-review`. The 
 lifecycle playbooks remain explicit user commands: `/cc-tuner:statusline-setup`,
 `/cc-tuner:task-flow-setup` (the rule is installed only by this command),
 `/cc-tuner:smoke-verify-setup` (the hook stays inert until this command writes repo config),
-`/cc-tuner:spec`, and `/cc-tuner:run`.
+`/cc-tuner:spec`, `/cc-tuner:plan`, and `/cc-tuner:run`.
 
 ## Scope
 

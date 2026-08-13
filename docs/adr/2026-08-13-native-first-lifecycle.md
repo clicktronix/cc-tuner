@@ -1,7 +1,9 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** accepted. Both things that held it at proposed are settled. The skill-hook measurement is
+**Status:** proposed. Moved back from accepted: the authenticated eval has not run, so nothing has
+yet observed a real session completing this flow, and until it does "accepted" claims evidence that
+does not exist. The two questions below are settled. The skill-hook measurement is
 no longer a gate on anything: the merge guard is registered globally and scopes itself, so the
 question left the design rather than being answered. And the narrowing — **one** SHA-bound verdict
 plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing
@@ -153,7 +155,13 @@ first one. Recorded here so it is not proposed again.
 
 ### The platform owns
 
-The visible plan, dependency edges, statuses, plan-mode approval, and the hook events above.
+The visible plan, dependency edges, statuses, and the hook events above.
+
+Plan mode is deliberately NOT used. `ExitPlanMode` reads `~/.claude/plans/<name>.md`, a different
+document from the plan this flow commits, so wrapping the proposal in it would mean two plan
+documents for one plan. `/cc-tuner:plan` asks for approval in conversation instead; the cost — plan
+mode physically prevents a write before approval and a conversation does not — is the same one already
+recorded under **Consequences**.
 
 ### cc-tuner owns
 
@@ -178,19 +186,31 @@ thirty-invariant list, reduced to those with something that reads them at runtim
 One fail-closed gate: **refuse `gh pr merge` unless the PR head equals the reviewed SHA, carries a
 verdict review at that SHA, and CI is green on it.**
 
-**Scope, which is also the arming.** The guard has an opinion exactly when **some commit in the target
-pull request's history touched a cc-tuner plan file**, and none otherwise. The subject is the PR named
-in the command, not the branch that happens to be checked out, and the test is history rather than the
-net diff — otherwise deleting the plan file before merging would walk straight out of scope. Three
-properties follow, and all are required:
+**Scope, which is also the arming.** The guard has an opinion exactly when the target pull request's
+**net diff** touches a cc-tuner plan file, and none otherwise. The subject is the PR named in the
+command, never the branch that happens to be checked out.
+
+An earlier revision of this ADR specified the PR's commit *history* instead, to close one hole: a run
+that commits its plan and then deletes it before merging leaves the net diff and so leaves scope. That
+is not what was built, and rather than leave the decision record and the code disagreeing, the record
+now describes the code. The reason: history costs one API call per commit on every merge attempt, or
+fetch refs written into the user's repository from a hook, and it closes an adversarial hole in a tool
+whose stated threat model is an agent's mistake — while the web button, `git push` and the REST API
+bypass the guard entirely and stay open. The escape is documented in the guard's header beside those,
+and asserted in the scenarios so it cannot be forgotten. Three properties follow, and all are
+required:
 
 - Outside a run cc-tuner does not touch the user's ordinary merges. A global fail-closed hook that
   denied every `gh pr merge` in every repository the plugin is installed in would be a regression, not
   a guardrail.
-- Inside a run the gate cannot go inert the way 0.10.0's did. Its scope condition *is* its evidence:
-  a run exists only if the plan file was committed, and `/plan` commits it before `/run` will start.
-  The old failure — run in progress, state file absent, every gate allowing — has no equivalent here,
-  because the thing that says "a run is happening" is the same thing `git` guarantees is present.
+- Inside a run the gate does not go inert the way 0.10.0's did *by accident*. Its scope condition is
+  its evidence: a run exists only if the plan file was committed, and `/plan` commits it before `/run`
+  will start. The old failure — run in progress, state file absent, every gate silently allowing —
+  has no equivalent, because nothing has to be separately initialised.
+
+  It can still be disarmed *deliberately*, by deleting the plan file before merging, and that is the
+  escape recorded above. The distinction is the whole point and is not a quibble: 0.10.0 failed with
+  nobody doing anything, this one requires someone removing the thing that says a run is happening.
 - Failing to *determine* scope is not the same as being out of scope, and denies.
 
 Earlier drafts armed this from `UserPromptSubmit`. That is dropped: it added a second store answering
@@ -225,8 +245,11 @@ broken one until somebody turns it off.
 `mattpocock` review run and must be addressed; they simply have no durable, unforgeable home, and
 counting them would be counting the author's own word twice.
 
-Under `--auto` only, one further check refuses to start a task whose `blockedBy` is non-empty — because
-that is the one thing the platform stores but does not enforce, and nobody is watching.
+Under `--auto`, `/run` is instructed to refuse a task whose `blockedBy` is non-empty — the one thing
+the platform stores but does not enforce. **This is an instruction, not a gate.** It was described
+here as runtime enforcement; it is not, and cannot easily be: nothing outside the session can see
+which task the agent picked. Calling it enforcement while it is a paragraph is the overclaim this ADR
+exists to remove, so it is named for what it is and counted with the advisory half of the design.
 
 `gh pr merge` is not the only route to a merge; the web button, `git push` and the API bypass any local
 hook. This is a guardrail against an agent's mistake and must not be described as anything stronger.
@@ -254,8 +277,9 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 
 ## Complexity budget
 
-- **Runtime** Bash: five small pieces and no more — the merge guard, the `SessionStart` restore hook,
-  the plan linter, the branch→path resolver, and under `--auto` the frontier check. An earlier
+- **Runtime** Bash: four small pieces and no more — the merge guard, the `SessionStart` restore hook,
+  the plan linter, and the branch→path resolver. The `--auto` frontier rule is an instruction in the
+  run skill, not code, and is not counted here. An earlier
   revision listed only the first and the last, which was not a tighter budget but an inaccurate one:
   the other three exist in the design and a budget that omits them cannot be checked against it.
   Setup-time checks are a separate category with a separate home (`/cc-tuner:setup` doctor).

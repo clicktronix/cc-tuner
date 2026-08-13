@@ -40,7 +40,7 @@ world() {
   printf '%s' "$d"
 }
 
-PLAN_FILES='[{"path":"docs/plans/2026-01-01-retry.md"},{"path":"src/retry.ts"}]'
+PLAN_FILES='[{"path":"docs/task-plans/2026-01-01-retry.md"},{"path":"src/retry.ts"}]'
 NO_PLAN_FILES='[{"path":"src/retry.ts"}]'
 GREEN_CI='[{"name":"build","bucket":"pass"},{"name":"test","bucket":"pass"}]'
 review() { printf '[{"author":{"login":"%s"},"commit":{"oid":"%s"},"submittedAt":"%s","body":"%s"}]' "$1" "$2" "$3" "$4"; }
@@ -138,6 +138,16 @@ equals "pin-after-a-separator-denies" "deny" \
 equals "equals-form-of-the-pin-allows" "allow" \
   "$(decision "$D" "gh pr merge 42 --squash --match-head-commit=$SHA")"
 
+# Whitespace is not syntax. A literal "gh pr merge" filter missed this entirely.
+equals "double-space-still-checked" "deny" "$(decision "$D" "gh  pr   merge 42 --squash")"
+
+# Two merges in one command: the first runs before anything can be verified, so a parser that judged
+# the last occurrence approved a command whose first merge was unpinned.
+equals "two-merges-denied" "deny" \
+  "$(decision "$D" "gh pr merge 42 --squash && gh pr merge 42 --squash --match-head-commit $SHA")"
+check "two-merges-reason" "run the merge on its own" \
+  "$(reason "$D" "gh pr merge 42 --squash && gh pr merge 42 --squash --match-head-commit $SHA")"
+
 # Without jq there is no gate, so there is no merge either. Allowing here made the one fail-closed
 # thing in the plugin fail open on any machine missing a dependency.
 NOJQ="$(flow_workdir)"; mkdir -p "$NOJQ/bin"
@@ -146,6 +156,13 @@ jq -c --arg c "$MERGE" '.tool_input.command = $c' "$FLOW_FIXTURES/pretooluse-bas
 NOJQ_OUT="$(PATH="$NOJQ/bin" CC_TUNER_GH="$D/gh" bash "$GUARD" < "$NOJQ/payload.json" 2>/dev/null)"
 check "no-jq-denies" '"permissionDecision":"deny"' "$NOJQ_OUT"
 check "no-jq-says-why" 'jq is not installed' "$NOJQ_OUT"
+
+# The fallback cannot parse JSON, so it must not depend on how the JSON is spaced. It matched the
+# exact string "tool_name":"Bash" before, and a payload written with spaces walked through.
+SPACED="$NOJQ/spaced.json"
+printf '%s' '{"tool_name" : "Bash", "tool_input" : {"command" : "gh pr merge 42 --squash"}}' > "$SPACED"
+check "no-jq-ignores-json-spacing" '"permissionDecision":"deny"' \
+  "$(PATH="$NOJQ/bin" CC_TUNER_GH="$D/gh" bash "$GUARD" < "$SPACED" 2>/dev/null)"
 
 # --- the guard reads the PR named in the command, not the checked-out branch ----------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"

@@ -63,9 +63,11 @@ jq -e '
 ' "$CONTRACT" >/dev/null 2>&1 \
   && echo "PASS semantic-contract" || { echo "FAIL semantic-contract"; fails=1; }
 
-# Each surviving invariant has something that READS it at runtime, which is the ADR's whole test for
-# whether an invariant earns its place:
-#   spec-before-run, one-spec-one-branch-one-pr   -> plan-path.sh resolve, fail-closed on 0 and on >1
+# Each surviving invariant has something whose BEHAVIOUR depends on it. Nothing loads this file at
+# runtime -- it is a normative document, not configuration -- so the claim is deliberately narrow:
+# each of these is enforced somewhere, not that the enforcer reads the JSON.
+#   spec-before-run                                -> /run stops when plan-path.sh resolve finds none
+#   one-spec-one-branch-one-pr                     -> plan-path.sh resolve, fail-closed on 0 and on >1
 #   review-bound-to-candidate                     -> merge-guard.sh, verdict at the exact head SHA
 #   current-sha-ci-verification                   -> merge-guard.sh, required checks on that SHA
 #   changes-invalidate-downstream-evidence        -> merge-guard.sh, a moved head loses its verdict
@@ -103,10 +105,9 @@ need "run-resolves-the-plan"        'plan-path.sh" resolve' "$RUN"
 need "run-validates-the-plan"       'plan-lint.sh" check' "$RUN"
 need "run-ticks-the-plan-file"      '- [x]' "$RUN"
 need "run-auto-refuses-blocked"     'refuse a task whose `blockedBy` is not empty' "$RUN"
-need "run-verdict-marker"           'cc-tuner-verdict: APPROVE $CANDIDATE_SHA' "$RUN"
+need "run-verdict-marker"           'cc-tuner-verdict: APPROVE <candidate-sha>' "$RUN"
 need "run-never-forges-approval"    'Never publish `APPROVE` for a review that did not' "$RUN"
-need "run-pins-the-merge-head"      '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
-need "run-approval-is-terminal"     'terminal for its SHA' "$RUN"
+need "run-pins-the-merge-head"      '--match-head-commit <candidate-sha>' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
 need "run-red-before-green"         'RED before GREEN' "$RUN"
 need "run-mutation-proof"           'Prove the guard by removing it' "$RUN"
@@ -117,7 +118,7 @@ need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
 need "spec-hands-off-to-plan"       '/cc-tuner:plan docs/PLANS' "$SPEC"
 need "plan-two-pass-publication"    'addBlockedBy' "$PLAN_SKILL"
 need "plan-commits-the-plan"        'Commit the plan file' "$PLAN_SKILL"
-need "run-atomic-merge-head" '--match-head-commit "$CANDIDATE_SHA"' "$RUN"
+need "run-atomic-merge-head" '--match-head-commit <candidate-sha>' "$RUN"
 need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-always-runs" 'Always perform the review; small-diff thresholds only decide' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"

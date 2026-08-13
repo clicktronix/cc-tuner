@@ -78,7 +78,9 @@ END {
   for (i = 1; i <= n; i++) {
     s = order[i]
     if (!(s in need)) continue
-    printf "Slice %s — %s [already done: create it completed so the edges below resolve]\n", s, title[s]
+    # With its edges. Emitting the title alone brought the node back and left its own Blocked by
+    # behind, so `done 1 -> done 2 -> open 3` restored three tasks and one of the two edges.
+    printf "Slice %s — %s [already done: create it completed, then wire its edges below]\n    Blocked by: %s\n", s, title[s], blocked[s]
   }
   for (i = 1; i <= n; i++) {
     s = order[i]

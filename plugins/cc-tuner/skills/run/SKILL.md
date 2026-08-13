@@ -23,15 +23,24 @@ there, and a run that never opened it is a run following defaults nobody chose.
 
 If `auto_ready` is not `yes`, `--auto` is refused — say which unmet condition blocks it.
 
-Then resolve the plan, in one command so the path is not carried between tool calls:
+Then ask for the plan path and read it out of the output — a shell variable does not survive to the
+next tool call, so every command below names the file literally:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check \
-  "$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve
 ```
 
 `resolve` fails when the branch has no committed plan, or more than one. Either way, stop: run
 `/cc-tuner:plan` first. Never work from a plan that exists only in the conversation.
+
+**Check that the plan is this spec's plan.** Its header carries `**Spec:**` and `**Branch:**`. If the
+spec path you were given is not the one the plan names, stop and say so: `/run` takes a spec argument
+while the plan is found from the branch, so nothing else stops plan A being worked with spec B's
+target, tests, Definition of Done and merge strategy.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check docs/task-plans/<the file resolve printed>.md
+```
 
 If `TaskList` is empty, publish the plan's slices first — two passes, `TaskCreate` then
 `TaskUpdate addBlockedBy`. A fresh session's `SessionStart` context already asks for this.
@@ -44,7 +53,7 @@ Take the lowest-numbered task that is `pending` with an empty `blockedBy`. Work 
 Three things this adds to the obvious:
 
 - **Tick the plan file and commit it.** When every acceptance criterion of a slice is met, change its
-  `- [ ]` to `- [x]` in `$PLAN` and commit. The task list does not survive the session; the file does.
+  `- [ ]` to `- [x]` in the plan file and commit. The task list does not survive the session; the file does.
   A ticked file with no matching task is recoverable, a completed task with an unticked file is lost.
 - **Under `--auto`, refuse a task whose `blockedBy` is not empty.** The platform stores the edge and
   does not enforce it: `TaskUpdate` will move a blocked task to `in_progress` without complaint. Under
@@ -107,26 +116,43 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
 3. **Obtain the authoritative `--required` approval** from `cc-codex-triage` at that exact SHA.
 4. **Publish the verdict**, and only what the marker actually says:
 
+   Substitute the real PR number and the real candidate SHA — these are values you read from `gh` and
+   `git` in this turn, not variables carried from an earlier command:
+
    ```bash
-   gh pr review "$PR" --comment --body "cc-tuner-verdict: APPROVE $CANDIDATE_SHA"
+   gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <candidate-sha>"
    ```
 
    On `REQUEST_CHANGES`, publish that instead. Never publish `APPROVE` for a review that did not
    approve — the guard reads this and nothing else.
-5. **A published approval is terminal for its SHA.** GitHub does not overwrite reviews, so a finding
-   made afterwards needs a new commit and therefore a new candidate. The guard then denies by
-   construction, because the head no longer matches the review.
+5. **A published approval stands until the SHA changes.** GitHub does not overwrite reviews, so a
+   finding that requires a code change needs a new commit and therefore a new candidate, at which
+   point the guard denies by construction because the head no longer matches. A finding that does
+   *not* require a change — refuted with a concrete `file:line`, or deferred by the user — leaves the
+   candidate alone: re-run the required review on the same SHA and publish its verdict. An earlier
+   revision called the approval "terminal", which reads as forbidding that and would have pushed the
+   flow into manufacturing an empty commit to move the SHA.
 6. **On `REQUEST_CHANGES`, loop.** Fix, re-run the slice's checks and the full regression, commit —
    which makes a new candidate SHA — then review that SHA and publish its verdict. Repeat until it
    approves. Stopping at one round with `REQUEST_CHANGES` standing is not a finished review, and is
    precisely what shipped before.
+
+   A finding you refuted with a concrete `file:line`, or one the user deferred, needs no commit: the
+   candidate has not changed, so re-run the required review on the same SHA. Manufacturing an empty
+   commit to move the SHA would be inventing evidence, which is the opposite of the point.
 7. **Check the Definition of Done from the spec** before merging. Every item, named, with what
    satisfied it.
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
+   `|` is a pipeline to the shell, so the two strategies are two commands, not one alternation. Use
+   the one the spec names:
+
    ```bash
-   gh pr merge "$PR" --"$MERGE_STRATEGY" --match-head-commit "$CANDIDATE_SHA"
+   gh pr merge <pr> --squash --match-head-commit <candidate-sha>
+   ```
+   ```bash
+   gh pr merge <pr> --merge --match-head-commit <candidate-sha>
    ```
 
    The guard refuses a merge without the pin: the head can move between the check and the merge, and
