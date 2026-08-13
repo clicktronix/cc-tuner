@@ -143,6 +143,18 @@ Blocked by: -
 ')"
 equals "dash-means-none" "-" "$(bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE" {print $4}')"
 
+# --- the shipped template passes the shipped linter ----------------------------------------------
+# The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan
+# is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is
+# itself valid is checkable here, and a template that fails the linter would send every user into a
+# fix-it loop on their first run.
+TPL="$FLOW_PLUGIN/skills/plan/plan-template.md"
+OUT="$(lint check "$TPL")"
+check "template-passes-lint" "rc=0" "$OUT"
+# It has to parse into slices with an edge, or it is not demonstrating the format it teaches.
+equals "template-has-an-edge" "1" \
+  "$(bash "$LINT" slices "$TPL" | awk -F'\t' '$1=="SLICE" && $2==2 {print $4}')"
+
 # --- refusals that are not about the format ------------------------------------------------------
 OUT="$(lint check "$W/does-not-exist.md")"
 check "missing-file-fails" "no such plan file" "$OUT"
