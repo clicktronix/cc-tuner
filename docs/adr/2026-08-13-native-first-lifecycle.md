@@ -254,7 +254,10 @@ hook. This is a guardrail against an agent's mistake and must not be described a
 
 ## Complexity budget
 
-- **Runtime** Bash: the merge guard, and under `--auto` the one frontier check. Nothing else.
+- **Runtime** Bash: five small pieces and no more — the merge guard, the `SessionStart` restore hook,
+  the plan linter, the branch→path resolver, and under `--auto` the frontier check. An earlier
+  revision listed only the first and the last, which was not a tighter budget but an inaccurate one:
+  the other three exist in the design and a budget that omits them cannot be checked against it.
   Setup-time checks are a separate category with a separate home (`/cc-tuner:setup` doctor).
 - One fail-closed gate, and a stated answer for what arms it.
 - No more than seven normative invariants, each with something that reads it at runtime.

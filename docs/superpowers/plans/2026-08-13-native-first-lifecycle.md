@@ -150,7 +150,9 @@ here is blocked on it.
 - Create: `plugins/cc-tuner/skills/plan/SKILL.md`
 - Create: `plugins/cc-tuner/skills/plan/plan-template.md`
 - Create: `plugins/cc-tuner/scripts/plan-lint.sh` — the validator
+- Create: `plugins/cc-tuner/scripts/plan-path.sh` — the one branch→path resolver
 - Create: `plugins/cc-tuner/tests/scenarios/scenario-plan-lint.sh`
+- Create: `plugins/cc-tuner/tests/scenarios/scenario-plan-path.sh`
 
 **Frontmatter:** `disable-model-invocation: true` — a plan is produced when asked for, never inferred.
 `argument-hint: '[--auto] <path-to-spec>'`. The mode is an argument, because the skill's own body is
@@ -170,8 +172,13 @@ the only place that branches on it and it has no other way in.
    plan path, and both the skill and the restore hook call it. Computing the slug independently in two
    places is a second parser for one question — the thing this ADR deletes elsewhere — and the two
    would drift on the first branch name containing a slash or an uppercase letter. The resolver
-   defines the normalisation once (lowercase, every character outside `[a-z0-9]` to `-`, runs
-   collapsed, ends trimmed), and **exits non-zero on zero matches and on more than one**. Neither is
+   defines the normalisation once: lowercase, every character outside `[a-z0-9]` to `-`, runs
+   collapsed, ends trimmed.
+
+   **Two modes, because the caller's situation differs.** `plan-path.sh create` prints the canonical
+   path for a plan that does not exist yet — `/plan` needs exactly this, and a resolver that only ever
+   demanded an existing file could never produce the first one. `plan-path.sh resolve` requires
+   **exactly one** existing plan and **exits non-zero on zero and on more than one**. Neither is
    guessable: no match may mean no plan or a renamed branch, and two matches mean two plans with equal
    claim. A resolver that picks one is a resolver that is sometimes silently wrong.
 
@@ -323,14 +330,23 @@ The order is fixed, because every pair of these is wrong in the other sequence:
 
 Expected author is the authenticated `gh` user.
 
-**A published approval is terminal for its SHA.** Only approvals are published, so the lifecycle is
-asymmetric and an earlier draft left the dangerous half unsaid: once `cc-tuner-verdict: APPROVE <sha>`
-exists, a later `REQUEST_CHANGES` **on the same SHA cannot retract it** — nothing overwrites a GitHub
-review, and latest-per-author does not help when the later verdict was never posted. So the rule is
-stated rather than discovered: a finding made after publication requires **a new commit and therefore
-a new candidate SHA**, at which point the old approval no longer matches the head and the gate denies
-by construction. Publishing negative verdicts too would also work; it is not chosen, because one
-marker with one meaning is fewer moving parts than two.
+**Negative verdicts are published too.** An earlier draft published only approvals and declared a
+published approval "terminal for its SHA" — a rule the agent was asked to honour, with nothing
+enforcing it. The failure is concrete: a later `REQUEST_CHANGES` on the same SHA is never posted, the
+old `APPROVE` still stands, latest-per-author sees one row, and the gate allows a merge the reviewer
+rejected. "Fewer moving parts" bought a fail-open.
+
+So both verdicts are published — `cc-tuner-verdict: APPROVE <sha>` and
+`cc-tuner-verdict: REQUEST_CHANGES <sha>` — and latest-per-author does the rest, which is what it was
+already there for. One extra call, and the retraction path exists in data rather than in an
+instruction.
+
+**The merge command itself must pin the SHA.** Even with a correct verdict, reading `gh pr checks`
+and then allowing the merge is a time-of-check/time-of-use gap: the head can move between the two.
+`gh pr merge` accepts **`--match-head-commit SHA`** — *"Commit SHA that the pull request head must
+match to allow merge"* — so the guard **denies any `gh pr merge` that does not carry
+`--match-head-commit <the SHA it just verified>`**. GitHub then rejects the merge atomically if the
+head moved, which is a guarantee no local check can make.
 
 **What "CI is green" means, exactly.** Not a vibe — one contract, so the guard and the eval cannot
 read it differently:
@@ -404,6 +420,11 @@ reason string names which fact was missing.
       silently treats it as out-of-scope.
 - [ ] **Step 8: `scenario-merge-guard-stale-verdict.sh`** — two reviews from the same author on the
       head SHA, the later one negative → `deny`. Asserts latest-per-author rather than any-row-matches.
+- [ ] **Step 8b: forgery mutations**, each `deny`: a correct marker from the **wrong author**; a body
+      that merely *contains* the marker text inside other prose; a marker whose embedded SHA differs
+      from the head. A guard matched with a loose `grep` passes all three.
+- [ ] **Step 8c: `scenario-merge-guard-unpinned.sh`** — everything valid, but the command omits
+      `--match-head-commit` → `deny`. Then the same command with the correct SHA → `allow`.
 - [ ] **Step 9: `bash tests/run.sh`**, green.
 - [ ] **Step 10: prove the guard by mutating it, in both directions.** `cp merge-guard.sh
       merge-guard.sh.premutation`; stub the decision to `allow` and confirm steps 3, 4, 6 and 8 go RED
@@ -485,6 +506,15 @@ That the agent then rebuilds a `TaskList` whose `blockedBy` matches is Task 8's 
 `claude plugin list --json` returns `id`, `version`, `scope`, `enabled`, `installPath` and
 `projectPath` directly, so `doctor.sh` stops calling the manifest resolver.
 
+**It does not answer "which installation applies" — the precedence rule still has to exist.** Checked
+against a live Claude Code 2.1.231: cc-tuner comes back as **two** rows, `scope: "project"` with a
+`projectPath` and `scope: "user"` with `projectPath: null`, **both `enabled: true`**, and there is no
+`active` field. So this task replaces the manifest *parsing*, not the selection: prefer a row whose
+`scope` is local or project **and** whose `projectPath` is this repository, then fall back to `user`;
+ignore any row whose `projectPath` names a different project. Taking the first row, or any row, is a
+coin flip between two installations — and reporting the wrong version is exactly the failure that
+started this rework.
+
 **The resolver itself is not deleted here.** `execute_task_manifest_roots` lives in `lib.sh`, which is
 sourced by the execute-task scripts and `run-state-hook.sh`. Removing it while those consumers exist
 breaks them in the same commit. This task changes the one caller that has a native replacement; the
@@ -521,6 +551,14 @@ script that is about to be removed.
 - [ ] **Step 2: rewrite `run`** onto the new runtime — the skill, the plan file, `git`/`gh`. This is
       where the last live references to `runctl.sh`, `journal.sh` and the prepared-file machinery
       leave the tree.
+- [ ] **Step 2b: rewrite `spec` so it creates the task branch before grilling.** `commands/spec.md:29`
+      invokes `grilling` with `domain-modeling` today, and `domain-modeling` writes `CONTEXT.md` and
+      ADRs — so `/spec` persists to the repository with no branch. The placement rule in Task 3 says
+      the branch comes first; without this step that rule is a paragraph nobody implements. Move
+      branch creation ahead of section 2 of the command.
+- [ ] **Step 2c: scenario for the order** — run `/spec`'s branch-creation step against a fixture and
+      assert the branch exists before any write outside the spec file. A placement rule with no test
+      is a comment.
 - [ ] **Step 3: split it** — instructions stay in `SKILL.md`, reference moves behind a pointer. Target
       under 150 lines in the body; the median skill in both reference plugins is under 180.
 - [ ] **Step 4: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
@@ -559,8 +597,11 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
       delivery boundary. The edges are the part a one-pass implementation would silently drop.
-- [ ] **Step 2: `--auto`, the whole flow.** `/cc-tuner:plan --auto <spec>` then
-      `/cc-tuner:run --auto <spec>` — same signature, `--auto` in the same position: no plan-mode
+- [ ] **Step 2: `--auto`, the whole flow, in a fresh repository, branch and session.** Not a
+      continuation of step 1: reusing that workspace would let `--auto` inherit the attended run's
+      plan file and task list, and it would pass without ever creating either. `/cc-tuner:spec`, then
+      `/cc-tuner:plan --auto <spec>`, then `/cc-tuner:run --auto <spec>` — same signature, `--auto` in
+      the same position: no plan-mode
       prompt, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
       is non-empty refused when attempted out of order.
 - [ ] **Step 2b: producer → guard, the whole positive path.** Confirm the run posts the verdict review
@@ -656,7 +697,8 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
 - The eval record shows every step PASS in a real session: `spec → plan → visible tasks with edges →
   recovery preserving those edges → a live merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
-- Runtime Bash: the merge guard, the session-start hook, the plan linter, and the `--auto` frontier
+- Runtime Bash: the merge guard, the session-start hook, the plan linter, `plan-path.sh`, and the
+  `--auto` frontier
   check. Nothing else.
 - README states the merge guard's real coverage, without overclaiming.
 - One PR.
