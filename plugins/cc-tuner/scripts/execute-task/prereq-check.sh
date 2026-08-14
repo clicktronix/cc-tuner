@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # cc-tuner execute-task: verify the required plugins are installed.
 # One anchor file per plugin is enough — a plugin's skills/commands ship as a unit.
-# Exit 0 if both present; else 1 with install hints. The plugin root is the same fixed location the
-# delivery gate resolves (lib.sh): a preflight that could be pointed elsewhere cannot promise the
-# gate will find the installation it just approved. Tests move HOME, as the gate's tests do.
+# Exit 0 if both present; else 1 with install hints.
+#
+# The plugin root is derived from HOME rather than from an environment variable a caller could point
+# elsewhere. That is not unforgeable and must not be described as such -- the tests install their
+# stubs by moving HOME, exactly that way. What it buys is that faking an answer here takes the same
+# work as faking anything else: anything with shell access can rewrite this file.
 set -u
 CACHE="$HOME/.claude/plugins"
 missing=0
@@ -33,14 +36,13 @@ if [ -e "$MANIFEST" ]; then
 fi
 
 # These two rules used to live in execute-task/lib.sh, sourced from here so this script and the
-# delivery gate could not disagree about which installation is active. That gate and that library are
-# deleted in this task, and this script survives them, so the definitions move here.
+# delivery gate could not disagree about which installation is active. Both are deleted now, and this
+# script survives them, so the definitions live here and nothing else defines them.
 #
-# This is not the duplicate that was reverted two commits ago. That one added a second live copy
-# while lib.sh still shipped and was still sourced by five files; measured, the copies had already
-# diverged -- breaking the predicate in lib.sh left this script's tests entirely green. What makes an
-# inline correct is that nothing else defines it afterwards, which is true only once the library is
-# gone. Migration before deletion licenses postponing the delete, not duplicating the rule.
+# A revision before the deletion inlined them while lib.sh still shipped and was still sourced by
+# five files. That was the forbidden second copy, and it was not theoretical: breaking the predicate
+# in lib.sh left this script's tests entirely green, so the copies had already stopped being one
+# rule. What makes an inline correct is that nothing else defines it afterwards.
 
 # Install paths of a plugin that is ACTIVE for this project, from the manifest Claude Code publishes.
 # Total order, not manifest order: local, then project, then user. Grouping any two of them would
@@ -102,9 +104,8 @@ EOF
 
 have_required_codex_review() {
   local root roots
-  # Same predicate the delivery gate applies (lib.sh): preflight passing on an installation the gate
-  # then refuses — or approving from one preflight never saw — is the divergence this check exists
-  # to prevent.
+  # The check is the contract, not the plugin's presence: an installed cc-codex-triage that predates
+  # required-review would satisfy "is it there" and still be unable to answer for a delivery gate.
   if [ "$MANIFEST_MODE" = "active" ]; then
     roots="$(manifest_roots 'cc-codex-triage@cc-codex-triage')"
     [ -n "$roots" ] || return 1
