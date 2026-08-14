@@ -35,7 +35,6 @@ plugins/
     README.md
     workflow-contract.json          # shared thresholds, sensitive surfaces, order, invariants
     assets/
-      execute-task/config.template.md   # per-project run settings (superseded by a spec's Run config)
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     references/
@@ -46,11 +45,16 @@ plugins/
       spec/SKILL.md                 # /cc-tuner:spec interactive spec writer
       setup/SKILL.md                # /cc-tuner:setup env check + installer orchestration
     hooks/
-      hooks.json                    # Stop hook registration
+      hooks.json                    # SessionStart + Stop registrations
+      session-start.sh              # asks a fresh session to rebuild its task list from the plan
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
-      execute-task/                 # deterministic bash for /run gates (dir name predates the split)
+      merge.sh                      # the only checked merge path: verdict + required CI on the head SHA
+      plan-lint.sh                  # the plan format's validator, and the parser the hook reads it with
+      plan-path.sh                  # the one branch -> plan-path resolver
       setup/doctor.sh               # environment checks behind /cc-tuner:setup
+      setup/prereq-check.sh         # companion plugins installed, enabled, and carrying their contracts
+      setup/plugin-here.sh          # which install of a plugin applies to this repo (one rule, two callers)
       smoke-verify/                 # fingerprint lib + attestation writer (mark.sh)
     skills/
       claude-md-writer/

@@ -472,9 +472,15 @@ script that is about to be removed.
 **Blocked by:** Tasks 4, 5, 7.
 
 The only tier that can prove a skill causes `TaskCreate` to be called. It runs by hand, costs tokens,
-and needs auth, so it is **not** part of `tests/run.sh` — but it blocks deletion, because without it
-nothing has observed the replacement actually working. It runs after Task 7 so that what it exercises
-is the shipped `/cc-tuner:run`, not an intermediate form of it.
+and needs auth, so it is **not** part of `tests/run.sh`. It runs after Task 7 so that what it
+exercises is the shipped `/cc-tuner:run`, not an intermediate form of it.
+
+**It no longer blocks the deletion, and this paragraph used to say it did** — as did the acceptance
+below and the task graph, while Task 9's own header said the opposite, so the plan asserted both at
+once. The order was changed on 2026-08-14 with the reasons recorded under Task 9. What that decision
+does **not** change is what this task is for: until it runs, nothing has observed the replacement
+working, and no other tier can. Deleting the old code first makes this eval cheaper to trust, not
+less necessary — the branch is not done without it.
 
 **Files:**
 - Create: `plugins/cc-tuner/tests/eval/README.md` — how to run it and what it costs
@@ -532,10 +538,13 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most
 fall outside acceptance: step 0, which proves the eval tested this checkout rather than the installed
 version, and step 2b, the only live proof that the producer writes something the checked path can read.
-**A step recorded as not-yet-run leaves
-this task incomplete and Task 9 blocked** — an earlier draft allowed not-yet-run to count, which would
-have let the deletion proceed on no evidence at all. A step recorded as passing on the strength of
-reading the skill's text is the exact failure mode this branch exists to remove.
+**A step recorded as not-yet-run leaves this task incomplete**, and an incomplete Task 8 leaves the
+branch unmergeable — see the Definition of done, which requires the eval record to show every step
+PASS. An earlier draft allowed not-yet-run to count. It also said an incomplete Task 8 blocks Task 9;
+that ordering changed on 2026-08-14, and the sentence is corrected rather than deleted because the
+half it was carrying still holds: the deletion is not the evidence, and shipping is still gated on a
+real session. A step recorded as passing on the strength of reading the skill's text is the exact
+failure mode this branch exists to remove.
 
 ---
 

@@ -175,9 +175,10 @@ recorded under **Consequences**.
 ### Deleted
 
 `.claude/execute-task-runs/*.state.json` and the state machine over it; the jq twin of the JSON schema;
-the Write/Edit mutation fence and prepared-file hard-link machinery; the manifest resolver for
-companion plugins (`claude plugin list --json` returns `scope`, `version`, `installPath`, `projectPath`
-and `enabled` directly); the Markdown journal as a second state; generation/reclaim locks; and the
+the Write/Edit mutation fence and prepared-file hard-link machinery; the hand-rolled parse of
+`installed_plugins.json` (`claude plugin list --json` returns `scope`, `version`, `installPath`,
+`projectPath` and `enabled` directly, so nothing reads a plugin manifest any more); the Markdown
+journal as a second state; generation/reclaim locks; and the
 thirty-invariant list, reduced to seven, each of which says plainly whether code enforces it or a
 skill merely states it. "Reduced to those with something that reads them at runtime" is how this line
 read first, and it was the same overclaim recorded under the complexity budget below: five are
@@ -292,7 +293,11 @@ workflow discipline against an agent's mistake and must not be described as anyt
   run skill, not code, and is not counted here. An earlier revision listed only the first and the
   last, which was not a tighter budget but an inaccurate one: the other two exist in the design and
   a budget that omits them cannot be checked against it.
-  Setup-time checks are a separate category with a separate home (`/cc-tuner:setup` doctor).
+  Setup-time checks are a separate category with a separate home, and now literally so: `scripts/setup/`
+  holds `doctor.sh`, `prereq-check.sh` and `plugin-here.sh`. The last exists because "which install
+  of a plugin applies here" was answered in two places that had already diverged — doctor skipped
+  `enabled: false` and the preflight did not — so it is one program with two callers rather than one
+  rule with two homes.
 - One checked delivery path, fail-closed whenever it cannot determine whether its target is in scope.
 - No more than seven normative invariants. Each says plainly whether code enforces it or a skill
   merely states it, and none may claim a gate it does not have. The earlier wording — "each with
