@@ -162,24 +162,27 @@ OUT="$(r "$NOPATH" 'p@p')"
 # broken: no caller ever passes an unresolved path, so the branch it exercised could not run. A test
 # that reaches the code by a route the product does not use is the defect this branch exists to
 # remove, and it was committed here while fixing an instance of it.
-LEXICAL="/var/tmp/cc-tuner-prereq-$$"
-if mkdir -p "$LEXICAL" 2>/dev/null && ( cd "$LEXICAL" && git init -q -b main 2>/dev/null ); then
-  CANON="$(cd "$LEXICAL" && pwd -P)"
-  if [ "$CANON" != "$LEXICAL" ]; then
-    BROKEN_LOCAL="$(matt_root matt-lexical-broken engineering/code-review)"
-    LEX="$(jq -nc --arg t "$BROKEN_LOCAL" --arg b "$(matt_root matt-lexical-ok)" --arg c "$C" --arg pp "$LEXICAL" '
-      [ {id:"mattpocock-skills@mattpocock", version:"9", scope:"local", enabled:true, installPath:$t, projectPath:$pp},
-        {id:"mattpocock-skills@mattpocock", version:"1", scope:"user",  enabled:true, installPath:$b},
-        {id:"cc-codex-triage@cc-codex-triage", version:"1", scope:"user", enabled:true, installPath:$c} ]')"
-    OUT="$(cd "$LEXICAL" && CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$LEX")" bash "$S" 2>&1)"
-    case "$OUT" in *code-review*) pass "non-canonical-projectPath-still-selects-the-local-install" ;;
-                   *) fail "non-canonical-projectPath-still-selects-the-local-install ($OUT)" ;; esac
-  else
-    pass "non-canonical-projectPath-still-selects-the-local-install (skipped: /var is not a symlink here)"
-  fi
-  rm -rf "$LEXICAL"
+# The two spellings are built here, inside the directory this suite already owns: a real repository
+# and a symlink pointing at it. An earlier version reached for /var/tmp and relied on macOS having
+# /var -> /private/var, skipping otherwise -- and a skip that reports PASS is a missing test claiming
+# to be a passing one, so reverting the canonicalization would have stayed green on ordinary Linux.
+# It also used a predictable /var/tmp/...-$$ path and then `rm -rf`'d it, which a recycled PID turns
+# into someone else's directory. A symlink under $W has neither problem and needs no platform.
+REAL_REPO="$W/canon-repo"; LINK_REPO="$W/linked-repo"
+mkdir -p "$REAL_REPO" && ( cd "$REAL_REPO" && git init -q -b main 2>/dev/null )
+if ln -s "$REAL_REPO" "$LINK_REPO" 2>/dev/null; then
+  BROKEN_LOCAL="$(matt_root matt-lexical-broken engineering/code-review)"
+  LEX="$(jq -nc --arg t "$BROKEN_LOCAL" --arg b "$(matt_root matt-lexical-ok)" --arg c "$C" --arg pp "$LINK_REPO" '
+    [ {id:"mattpocock-skills@mattpocock", version:"9", scope:"local", enabled:true, installPath:$t, projectPath:$pp},
+      {id:"mattpocock-skills@mattpocock", version:"1", scope:"user",  enabled:true, installPath:$b},
+      {id:"cc-codex-triage@cc-codex-triage", version:"1", scope:"user", enabled:true, installPath:$c} ]')"
+  # Entered through the symlink, so `git rev-parse --show-toplevel` hands prereq-check the physical
+  # path while the recorded projectPath is the symlinked spelling -- the production shape exactly.
+  OUT="$(cd "$LINK_REPO" && CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$LEX")" bash "$S" 2>&1)"
+  case "$OUT" in *code-review*) pass "non-canonical-projectPath-still-selects-the-local-install" ;;
+                 *) fail "non-canonical-projectPath-still-selects-the-local-install ($OUT)" ;; esac
 else
-  pass "non-canonical-projectPath-still-selects-the-local-install (skipped: cannot write /var/tmp)"
+  fail "non-canonical-projectPath-still-selects-the-local-install (could not create a symlink)"
 fi
 
 # --- the false green a ranked list caused ---------------------------------------------------------
