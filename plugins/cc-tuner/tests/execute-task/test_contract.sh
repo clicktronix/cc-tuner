@@ -71,8 +71,12 @@ jq -e '
 #   review-bound-to-candidate                     -> merge.sh, verdict at the exact head SHA
 #   current-sha-ci-verification                   -> merge.sh, required checks on that SHA
 #   changes-invalidate-downstream-evidence        -> merge.sh, a moved head loses its verdict
-#   red-green-regression-proof                    -> the run skill, asserted below
-#   definition-of-done-before-merge               -> the run skill, asserted below
+# The last two are NOT enforced by anything, and saying so is the point. They are carried by the run
+# skill as instructions, and the greps below only prove the skill still says them -- which the ADR
+# permits as support, never as the whole evidence. An invariant that claims a gate it does not have is
+# the overclaim this rewrite exists to remove.
+#   red-green-regression-proof                    -> stated in the run skill; no runtime enforcement
+#   definition-of-done-before-merge               -> stated in the run skill; no runtime enforcement
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
 need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC"

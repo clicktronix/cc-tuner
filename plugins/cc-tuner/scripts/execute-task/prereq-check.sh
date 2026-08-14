@@ -32,16 +32,18 @@ if [ -e "$MANIFEST" ]; then
   fi
 fi
 
-# Inlined from lib.sh, which goes with the rest of the state machine.
+# The selection rule lives in lib.sh, shared with the required-review verifier: this script and that
+# gate must agree on which installation is active, and a second copy of the filter is how they would
+# stop agreeing.
 #
-# It was sourced so this script and the delivery gate could not disagree about which installation is
-# active. That gate is being deleted, so the sharing has nothing left to share with, and sourcing a
-# file scheduled for removal would break this script in the commit that removes it.
-#
-# Total order, not manifest order: local, then project, then user. Grouping any two would leave the
-# choice to entry order, so two readers of one manifest could pick different installs and both be
-# "right".
-execute_task_manifest_roots() {
+# An earlier revision inlined it here, reasoning that lib.sh is deleted in Task 9. That was premature:
+# lib.sh still ships and is still sourced by five other files, so the inline created a live second
+# copy of one rule -- the thing this repository forbids -- to avoid work that has not happened yet.
+# Migration before deletion licenses postponing the delete, not duplicating the rule.
+# shellcheck source=lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+
+manifest_roots() {
   local manifest="$1" key="$2" project="$3"
   [ -f "$manifest" ] && [ -n "$project" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1

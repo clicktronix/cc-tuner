@@ -291,7 +291,10 @@ workflow discipline against an agent's mistake and must not be described as anyt
   a budget that omits them cannot be checked against it.
   Setup-time checks are a separate category with a separate home (`/cc-tuner:setup` doctor).
 - One checked delivery path, fail-closed whenever it cannot determine whether its target is in scope.
-- No more than seven normative invariants, each with something that reads it at runtime.
+- No more than seven normative invariants. Each says plainly whether code enforces it or a skill
+  merely states it, and none may claim a gate it does not have. The earlier wording — "each with
+  something that reads it at runtime" — was itself an overclaim: two of the seven are instructions,
+  and pretending otherwise is the failure mode this ADR was written against.
 - **End-to-end scenarios are the primary test.** Phrase-matching assertions may support them, never
   replace them.
 

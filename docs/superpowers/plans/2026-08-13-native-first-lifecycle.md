@@ -220,7 +220,12 @@ attended mode.
 
 - [ ] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks
       `Blocked by`, if a named blocker matches no slice number, or if a `- [ ]` line sits outside any
-      slice. The linter is the definition of "parsable"; Task 5's hook and this script must not each
+      slice. Three more were added during implementation and are recorded here rather than left as a
+      surprise: a slice with no acceptance criteria can never be done, so it would be resurrected in
+      every session; a duplicate slice number makes the graph ambiguous; and a blocking **cycle** has
+      no frontier at all, so nothing in it can ever start. The ADR names cycle validation as part of
+      the rejected build — that referred to a bespoke graph engine in Bash, not to a five-line check
+      that the plan can finish. The linter is the definition of "parsable"; Task 5's hook and this script must not each
       grow their own parser, so the hook calls this one to extract slices.
 - [ ] **Step 2: write `test_plan_lint.sh`** — four hand-written fixtures: one valid, one with a
       dangling blocker, one missing `Blocked by`, one with an orphan checkbox. Assert the linter
@@ -445,9 +450,12 @@ script that is about to be removed.
       ADRs — so `/spec` persists to the repository with no branch. The placement rule in Task 3 says
       the branch comes first; without this step that rule is a paragraph nobody implements. Move
       branch creation ahead of section 2 of the command.
-- [ ] **Step 2c: scenario for the order** — run `/spec`'s branch-creation step against a fixture and
-      assert the branch exists before any write outside the spec file. A placement rule with no test
-      is a comment.
+- [ ] **Step 2c: a test for the order.** The scenario this step originally asked for cannot exist in
+      the shell tier: `/spec` is a skill, so "run its branch-creation step" needs a model. What is
+      testable without one is that the command still *says* it in the right order, and that is an
+      ordering assertion in `test_contract.sh` (`spec-branch-before-grilling`), mutation-proved by
+      moving the section back. Whether a session obeys it belongs to Task 8, which asserts the branch
+      exists before `CONTEXT.md` is written.
 - [ ] **Step 3: split it** — instructions stay in `SKILL.md`, reference moves behind a pointer. Target
       under 150 lines in the body; the median skill in both reference plugins is under 180.
 - [ ] **Step 4: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
@@ -537,6 +545,12 @@ public command still pointing at the old runtime.
   files, the hard-link machinery, the Markdown journal
 
 **Keep:** `prereq-check.sh`, reduced to the capability checks something still reads.
+
+**Also delete `tests/scenarios/task-run/red-cheap-gate-deadline.json`.** Its subject is the cheap-gate
+and effort-tiering policy, which this branch retires — `test_contract.sh` asserts those words appear
+nowhere. An evidence record for a retired policy is sediment, and it is not among the nine the
+RED/GREEN check requires. Recorded here because it was removed during Task 7 without a mandate,
+which is the kind of quiet deletion this plan exists to prevent.
 
 - [ ] **Step 1: free the one surviving consumer of `execute-task/lib.sh` FIRST.** `prereq-check.sh`
       sources it at line 39 and survives this task, so deleting `lib.sh` in the same commit breaks it —

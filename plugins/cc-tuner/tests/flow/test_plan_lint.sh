@@ -103,7 +103,8 @@ Blocked by: 1
 - [ ] a
 ')"
 OUT="$(lint check "$P")"
-check "self-block-message" "blocked by itself" "$OUT"
+# Self-blocking is the one-hop cycle, and is reported as one. It used to be flagged twice.
+check "self-block-message" "part of a blocking cycle" "$OUT"
 
 P="$(plan duplicate '## Slice 1 — A
 Blocked by: none
@@ -168,7 +169,18 @@ check  "slices-refuses-invalid"      "refusing to parse an invalid plan" "$OUT"
 check  "slices-refuses-invalid-rc1"  "rc=1"                              "$OUT"
 absent "slices-emits-nothing-on-bad" "SLICE	1"                          "$OUT"
 
-# --- "none" and "-" both mean no blockers --------------------------------------------------------
+# --- "none" is the only spelling accepted, and "-" is only ever emitted ---------------------------
+# Reading "-" back was leniency for an input neither the template nor either skill produces.
+P="$(plan none '## Slice 1 — A
+Blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [ ] a
+')"
+equals "none-emits-the-dash-sentinel" "-" "$(bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE" {print $4}')"
+
 P="$(plan dash '## Slice 1 — A
 Blocked by: -
 Owned paths: src/
@@ -177,7 +189,7 @@ Delivers: behaviour
 
 - [ ] a
 ')"
-equals "dash-means-none" "-" "$(bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE" {print $4}')"
+check "a-literal-dash-is-not-a-blocker-list" "not a slice number" "$(lint check "$P")"
 
 # --- the shipped template passes the shipped linter ----------------------------------------------
 # The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan

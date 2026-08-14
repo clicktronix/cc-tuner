@@ -30,6 +30,13 @@ for t in "$PLUGIN"/tests/*/test_*.sh; do
   fi
 done
 [ "$suites" -gt 0 ] || bad "no test suites found under plugins/cc-tuner/tests/"
+# Per tier, not just in total. "Some suite exists" stayed true with tests/flow/ emptied, so the tier
+# built to observe the product could vanish and the run would still say ok.
+for tier in flow execute-task setup smoke-verify; do
+  n=0
+  for t in "$PLUGIN"/tests/"$tier"/test_*.sh; do [ -f "$t" ] && n=$((n + 1)); done
+  [ "$n" -gt 0 ] || bad "no test suites under plugins/cc-tuner/tests/$tier/"
+done
 
 # --- 2. JSON validity ---------------------------------------------------------------------------
 json_count=0

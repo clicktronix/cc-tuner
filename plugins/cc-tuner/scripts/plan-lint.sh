@@ -44,12 +44,13 @@ case "$MODE" in check|slices) ;; *) die "usage: plan-lint.sh check|slices <file>
 awk -v mode="$MODE" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 
-# reaches(from, target, ...) -- does `from` transitively block back to `target`?
+# reaches(from, target, ...) -- does `from` transitively block back to `target`? Self-blocking is its
+# one-hop case; a separate check for it reported the same plan twice.
 function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   if (depth > 0 && from == target) return 1
   if (from in path) return 0
   path[from] = 1
-  if (!(from in blk) || blk[from] == "" || blk[from] ~ /^([Nn]one|-)$/) return 0
+  if (!(from in blk) || blk[from] == "" || blk[from] ~ /^[Nn]one$/) return 0
   m = split(blk[from], parts, /[ \t]*,[ \t]*/)
   for (j = 1; j <= m; j++) {
     p = parts[j]; gsub(/[^0-9]/, "", p)
@@ -59,9 +60,9 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   return 0
 }
 
-/^##[ \t]+[Ss]lice[ \t]+[0-9]+/ {
-  n = $0; sub(/^##[ \t]+[Ss]lice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n)
-  title = $0; sub(/^##[ \t]+[Ss]lice[ \t]+[0-9]+[ \t]*/, "", title)
+/^##[ \t]+Slice[ \t]+[0-9]+/ {
+  n = $0; sub(/^##[ \t]+Slice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n)
+  title = $0; sub(/^##[ \t]+Slice[ \t]+[0-9]+[ \t]*/, "", title)
   sub(/^[-—–:][ \t]*/, "", title)
 
   if (n in seen) { err[++e] = "slice " n " is declared twice" }
@@ -80,9 +81,9 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   next
 }
 
-/^[ \t]*[Bb]locked[ \t]+by[ \t]*:/ {
+/^[ \t]*Blocked[ \t]+by[ \t]*:/ {
   if (cur == "") { err[++e] = "\"Blocked by\" before the first slice heading"; next }
-  v = $0; sub(/^[ \t]*[Bb]locked[ \t]+by[ \t]*:[ \t]*/, "", v)
+  v = $0; sub(/^[ \t]*Blocked[ \t]+by[ \t]*:[ \t]*/, "", v)
   blocked[cur] = trim(v)
   next
 }
@@ -119,12 +120,11 @@ END {
       continue
     }
     b = blocked[n]
-    if (b ~ /^([Nn]one|-)$/ || b == "") continue
+    if (b ~ /^[Nn]one$/ || b == "") continue
     m = split(b, parts, /[ \t]*,[ \t]*/)
     for (j = 1; j <= m; j++) {
       p = parts[j]; gsub(/[^0-9]/, "", p)
       if (p == "")        { err[++e] = "slice " n " blocked by \"" parts[j] "\", which is not a slice number"; continue }
-      if (p == n)         { err[++e] = "slice " n " is blocked by itself"; continue }
       if (!(p in seen))   { err[++e] = "slice " n " is blocked by slice " p ", which does not exist" }
     }
   }
@@ -158,7 +158,7 @@ END {
     # text as written meant Blocked by: #1 validated here, because the check strips non-digits, and
     # then arrived at the hook as #1, which matched no slice, so the edge vanished silently.
     b = (n in blocked) ? blocked[n] : ""
-    if (b ~ /^([Nn]one)$/ || b == "") { b = "-" } else {
+    if (b ~ /^[Nn]one$/ || b == "") { b = "-" } else {
       m = split(b, parts, /[ \t]*,[ \t]*/); b = ""
       for (j = 1; j <= m; j++) { p = parts[j]; gsub(/[^0-9]/, "", p)
         if (p != "") b = (b == "") ? p : b "," p }

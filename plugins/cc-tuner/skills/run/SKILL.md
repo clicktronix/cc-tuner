@@ -61,30 +61,12 @@ Three things this adds to the obvious:
 - **Without `--auto`, stop at each delivery boundary** — first commit, PR opened, review returned,
   before merge. Report what is done and what comes next.
 
-## Parallelism, only where it is safe
+## Where the work happens
 
-Fan out **only across independent code-writing units**, one isolated git worktree each. Never
-parallelise review, a testing decision, or any step of delivery: those read a state that the other
-branch is still changing, and two answers about one candidate is not twice the confidence.
+Which slices may run at once, and which workspace each method belongs in, are in
+[`references/placement.md`](references/placement.md). Read it before fanning out or before invoking
+`prototype`, `research`, `domain-modeling` or `diagnosing-bugs`.
 
-Two slices are independent when their `Owned paths` do not overlap. If they do, they are one unit.
-
-## Where each method runs
-
-Ordering, not overrides. cc-tuner never rewrites another plugin's skill; it decides when each runs.
-The axis is what a method **persists**, not whether it feels exploratory.
-
-| method | workspace |
-|---|---|
-| `research`, `domain-modeling` | the task branch — their output is committed, and a saved artifact is a write |
-| `prototype` | a disposable branch or worktree — its output is throwaway by definition, and landing it on the task branch is how a spike becomes the implementation by accident |
-| `tdd` | the task branch, around the slice's deciding check |
-| `diagnosing-bugs`, reading | the task branch |
-| `diagnosing-bugs`, probe edits | a disposable workspace — instrumentation and bisect stubs are experiments, and an experiment that lands is a regression waiting |
-| `code-review`, deep-review | the candidate SHA |
-
-`/cc-tuner:spec` created the task branch before any of this, because its own grilling phase writes
-`CONTEXT.md` and ADRs.
 
 ## Proving a slice, before it counts as done
 
