@@ -29,7 +29,7 @@ case "$1 $2" in
   "pr checks")
     # Real `gh pr checks --required` exits 1 and reports on stderr when the branch requires nothing;
     # it never returns an empty array. A stub that returns [] tests a CLI that does not exist -- the
-    # comment runctl.sh has carried since before this rewrite.
+    # behaviour the deleted runctl.sh had already learned and documented.
     case "$*" in *--required*) ;; *) exit 1 ;; esac
     if [ -f "$D/checks-none" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
     serve checks.json ;;

@@ -91,11 +91,13 @@ simply not on this branch's path.
 | 6 — `doctor` | — |
 | 7 — `commands/` → `skills/` | 3 |
 | 8 — authenticated eval | 4, 5, 7 |
-| 9 — deletion | 6, 8 |
+| 9 — deletion | 6 |
 
 Tasks 0 and 6 start at once. The eval runs **after** the migration, because the thing it must
-exercise is the final public `/cc-tuner:run`, not an intermediate one. Deletion is last and is blocked
-by the eval: the old runtime stays until a real session has been observed completing the new one.
+exercise is the final public `/cc-tuner:run`, not an intermediate one — and, by the 2026-08-14
+decision recorded under Task 9, after the deletion too, so that "final" and "shipped" name the same
+artifact. Deletion was blocked by the eval on the reasoning that the old runtime was a fallback; it
+was not one, since nothing has been released from this branch and `git revert` outlives the files.
 
 ---
 
@@ -580,7 +582,7 @@ nowhere. An evidence record for a retired policy is sediment, and it is not amon
 RED/GREEN check requires. Recorded here because it was removed during Task 7 without a mandate,
 which is the kind of quiet deletion this plan exists to prevent.
 
-- [ ] **Step 1: free the one surviving consumer of `execute-task/lib.sh` FIRST.** `prereq-check.sh`
+- [x] **Step 1: free the one surviving consumer of `execute-task/lib.sh` FIRST.** `prereq-check.sh`
       sources it at line 39 and survives this task, so deleting `lib.sh` in the same commit breaks it —
       green-at-every-commit violated. Inline the helpers it actually uses, including
       `execute_task_manifest_roots` if it still needs it after Task 6, run the suite, commit. Only
@@ -590,7 +592,7 @@ which is the kind of quiet deletion this plan exists to prevent.
       `scripts/smoke-verify/lib.sh`; an earlier draft listed them here on the strength of a
       `grep -l lib.sh`, which matches the string anywhere including comments. Checking who sources
       *which* file is the difference between a correct deletion order and a broken one.
-- [ ] **Step 2: handle a legacy run — a warning plus one real refusal.** A repository still holding
+- [x] **Step 2: handle a legacy run — a warning plus one real refusal.** A repository still holding
       `.claude/execute-task-runs/*.state.json` is mid-flight on a runtime that no longer exists; left
       unhandled the old machinery does not merely disappear, it silently fails open — the defect being
       deleted, reintroduced by the deletion.
@@ -606,11 +608,11 @@ which is the kind of quiet deletion this plan exists to prevent.
         delivery without adding a new global fence.
 
       Migration of the old state is explicitly not offered; detection is.
-- [ ] **Step 3: delete, one commit per subsystem**, so a bisect can land between them.
-- [ ] **Step 4: `bash tests/run.sh`** after each — green at every one.
-- [ ] **Step 5: `grep -rn runctl plugins/ docs/`** — no live reference survives. A doc naming a deleted
+- [x] **Step 3: delete, one commit per subsystem**, so a bisect can land between them.
+- [x] **Step 4: `bash tests/run.sh`** after each — green at every one.
+- [x] **Step 5: `grep -rn runctl plugins/ docs/`** — no live reference survives. A doc naming a deleted
       script is a broken instruction, not a stale comment.
-- [ ] **Step 6: reduce the thirty invariants** to at most seven, per the ADR's complexity budget,
+- [x] **Step 6: reduce the thirty invariants** to at most seven, per the ADR's complexity budget,
       each stating plainly whether code enforces it or a skill merely states it. Not "only those with
       a runtime reader": two of the seven — `red-green-regression-proof` and
       `definition-of-done-before-merge` — are instructions the run skill carries and nothing executes,

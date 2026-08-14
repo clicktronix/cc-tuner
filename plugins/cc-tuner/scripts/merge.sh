@@ -115,8 +115,8 @@ esac
 # --required, and zero checks is not green: an empty list satisfies "nothing failed" under any naive
 # reading, and absent CI is unproven CI.
 # `gh pr checks --required` does NOT return an empty list when the branch requires nothing: it exits
-# non-zero and says "no checks reported" on stderr. runctl.sh has carried that knowledge, and a
-# comment explaining it, since before this rewrite; reading only the exit status reports "cannot read
+# non-zero and says "no checks reported" on stderr. This was learned the hard way in the deleted
+# runctl.sh, which carried it and a comment explaining it; reading only the exit status reports "cannot read
 # CI" for a repository that simply has no branch protection, sending the operator to look for a
 # failing check that does not exist.
 CHECKS_ERR="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-checks.XXXXXX")" || die "cannot create a temporary file"
