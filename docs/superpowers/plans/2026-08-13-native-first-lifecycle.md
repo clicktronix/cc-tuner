@@ -128,14 +128,14 @@ was not one, since nothing has been released from this branch and `git revert` o
 This task ships the machinery and **one** scenario: the harness proving itself. Checked-merge
 scenarios belong to Task 4, alongside the script, so no commit in between is red.
 
-- [ ] **Step 1: write `lib.sh` and register the tier in `tests/run.sh`.** Each test exits non-zero on
+- [x] **Step 1: write `lib.sh` and register the tier in `tests/run.sh`.** Each test exits non-zero on
       failure; the repository runner reports each by name and fails if any did.
-- [ ] **Step 2: write `test_harness_selftest.sh`** — builds a repo, asserts it is a git repo with
+- [x] **Step 2: write `test_harness_selftest.sh`** — builds a repo, asserts it is a git repo with
       the expected fixture layout, and asserts that a deliberately failing assertion inside a
       subprocess is reported as a failure. Without this, "all scenarios passed" and
       "no scenario ran" look identical, which is how the original defect hid.
-- [ ] **Step 3: `bash tests/run.sh`.** Green, including the new tier.
-- [ ] **Step 4: commit** — `Add end-to-end scenario harness`.
+- [x] **Step 3: `bash tests/run.sh`.** Green, including the new tier.
+- [x] **Step 4: commit** — `Add end-to-end scenario harness`.
 
 **Acceptance:** deleting the body of an assertion makes the test fail, and a missing flow tier is
 reported rather than silently passing.
@@ -203,8 +203,8 @@ the only place that branches on it and it has no other way in.
    Deciding check: pnpm test tests/retry
    Delivers: a request that exhausts its budget fails with one typed error.
 
-   - [ ] budget is read from config, not hardcoded
-   - [ ] exhaustion is observable in the returned error
+   - [x] budget is read from config, not hardcoded
+   - [x] exhaustion is observable in the returned error
    ```
 
    `Blocked by` and the rest are slice-level; `- [ ]` lines are **acceptance criteria inside a slice**
@@ -232,7 +232,7 @@ exists to remove. The cost is real and already accepted elsewhere: plan mode phy
 write before approval and a conversation does not, and the ADR already records the plan as advisory in
 attended mode.
 
-- [ ] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks
+- [x] **Step 1: write `plan-lint.sh`** — given a plan file, exit non-zero if a slice lacks
       `Blocked by`, if a named blocker matches no slice number, or if a `- [ ]` line sits outside any
       slice. Three more were added during implementation and are recorded here rather than left as a
       surprise: a slice with no acceptance criteria can never be done, so it would be resurrected in
@@ -241,13 +241,13 @@ attended mode.
       the rejected build — that referred to a bespoke graph engine in Bash, not to a five-line check
       that the plan can finish. The linter is the definition of "parsable"; Task 5's hook and this script must not each
       grow their own parser, so the hook calls this one to extract slices.
-- [ ] **Step 2: write `test_plan_lint.sh`** — four hand-written fixtures: one valid, one with a
+- [x] **Step 2: write `test_plan_lint.sh`** — four hand-written fixtures: one valid, one with a
       dangling blocker, one missing `Blocked by`, one with an orphan checkbox. Assert the linter
       accepts the first and rejects the rest. **This tests the linter, not the skill** — no session
       runs here, so nothing about the skill's behaviour is being asserted.
-- [ ] **Step 3: write the template, then the SKILL.md.**
-- [ ] **Step 4: `bash tests/run.sh`**, green.
-- [ ] **Step 5: commit** — `Add cc-tuner:plan skill and plan validator`.
+- [x] **Step 3: write the template, then the SKILL.md.**
+- [x] **Step 4: `bash tests/run.sh`**, green.
+- [x] **Step 5: commit** — `Add cc-tuner:plan skill and plan validator`.
 
 **Acceptance:** the linter rejects a dangling blocker. That the *skill* produces a plan the linter
 accepts is Task 8's assertion, and is not claimed here.
@@ -297,11 +297,11 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
   edge and does not enforce it, and unattended there is nobody watching.
 - Stop at each delivery boundary without `--auto`.
 
-- [ ] **Step 1: write the skill.** Target under 120 lines — `superpowers:executing-plans` does the same
+- [x] **Step 1: write the skill.** Target under 120 lines — `superpowers:executing-plans` does the same
       job in 70. Anything longer is reference material and belongs in a linked file.
-- [ ] **Step 2: read it back against the no-op test** — for each line, does it change behaviour versus
+- [x] **Step 2: read it back against the no-op test** — for each line, does it change behaviour versus
       the default? Delete whole sentences that fail, do not trim words.
-- [ ] **Step 3: `bash tests/run.sh`**, commit — `Add cc-tuner:execute skill`.
+- [x] **Step 3: `bash tests/run.sh`**, commit — `Add cc-tuner:execute skill`.
 
 **Acceptance:** the skill is under 120 lines and no line restates a `Task*` tool description.
 
@@ -333,19 +333,19 @@ outside cc-tuner's boundary.
 `merge.sh` unchecked but still head-pinned. Refusing there made the wrapper unusable for ordinary
 pull requests.
 
-- [ ] **Step 1: write `merge.sh`**, deny-by-default within scope, pass-through outside it, and
+- [x] **Step 1: write `merge.sh`**, deny-by-default within scope, pass-through outside it, and
       `--check-only` so the eval can observe the positive path without merging.
-- [ ] **Step 2: the positive path first.** In scope, verdict at the head, green required CI → merges,
+- [x] **Step 2: the positive path first.** In scope, verdict at the head, green required CI → merges,
       with the pin. Without this, a script that refused everything would pass every other case.
-- [ ] **Step 3: one missing fact at a time**, each refusing: head moved past the review; no verdict;
+- [x] **Step 3: one missing fact at a time**, each refusing: head moved past the review; no verdict;
       red CI; zero required checks; unreadable paginated file list. Plus zero-recorded, which is the
       0.10.0 reproduction.
-- [ ] **Step 4: the caller's belief is checked** — a SHA that is no longer the head refuses.
-- [ ] **Step 5: forgery** — wrong author, marker inside other prose, superseded by a later
+- [x] **Step 4: the caller's belief is checked** — a SHA that is no longer the head refuses.
+- [x] **Step 5: forgery** — wrong author, marker inside other prose, superseded by a later
       `REQUEST_CHANGES`.
-- [ ] **Step 6: large-PR scope.** Put the plan after file 100 and prove the paginated endpoint keeps
+- [x] **Step 6: large-PR scope.** Put the plan after file 100 and prove the paginated endpoint keeps
       it in scope; prove an API failure refuses rather than guessing.
-- [ ] **Step 7: `bash tests/run.sh`**, green, then commit.
+- [x] **Step 7: `bash tests/run.sh`**, green, then commit.
 
 **Acceptance:** the positive path merges, each single missing fact refuses, an ordinary pull request
 still merges through the explicit wrapper, and scope remains correct beyond 100 changed files.
@@ -369,16 +369,16 @@ nothing else, so this asks the agent to restore and cannot make it happen.
 `superpowers/hooks/session-start` is the working model, including its manual JSON escaping and its
 `printf`-instead-of-heredoc workaround for bash 5.3.
 
-- [ ] **Step 1: find this branch's plan** — `<root>/task-plans/*-<current-branch-slug>.md`, tracked in `git`.
+- [x] **Step 1: find this branch's plan** — `<root>/task-plans/*-<current-branch-slug>.md`, tracked in `git`.
       Not "the newest file", which picks the wrong plan the moment two branches have one. None → emit
       nothing and exit 0; silence is the correct output when there is no plan.
-- [ ] **Step 2: emit the unfinished slices, with their structure.** Per slice: number, title,
+- [x] **Step 2: emit the unfinished slices, with their structure.** Per slice: number, title,
       `Blocked by`, and its unticked acceptance criteria. No `Status` field — progress is derived from
       the checkboxes and there is no second record of it. **Not a flat list of `- [ ]` lines** either:
       those are criteria inside a slice, so emitting them alone would restore a set of checkboxes with
       no titles and no edges, and the dependency graph would be silently lost. Extract via
       `plan-lint.sh`'s parser rather than a second one written here.
-- [ ] **Step 2b: emit finished slices that are still referenced.** An unfinished slice's `Blocked by`
+- [x] **Step 2b: emit finished slices that are still referenced.** An unfinished slice's `Blocked by`
       may name a slice that is already done. Restoring only the unfinished ones leaves that edge
       pointing at a task that does not exist, and the restored graph is quietly wrong. Emit every
       referenced blocker, marked done.
@@ -389,14 +389,14 @@ nothing else, so this asks the agent to restore and cannot make it happen.
       as a task, wire all `addBlockedBy` edges, then mark those slices `completed`.** In that order,
       because an edge cannot be added to a task that does not exist yet, and marking first would leave
       the wiring to a second pass that may not happen.
-- [ ] **Step 3: make the instruction idempotent** — call `TaskList` first, create only the slices that
+- [x] **Step 3: make the instruction idempotent** — call `TaskList` first, create only the slices that
       are missing, then re-apply `addBlockedBy` for edges not already present. Written this way even
       though `compact` is excluded, so a future trigger change cannot silently double the plan.
-- [ ] **Step 4: `test_session_start.sh`** — a half-done plan emits exactly the unfinished slices **with
+- [x] **Step 4: `test_session_start.sh`** — a half-done plan emits exactly the unfinished slices **with
       their `Blocked by` values**; a finished plan emits nothing; a branch with no plan file emits
       nothing. Plus the case the naive implementation gets wrong: **an unfinished Slice 3 blocked by a
       finished Slice 2** must emit Slice 2 as well, marked done — not an edge into nothing.
-- [ ] **Step 5: `bash tests/run.sh`**, commit — `Restore the plan on session start`.
+- [x] **Step 5: `bash tests/run.sh`**, commit — `Restore the plan on session start`.
 
 **Acceptance:** `clear` is covered as well as `startup`; the emitted context carries slice titles and
 edges, not just criteria; and the instruction is idempotent against an already-populated task list.
@@ -439,15 +439,15 @@ now lives in `scripts/setup/plugin-here.sh`, called by both, and it answers with
 because only one loads. Everything above about *what* the rule is still holds; only its address
 changed.
 
-- [ ] **Step 1: point `doctor.sh` at `claude plugin list --json`** and stop it calling the resolver.
-- [ ] **Step 2: retire the `none` tracker everywhere it is expressible**, not only in `/run`. It is
+- [x] **Step 1: point `doctor.sh` at `claude plugin list --json`** and stop it calling the resolver.
+- [x] **Step 2: retire the `none` tracker everywhere it is expressible**, not only in `/run`. It is
       written several ways: the prose at `commands/spec.md:140`, the **template's `tracker: gh|none`
       at `commands/spec.md:124`**, and any config or test that accepts it as a value. It was always
       inconsistent, since `/run` requires a PR and GitHub CI unconditionally.
-- [ ] **Step 3: check semantically, not by literal string.** `grep -rn 'tracker: none'` misses
+- [x] **Step 3: check semantically, not by literal string.** `grep -rn 'tracker: none'` misses
       `tracker: gh|none`, a `["gh","none"]` array, and the template — the exact miss that left it
       behind last time. Grep for the **field**, `grep -rn 'tracker' plugins/`, and read each hit.
-- [ ] **Step 4: `bash tests/run.sh`**, commit — `Simplify doctor onto claude plugin list`.
+- [x] **Step 4: `bash tests/run.sh`**, commit — `Simplify doctor onto claude plugin list`.
 
 ---
 
@@ -465,25 +465,25 @@ script that is about to be removed.
 - Move: `commands/*.md` → `skills/<name>/SKILL.md`
 - Create: `skills/run/references/*.md` for the material that is reference rather than instruction
 
-- [ ] **Step 1: move each command**, preserving its frontmatter.
-- [ ] **Step 2: rewrite `run`** onto the new runtime — the skill, the plan file, `git`/`gh`. This is
+- [x] **Step 1: move each command**, preserving its frontmatter.
+- [x] **Step 2: rewrite `run`** onto the new runtime — the skill, the plan file, `git`/`gh`. This is
       where the last live references to `runctl.sh`, `journal.sh` and the prepared-file machinery
       leave the tree.
-- [ ] **Step 2b: rewrite `spec` so it creates the task branch before grilling.** `commands/spec.md:29`
+- [x] **Step 2b: rewrite `spec` so it creates the task branch before grilling.** `commands/spec.md:29`
       invokes `grilling` with `domain-modeling` today, and `domain-modeling` writes `CONTEXT.md` and
       ADRs — so `/spec` persists to the repository with no branch. The placement rule in Task 3 says
       the branch comes first; without this step that rule is a paragraph nobody implements. Move
       branch creation ahead of section 2 of the command.
-- [ ] **Step 2c: a test for the order.** The scenario this step originally asked for cannot exist in
+- [x] **Step 2c: a test for the order.** The scenario this step originally asked for cannot exist in
       the shell tier: `/spec` is a skill, so "run its branch-creation step" needs a model. What is
       testable without one is that the command still *says* it in the right order, and that is an
       ordering assertion in `test_contract.sh` (`spec-branch-before-grilling`), mutation-proved by
       moving the section back. Whether a session obeys it belongs to Task 8, which asserts the branch
       exists before `CONTEXT.md` is written.
-- [ ] **Step 3: split it** — instructions stay in `SKILL.md`, reference moves behind a pointer. Target
+- [x] **Step 3: split it** — instructions stay in `SKILL.md`, reference moves behind a pointer. Target
       under 150 lines in the body; the median skill in both reference plugins is under 180.
-- [ ] **Step 4: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
-- [ ] **Step 5: `bash tests/run.sh`**, commit — `Move commands to skills`.
+- [x] **Step 4: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
+- [x] **Step 5: `bash tests/run.sh`**, commit — `Move commands to skills`.
 
 **Acceptance:** `grep -rn 'runctl\|journal\.sh' plugins/*/commands plugins/*/skills` returns nothing.
 
