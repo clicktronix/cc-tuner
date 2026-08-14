@@ -563,6 +563,15 @@ requires the eval to exercise the shipped plugin: running it after the deletion 
 - `.claude/execute-task-runs/` handling entirely: state files, generation and reclaim locks, prepared
   files, the hard-link machinery, the Markdown journal
 
+**Also delete the repository-level run config**, which this list named only by its scaffolder:
+`assets/execute-task/config.template.md`, the `config-init.sh` step in `skills/setup/SKILL.md`, and
+`tests/execute-task/test_config.sh`. Measured on 2026-08-14: `config-init.sh` is the only file in
+`scripts/` or `hooks/` that mentions `.claude/execute-task.md` at all — not even `runctl.sh` read it,
+so the feature has been write-only for its whole life. Deleting the scaffolder while leaving the
+template, the skill step and the test would leave `/cc-tuner:setup` instructing users to run a script
+that is gone. Recorded here rather than done quietly, which is the rule the `red-cheap-gate-deadline`
+note below exists to enforce.
+
 **Keep:** `prereq-check.sh`, reduced to the capability checks something still reads.
 
 **Also delete `tests/scenarios/task-run/red-cheap-gate-deadline.json`.** Its subject is the cheap-gate

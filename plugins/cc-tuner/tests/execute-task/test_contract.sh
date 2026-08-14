@@ -7,7 +7,6 @@ SPEC="$ROOT/plugins/cc-tuner/skills/spec/SKILL.md"
 RUN="$ROOT/plugins/cc-tuner/skills/run/SKILL.md"
 PLAN_SKILL="$ROOT/plugins/cc-tuner/skills/plan/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
-CONFIG="$ROOT/plugins/cc-tuner/assets/execute-task/config.template.md"
 CONTRACT="$ROOT/plugins/cc-tuner/workflow-contract.json"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # Change-detection for THIS repo's copy of the shared contract, nothing more: the constant is
@@ -155,7 +154,7 @@ release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" 
 # is covered by tests/flow/test_merge.sh against its actual argument boundary, which is a stronger
 # check than any of them were.
 
-if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" "$CONFIG" >/dev/null; then
+if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"
   fails=1
 else
