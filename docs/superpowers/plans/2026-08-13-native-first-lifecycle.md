@@ -29,6 +29,18 @@ under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → c
 - **Migration precedes deletion.** Nothing that works today is removed before the thing that replaces
   it runs green, and no commit leaves a public command pointing at a deleted script.
 
+  **"Runs green" means the scenario tier, and saying so is the point** (amended 2026-08-14). The
+  phrase carried both readings — a green `tests/run.sh`, and a real session observed working — and
+  Task 9 proceeded on the first while Task 8 still owed the second, so the rule could be quoted
+  against the order it was following. It means the first: every replacement has scenario tests
+  exercising it through the route the product uses, and those are green at every commit. It does not
+  and cannot mean the eval, because the eval cannot run against a tree it will not ship, and gating
+  deletion on it made the eval measure an artifact nobody would use.
+
+  What the eval still owes is unchanged and is not weakened by this: **no replacement is proven until
+  Task 8 observes it in a real session**, and the Definition of done requires exactly that before the
+  branch is finished. Deletion moving earlier changes when the eval runs, never whether.
+
 ## Two tiers of test, and what each can prove
 
 The distinction matters more than any single task here, because getting it wrong is the defect this
@@ -416,6 +428,16 @@ sourced by the execute-task scripts and `run-state-hook.sh`. Removing it while t
 breaks them in the same commit. This task changes the one caller that has a native replacement; the
 function goes in Task 9, after its remaining consumers do. (`smoke-verify` is not among them — it has
 its own `scripts/smoke-verify/lib.sh`.)
+
+**Amended 2026-08-14: the selection rule does not live in `doctor.sh` either.** As written above,
+this task moved the precedence rule *into* doctor while the preflight kept its own — two homes for
+one rule, which is what the global constraints forbid, and they diverged twice: on `enabled: false`,
+which doctor filtered and the preflight did not, and then on how many installs count, where doctor
+took the top row and the preflight searched them all. The second divergence produced a false green —
+a `local` install missing a required skill, passed by a complete `user` install below it. The rule
+now lives in `scripts/setup/plugin-here.sh`, called by both, and it answers with **one** install
+because only one loads. Everything above about *what* the rule is still holds; only its address
+changed.
 
 - [ ] **Step 1: point `doctor.sh` at `claude plugin list --json`** and stop it calling the resolver.
 - [ ] **Step 2: retire the `none` tracker everywhere it is expressible**, not only in `/run`. It is

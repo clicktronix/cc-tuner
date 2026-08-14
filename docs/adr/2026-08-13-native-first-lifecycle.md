@@ -295,9 +295,11 @@ workflow discipline against an agent's mistake and must not be described as anyt
   a budget that omits them cannot be checked against it.
   Setup-time checks are a separate category with a separate home, and now literally so: `scripts/setup/`
   holds `doctor.sh`, `prereq-check.sh` and `plugin-here.sh`. The last exists because "which install
-  of a plugin applies here" was answered in two places that had already diverged — doctor skipped
-  `enabled: false` and the preflight did not — so it is one program with two callers rather than one
-  rule with two homes.
+  of a plugin applies here" was answered in two places that had already diverged twice over — doctor
+  skipped `enabled: false` and the preflight did not; doctor took the top install and the preflight
+  searched them all, which passed a broken `local` install because a complete `user` one sat below
+  it. Both callers now run the one program, and it answers with a single install, because a resolver
+  that hands back three has not answered the question.
 - One checked delivery path, fail-closed whenever it cannot determine whether its target is in scope.
 - No more than seven normative invariants. Each says plainly whether code enforces it or a skill
   merely states it, and none may claim a gate it does not have. The earlier wording — "each with

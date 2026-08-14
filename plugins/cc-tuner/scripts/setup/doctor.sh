@@ -52,29 +52,32 @@ if command -v gh >/dev/null 2>&1; then
 fi
 
 # --- 3. companion plugins ------------------------------------------------------------------------
-# `claude plugin list --json` is the platform's own answer, so nothing here parses a plugin manifest.
-# What it does NOT answer is which installation applies: it returns one row per installation, and on
-# 2.1.231 cc-tuner comes back twice — `scope: project` with a `projectPath` and `scope: user` without
-# one, both `enabled: true`, with no `active` field. So the selection rule still has to exist, or the
-# reported version is a coin flip between two installs. Same total order the delivery gate applies:
-# local, then project, then user; a row scoped to a different project cannot answer for this repo.
-#
-# `enabled: false` is skipped: a disabled plugin does not load its commands, so `/review --required`
-# would not run. Reporting `ok` for one is a false green in the tool whose only job is to say whether
-# the environment works. The delivery gate's resolver does not filter this, which is a divergence for
-# as long as that resolver survives — it is deleted with the rest of the state machine.
-PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
-
+# Which installation applies is asked of scripts/setup/plugin-here.sh, which prereq-check.sh also
+# uses. It was implemented here as well until 2026-08-14, and the two copies disagreed twice over: on
+# `enabled: false`, which this one filtered and the preflight did not, and on how many installs count,
+# where this one took the top row and the preflight searched them all. Both divergences produced the
+# same shape — doctor and the preflight answering one question differently — so there is now one
+# program and two callers.
 plugin_here() {  # plugin_here <id> -> "<version> (<scope>)" for the install that applies here
-  printf '%s' "$PLUGIN_LIST" | jq -r --arg id "$1" --arg project "$REPO_ROOT" '
-    [ .[]? | select(.id == $id and (.enabled != false) and (
-        .scope == "user"
-        or ((.scope == "project" or .scope == "local") and .projectPath == $project)
-      )) ]
-    | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
-    | .[0] // empty | "\(.version) (\(.scope))"
-  ' 2>/dev/null
+  row="$(bash "$(cd "$(dirname "$0")" && pwd)/plugin-here.sh" "$1" "$REPO_ROOT" 2>/dev/null)" || return 0
+  [ -n "$row" ] || return 0
+  # Split in bash rather than with awk or cut. This tool reports on environments that are missing
+  # things, so every external it adds is one more way for it to fail in exactly the situation it
+  # exists to diagnose -- its own suite runs it against a PATH holding seven utilities, and caught an
+  # awk here on the first run.
+  #
+  # Parameter expansion, not `read -r a b c` with IFS set to tab: tab is one of the default IFS
+  # whitespace characters, so `read` collapses empty fields and shifts everything left. A row whose
+  # installPath was empty then reported the scope as the version, and the scope as nothing.
+  rest="${row#*	}"
+  pv="${rest%%	*}"
+  ps="${rest#*	}"
+  printf '%s (%s)' "$pv" "$ps"
 }
+
+# Still asked once, only to tell "no plugins listed" from "that plugin is not installed": the first
+# is an environment this tool cannot see into, the second is a finding about the environment.
+PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
 
 companion() {  # companion <id> <what needs it> <install hint>
   found="$(plugin_here "$1")"

@@ -44,34 +44,31 @@ if [ -n "$UNANSWERABLE" ]; then
   exit 1
 fi
 
-# has_file <plugin-id> <relative path> -- does any applicable install carry this file?
+# root_of <plugin-id> -- the install path that applies here, or empty.
+#
+# One install, never a search across several. An earlier version looped over every applicable root
+# and passed if a file turned up in any of them, which reported `prereqs OK` for a `local` install
+# missing the code-review skill because a `user` install two rows down still had it. Only the top
+# install loads, so a check satisfied by a lower one is checking files nothing will read.
+root_of() { roots "$1" | cut -f1; }
+
+# has_file <plugin-id> <relative path> -- does the applicable install carry this file?
 has_file() {
-  local id="$1" relative="$2" root
-  while IFS="$(printf '\t')" read -r root _; do
-    [ -n "$root" ] && [ -f "$root/$relative" ] && return 0
-  done <<EOF
-$(roots "$id")
-EOF
-  return 1
+  local root; root="$(root_of "$1")"
+  [ -n "$root" ] && [ -f "$root/$2" ]
 }
 
 # The required-review contract, not merely the plugin: an installed cc-codex-triage predating it
 # would satisfy "is it there" and still be unable to answer for a delivery gate.
 codex_contract() {
   local root review state
-  while IFS="$(printf '\t')" read -r root _; do
-    [ -n "$root" ] || continue
-    review="$root/commands/review.md"; state="$root/scripts/review-state.sh"
-    if [ -f "$review" ] && [ -f "$state" ] \
-      && grep -qF -- '--required' "$review" \
-      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
-      && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"; then
-      return 0
-    fi
-  done <<EOF
-$(roots 'cc-codex-triage@cc-codex-triage')
-EOF
-  return 1
+  root="$(root_of 'cc-codex-triage@cc-codex-triage')"
+  [ -n "$root" ] || return 1
+  review="$root/commands/review.md"; state="$root/scripts/review-state.sh"
+  [ -f "$review" ] && [ -f "$state" ] \
+    && grep -qF -- '--required' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"
 }
 
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run

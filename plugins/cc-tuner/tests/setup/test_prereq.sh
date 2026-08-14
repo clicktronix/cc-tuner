@@ -134,8 +134,45 @@ ORDERED="$(jq -nc --arg pp "$PROJECT" '
   [ {id:"p@p", version:"3", scope:"user",    enabled:true, installPath:"/u"},
     {id:"p@p", version:"2", scope:"project", enabled:true, installPath:"/p", projectPath:$pp},
     {id:"p@p", version:"1", scope:"local",   enabled:true, installPath:"/l", projectPath:$pp} ]')"
-OUT="$(r "$ORDERED" 'p@p' | cut -f3 | tr '\n' ',')"
-[ "$OUT" = "local,project,user," ] \
-  && pass "resolver-total-order" || fail "resolver-total-order (got '$OUT')"
+OUT="$(r "$ORDERED" 'p@p')"
+[ "$OUT" = "$(printf '/l\t1\tlocal')" ] \
+  && pass "resolver-picks-the-top-install" || fail "resolver-picks-the-top-install (got '$OUT')"
+# One row, not a ranked list. The first version of this assertion accepted "local,project,user" --
+# it pinned the ordering and, with it, the bug: a caller handed three roots searches all three.
+[ "$(printf '%s\n' "$OUT" | grep -c .)" = "1" ] \
+  && pass "resolver-answers-with-one-row" || fail "resolver-answers-with-one-row (got '$OUT')"
+
+# Three columns, always, even when a field is absent. `// empty` inside an array constructor deletes
+# the element instead of blanking it, so a row without installPath emitted two columns and every
+# reader shifted left -- doctor printed the scope where the version belongs. Asserted on the column
+# count, because both spellings look identical until a field is missing.
+NOPATH="$(jq -nc '[ {id:"p@p", version:"1.0.0", scope:"user", enabled:true} ]')"
+OUT="$(r "$NOPATH" 'p@p')"
+[ "$OUT" = "$(printf '\t1.0.0\tuser')" ] \
+  && pass "resolver-keeps-three-columns" || fail "resolver-keeps-three-columns (got '$OUT')"
+
+# `projectPath` is whatever Claude Code recorded; the caller's root is whatever it was given.
+# Comparing only the canonicalized form drops a project-scoped install whenever the two spellings
+# differ -- and on macOS $TMPDIR alone differs, /var being a symlink to /private/var. The install then
+# falls through to a user-scoped one, which is the false green below wearing a different hat.
+SYMLINKED="$(jq -nc --arg pp "$PROJECT" '
+  [ {id:"p@p", version:"1", scope:"project", enabled:true, installPath:"/p", projectPath:$pp} ]')"
+OUT="$(CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$SYMLINKED")" bash "$RESOLVER" 'p@p' "$W/project" 2>/dev/null)"
+case "$OUT" in /p*) pass "resolver-matches-either-path-spelling" ;;
+               *) fail "resolver-matches-either-path-spelling (got '$OUT')" ;; esac
+
+# --- the false green a ranked list caused ---------------------------------------------------------
+# A `local` install that will actually load but lacks the code-review skill, plus a complete `user`
+# install below it. Searching every applicable root found the file somewhere and reported prereqs OK,
+# while the install that loads was broken. Reproduced before the fix; this is the regression test.
+BROKEN_TOP="$(matt_root matt-broken-top engineering/code-review)"
+COMPLETE_BELOW="$(matt_root matt-complete-below)"
+MASKED="$(jq -nc --arg t "$BROKEN_TOP" --arg b "$COMPLETE_BELOW" --arg c "$C" --arg pp "$PROJECT" '
+  [ {id:"mattpocock-skills@mattpocock", version:"9", scope:"local", enabled:true, installPath:$t, projectPath:$pp},
+    {id:"mattpocock-skills@mattpocock", version:"1", scope:"user",  enabled:true, installPath:$b},
+    {id:"cc-codex-triage@cc-codex-triage", version:"1", scope:"user", enabled:true, installPath:$c} ]')"
+OUT="$(run_with "$MASKED")"
+case "$OUT" in *code-review*) pass "lower-install-cannot-mask-a-broken-top-one" ;;
+               *) fail "lower-install-cannot-mask-a-broken-top-one ($OUT)" ;; esac
 
 exit $fails
