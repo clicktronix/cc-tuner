@@ -35,12 +35,31 @@ emit() {  # emit <context text> -- jq builds the JSON so the text cannot break o
     '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
 }
 
-PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve 2>/dev/null)" || exit 0
+# A leftover run-state file means this repository is mid-flight on a runtime that was deleted. Say so
+# before anything else, and say it even when there is no plan at all -- that combination is the most
+# likely one, and staying silent about it is how a broken repository looks like an idle one.
+#
+# ADVISORY, and named that. SessionStart cannot block: the reference says "Can block? No -- shows
+# stderr to user only." The refusal lives in merge.sh, where there is something to refuse.
+LEGACY=""
+for legacy in "$ROOT"/.claude/execute-task-runs/*.state.json; do
+  [ -e "$legacy" ] || continue
+  LEGACY="cc-tuner: .claude/execute-task-runs/ still holds run state from a removed runtime (${legacy##*/}).
+This version does not implement it, so nothing will advance that run. Finish it under the plugin
+version that created it, or delete the directory and re-plan. Merges are refused until it is gone.
+"
+  break
+done
+
+if ! PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve 2>/dev/null)"; then
+  [ -z "$LEGACY" ] || emit "$LEGACY"
+  exit 0
+fi
 
 if ! SLICES="$(bash "$SCRIPTS/plan-lint.sh" slices "$PLAN" 2>/dev/null)"; then
   # A committed plan that does not parse is not nothing, and staying quiet about it would let the
   # branch look like it has no plan at all.
-  emit "cc-tuner: $PLAN does not parse, so the task list was not restored. Run:
+  emit "${LEGACY}cc-tuner: $PLAN does not parse, so the task list was not restored. Run:
   plan-lint.sh check $PLAN"
   exit 0
 fi
@@ -87,9 +106,12 @@ END {
   }
 }')"
 
-[ -n "$BODY" ] || exit 0
+if [ -z "$BODY" ]; then
+  [ -z "$LEGACY" ] || emit "$LEGACY"
+  exit 0
+fi
 
-emit "cc-tuner: this branch has a committed plan with unfinished slices, and a task list that does
+emit "${LEGACY}cc-tuner: this branch has a committed plan with unfinished slices, and a task list that does
 not carry them yet. Rebuild it from $PLAN before doing anything else.
 
 Read TaskList first and create only what is missing -- this may run in a session that already has

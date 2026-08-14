@@ -188,4 +188,30 @@ R5="$(repo_with_plan feature/quotes 2026-01-01-feature-quotes.md "$NASTY")"
 equals "quotes-do-not-break-json" "0" "$(fire "$R5" | jq -e . >/dev/null 2>&1; echo $?)"
 check  "quoted-text-survives" 'He said "run' "$(context "$R5")"
 
+# --- a repository mid-flight on the deleted runtime ----------------------------------------------
+# Advisory, and asserted as advisory: SessionStart cannot block, so the wording must not read as a
+# gate, and the refusal is merge.sh's (tests/flow/test_merge.sh). What this must not do is stay
+# quiet -- a repository holding state for a runtime that no longer exists otherwise looks idle.
+legacy() { mkdir -p "$1/.claude/execute-task-runs"
+           printf '{"schema_version":1}\n' > "$1/.claude/execute-task-runs/old.state.json"; }
+
+# No plan at all is the likeliest pairing, and the path that used to exit before saying anything.
+R6="$(flow_repo)"; legacy "$R6"
+C6="$(context "$R6")"
+check "legacy-without-a-plan-is-reported" "removed runtime" "$C6"
+check "legacy-names-the-leftover-file"    "old.state.json"  "$C6"
+equals "legacy-without-a-plan-is-json" "0" "$(fire "$R6" | jq -e . >/dev/null 2>&1; echo $?)"
+
+# With a plan, both must arrive: reporting one and dropping the other is how a session acts on a
+# plan whose repository cannot deliver it.
+R7="$(repo_with_plan feature/legacy 2026-01-01-feature-legacy.md "$HALF")"; legacy "$R7"
+C7="$(context "$R7")"
+check "legacy-and-plan-both-reported" "removed runtime"  "$C7"
+check "legacy-does-not-eat-the-plan"  "Rebuild it from"  "$C7"
+
+# A repository with neither must stay silent. Without this, a warning that fired unconditionally
+# would pass every assertion above.
+R8="$(flow_repo)"
+absent "no-legacy-no-warning" "removed runtime" "$(context "$R8")"
+
 exit $fails

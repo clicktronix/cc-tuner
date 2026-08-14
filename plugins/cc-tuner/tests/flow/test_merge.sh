@@ -200,4 +200,33 @@ check "unreadable-file-list-refused" "refusing rather than guessing" "$(run "$D"
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/user"
 check "unknown-identity-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
 
+# --- a repository mid-flight on the deleted runtime ----------------------------------------------
+# Removing the old state machine without detecting its leftovers would fail OPEN: every gate that
+# file used to arm is gone, so a half-finished run looks finished. This is the one real refusal --
+# SessionStart can only advise -- so it is asserted against the fully-approved world, where every
+# other check passes and only the leftover state can be what refuses.
+#
+# The check reads the repository the script runs IN, so these cases run from a real repo on disk;
+# invoking from the cc-tuner checkout would only ever assert the absence of a file here.
+LEGACY_REPO="$(flow_repo)"
+mkdir -p "$LEGACY_REPO/.claude/execute-task-runs"
+printf '{"schema_version":1,"status":"active"}\n' > "$LEGACY_REPO/.claude/execute-task-runs/old.state.json"
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" bash "$MERGE" 42 squash "$SHA" 2>&1; printf 'rc=%s\n' "$?")"
+check  "legacy-state-refuses-merge"     "removed runtime"  "$OUT"
+check  "legacy-state-names-the-file"    "old.state.json"   "$OUT"
+check  "legacy-state-refuses-rc1"       "rc=1"             "$OUT"
+absent "legacy-state-never-merges"      "MERGED"           "$OUT"
+
+# --check-only must refuse too: it is the eval's evidence, and "would merge" from a repository whose
+# state cannot be reasoned about is not evidence of anything.
+OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" bash "$MERGE" --check-only 42 squash "$SHA" 2>&1; printf 'rc=%s\n' "$?")"
+check "legacy-state-refuses-check-only" "removed runtime" "$OUT"
+
+# And the same world with the leftover removed merges, so the refusal above is attributable to the
+# state file and to nothing else in the setup.
+rm -rf "$LEGACY_REPO/.claude/execute-task-runs"
+OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" bash "$MERGE" 42 squash "$SHA" 2>&1; printf 'rc=%s\n' "$?")"
+check "cleared-legacy-state-merges" "MERGED" "$OUT"
+
 exit $fails

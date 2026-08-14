@@ -35,6 +35,28 @@ PR="${1:-}"; STRATEGY="${2:-}"; SHA="${3:-}"
 case "$STRATEGY" in squash|merge) ;; *) die "strategy must be squash or merge" ;; esac
 command -v jq >/dev/null 2>&1 || die "jq is required to check the candidate"
 
+# A repository still holding a run-state file is mid-flight on a runtime that no longer exists. Left
+# undetected the old machinery does not merely vanish, it fails open: every gate that file used to
+# arm is gone, and the run looks finished because nothing is left to say otherwise -- the defect being
+# deleted, reintroduced by the deletion.
+#
+# This is the one real refusal. `SessionStart` can only advise: the reference is explicit that it
+# cannot block. And it is checked here rather than in a new global hook, because a fence over every
+# Bash command is what this design removed.
+#
+# Detection only. Migrating the old state is deliberately not offered -- the runtime that understood
+# it is gone, so anything this script wrote back would be a guess about a format nothing reads.
+# Read-only: this is the only code left that mentions a state file, and it never creates or edits one.
+LEGACY_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$LEGACY_ROOT" ]; then
+  for legacy in "$LEGACY_ROOT"/.claude/execute-task-runs/*.state.json; do
+    [ -e "$legacy" ] || continue
+    die "$LEGACY_ROOT/.claude/execute-task-runs/ still holds run state from the removed runtime (${legacy##*/}).
+  Finish that run under the plugin version that created it, or delete the directory and re-plan.
+  Refusing to merge while the repository is mid-flight on a runtime this version no longer implements."
+  done
+fi
+
 # Every fact is re-read here, from GitHub, at merge time. Nothing is carried in from the caller except
 # which PR and which SHA they believe they are merging — and both are checked against what GitHub says.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
