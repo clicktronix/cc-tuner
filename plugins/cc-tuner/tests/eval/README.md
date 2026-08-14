@@ -20,11 +20,14 @@ deliberately not shareable — step 2 must not inherit step 1's workspace.
 
 ## Before you start
 
-Read [`fixture-spec.md`](fixture-spec.md): the task to hand `/cc-tuner:spec`, why that task and not
-a smaller one, and what the scratch repository must already have. The short version: a GitHub
-remote, `gh auth status` clean, **at least one required status check on the target branch**, and a
-runnable test command. `merge.sh` refuses a repository with no required checks, so a repo without
-branch protection fails step 2b for a reason that has nothing to do with the code.
+Read [`fixture-spec.md`](fixture-spec.md): the task to hand `/cc-tuner:spec`, which two repositories
+to run it in, and why that task rather than a smaller one.
+
+Both repositories exist and are configured (2026-08-15). What that setup had to get right, in case
+it ever needs redoing: a GitHub remote, `gh auth status` clean, a runnable test command, and **at
+least one required status check on the target branch**. `merge.sh` refuses a repository that
+requires nothing — absent CI is unproven CI — so a repo without branch protection fails step 2b for
+a reason that has nothing to do with the code under test.
 
 ## Running it
 

@@ -6,8 +6,28 @@ request the eval starts from, chosen so the run has something real to prove.
 ## The task to give `/cc-tuner:spec`
 
 > Add a retry budget to the HTTP client. A request may be retried at most N times, N comes from
-> config rather than a constant, and a request that exhausts its budget fails with one typed error
-> that names how many attempts were made. Today the client retries forever on a 503.
+> config rather than the constant in the code, and a request that exhausts its budget raises one
+> typed error naming how many attempts were made. Today `request()` retries a hardcoded three times
+> and then returns `None`, so a caller cannot tell "the server returned nothing" from "we gave up".
+
+The hardcoded-three-then-`None` shape is deliberate. "Retries forever" would be the more obvious
+bug, but the check written to catch it would hang rather than fail, and a red arm that hangs is not
+a red arm — CI would time out instead of reporting.
+
+## Where it is
+
+Two repositories, already created and already configured:
+
+| | |
+|---|---|
+| attended run (step 1) | `~/Projects/ai/cc-tuner-eval-1` → `github.com/clicktronix/cc-tuner-eval-1` |
+| `--auto` run (step 2) | `~/Projects/ai/cc-tuner-eval-2` → `github.com/clicktronix/cc-tuner-eval-2` |
+
+Both are public and throwaway. Both run `python -m unittest discover -s tests` in CI as a check named
+`test`, and both require that check on `main` — verified with a live PR, on which
+`gh pr checks --required` returned `pass` and `merge.sh --check-only` correctly refused a PR carrying
+no plan file. Delete them when the eval is recorded:
+`gh repo delete clicktronix/cc-tuner-eval-1 --yes`.
 
 ## Why this one and not something smaller
 
