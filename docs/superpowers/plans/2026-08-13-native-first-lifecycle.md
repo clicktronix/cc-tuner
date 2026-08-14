@@ -516,10 +516,17 @@ is the shipped `/cc-tuner:run`, not an intermediate form of it.
       same. Then `/compact` and confirm **no duplication**.
 - [ ] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [ ] **Step 5: record every outcome** in `tests/eval/README.md` with the date and the observed
+- [ ] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
+      Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
+      text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
+      demonstrate that a model loads a reference it was never given. Each scenario now records what it
+      was measured against, and `tests/run.sh` requires that field, so the re-measure is a rewrite of
+      `date`, `measured_against` and `runs` — not an addition. A scenario whose behaviour no longer
+      reproduces is a finding about the rewrite, not a scenario to delete.
+- [ ] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
-**Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4 and 5. An
+**Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5 and 6. An
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most
 fall outside acceptance: step 0, which proves the eval tested this checkout rather than the installed
 version, and step 2b, the only live proof that the producer writes something the checked path can read.
@@ -582,8 +589,11 @@ which is the kind of quiet deletion this plan exists to prevent.
 - [ ] **Step 4: `bash tests/run.sh`** after each — green at every one.
 - [ ] **Step 5: `grep -rn runctl plugins/ docs/`** — no live reference survives. A doc naming a deleted
       script is a broken instruction, not a stale comment.
-- [ ] **Step 6: reduce the thirty invariants** to those with something that reads them at runtime.
-      Cap at seven, per the ADR's complexity budget.
+- [ ] **Step 6: reduce the thirty invariants** to at most seven, per the ADR's complexity budget,
+      each stating plainly whether code enforces it or a skill merely states it. Not "only those with
+      a runtime reader": two of the seven — `red-green-regression-proof` and
+      `definition-of-done-before-merge` — are instructions the run skill carries and nothing executes,
+      and the acceptance is that each says which of the two it is, not that all seven are gates.
 
 **Acceptance:** nothing in the tree **creates or modifies** a `*.state.json`; the only code that still
 mentions one is the **read-only** legacy detector, so "an existing legacy run is detected" and "no

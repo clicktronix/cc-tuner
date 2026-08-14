@@ -71,6 +71,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path create printed
 Fix what it reports and run it again until it is quiet. It refuses a slice with no `Blocked by`, a
 blocker that names no slice, a checkbox outside any slice, and a slice with no acceptance criteria.
 
+The grammar is exact, so write it exactly as the template does: `## Slice <n> — <title>` and
+`Blocked by:`, capitalised as shown, and `none` in lower case for a slice with no blockers. `None`,
+an empty value and a `-` are all refused — one spelling means the file cannot say the same thing
+three ways.
+
 Commit the plan file. It is the store: an uncommitted plan survives nothing, and the restore hook
 reads only tracked files.
 

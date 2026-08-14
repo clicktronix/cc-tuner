@@ -18,7 +18,7 @@ RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 # an immutable candidate tree. Leaving them would have meant a green suite affirming two contracts
 # that contradict each other. codex-tuner still carries 1.1.0 with 14 and now needs its own pass;
 # that is a coordinated cross-repository change and is NOT done.
-EXPECTED_SHARED_CONTRACT_SHA256="2e8b97a35406a2c46d1434f833028eadd33298ef27d71ff0317a1cf9b87e71e9"
+EXPECTED_SHARED_CONTRACT_SHA256="bedc960204e9f30af4d3da0f15ad3cb05ec4874636c77ccfc37e658b8f6e46d0"
 fails=0
 
 need() {
@@ -63,12 +63,21 @@ jq -e '
 ' "$CONTRACT" >/dev/null 2>&1 \
   && echo "PASS semantic-contract" || { echo "FAIL semantic-contract"; fails=1; }
 
-# Each surviving invariant has something whose BEHAVIOUR depends on it. Nothing loads this file at
-# runtime -- it is a normative document, not configuration -- so the claim is deliberately narrow:
-# each of these is enforced somewhere, not that the enforcer reads the JSON.
+# Five of the seven have something whose BEHAVIOUR depends on them; two do not, and the split is
+# written out below rather than averaged into one sentence. An earlier version of this comment opened
+# by saying each invariant is enforced somewhere and then listed two that are not -- a contradiction
+# inside one comment block, which is the same overclaim in miniature.
+#
+# Nothing loads this file at runtime -- it is a normative document, not configuration -- so even for
+# the five the claim is narrow: each is enforced somewhere, not that the enforcer reads the JSON.
 #   spec-before-run                                -> /run stops when plan-path.sh resolve finds none
 #   one-spec-one-branch-one-pr                     -> plan-path.sh resolve, fail-closed on 0 and on >1
 #   review-bound-to-candidate                     -> merge.sh, verdict at the exact head SHA
+#     It required the commit "and tree" until the checked path was read against it: merge.sh compares
+#     `commit.oid` and nothing else. The commit names its tree, so no bypass followed from the gap --
+#     but a published contract that asks for a second fact nobody checks is the overclaim again, in
+#     the one document another repository is supposed to implement. `/cc-tuner:deep-review` still
+#     records the tree in its own verdict; that is its choice, not this requirement.
 #   current-sha-ci-verification                   -> merge.sh, required checks on that SHA
 #   changes-invalidate-downstream-evidence        -> merge.sh, a moved head loses its verdict
 # The last two are NOT enforced by anything, and saying so is the point. They are carried by the run

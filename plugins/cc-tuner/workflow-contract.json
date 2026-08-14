@@ -53,7 +53,7 @@
     },
     {
       "id": "review-bound-to-candidate",
-      "requirement": "Every required review approval records the exact candidate commit and tree; invocation or partial output is not approval."
+      "requirement": "Every required review approval records the exact candidate commit; invocation or partial output is not approval."
     },
     {
       "id": "changes-invalidate-downstream-evidence",

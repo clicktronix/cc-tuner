@@ -178,7 +178,10 @@ recorded under **Consequences**.
 the Write/Edit mutation fence and prepared-file hard-link machinery; the manifest resolver for
 companion plugins (`claude plugin list --json` returns `scope`, `version`, `installPath`, `projectPath`
 and `enabled` directly); the Markdown journal as a second state; generation/reclaim locks; and the
-thirty-invariant list, reduced to those with something that reads them at runtime.
+thirty-invariant list, reduced to seven, each of which says plainly whether code enforces it or a
+skill merely states it. "Reduced to those with something that reads them at runtime" is how this line
+read first, and it was the same overclaim recorded under the complexity budget below: five are
+enforced by `merge.sh` and the path resolver, two are instructions in the run skill and nothing more.
 
 ### Checked delivery path
 

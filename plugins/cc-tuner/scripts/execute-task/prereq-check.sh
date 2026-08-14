@@ -44,32 +44,6 @@ fi
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 manifest_roots() {
-  local manifest="$1" key="$2" project="$3"
-  [ -f "$manifest" ] && [ -n "$project" ] || return 1
-  command -v jq >/dev/null 2>&1 || return 1
-  jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
-  jq -r --arg key "$key" --arg project "$project" '
-    .plugins[$key] // [] |
-    if type == "array" then
-      [ .[]? | select(
-          .scope == "user" or
-          ((.scope == "project" or .scope == "local") and .projectPath == $project)
-        ) ]
-      | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
-      | .[] | .installPath // empty
-    else empty end
-  ' "$manifest" 2>/dev/null
-}
-
-execute_task_codex_root_qualifies() {
-  local root="$1" review="$1/commands/review.md" state="$1/scripts/review-state.sh"
-  [ -f "$review" ] && [ -f "$state" ] \
-    && grep -qF -- '--required' "$review" \
-    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
-    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"
-}
-
-manifest_roots() {
   [ "$MANIFEST_MODE" = "active" ] || return 1
   execute_task_manifest_roots "$MANIFEST" "$1" "$PROJECT_ROOT"
 }

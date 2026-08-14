@@ -169,6 +169,11 @@ done
 # These scenarios originally shipped as `not run`, contradicting their own RED→GREEN rule. The
 # validator cannot prove that an external model call happened, but it can prevent an unmeasured row
 # (or an empty/failed GREEN arm) from silently replacing the reviewed evidence in source control.
+#
+# `measured_against` is required because a recorded pass says nothing without the text it was measured
+# against. Every one of these GREENs was taken on 2026-08-10, against `commands/run.md` — a file this
+# branch then deleted. A date alone does not make that visible; naming the subject does, and requiring
+# the field here stops the record being quietly dropped once Task 8 re-measures.
 task_run_evidence=0
 for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
   implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \
@@ -179,6 +184,7 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.baseline_observed.date | type == "string" and length > 0) and
     (.baseline_observed.method | type == "string" and length > 0) and
     (.baseline_observed.verdict | type == "string" and length > 0) and
+    (.green_check.measured_against | type == "string" and length > 0) and
     (.green_check.runs | type == "array" and length > 0) and
     all(.green_check.runs[]; .pass == true and (.note | type == "string" and length > 0))
   ' "$file" >/dev/null 2>&1; then

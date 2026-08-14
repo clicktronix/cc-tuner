@@ -97,14 +97,21 @@ Delivers: x
 OUT="$(lint check "$P")"
 check "no-criteria-message" "can never be done" "$OUT"
 
+# Complete but for the self-edge, so the diagnostic count below is the count of THIS defect.
 P="$(plan selfblock '## Slice 1 — A
 Blocked by: 1
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
 
 - [ ] a
 ')"
 OUT="$(lint check "$P")"
-# Self-blocking is the one-hop cycle, and is reported as one. It used to be flagged twice.
-check "self-block-message" "part of a blocking cycle" "$OUT"
+# Self-blocking is the one-hop cycle, and is reported as one. It used to be flagged twice, and a
+# substring assertion cannot tell those apart -- so count the diagnostics, not the phrase. Without
+# the count, restoring the second report leaves this suite green.
+check  "self-block-message" "part of a blocking cycle" "$OUT"
+equals "self-block-reported-once" "1" "$(printf '%s\n' "$OUT" | grep -c '^plan-lint: slice 1 ')"
 
 P="$(plan duplicate '## Slice 1 — A
 Blocked by: none
@@ -169,7 +176,56 @@ check  "slices-refuses-invalid"      "refusing to parse an invalid plan" "$OUT"
 check  "slices-refuses-invalid-rc1"  "rc=1"                              "$OUT"
 absent "slices-emits-nothing-on-bad" "SLICE	1"                          "$OUT"
 
-# --- "none" is the only spelling accepted, and "-" is only ever emitted ---------------------------
+# --- the grammar is exact, and every near-miss is refused -----------------------------------------
+# Each of these was accepted at some point. Leniency here is not kindness: the writer is a model, and
+# whatever it sees accepted is what the next plan will be written in, until the file says three
+# things and means one. Every case below fails if the corresponding leniency comes back.
+P="$(plan lowerheading '## slice 1 — A
+Blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check "lowercase-slice-heading-is-not-a-slice" "no slices found" "$OUT"
+
+P="$(plan lowerblocked '## Slice 1 — A
+blocked by: none
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check "lowercase-blocked-by-is-not-the-field" 'has no "Blocked by" line' "$OUT"
+
+P="$(plan capitalnone '## Slice 1 — A
+Blocked by: None
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check "capital-None-is-refused" 'the only accepted spelling is "none"' "$OUT"
+check "capital-None-rc1"        "rc=1"                                 "$OUT"
+
+P="$(plan emptyblocked '## Slice 1 — A
+Blocked by:
+Owned paths: src/
+Deciding check: make test
+Delivers: behaviour
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check "empty-blocked-by-is-refused" 'has an empty "Blocked by" line' "$OUT"
+check "empty-blocked-by-rc1"        "rc=1"                           "$OUT"
+
 # Reading "-" back was leniency for an input neither the template nor either skill produces.
 P="$(plan none '## Slice 1 — A
 Blocked by: none

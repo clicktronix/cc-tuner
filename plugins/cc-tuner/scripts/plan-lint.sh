@@ -19,6 +19,8 @@
 #   - [ ] exhaustion is observable in the returned error
 #
 # `Blocked by` is slice-level; `- [ ]` lines are acceptance criteria INSIDE a slice, never slices.
+# The grammar is exact: `Slice` and `Blocked by` are capitalised as written, and a slice with no
+# blockers writes `none` in lower case. Nothing else is a synonym.
 # There is no status field: a slice is done when every one of its criteria is ticked. A second record
 # of the same fact is one that goes stale.
 #
@@ -50,7 +52,7 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   if (depth > 0 && from == target) return 1
   if (from in path) return 0
   path[from] = 1
-  if (!(from in blk) || blk[from] == "" || blk[from] ~ /^[Nn]one$/) return 0
+  if (!(from in blk) || blk[from] == "" || blk[from] == "none") return 0
   m = split(blk[from], parts, /[ \t]*,[ \t]*/)
   for (j = 1; j <= m; j++) {
     p = parts[j]; gsub(/[^0-9]/, "", p)
@@ -120,7 +122,18 @@ END {
       continue
     }
     b = blocked[n]
-    if (b ~ /^[Nn]one$/ || b == "") continue
+    # One spelling, exactly: `none`. `None` and an empty value used to pass, so the file could say
+    # three different things and mean one -- and the reader that has to agree with this parser is a
+    # model writing the plan, which will reproduce whatever it sees accepted.
+    if (b == "none") continue
+    if (b == "") {
+      err[++e] = "slice " n " has an empty \"Blocked by\" line (write \"Blocked by: none\")"
+      continue
+    }
+    if (tolower(b) == "none") {
+      err[++e] = "slice " n " writes no blockers as \"" b "\"; the only accepted spelling is \"none\""
+      continue
+    }
     m = split(b, parts, /[ \t]*,[ \t]*/)
     for (j = 1; j <= m; j++) {
       p = parts[j]; gsub(/[^0-9]/, "", p)
@@ -158,7 +171,7 @@ END {
     # text as written meant Blocked by: #1 validated here, because the check strips non-digits, and
     # then arrived at the hook as #1, which matched no slice, so the edge vanished silently.
     b = (n in blocked) ? blocked[n] : ""
-    if (b ~ /^[Nn]one$/ || b == "") { b = "-" } else {
+    if (b == "none") { b = "-" } else {
       m = split(b, parts, /[ \t]*,[ \t]*/); b = ""
       for (j = 1; j <= m; j++) { p = parts[j]; gsub(/[^0-9]/, "", p)
         if (p != "") b = (b == "") ? p : b "," p }

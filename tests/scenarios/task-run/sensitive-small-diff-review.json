@@ -22,6 +22,7 @@
   },
   "green_check": {
     "date": "2026-08-10",
+    "measured_against": "the pre-rewrite `commands/run.md`. The skills rewrite (f4aaaf6, 2026-08-13) replaced that text and later commits moved parts of it into `references/`, so this GREEN is not evidence for the shipped `/cc-tuner:run` until Task 8 re-measures it.",
     "runs": [
       {
         "model": "haiku",
