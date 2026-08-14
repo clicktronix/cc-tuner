@@ -45,31 +45,61 @@ if [ -z "$PROJECT" ]; then
   PROJECT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$PROJECT" ] || PROJECT="$PWD"
 fi
-# Both spellings are compared, because `projectPath` is whatever Claude Code recorded and this is
-# whatever the caller passed. Canonicalizing only one side silently drops a project-scoped install
-# whenever the two disagree -- on macOS $TMPDIR alone is enough, /var being a symlink to /private/var.
-# The install then falls through to a user-scoped one, which is the false-green shape again.
-PROJECT_REAL="$(CDPATH='' cd -- "$PROJECT" 2>/dev/null && pwd -P)" || PROJECT_REAL="$PROJECT"
+# Canonicalized once here, and every candidate's `projectPath` is canonicalized too, below.
+#
+# A previous version compared the caller's string against both its own spellings and left it there.
+# That was useless: every caller resolves its root through `git rev-parse --show-toplevel` or
+# `pwd -P` first, so only the canonical form ever arrives, and the mitigation could not fire in
+# production. Its test called this script directly with a lexical path -- a route nothing uses --
+# which is the exact defect this branch exists to remove, committed while fixing an instance of it.
+#
+# The comparison that matters is between two canonical paths, so `projectPath` has to be resolved on
+# the filesystem, which jq cannot do. Hence the walk below rather than one jq expression: on macOS a
+# repo under /var/tmp is recorded lexically and reported canonically under /private/var/tmp, and a
+# project-scoped install then loses to a user-scoped one that should never have been reached.
+PROJECT="$(CDPATH='' cd -- "$PROJECT" 2>/dev/null && pwd -P)" || PROJECT="$PROJECT"
 
 command -v jq >/dev/null 2>&1 || { printf 'plugin-here: jq is required\n' >&2; exit 2; }
 
 LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || LIST=""
 [ -n "$LIST" ] || { printf 'plugin-here: could not list installed plugins\n' >&2; exit 2; }
 
-ROWS="$(printf '%s' "$LIST" | jq -r --arg id "$ID" --arg project "$PROJECT" --arg real "$PROJECT_REAL" '
-  [ .[]? | select(.id == $id and (.enabled != false) and (
-      .scope == "user"
-      or ((.scope == "project" or .scope == "local")
-          and ((.projectPath == $project) or (.projectPath == $real)))
-    )) ]
+# Candidates in precedence order, scope filtering left to the walk. `// ""` on every field, never
+# `// empty`: inside an array constructor `empty` DELETES the element rather than yielding a blank
+# one, so a row with no installPath emitted three columns instead of four and every reader shifted.
+CANDIDATES="$(printf '%s' "$LIST" | jq -r --arg id "$ID" '
+  [ .[]? | select(.id == $id and (.enabled != false)) ]
   | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
-  # `// ""` on every field, never `// empty`. Inside an array constructor `empty` DELETES the element
-  # rather than yielding a blank one, so a row with no installPath emitted two columns instead of
-  # three and every reader shifted left -- doctor reported the scope as the version.
-  | .[0] // empty | [ (.installPath // ""), (.version // ""), (.scope // "") ] | @tsv
+  | .[] | [ (.installPath // ""), (.version // ""), (.scope // ""), (.projectPath // "") ] | @tsv
 ' 2>/dev/null)" || {
   printf 'plugin-here: could not read the installed-plugin list\n' >&2; exit 2
 }
 
-[ -n "$ROWS" ] || exit 1
-printf '%s\n' "$ROWS"
+while IFS= read -r row; do
+  [ -n "$row" ] || continue
+  # Split by parameter expansion. `read -r a b c d` with IFS set to tab collapses empty fields and
+  # shifts the rest left, because tab is one of the default IFS whitespace characters.
+  path="${row%%	*}";  rest="${row#*	}"
+  ver="${rest%%	*}";  rest="${rest#*	}"
+  scope="${rest%%	*}"; ppath="${rest#*	}"
+
+  case "$scope" in
+    user) ;;
+    project|local)
+      [ -n "$ppath" ] || continue
+      # Resolve the recorded path the same way the caller's was resolved. A path that no longer
+      # exists cannot be canonicalized, so it falls back to the literal comparison rather than
+      # matching everything.
+      preal="$(CDPATH='' cd -- "$ppath" 2>/dev/null && pwd -P)" || preal="$ppath"
+      [ "$preal" = "$PROJECT" ] || continue
+      ;;
+    *) continue ;;
+  esac
+
+  printf '%s\t%s\t%s\n' "$path" "$ver" "$scope"
+  exit 0
+done <<EOF
+$CANDIDATES
+EOF
+
+exit 1

@@ -164,6 +164,29 @@ OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
 absent "quick-skips-mcp" "MCP 'context7'" "$OUT"
 rm -rf "$T"
 
+# --- "cannot tell" is not "not installed" --------------------------------------------------------
+# The resolver reports three outcomes: found, absent, and unable to answer. doctor used to end the
+# call with `|| return 0`, flattening the last two, so a plugin list it could not parse produced two
+# confident MISS lines naming install commands for plugins nobody had looked for. A blocker the user
+# cannot act on correctly is worse than a warning that says what is actually wrong.
+mkenv; tool git; tool jq; ghstub "'project'"
+printf '#!/bin/sh\nprintf "{not-json"\n' > "$STUB/claude"; chmod +x "$STUB/claude"
+OUT="$(run)"; rc=$?
+check  "unparsable-list-warns"          "WARN mattpocock-skills@mattpocock — could not determine" "$OUT"
+absent "unparsable-list-does-not-miss"  "MISS mattpocock-skills"                                  "$OUT"
+absent "unparsable-list-no-install-hint" "plugin marketplace add mattpocock"                      "$OUT"
+[ $rc -eq 0 ] && echo "PASS unparsable-list-is-not-a-blocker" \
+              || { echo "FAIL unparsable-list-is-not-a-blocker (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# ...and a plugin that really is absent must still be a blocker, or the branch above would pass by
+# never reporting anything.
+mkenv; tool git; tool jq; ghstub "'project'"
+claude_plugins '[{"id":"cc-codex-triage@cc-codex-triage","version":"1","scope":"user","enabled":true,"installPath":"/x"}]'
+OUT="$(run)"
+check "genuinely-absent-still-misses" "MISS mattpocock-skills@mattpocock not installed" "$OUT"
+rm -rf "$T"
+
 # --- statusline detection is home-scoped ---------------------------------------------------------
 mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
 OUT="$(run)"

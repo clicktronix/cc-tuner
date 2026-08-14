@@ -58,9 +58,16 @@ fi
 # where this one took the top row and the preflight searched them all. Both divergences produced the
 # same shape — doctor and the preflight answering one question differently — so there is now one
 # program and two callers.
-plugin_here() {  # plugin_here <id> -> "<version> (<scope>)" for the install that applies here
-  row="$(bash "$(cd "$(dirname "$0")" && pwd)/plugin-here.sh" "$1" "$REPO_ROOT" 2>/dev/null)" || return 0
-  [ -n "$row" ] || return 0
+# Prints "<version> (<scope>)" and returns the resolver's own status: 0 found, 1 absent, 2 unknown.
+# Passing the status through is the whole point of the resolver having three outcomes. An earlier
+# version ended this line with `|| return 0`, flattening 1 and 2 into "nothing found", so a malformed
+# plugin list produced two confident MISS lines telling the user to reinstall plugins that were never
+# looked for -- while prereq-check, reading the same resolver, correctly said the answer is unknown.
+plugin_here() {
+  row="$(bash "$(cd "$(dirname "$0")" && pwd)/plugin-here.sh" "$1" "$REPO_ROOT" 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  [ -n "$row" ] || return 1
   # Split in bash rather than with awk or cut. This tool reports on environments that are missing
   # things, so every external it adds is one more way for it to fail in exactly the situation it
   # exists to diagnose -- its own suite runs it against a PATH holding seven utilities, and caught an
@@ -81,11 +88,13 @@ PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/nul
 
 companion() {  # companion <id> <what needs it> <install hint>
   found="$(plugin_here "$1")"
-  if [ -n "$found" ]; then
-    ok "$1 $found — $2"
-  else
-    bad "$1 not installed for this repo — $2; install: $3"
-  fi
+  case $? in
+    0) ok "$1 $found — $2" ;;
+    # Not installed is a finding about the environment; unable to tell is a limit of this tool, and
+    # naming an install command for a plugin nobody looked for sends the user to fix the wrong thing.
+    1) bad "$1 not installed for this repo — $2; install: $3" ;;
+    *) warn "$1 — could not determine which installation applies; $2" ;;
+  esac
 }
 
 if [ -z "$PLUGIN_LIST" ] || ! command -v jq >/dev/null 2>&1; then

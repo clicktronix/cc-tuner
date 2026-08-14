@@ -151,15 +151,36 @@ OUT="$(r "$NOPATH" 'p@p')"
 [ "$OUT" = "$(printf '\t1.0.0\tuser')" ] \
   && pass "resolver-keeps-three-columns" || fail "resolver-keeps-three-columns (got '$OUT')"
 
-# `projectPath` is whatever Claude Code recorded; the caller's root is whatever it was given.
-# Comparing only the canonicalized form drops a project-scoped install whenever the two spellings
-# differ -- and on macOS $TMPDIR alone differs, /var being a symlink to /private/var. The install then
-# falls through to a user-scoped one, which is the false green below wearing a different hat.
-SYMLINKED="$(jq -nc --arg pp "$PROJECT" '
-  [ {id:"p@p", version:"1", scope:"project", enabled:true, installPath:"/p", projectPath:$pp} ]')"
-OUT="$(CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$SYMLINKED")" bash "$RESOLVER" 'p@p' "$W/project" 2>/dev/null)"
-case "$OUT" in /p*) pass "resolver-matches-either-path-spelling" ;;
-               *) fail "resolver-matches-either-path-spelling (got '$OUT')" ;; esac
+# --- a recorded projectPath that is not canonical, through the route the product uses -------------
+# `claude plugin list --json` records whatever path the install was made under; every caller resolves
+# its own root with `git rev-parse --show-toplevel` or `pwd -P` first. On macOS those differ for
+# anything under /var, which is a symlink to /private/var -- so the project-scoped install is dropped
+# and a user-scoped one answers in its place.
+#
+# **Run from inside a real repository, via prereq-check, not by calling the resolver with a lexical
+# path.** The previous version of this assertion did exactly that, and passed while production was
+# broken: no caller ever passes an unresolved path, so the branch it exercised could not run. A test
+# that reaches the code by a route the product does not use is the defect this branch exists to
+# remove, and it was committed here while fixing an instance of it.
+LEXICAL="/var/tmp/cc-tuner-prereq-$$"
+if mkdir -p "$LEXICAL" 2>/dev/null && ( cd "$LEXICAL" && git init -q -b main 2>/dev/null ); then
+  CANON="$(cd "$LEXICAL" && pwd -P)"
+  if [ "$CANON" != "$LEXICAL" ]; then
+    BROKEN_LOCAL="$(matt_root matt-lexical-broken engineering/code-review)"
+    LEX="$(jq -nc --arg t "$BROKEN_LOCAL" --arg b "$(matt_root matt-lexical-ok)" --arg c "$C" --arg pp "$LEXICAL" '
+      [ {id:"mattpocock-skills@mattpocock", version:"9", scope:"local", enabled:true, installPath:$t, projectPath:$pp},
+        {id:"mattpocock-skills@mattpocock", version:"1", scope:"user",  enabled:true, installPath:$b},
+        {id:"cc-codex-triage@cc-codex-triage", version:"1", scope:"user", enabled:true, installPath:$c} ]')"
+    OUT="$(cd "$LEXICAL" && CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$LEX")" bash "$S" 2>&1)"
+    case "$OUT" in *code-review*) pass "non-canonical-projectPath-still-selects-the-local-install" ;;
+                   *) fail "non-canonical-projectPath-still-selects-the-local-install ($OUT)" ;; esac
+  else
+    pass "non-canonical-projectPath-still-selects-the-local-install (skipped: /var is not a symlink here)"
+  fi
+  rm -rf "$LEXICAL"
+else
+  pass "non-canonical-projectPath-still-selects-the-local-install (skipped: cannot write /var/tmp)"
+fi
 
 # --- the false green a ranked list caused ---------------------------------------------------------
 # A `local` install that will actually load but lacks the code-review skill, plus a complete `user`
