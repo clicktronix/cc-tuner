@@ -539,8 +539,20 @@ reading the skill's text is the exact failure mode this branch exists to remove.
 
 ## Task 9: Deletion
 
-**Blocked by:** Tasks 6 and 8 — every replacement green, the eval observed PASS on every step, and no
-public command still pointing at the old runtime.
+**Blocked by:** Task 6 — every replacement green, and no public command still pointing at the old
+runtime.
+
+**Task 8 was a blocker here and is no longer, by decision on 2026-08-14.** The rule read "the old
+runtime stays until a real session has been observed completing the new one", which treats the dead
+code as a fallback. It is not one: nothing has been released from this branch, so the fallback is
+`git revert`, which keeps working after the files are gone.
+
+Two facts settled the order. The old hooks are **inert**, measured — `run-state-hook.sh` was run in a
+clean repository in all three registered modes and returned `rc=0` with no output, because
+`.claude/execute-task-runs/` does not exist there. So they neither help the eval nor interfere with
+it, and "delete first" is a preference, not a necessity. What decides it is Task 8 Step 0, which
+requires the eval to exercise the shipped plugin: running it after the deletion makes "shipped" and
+"final" the same artifact, so no step has to be re-observed against a tree that changed underneath it.
 
 **Delete:**
 - `scripts/execute-task/runctl.sh` (1179) and `lib.sh` (287)

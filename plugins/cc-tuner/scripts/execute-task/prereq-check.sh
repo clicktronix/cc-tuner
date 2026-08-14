@@ -32,16 +32,50 @@ if [ -e "$MANIFEST" ]; then
   fi
 fi
 
-# The selection rule lives in lib.sh, shared with the required-review verifier: this script and that
-# gate must agree on which installation is active, and a second copy of the filter is how they would
-# stop agreeing.
+# These two rules used to live in execute-task/lib.sh, sourced from here so this script and the
+# delivery gate could not disagree about which installation is active. That gate and that library are
+# deleted in this task, and this script survives them, so the definitions move here.
 #
-# An earlier revision inlined it here, reasoning that lib.sh is deleted in Task 9. That was premature:
-# lib.sh still ships and is still sourced by five other files, so the inline created a live second
-# copy of one rule -- the thing this repository forbids -- to avoid work that has not happened yet.
-# Migration before deletion licenses postponing the delete, not duplicating the rule.
-# shellcheck source=lib.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+# This is not the duplicate that was reverted two commits ago. That one added a second live copy
+# while lib.sh still shipped and was still sourced by five files; measured, the copies had already
+# diverged -- breaking the predicate in lib.sh left this script's tests entirely green. What makes an
+# inline correct is that nothing else defines it afterwards, which is true only once the library is
+# gone. Migration before deletion licenses postponing the delete, not duplicating the rule.
+
+# Install paths of a plugin that is ACTIVE for this project, from the manifest Claude Code publishes.
+# Total order, not manifest order: local, then project, then user. Grouping any two of them would
+# leave the choice to entry order, so two readers of one manifest could pick different installs and
+# both be "right".
+execute_task_manifest_roots() {
+  local manifest="$1" key="$2" project="$3"
+  [ -f "$manifest" ] && [ -n "$project" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  jq -e '.plugins | type == "object"' "$manifest" >/dev/null 2>&1 || return 1
+  jq -r --arg key "$key" --arg project "$project" '
+    .plugins[$key] // [] |
+    if type == "array" then
+      [ .[]? | select(
+          .scope == "user" or
+          ((.scope == "project" or .scope == "local") and .projectPath == $project)
+        ) ]
+      | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
+      | .[] | .installPath // empty
+    else empty end
+  ' "$manifest" 2>/dev/null
+}
+
+# Does this root carry the required-review contract? Declaring a plugin dependency in plugin.json
+# would answer "is it installed", and is worth adopting once the upstream repositories tag releases
+# as {plugin-name}--v{version} -- measured on 2026-08-14, neither cc-codex-triage (no tags at all)
+# nor mattpocock/skills (v1.2.3, not the required form) does. It would not answer this question
+# either way: semver cannot see whether the installed copy implements the contract.
+execute_task_codex_root_qualifies() {
+  local root="$1" review="$1/commands/review.md" state="$1/scripts/review-state.sh"
+  [ -f "$review" ] && [ -f "$state" ] \
+    && grep -qF -- '--required' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"
+}
 
 manifest_roots() {
   [ "$MANIFEST_MODE" = "active" ] || return 1
