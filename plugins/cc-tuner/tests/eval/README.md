@@ -8,9 +8,9 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: attempted once, 2026-08-15. Not complete.** `/spec` and `/plan` were observed working;
-`/run` was never exercised, because it resolved to the *installed* plugin rather than to this
-checkout. Step 0 exists to catch exactly that, and on its first run it did. See the log below.
+**Status: run 2 in progress, 2026-08-16.** Steps 0, 1 and 4 observed PASS against a live PR; the
+review and merge steps (2b) are next, and steps 2, 3 and 5 have not been run. Run 1 is kept below:
+it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
 exists to remove — so a step is either observed or it is blank.
@@ -94,6 +94,63 @@ count as a pass, and the branch is not finished until this file says so.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 2 — 2026-08-15/16 (attended, in progress)
+
+Same repository and branch as run 1, after disabling the installed copy locally. `/cc-tuner:run`
+resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan-path.sh` and
+`plan-lint.sh` — this checkout's runtime, with no `runctl` anywhere in the session.
+
+| Step | Outcome | What was observed |
+|---|---|---|
+| 0 | **PASS** | The loaded skill path is this checkout's `skills/run`; `runctl` appears in the transcript only inside the stale state file it was reading. |
+| 1 | **PASS** | Four slices worked in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary. 27/27 criteria ticked, tree clean, PR #3 opened at `4f70dca`. |
+| 4 | **PASS** | Measured against the live PR: no verdict at the head → refused naming the SHA and the account; a SHA that is not the head → refused naming both. |
+
+**Slices verified independently, not read off the transcript.** Re-running each slice's own criteria
+outside the session: the budget is spent exactly (`max_attempts=5` → 5 calls, `=2` → 2), `.attempts`
+matches, `__cause__` is the last `TransientError`, `except TransientError` does not catch the typed
+error, no integer literal bounds the loop, the backoff ladder is exactly `[0.5, 1.0, 2.0]` with
+`max_attempts - 1` waits, exactly three WARNING records with none on exhaustion, and the README's
+example runs and prints what the run claimed. 21 tests green.
+
+**The discipline held without being asked for.** RED was observed before `src/` was touched, with the
+exact `ImportError` the spec named. Each guard was mutation-proved — `raise` → `return None` died on
+`RetryBudgetExhausted not raised`, `max_attempts + 1` → `4` died on `3 != 5` — and **each mutant was
+`py_compile`-verified first**, so the RED came from the missing behaviour rather than a broken file.
+That is the rule this branch learned the hard way, followed by a model reading the skill.
+
+**It refused to rubber-stamp the `[eyes]` criterion.** Slice 4's README criterion is the spec's only
+human-eyes item with `waiver: none`; the run stopped and asked rather than deciding for itself.
+
+#### Finding 3 — every commit carries a Claude attribution trailer
+
+`/spec`, `/plan` and `/run` all produced commits ending in `Co-Authored-By: Claude …` and
+`Claude-Session: …`. This branch's own constraints say "No Claude attribution trailer", and **no
+skill says so** — `co-authored`, `trailer` and `attribution` appear in none of them, so the model
+falls through to the harness default in every repository cc-tuner is used in. Only a live run could
+surface this: the scenario tier tests scripts, and the trailer is written by the model.
+
+#### Finding 4 — `/spec` recorded an expected failure it had not verified
+
+The spec's `First failing check` predicted `Ran 0 tests`. The run checked and found it unreachable on
+current CPython, which synthesizes a `_FailedTest` for an import failure, so the count is never zero.
+A committed spec carrying a false expectation is the document-versus-reality defect this branch
+exists to remove. Corrected in `4f70dca` with the reason recorded.
+
+#### Finding 5 — the legacy detector fired on a real leftover, not a fixture
+
+Run 1's old runtime left `.claude/execute-task-runs/2026-08-15-retry-budget.state.json` behind.
+Task 9 Step 2 was written against a hypothetical; the hypothetical occurred the next day. Both guards
+fired: `merge.sh` refused the merge naming the file, and the `SessionStart` hook advised. The new
+`/run` read the state, confirmed it recorded zero mutations, and asked before deleting.
+
+**But the advice was too blunt.** The message says "delete the directory and re-plan" in every case,
+and re-planning is only warranted when the old run mutated something. Here the committed plan was
+untouched and lint-clean, and regenerating it would have risked churning a correct plan. The run
+argued that back, correctly. The wording should distinguish the two cases.
+
+---
 
 ### Run 1 — 2026-08-15 (attended, incomplete)
 
