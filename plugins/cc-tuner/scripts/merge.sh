@@ -111,12 +111,17 @@ ME="$("$GH" api user --jq .login 2>/dev/null)" || die "cannot identify the authe
 #
 # First line, not "anywhere in the body": the forgery this grammar refuses is a marker quoted inside
 # prose -- `I think cc-tuner-verdict: APPROVE <sha> is fine` -- and a quotation does not open a review.
+#
+# `// ""` after the index, because jq's `"" | split("\n")` is `[]` rather than `[""]`, so the index is
+# null and `sub` on null is a hard error. The first version of this fix printed a jq error to stderr
+# on every PR with no review at the head -- the commonest path there is -- while still refusing for
+# the right reason, so the refusal looked correct and the diagnostics were noise.
 # The embedded SHA is the exact GitHub head, not a second 7-to-40-hex grammar that could disagree with
 # the comparison above.
 VERDICT="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
   [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
   | sort_by(.submittedAt) | last | .body // ""
-  | split("\n")[0] | sub("[ \t\r]+$"; "")
+  | (split("\n")[0] // "") | sub("[ \t\r]+$"; "")
   | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$") then . else "" end')"
 case "$VERDICT" in
   "cc-tuner-verdict: APPROVE $HEAD_SHA") ;;

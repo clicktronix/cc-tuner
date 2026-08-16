@@ -77,7 +77,13 @@ check "unreviewed-head-refused" "has not been reviewed at this commit" "$OUT"
 check "unreviewed-head-rc1"     "rc=1"                                 "$OUT"
 
 D="$(world "$PLAN_FILES" '[]' "$GREEN_CI")"
-check "no-verdict-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "no-verdict-refused" "rc=1" "$OUT"
+# The refusal must be the only thing on stderr. The first-line fix indexed `split("\n")[0]` on an
+# empty body, and jq's `"" | split("\n")` is `[]` rather than `[""]`, so the index was null and `sub`
+# raised. It refused for the right reason while printing a jq error underneath it -- on the commonest
+# path there is, a PR whose head carries no review at all.
+absent "no-verdict-no-jq-error" "jq: error" "$OUT"
 
 D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"fail"},{"name":"test","bucket":"pass"}]')"
 check "red-ci-refused" "not passing" "$(run "$D" 42 squash "$SHA")"
