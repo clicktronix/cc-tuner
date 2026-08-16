@@ -170,6 +170,33 @@ check "wrong-author-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
 D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "I think cc-tuner-verdict: APPROVE $SHA is fine")" "$GREEN_CI")"
 check "marker-inside-prose-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
 
+# --- a verdict that also explains itself ----------------------------------------------------------
+# The grammar was applied to the whole body until a live PR ran into it: `/run` posts the marker and
+# then says why, and 1400 characters of reasoning made the verdict unreadable. Safe -- unreadable
+# reads as absent, which refuses -- and total, because the positive path could never complete. Both
+# halves were correct alone, which is why only a real reviewer surfaced it.
+EXPLAINED="cc-tuner-verdict: APPROVE $SHA\n\nRequired review returned APPROVE on this exact SHA. Gate state: APPROVED."
+D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "$EXPLAINED")" "$GREEN_CI")"
+check "explained-approval-merges" "MERGED" "$(run "$D" 42 squash "$SHA")"
+
+EXPLAINED_RC="cc-tuner-verdict: REQUEST_CHANGES $SHA\n\nTwo findings, both on the exact SHA."
+D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "$EXPLAINED_RC")" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "explained-rejection-is-read" "is not an approval" "$OUT"
+absent "explained-rejection-no-merge" "MERGED"            "$OUT"
+
+# First line, not anywhere in the body. A marker buried under prose is the forgery the grammar
+# refuses, and "read the first line" must not quietly become "search the whole thing".
+BURIED="Looks good to me.\n\ncc-tuner-verdict: APPROVE $SHA"
+D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "$BURIED")" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "buried-marker-refused"  "rc=1"   "$OUT"
+absent "buried-marker-no-merge" "MERGED" "$OUT"
+
+# Trailing whitespace and a CR are the reviewer's client, not the reviewer's intent.
+D="$(world "$PLAN_FILES" "$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA  \r\nwhy: it is correct")" "$GREEN_CI")"
+check "trailing-whitespace-tolerated" "MERGED" "$(run "$D" 42 squash "$SHA")"
+
 # --- arguments ------------------------------------------------------------------------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 check "missing-arguments-refused" "usage:"        "$(run "$D" 42 squash)"

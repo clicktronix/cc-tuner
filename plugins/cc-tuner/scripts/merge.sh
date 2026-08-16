@@ -100,11 +100,23 @@ fi
 
 ME="$("$GH" api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"
 
-# One definition of the marker. The embedded SHA is the exact GitHub head, not a second broad
-# 7-to-40-hex grammar that can disagree with the comparison below.
+# One definition of the marker, applied to the review body's FIRST LINE.
+#
+# It was applied to the whole body until the eval put a real reviewer in front of it. `/run` posts the
+# marker and then explains itself -- which reviewer output should do -- and the anchored test rejected
+# all 1400 characters of it, so a verdict the producer had just published was invisible to the gate.
+# The failure was safe (unreadable reads as absent, which refuses) and total: the positive path could
+# never have completed. That is the producer-versus-checker gap step 2b exists to find, and it took a
+# live PR to find it, because both halves are correct on their own.
+#
+# First line, not "anywhere in the body": the forgery this grammar refuses is a marker quoted inside
+# prose -- `I think cc-tuner-verdict: APPROVE <sha> is fine` -- and a quotation does not open a review.
+# The embedded SHA is the exact GitHub head, not a second 7-to-40-hex grammar that could disagree with
+# the comparison above.
 VERDICT="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
   [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
   | sort_by(.submittedAt) | last | .body // ""
+  | split("\n")[0] | sub("[ \t\r]+$"; "")
   | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$") then . else "" end')"
 case "$VERDICT" in
   "cc-tuner-verdict: APPROVE $HEAD_SHA") ;;

@@ -123,6 +123,35 @@ That is the rule this branch learned the hard way, followed by a model reading t
 **It refused to rubber-stamp the `[eyes]` criterion.** Slice 4's README criterion is the spec's only
 human-eyes item with `waiver: none`; the run stopped and asked rather than deciding for itself.
 
+#### Finding 6 — the producer wrote a verdict the checked path could not read
+
+**This is what step 2b exists for, and it took a live PR to find.**
+
+`/run` posted its verdict as a review whose body is the marker on the first line, a blank line, and
+then 1400 characters explaining the finding — which is what reviewer output should look like.
+`merge.sh` tested `^cc-tuner-verdict: … <sha>$` against the **whole body**, so the match failed and
+the gate reported *no verdict at this commit* for a verdict it had just been handed.
+
+Measured, against the real review on PR #3 rather than a fixture: the body does not match, the same
+marker alone does. The failure direction is safe — unreadable reads as absent, which refuses — and it
+is total: the positive path could never have completed, in any repository, ever. Both halves were
+correct in isolation, which is exactly why no scenario test caught it. The producer's own tests
+assert what it writes; the checker's tests assert what it reads; nobody owned the seam.
+
+**Fixed during the run** (`merge.sh`, first line only), and the change is recorded here because the
+eval then measured a version that differed from the one it started against. The grammar is unchanged;
+only its subject is — the first line, trailing whitespace and CR trimmed. First line rather than
+anywhere in the body, because the forgery this refuses is a marker quoted inside prose
+(`I think cc-tuner-verdict: APPROVE <sha> is fine`) and a quotation does not open a review.
+
+Proved in both directions: restoring the whole-body test fails the three new assertions with the
+live message (`no cc-tuner verdict … has not been reviewed at this commit`), and loosening it to
+search anywhere in the body merges a marker buried under prose.
+
+After the fix, the same live PR reports `the latest cc-tuner verdict on 7d1c028b… is not an approval:
+cc-tuner-verdict: REQUEST_CHANGES 7d1c028b…` — the gate now distinguishes *not reviewed* from
+*reviewed and rejected*, which it could not before.
+
 #### Finding 3 — every commit carries a Claude attribution trailer
 
 `/spec`, `/plan` and `/run` all produced commits ending in `Co-Authored-By: Claude …` and
