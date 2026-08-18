@@ -105,6 +105,7 @@ resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan
 |---|---|---|
 | 0 | **PASS** | The loaded skill path is this checkout's `skills/run`; `runctl` appears in the transcript only inside the stale state file it was reading. |
 | 1 | **PASS** | Four slices worked in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary. 27/27 criteria ticked, tree clean, PR #3 opened at `4f70dca`. |
+| 2b | **BLOCKED** | Not by cc-tuner: Codex approved in substance, the required gate could not parse it, and `/run` correctly refused to publish an approval it could not attribute. See finding 7. |
 | 4 | **PASS** | Measured against the live PR: no verdict at the head → refused naming the SHA and the account; a SHA that is not the head → refused naming both. |
 
 **Slices verified independently, not read off the transcript.** Re-running each slice's own criteria
@@ -122,6 +123,47 @@ That is the rule this branch learned the hard way, followed by a model reading t
 
 **It refused to rubber-stamp the `[eyes]` criterion.** Slice 4's README criterion is the spec's only
 human-eyes item with `waiver: none`; the run stopped and asked rather than deciding for itself.
+
+#### Finding 7 — the same seam again, in cc-codex-triage, and it stopped the eval
+
+Attempt 5 came back **APPROVE** and the gate recorded `verdict=NONE`, `CAP_REACHED`. `/run` refused to
+treat the reply as an approval and refused to publish an `APPROVE` marker it could not attribute to a
+machine-checkable one. **That refusal is correct and is the behaviour under test** — the flow declines
+to forge its own gate even when the substance is in its favour.
+
+The cause, measured rather than accepted. Codex's reply ends without a trailing newline, and the
+driver writes the log as:
+
+```bash
+echo "REPLY:"; sed 's/^/  /' "$OUT_FILE"
+echo "---"
+```
+
+BSD `sed` does not terminate a final line the input left unterminated, so the separator lands on the
+verdict's line and the log's last line is `  APPROVE---`. Reproduced from a two-line fixture:
+`sed` yields `  APPROVE---`; `awk '{print "  " $0}'` yields `  APPROVE` then `---`, and adds no blank
+line when the input was already terminated.
+
+**And the reason it mattered is two parsers for one question**, which is the rule this branch spent
+nine commits enforcing on itself:
+
+| input | `strict_required_verdict` (the required gate) | `last-verdict.sh` (Stop hook, `/status`) |
+|---|---|---|
+| `APPROVE---` | nothing, rc 1 | `APPROVE`, rc 0 |
+| `APPROVE` | `APPROVE` | `APPROVE` |
+
+So `/status` reports an approval the gate refuses — the exact divergence `last-verdict.sh`'s own header
+warns about ("two copies disagreeing would mean /status reporting an APPROVE the gate refuses"), with
+the second copy living as a shell function in `review-state.sh`.
+
+`/run`'s own diagnosis was half right and worth recording as such: it correctly identified the
+`---` collision, and blamed the shared parser, which in fact tolerates it. The strict one rejected it.
+
+**Not fixed here.** The defect is in `cc-codex-triage`, a different plugin with its own release line;
+the one-line change is `awk '{print "  " $0}'` in `codex-thread.sh`, and the deeper item is the second
+parser. Recorded so step 2b's status is honest: it is **blocked by a dependency, not by cc-tuner** —
+the candidate has green CI, a deep-review APPROVE, both mattpocock axes clean, 37 tests, 51 mutations
+caught, and a substantive Codex APPROVE that no machine can attribute.
 
 #### Finding 6 — the producer wrote a verdict the checked path could not read
 
