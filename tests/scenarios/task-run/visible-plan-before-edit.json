@@ -1,5 +1,6 @@
 {
   "skills": [
+    "plan",
     "run"
   ],
   "tests_reference": "plugins/cc-tuner/skills/plan/SKILL.md#publish-the-visible-plan",
@@ -27,13 +28,18 @@
     "verdict": "partial hold; the visible-list instinct is native, but the complete lifecycle plan is supplied by the workflow"
   },
   "green_check": {
-    "date": "2026-08-20",
-    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
+    "date": "2026-08-21",
+    "measured_against": "the skills as frozen at cd9fa2f, re-measured 2026-08-21 with 2 isolated haiku probes (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`) carrying the frozen SKILL.md files this scenario names as --append-system-prompt. Re-measured because the 2026-08-20 pass was taken at 32f362b, and `plan/SKILL.md`, which its `tests_reference` points at, changed between that SHA and the frozen one -- a recorded pass names the text it was taken against, so a changed target voids it whether or not the changed region is the one under test.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "publishes the task list before the first edit, naming TaskCreate then addBlockedBy then TaskList in that order"
+        "note": "2/2 publish the task list before the first edit: TaskCreate per slice, then TaskUpdate addBlockedBy per edge, then TaskList to check"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "2/2 name what is lost without it -- the frontier and the refusal that reads blockedBy"
       }
     ]
   }

@@ -36,8 +36,10 @@ its PR is not already merged. Never commit the spec directly to the integration 
 The task branch created here is the branch `/run` continues; `/run` must not create a second branch for
 the same spec.
 
-**Before grilling, not after.** Section 3 invokes `domain-modeling`, which writes `CONTEXT.md` and
-ADRs into the repository. Those are committed artifacts, so they must land on the task branch; an
+**Before grilling, not after.** Section 3 invokes `domain-modeling`, which **may** write `CONTEXT.md`
+and ADRs into the repository — it creates those files lazily, only when there is something to write,
+so a task with no project-specific vocabulary produces neither and that is the skill working as
+designed. Those are committed artifacts, so they must land on the task branch; an
 earlier revision created the branch after them and wrote them wherever the session happened to be.
 If grilling later shows the task should split, splitting a branch is recoverable — an ADR committed
 to the integration branch is not.

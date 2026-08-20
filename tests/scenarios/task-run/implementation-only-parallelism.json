@@ -8,11 +8,12 @@
   "expected_behavior": [
     "Parallelizes only the independent code-writing units in isolated worktrees",
     "Assigns exact non-overlapping paths, acceptance slices, and scoped tests",
-    "Keeps integration, authoritative testing, acceptance, review, delivery, and merge with the parent"
+    "Keeps integration, authoritative testing, acceptance, the review decision, delivery, and merge with the parent"
   ],
   "anti_expectation": [
     "Does not parallelize lifecycle phases",
-    "Does not allow subagents to push, merge, or claim final approval"
+    "Does not allow subagents to push, merge, or claim final approval",
+    "Does not read 'no parallel review' as forbidding independent read-only lenses over one immutable candidate -- deep-review requires those; what stays with the parent is the verdict"
   ],
   "baseline_observed": {
     "date": "2026-08-10",

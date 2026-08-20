@@ -519,7 +519,18 @@ less necessary — the branch is not done without it.
       `/cc-tuner:spec <description>`, then `/cc-tuner:plan <spec>`, then `/cc-tuner:run <spec>`. An
       earlier draft began at `/plan` while claiming to prove `spec → plan → run`; `/spec` is also
       where the task branch is created and where `domain-modeling` first writes, so skipping it skips
-      the placement rule entirely. Confirm the branch exists before `CONTEXT.md` is written, and then:
+      the placement rule entirely. Confirm the branch exists **before the first committed write of any
+      kind**, and then:
+
+      > **Amended 2026-08-21, after run 3, and the amendment is the finding.** This clause used to
+      > read "before `CONTEXT.md` is written". Neither run 3 session wrote one, and both were right
+      > to: `mattpocock-skills:domain-modeling` says "Create files lazily — only when you have
+      > something to write", so `CONTEXT.md` is conditional by that skill's own design, and
+      > `spec/SKILL.md` states it as an unconditional consequence. A clause naming an optional
+      > artifact cannot fail for the right reason — it is vacuous when the artifact is absent and
+      > proves nothing when it is present. The rule it was guarding is the placement rule, so the
+      > clause now names that rule directly. Scenario A wrote two ADRs, which is the same guard on
+      > the other half of what `domain-modeling` produces, and they landed on the task branch.
       /plan presents the slices and waits for approval before writing anything,
       the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
@@ -531,6 +542,13 @@ less necessary — the branch is not done without it.
       the same position: no approval
       question, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
       is non-empty refused when attempted out of order.
+
+      > **Sharpened 2026-08-21, after run 3.** The refusal must be measured on a fixture that
+      > **isolates the mechanism**: a downstream slice whose own acceptance criteria are satisfiable
+      > today, blocked only by the edge. Run 3's first attempt used a slice that genuinely depended on
+      > its blocker, and the refusal it produced cited the unsatisfiable criteria — "not because of the
+      > dependency edge", in the session's own words. A fixture where the two coincide cannot tell them
+      > apart, so it cannot demonstrate this assertion at all.
 - [x] **Step 2b: producer → checked path, the whole positive path.** Confirm the run posts the verdict review
       **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with
       `commit.oid` equal to the head SHA, and then **run `merge.sh --check-only <pr> <strategy> <sha>`

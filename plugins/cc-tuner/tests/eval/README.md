@@ -16,12 +16,12 @@ only the flattering half.
 | step | run 3 | run 2 |
 |---|---|---|
 | 0 | **PASS** — SHA frozen in a detached worktree before the first session, plugin root proved in both repos | PARTIAL — path recorded, no SHA |
-| 1 | **PASS** — one session, `/spec → /plan → native tasks → /run → merge` | PARTIAL — assembled from two sessions |
-| 2 | **PASS** — plan to merged PR in a single unattended turn; the refusal qualified by finding 11 | PARTIAL — 3 of 5 |
+| 1 | **PASS** — one session, `/spec → /plan → native tasks → /run → merge`, against a clause amended for the reason in finding 13 | PARTIAL — assembled from two sessions |
+| 2 | **PASS** — plan to merged PR in a single unattended turn; the `blockedBy` refusal took a second, isolating fixture (finding 11) | PARTIAL — 3 of 5 |
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PASS** — RED and GREEN at one SHA this time | PASS, and it caught a live regression |
+| 5 | **PASS** — four more probes re-measured after an external review caught the row overstating how many were unaffected | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -242,12 +242,12 @@ installed copy disabled locally in each.
 | Step | Outcome | What was observed |
 |---|---|---|
 | 0 | **PASS** | `cd9fa2f` recorded before the first session and held by a detached worktree. Both repos' sessions resolved `${CLAUDE_PLUGIN_ROOT}` to the frozen tree; zero references to the installed 0.10.0 in either transcript. Run 2 could record only half of this step; this one records both halves because the second was made unfalsifiable. |
-| 1 | **PASS** | One session, `/spec → /plan → native tasks → /run → merge`. Issue and branch created before any file was written and `main` never touched; `/plan` presented four slices with their edges and **wrote nothing** until approved — checked as a clean tree and an absent `docs/task-plans/`, not taken from its report. Plan committed, `plan-lint.sh` clean on the first run, four tasks published, work in frontier order, all 22 criteria ticked and none left open, and a stop at every boundary — `/run` alone took five operator turns: slice 1, then slices 2–4 and the PR, then review, then the gate, then the merge. |
-| 2 | **PASS**, with the refusal qualified below | Fresh repo, fresh session. `/plan --auto` asked nothing and committed the plan; three tasks with their edges; `/run --auto` went from plan to **merged PR in a single turn** — three review rounds, two new candidate SHAs, no operator input. |
+| 1 | **PASS**, against an amended clause | One session, `/spec → /plan → native tasks → /run → merge`. Issue and branch created before any file was written and `main` never touched; `/plan` presented four slices with their edges and **wrote nothing** until approved — checked as a clean tree and an absent `docs/task-plans/`, not taken from its report. Plan committed, `plan-lint.sh` clean on the first run, four tasks published, work in frontier order, all 22 criteria ticked and none left open, and a stop at every boundary — `/run` alone took five operator turns: slice 1, then slices 2–4 and the PR, then review, then the gate, then the merge. |
+| 2 | **PASS**, the refusal on a second fixture | Fresh repo, fresh session. `/plan --auto` asked nothing and committed the plan; three tasks with their edges; `/run --auto` went from plan to **merged PR in a single turn** — three review rounds, two new candidate SHAs, no operator input. The `blockedBy` refusal took a second, isolating fixture to measure at all: finding 11. |
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PASS** | Of the nine probes, eight target files unchanged since their 2026-08-20 measurement at `32f362b`; `sensitive-small-diff-review` targets `deep-review/SKILL.md`, which changed after it, so it was re-measured. **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill as shipped at `cd9fa2f`, 2/2 fanned out and named pricing. |
+| 5 | **PASS**, after a correction | **Five** of the nine target files unchanged since the 2026-08-20 measurement at `32f362b`; **four** do not, and an earlier revision of this row said eight — `deep-review/SKILL.md` and `plan/SKILL.md` both changed between that SHA and the frozen one, which reaches `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit` as well. All four were re-measured at `cd9fa2f`, 2/2 GREEN each, and `visible-plan-before-edit` had its `skills` field corrected: it points at `plan/SKILL.md` and listed only `run`. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
@@ -269,19 +269,43 @@ side's suite asserted only its own half. **The fix belongs in `cc-codex-triage`*
 must not be able to touch the payload — emit it on its own line unconditionally, the same way `awk`
 fixed the indenting.
 
-#### Finding 11 — the blocked task was refused, but not by `blockedBy`
+#### Finding 11 — the edge refuses, but only a fixture that isolates it can show that
 
-Step 2 asks that a task with a non-empty `blockedBy` be refused when attempted out of order. It was:
-told to deliver slice 3 first, `/run --auto` published the graph, then declined and worked 1 → 2 → 3.
-But it declined **for the wrong reason, and said so in as many words**: "not because of the dependency
-edge" — it had read slice 3's acceptance criteria, found them unsatisfiable against code that does not
-yet exist, and reasoned from that.
+Step 2 asks that a task with a non-empty `blockedBy` be refused when attempted out of order. The
+first attempt could not demonstrate it. Told to deliver slice 3 first, `/run --auto` published the
+graph, declined, and worked 1 → 2 → 3 — but declined **for a different reason, and said so in as many
+words**: "not because of the dependency edge". It had read slice 3's acceptance criteria and found
+them unsatisfiable against code that did not exist yet. On that fixture the edge and the criteria
+coincide, so nothing there can tell them apart.
 
-The refusal is real and it is the behaviour we want. What is *not* demonstrated is that `blockedBy`
-causes it. On this fixture the two coincide, so the assertion cannot separate them, and the platform
-does not enforce the edge either — measured in the spike: `TaskUpdate status=in_progress` on a blocked
-task succeeds. **The visible graph is documentation; the refusal came from the plan file.** Which is
-the ADR's position, arrived at from the other direction.
+**Measured again on a fixture built to separate them** (`cc-tuner-eval-5`): two slices, the second
+owning only `CONTRIBUTING.md`, its deciding check a `grep`, its two criteria satisfiable that minute —
+and `Blocked by: 1` anyway. Asked to start with slice 2, `/run` refused and named the mechanism:
+
+> The committed plan records `Blocked by: 1` on it, so task #2's `blockedBy` is non-empty and it is
+> not eligible under the loop rule. […] Its two acceptance criteria are satisfiable right now, with
+> slice 1 untouched. The plan asserts an ordering anyway, and the plan file is the store — I'm not
+> going to quietly overrule it because I judged the edge unnecessary.
+
+Nothing was written, the tree stayed clean, the task store still held `blockedBy=1`, and it offered
+three routes: work slice 1 first, amend the plan and drop the edge, or record a waiver. **Step 2's
+assertion is met**, on this probe rather than the first one.
+
+#### Finding 11b — and the same edge yields to an operator who asserts independence
+
+The first run of that isolating fixture asked for slice 2 first **and added** "it does not depend on
+the retry work". `/run` checked the claim rather than taking it — disjoint `Owned paths`, a deciding
+check that imports nothing, a signature change that cannot reach a grep — agreed, **edited
+`Blocked by: 1` to `Blocked by: none` in the committed plan** with a five-line note recording who
+asked and what was checked, removed the edge from the task store, and delivered slice 2.
+
+Whether that is right is a design question, not a defect report, and both halves are worth stating.
+It rewrote the dependency graph rather than working around it, left the plan true rather than
+silently divergent, and flagged the edit as beyond ticking boxes. It also means **the edge is
+advisory**: it stops the model's own reordering, not the operator's. The ADR already says the
+frontier rule is an instruction rather than runtime code, and this is what that sentence looks like
+from the outside. The one thing the eval can now say precisely: unprompted, the edge holds; asked
+with a reason, it is amended on the record, not bypassed.
 
 #### Finding 12 — the fan-out rule was known, understood, and not followed
 
@@ -291,7 +315,8 @@ shape. Both then reviewed **serially**, and both said why: a user-level instruct
 environment forbids spawning agents unrequested, and in scenario A the operator confirmed no fan-out.
 
 So this is **not** clean evidence that the skill fails to cause fan-out — the deviation has a stated,
-legitimate cause, and the honest reading is that the rule was legible and an external constraint won.
+legitimate cause. **And it was not the only cause: see finding 14**, where the plugin's own
+`placement.md` was telling the same session never to parallelise review.
 Two things are still worth carrying into the remediation plan. First, the thresholds themselves were
 obtained by the model **going to `workflow-contract.json` and parsing it** — which nothing tells it to
 do; it is a habit, not a contract, and step 5's ablation shows what happens when the numbers are only
@@ -308,9 +333,40 @@ two different justifications, the same outcome.
 
 The placement rule the clause exists to guard — nothing write-capable runs before the task branch — was
 still checked, and held: the branch existed before the first write and `main` was untouched in both
-repositories. But the clause as written tests an artifact that is optional in practice, so it can never
-fail for the right reason. Either `/spec` owes `CONTEXT.md` deterministically, or the acceptance clause
-should name the first write of any kind. That is a decision, not a defect.
+repositories. Scenario A also wrote two ADRs, which is the other half of what `domain-modeling`
+produces, and they landed on the task branch.
+
+**Settled 2026-08-21, and not in the direction the record first implied.** `mattpocock-skills:domain-modeling`
+says "Create files lazily — only when you have something to write", so `CONTEXT.md` is conditional by
+that skill's own design and there is no invocation to fix. What was wrong was ours: `spec/SKILL.md`
+stated the write as an unconditional consequence, and the acceptance clause was built on that
+statement. Both are corrected — the skill now says *may* write, and the clause names the first
+committed write of any kind. **An acceptance criterion amended after the run it judged deserves the
+suspicion it attracts**, so the reason is on the record in the plan itself, and it is a reason that
+holds regardless of how run 3 came out: a clause naming an optional artifact is vacuous when the
+artifact is absent and proves nothing when it is present.
+
+#### Finding 14 — the plugin gave the model two opposite rules about parallel review
+
+Found by the external review of this record rather than by the run, but the run is what put both
+sentences in front of one session.
+
+- `skills/run/references/placement.md` said: **"Never parallelise review**, a testing decision, or any
+  step of delivery."
+- `skills/deep-review/SKILL.md` says: above the contract's thresholds or on any sensitive surface,
+  **"fan them out to parallel reviewer agents"**.
+
+One plugin, one lifecycle, two rules that cannot both be followed. Finding 12 read the serial reviews
+as an external constraint winning; with this in hand, the honest reading is that the model was also
+holding a rule of ours that said serial — and given two opposite rules, the cheaper one wins by
+default.
+
+The reason attached to the prohibition is what resolves it: "those read a state that the other branch
+is still changing". That is true of a testing decision and of delivery. It is **not** true of
+read-only lenses over an immutable candidate, which is the only thing `deep-review` fans out. Fixed by
+narrowing the prohibition to the review *decision* and naming the lens exception in the same
+paragraph, and `implementation-only-parallelism`, whose expectation pinned the old flat wording, was
+amended and re-measured.
 
 #### A discarded first attempt at scenario A, recorded because it shaped the harness
 

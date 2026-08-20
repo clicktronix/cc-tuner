@@ -7,8 +7,18 @@ decides when each one runs.
 ## Parallelism, only where it is safe
 
 Fan out **only across independent code-writing units**, one isolated git worktree each. Never
-parallelise review, a testing decision, or any step of delivery: those read a state that the other
-branch is still changing, and two answers about one candidate is not twice the confidence.
+parallelise a testing decision or any step of delivery: those read a state that the other branch is
+still changing, and two answers about one candidate is not twice the confidence.
+
+**Review is the exception, and only in one direction.** Independent read-only lenses over one
+*immutable* candidate may fan out, and `deep-review` requires them to above the contract's thresholds
+or on any sensitive surface — the reason above does not apply to them, because they read a tree nobody
+is changing. What must not fan out is the **decision**: one owner merges the lenses into one verdict,
+and every step of the lifecycle around the review stays sequential.
+
+Until 2026-08-21 this paragraph said "never parallelise review" flat, which contradicted
+`deep-review/SKILL.md` inside the same plugin. Run 3 caught both rules quoted in one session, and a
+model handed two opposite rules follows the cheaper one.
 
 Two slices are independent when their `Owned paths` do not overlap. If they do, they are one unit.
 

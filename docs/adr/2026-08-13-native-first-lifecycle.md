@@ -1,9 +1,12 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. Moved back from accepted: the authenticated eval has not run, so nothing has
-yet observed a real session completing this flow, and until it does "accepted" claims evidence that
-does not exist. The two questions below are settled. The skill-hook measurement is no longer
+**Status:** accepted, 2026-08-21. Moved back to proposed on 2026-08-13 because the authenticated eval
+had not run and nothing had observed a real session completing this flow. It has now: run 3 recorded
+every step of Task 8 against one frozen SHA (`cd9fa2f`), including `/spec → /plan → native tasks →
+/run → merge` end to end in a single session, twice. The bound on that evidence is stated where it
+belongs, in `plugins/cc-tuner/tests/eval/README.md`: the sessions were driven headless, so what is
+observed is what the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
 load-bearing because `/run` invokes the checked merge script directly; the question left the design
 rather than being answered. And the narrowing — **one** SHA-bound verdict
 plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing

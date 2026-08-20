@@ -28,13 +28,18 @@
     "verdict": "partial hold; complete downstream invalidation remains workflow-specific"
   },
   "green_check": {
-    "date": "2026-08-20",
-    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
+    "date": "2026-08-21",
+    "measured_against": "the skills as frozen at cd9fa2f, re-measured 2026-08-21 with 2 isolated haiku probes (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`) carrying the frozen SKILL.md files this scenario names as --append-system-prompt. Re-measured because the 2026-08-20 pass was taken at 32f362b, and `deep-review/SKILL.md`, which it names in `skills`, changed between that SHA and the frozen one -- a recorded pass names the text it was taken against, so a changed target voids it whether or not the changed region is the one under test.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "invalidates A's approval, requires a full new review of B, and refuses to reuse an approval across a code change"
+        "note": "2/2 invalidate the approval for A, requiring a full review of B because approval binds to an exact SHA"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "2/2 refuse passing tests as a reason to carry the approval across"
       }
     ]
   }
