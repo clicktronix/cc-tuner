@@ -203,6 +203,15 @@ scenario to delete.**
 Every step — 0, 1, 2, 2b, 3, 4, 5 and 6 — observed PASS in a real session. Not-yet-run does not
 count as a pass, and the branch is not finished until this file says so.
 
+**What this eval does not cover, stated here rather than left in the prose of a run.** Run 3 was
+driven headless: `claude -p` with `--resume`, one process per turn, the operator another session. That
+observes what the skills cause — every tool call, every file, every exit code — and it does not
+observe the **interactive surface**: the task list as it renders in a terminal, checkpoints, and
+whether a watching human can see the plan being worked. Run 2 hit exactly that gap from the other
+side, when its operator could see no tasks in the checkpoint UI while the transcript showed the flow
+running. Closing it needs one short attended session at a real terminal, and nothing in this file
+should be read as having done that.
+
 ## Log
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
@@ -261,13 +270,20 @@ parser refuses it by design, and recorded `NO_DECISION` on a genuine approval. T
 against the identical candidate rather than editing the state file or manufacturing a commit, and
 approval came at attempt 3 of 5.
 
-This is the **third** instance of one seam in eight days: a producer whose last line is not terminated
-and a checker that requires it. The first was `merge.sh` reading a whole review body instead of its
-first line; the second was `codex-thread.sh`'s `sed 's/^/  /'` dropping the final newline (PR #6 in
-`cc-codex-triage`, fixed with `awk`). Each was invisible to every test on both sides, because each
-side's suite asserted only its own half. **The fix belongs in `cc-codex-triage`**: the terminator
-must not be able to touch the payload — emit it on its own line unconditionally, the same way `awk`
-fixed the indenting.
+**This is not a new defect. It is the one PR #6 already fixes, reproducing in production because that
+PR is unmerged and unreleased** — the eval ran against the installed `cc-codex-triage` 0.10.0, and the
+`awk` that replaces `sed 's/^/  /'` lives only on the branch. The diff and its reasoning were written
+on 2026-08-19 from a log line that read `  APPROVE---`; run 3 produced the same line on a different
+pull request, two days later, in a session that had no idea the branch existed.
+
+So the finding is about **release, not diagnosis**: a fix that is correct, tested, and open costs the
+same as no fix at all. What the run adds to PR #6 is a second, independent reproduction and a price
+tag — one paid Codex round, and a genuine approval recorded as `NO_DECISION`.
+
+The seam itself has now been hit at three sites in eight days: `merge.sh` reading a whole review body
+instead of its first line, `codex-thread.sh` dropping a final newline, and the required-review
+recorder comparing a line to `APPROVE` exactly. Each was invisible to every test on both sides,
+because each side's suite asserted only its own half.
 
 #### Finding 11 — the edge refuses, but only a fixture that isolates it can show that
 
