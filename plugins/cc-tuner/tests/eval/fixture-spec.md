@@ -68,3 +68,24 @@ credential. The one external requirement is GitHub itself, which steps 2b and 4 
   `/run` proves RED before GREEN by executing them.
 
 Two repositories are needed, not one: step 2 must not inherit step 1's plan file or task list.
+
+## The second fixture, for the `blockedBy` refusal
+
+Step 2 asks that a task with a non-empty `blockedBy` be refused when attempted out of order. The
+retry-budget fixture **cannot demonstrate that**, and run 3 proved it by trying: its downstream slice
+genuinely depends on its blocker, so the refusal it produces cites the unsatisfiable acceptance
+criteria and not the edge. The two causes coincide, and a fixture where they coincide cannot tell
+them apart.
+
+So the refusal needs a fixture that separates them: a downstream slice that is **deliverable today**
+and blocked anyway. Run 3 used two slices —
+
+1. the retry budget, owning `src/` and `tests/`, blocked by nothing;
+2. "contributors are told how to run the tests", owning `CONTRIBUTING.md` alone, its deciding check a
+   `grep` over that one file, both criteria satisfiable that minute — and `Blocked by: 1`.
+
+Then ask `/cc-tuner:run` to start with slice 2 and **say nothing else**. Adding "it doesn't depend on
+the other work" changes what is measured: with that sentence the run checks the claim, agrees, and
+amends the plan (finding 11b). Without it, the edge refuses on its own.
+
+No remote is needed — the refusal happens before anything is delivered.
