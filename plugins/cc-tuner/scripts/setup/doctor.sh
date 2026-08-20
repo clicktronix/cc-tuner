@@ -33,6 +33,24 @@ if command -v jq      >/dev/null 2>&1; then ok "jq";      else bad "jq — statu
 if command -v gh      >/dev/null 2>&1; then ok "gh";      else warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"; fi
 if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — the statusline's usage segment degrades without it"; fi
 
+# --- 1b. the native task tools -------------------------------------------------------------------
+# `/cc-tuner:plan` publishes the visible plan through TaskCreate and wires its edges with
+# TaskUpdate addBlockedBy. From Claude Code 2.1.233 those tools are **off by default** on Opus 4.8,
+# Sonnet 5 and later -- the reasoning being that such models track multi-step work without a written
+# checklist -- and are restored by exporting CLAUDE_CODE_ENABLE_TODO_TOOLS=1 before starting Claude.
+#
+# Measured on 2.1.235: an Opus 5 session asked to call TaskCreate answers UNAVAILABLE without the
+# variable and CREATED with it. Four eval sessions in a row published no task list because of this,
+# and the cause was misread as an MCP outage each time -- which is precisely why it belongs in the
+# tool whose job is to say whether the environment works.
+#
+# A warning, not a blocker: the plan file is the durable store and a run drives from it either way.
+# What is lost is the visible task list and its edges.
+case "${CLAUDE_CODE_ENABLE_TODO_TOOLS:-}" in
+  1|true|TRUE|yes) ok "CLAUDE_CODE_ENABLE_TODO_TOOLS is set — /cc-tuner:plan can publish the visible task list" ;;
+  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — on Opus 4.8 / Sonnet 5 and later the TaskCreate tools are off by default, so /cc-tuner:plan will commit the plan file but publish no visible task list; export CLAUDE_CODE_ENABLE_TODO_TOOLS=1 before starting Claude Code" ;;
+esac
+
 # --- 2. gh auth and the project scope ------------------------------------------------------------
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
 # single most common reason an agent silently gives up on the board, so name it before it happens.

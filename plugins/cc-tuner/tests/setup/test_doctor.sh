@@ -164,6 +164,19 @@ OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
 absent "quick-skips-mcp" "MCP 'context7'" "$OUT"
 rm -rf "$T"
 
+# --- the native task tools are opt-in on current models -------------------------------------------
+# /cc-tuner:plan publishes the visible plan through TaskCreate. From Claude Code 2.1.233 those tools
+# are off by default on Opus 4.8 / Sonnet 5 and later. Four eval sessions published no task list
+# because of it and the cause was misread as an MCP outage each time, which is why doctor now says it.
+mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" bash "$DOCTOR" quick 2>&1 )"
+check "todo-tools-unset-warns" "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set" "$OUT"
+absent "todo-tools-unset-not-a-blocker" "MISS CLAUDE_CODE_ENABLE_TODO_TOOLS" "$OUT"
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+        CLAUDE_CODE_ENABLE_TODO_TOOLS=1 bash "$DOCTOR" quick 2>&1 )"
+check "todo-tools-set-ok" "ok   CLAUDE_CODE_ENABLE_TODO_TOOLS is set" "$OUT"
+rm -rf "$T"
+
 # --- "cannot tell" is not "not installed" --------------------------------------------------------
 # The resolver reports three outcomes: found, absent, and unable to answer. doctor used to end the
 # call with `|| return 0`, flattening the last two, so a plugin list it could not parse produced two

@@ -9,7 +9,7 @@ exists. That is what this is for, and it is why `tests/run.sh` does not include 
 it costs tokens, and it runs by hand.
 
 **Status: run 2 in progress, 2026-08-16.** Steps 0, 1 and 4 observed PASS against a live PR; the
-step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. **step 5 PASS** and it caught a live regression. Step 3 is the only one left. Run 1 is kept below:
+step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. **step 5 PASS** and it caught a live regression. Step 3 is the only one left, and finding 9 explains why it was never reachable. Run 1 is kept below:
 it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
@@ -137,6 +137,38 @@ Measured on `cc-tuner-eval-2`, a repository and session that shared nothing with
 
 The task tooling has now been absent in three consecutive sessions. That is an environment property, not a finding about cc-tuner — but it means the frontier rule, which the ADR already calls an instruction rather than a gate, is also the rule this eval keeps failing to reach.
 
+
+#### Finding 9 — the native task tools are opt-in on current models, and I misread it four times
+
+Four eval sessions published no visible task list. I recorded the cause as an MCP outage each time,
+because a system notice listed `TaskCreate` alongside disconnected `mcp__*` tools. `TaskCreate` has no
+`mcp__` prefix; it is native, and I never checked.
+
+Measured on Claude Code **2.1.235**, by asking an Opus 5 session to actually call the tool:
+
+```
+opus, no variable                        -> UNAVAILABLE
+opus, CLAUDE_CODE_ENABLE_TODO_TOOLS=1    -> CREATED
+```
+
+From 2.1.233 the task tools are **off by default on Opus 4.8, Sonnet 5 and later** — the stated
+reasoning being that such models track multi-step work without a written checklist — and are restored
+by exporting `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` before starting Claude Code.
+
+**This lands on the architecture, not just the eval.** The ADR makes native tasks the visible plan;
+on a current model, with default settings, `/cc-tuner:plan` commits the plan file and publishes
+nothing. That is not a hypothetical user — it is every session we ran. The design still works, because
+the committed plan is the durable store and a run drives from it, but "the visible plan" is opt-in and
+the plugin said nothing about it.
+
+`doctor.sh` now reports the variable: `ok` when set, `WARN` when not, with the export line. A warning
+rather than a blocker, because the flow completes without it — step 2 produced eight commits and a PR
+with no task list at all. Mutation-proved: removing the check fails two assertions.
+
+**What this cost.** Step 3 has no observation because the tools were absent; the frontier rule has
+never been exercised for the same reason; and I spent four sessions attributing it to the wrong
+subsystem. The check that would have caught it is the one this plugin already had — a doctor whose job
+is to say whether the environment works — and it did not know to look.
 
 #### Finding 8 — a rule survived the rewrite; the list it depended on did not
 
