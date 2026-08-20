@@ -12,8 +12,7 @@
   ],
   "anti_expectation": [
     "Does not parallelize lifecycle phases",
-    "Does not allow subagents to push, merge, or claim final approval",
-    "Does not read 'no parallel review' as forbidding independent read-only lenses over one immutable candidate -- deep-review requires those; what stays with the parent is the verdict"
+    "Does not allow subagents to push, merge, or claim final approval"
   ],
   "baseline_observed": {
     "date": "2026-08-10",
@@ -28,13 +27,18 @@
     "verdict": "reproduced; implementation-only parallelism and single-parent integration are load-bearing"
   },
   "green_check": {
-    "date": "2026-08-20",
-    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
+    "date": "2026-08-21",
+    "measured_against": "`run/SKILL.md` plus `run/references/placement.md` as shipped at aa7ef59 -- the commit that narrowed 'never parallelise review' to the review decision and named deep-review's read-only lenses as the exception (finding 14). Re-measured because this scenario's expectation pinned the old flat wording. 2 isolated haiku probes, method as in the other eight. The lens exception itself is not decidable from this query, which asks about lifecycle phases, so it is asserted in `deep-review`'s own scenario rather than here.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "parallelises only the two coding units in isolated worktrees, keeps integration/testing/review/delivery with the parent, and cites references/placement.md by name"
+        "note": "parallelises the two code-writing units in isolated worktrees and keeps testing, acceptance, review and merge sequential with one integration owner -- 'no split verdict authority'"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same shape; names the gates that stay sequential and says two finished units are not a finished candidate"
       }
     ]
   }
