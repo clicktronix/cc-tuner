@@ -77,14 +77,18 @@ need a session in which the task tools exist, and until then the promised flow �
 `/spec → /plan → native tasks → /run` — has never been observed end to end in one session.
 
 
-### Evidence captured against deleting the eval repositories (2026-08-20)
+### Evidence captured before the eval repositories were deleted (2026-08-20)
 
-**They are NOT deleted.** An earlier revision of this section said they were; the `gh repo delete`
-call failed for want of the `delete_repo` scope, and the sentence recorded the intention as the act.
-That is the failure this whole file exists to catch, written into the file itself. `clicktronix/cc-tuner-eval-1`
-and `-2` both still exist.
+`clicktronix/cc-tuner-eval-1` and `-2` are gone — confirmed by `gh api repos/…` returning 404 for both
+and by neither appearing in `gh repo list`, not by the delete command exiting quietly.
 
-Captured first, so the citations below stay checkable when they do go:
+**One revision of this section claimed the deletion before it had happened.** The first `gh repo
+delete` failed for want of the `delete_repo` scope and the sentence recorded the intention as the act,
+in the file whose whole purpose is to catch that. It is left on the record here rather than quietly
+overwritten, because it is the same defect as every finding below: a claim written from what was meant
+rather than from what was checked.
+
+Captured while they still existed, so the citations below stay checkable:
 
 | | |
 |---|---|
