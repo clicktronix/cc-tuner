@@ -18,16 +18,24 @@ a red arm — CI would time out instead of reporting.
 
 Two repositories, already created and already configured:
 
-| | |
-|---|---|
-| attended run (step 1) | `~/Projects/ai/cc-tuner-eval-1` → `github.com/clicktronix/cc-tuner-eval-1` |
-| `--auto` run (step 2) | `~/Projects/ai/cc-tuner-eval-2` → `github.com/clicktronix/cc-tuner-eval-2` |
+Two throwaway repositories per run, rebuilt rather than reused — run 3 used
+`cc-tuner-eval-3` (attended) and `cc-tuner-eval-4` (`--auto` and recovery), after `-1` and `-2` were
+deleted. Both public, both running `python -m unittest discover -s tests` in CI as a check named
+`test`, both requiring that check on `main`.
 
-Both are public and throwaway. Both run `python -m unittest discover -s tests` in CI as a check named
-`test`, and both require that check on `main` — verified with a live PR, on which
-`gh pr checks --required` returned `pass` and `merge.sh --check-only` correctly refused a PR carrying
-no plan file. Delete them when the eval is recorded:
-`gh repo delete clicktronix/cc-tuner-eval-1 --yes`.
+Rebuilding them is one command's worth of work and is worth doing rather than reusing a repository
+whose `main` already carries a previous run's merge: the fixture's defect has to be present for the
+spec's baseline to reproduce. Create the repo, push the fixture, then
+
+```bash
+gh api -X PUT repos/<owner>/<repo>/branches/main/protection --input - <<'JSON'
+{ "required_status_checks": { "strict": false, "contexts": ["test"] },
+  "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null }
+JSON
+```
+
+`merge.sh` refuses a repository that requires nothing — absent CI is unproven CI. Delete them when the
+eval is recorded: `gh repo delete clicktronix/cc-tuner-eval-3 --yes` (needs the `delete_repo` scope).
 
 ## Why this one and not something smaller
 

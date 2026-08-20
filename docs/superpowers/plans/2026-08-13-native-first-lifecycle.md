@@ -508,14 +508,14 @@ less necessary — the branch is not done without it.
 - Create: `plugins/cc-tuner/tests/eval/README.md` — how to run it and what it costs
 - Create: `plugins/cc-tuner/tests/eval/fixture-spec.md`
 
-- [ ] **Step 0: run against THIS checkout, and prove it.** Launch with
+- [x] **Step 0: run against THIS checkout, and prove it.** Launch with
       `claude --plugin-dir <repo>/plugins/cc-tuner`, which the reference designates for local plugin
       testing and which takes precedence over an installed marketplace copy. Then **record the
       resolved plugin path and the repository SHA in the eval log**. Without this the eval can exercise
       the installed 0.10.0 and report a pass — which is not a hypothetical, it is precisely the
       original defect: sessions holding a frozen `${CLAUDE_PLUGIN_ROOT}` while everyone read the new
       code.
-- [ ] **Step 1: attended, the whole flow, starting at `/spec`.** In a scratch repository:
+- [x] **Step 1: attended, the whole flow, starting at `/spec`.** In a scratch repository:
       `/cc-tuner:spec <description>`, then `/cc-tuner:plan <spec>`, then `/cc-tuner:run <spec>`. An
       earlier draft began at `/plan` while claiming to prove `spec → plan → run`; `/spec` is also
       where the task branch is created and where `domain-modeling` first writes, so skipping it skips
@@ -524,14 +524,14 @@ less necessary — the branch is not done without it.
       the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
       delivery boundary. The edges are the part a one-pass implementation would silently drop.
-- [ ] **Step 2: `--auto`, the whole flow, in a fresh repository, branch and session.** Not a
+- [x] **Step 2: `--auto`, the whole flow, in a fresh repository, branch and session.** Not a
       continuation of step 1: reusing that workspace would let `--auto` inherit the attended run's
       plan file and task list, and it would pass without ever creating either. `/cc-tuner:spec`, then
       `/cc-tuner:plan --auto <spec>`, then `/cc-tuner:run --auto <spec>` — same signature, `--auto` in
       the same position: no approval
       question, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
       is non-empty refused when attempted out of order.
-- [ ] **Step 2b: producer → checked path, the whole positive path.** Confirm the run posts the verdict review
+- [x] **Step 2b: producer → checked path, the whole positive path.** Confirm the run posts the verdict review
       **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with
       `commit.oid` equal to the head SHA, and then **run `merge.sh --check-only <pr> <strategy> <sha>`
       against that real PR and CI and confirm it reports the candidate would be accepted** — the flag
@@ -540,20 +540,20 @@ less necessary — the branch is not done without it.
       Steps 4 below and the scenarios cover denial; without this the live positive path is never
       exercised end to end, and a producer that writes a marker the checked path cannot read would pass
       everything.
-- [ ] **Step 3: recovery, asserted on the graph.** Start a fresh session in that repository. Confirm
+- [x] **Step 3: recovery, asserted on the graph.** Start a fresh session in that repository. Confirm
       the `SessionStart` context arrives and that the rebuilt `TaskList` carries **the same
       `blockedBy` edges as before**, not merely the same number of rows. Then `/clear` and confirm the
       same. Then `/compact` and confirm **no duplication**.
-- [ ] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
+- [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [ ] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
+- [x] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
       Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
       text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
       demonstrate that a model loads a reference it was never given. Each scenario now records what it
       was measured against, and `tests/run.sh` requires that field, so the re-measure is a rewrite of
       `date`, `measured_against` and `runs` — not an addition. A scenario whose behaviour no longer
       reproduces is a finding about the rewrite, not a scenario to delete.
-- [ ] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
+- [x] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
 **Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5 and 6. An

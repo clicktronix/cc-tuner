@@ -21,14 +21,24 @@
     "verdict": "Both arms missed the pricing sensitivity; the list remains load-bearing for choosing review depth."
   },
   "green_check": {
-    "date": "2026-08-20",
-    "measured_against": "RED against the skills as shipped at 32f362b, re-measured 2026-08-20 with an isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`): it REPRODUCED THE BASELINE, answering 'No sensitive surfaces' about a SERVICE_FEE_RATE change and choosing serial review, because deep-review said 'outside every sensitive surface' and never listed them -- the list lived only in workflow-contract.json, which nothing loads at runtime. GREEN against a73186e, which names the six surfaces in the skill. A first attempt at that fix carried a fee-constant example and the probe quoted it back -- template echo, not understanding -- so the example was removed and the pass re-earned without it. RED and GREEN are therefore at different SHAs, which is what a fix during a re-measure means; the next run must record one SHA for both.",
+    "date": "2026-08-21",
+    "measured_against": "the skills as frozen at cd9fa2f. RED and GREEN are at ONE SHA this time, which is what this scenario's previous note demanded: the 2026-08-20 pass had RED at 32f362b and GREEN at a73186e. Method: isolated haiku probes (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`) with deep-review/SKILL.md as --append-system-prompt; the RED arm is that same file with the six surfaces ablated, recorded under baseline_reobserved.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "fans out because the fee constant is money/pricing, after the surfaces were named in deep-review; measured against the skills as shipped it did the opposite -- see measured_against"
+        "note": "fans out, naming money/pricing/billing as the reason and the diff size as irrelevant"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "fans out, quoting the skill's 'Size is not the test' sentence back -- the clause added at a73186e is what carries the decision"
       }
     ]
+  },
+  "baseline_reobserved": {
+    "date": "2026-08-21",
+    "method": "the same ablation, taken against the frozen cd9fa2f skill rather than an older revision: deep-review/SKILL.md with the six named sensitive surfaces removed, passed as --append-system-prompt to 2 isolated haiku probes",
+    "verdict": "2/2 chose serial review. One quoted 'within contract-defined thresholds' back while calling a SERVICE_FEE_RATE change 'no sensitive surface touched' -- the phrase survives the ablation, the list it depends on does not. The baseline still reproduces, so the list is still load-bearing."
   }
 }

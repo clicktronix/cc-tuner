@@ -8,23 +8,26 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: Task 8 is NOT complete.** Corrected 2026-08-20, twice, after review — this summary
-contradicted the table below until the second pass, which is the defect it exists to prevent.
+**Status: every step observed PASS in run 3 (2026-08-20/21), against the single frozen SHA
+`cd9fa2f`.** Run 2's statuses were corrected twice after review before this run started; they stand
+below unchanged, because a superseded result is evidence about the method and deleting it would leave
+only the flattering half.
 
-| step | status |
-|---|---|
-| 0 | **PARTIAL** — the plugin path was recorded, the SHA was not, and step 0 requires both |
-| 1 | **PARTIAL** — observed across two sessions, not one |
-| 2 | **PARTIAL** — 3 of 5 assertions |
-| 2b | PASS |
-| 3 | **not run** |
-| 4 | PASS |
-| 5 | PASS, and it caught a live regression |
-| 6 | this file |
+| step | run 3 | run 2 |
+|---|---|---|
+| 0 | **PASS** — SHA frozen in a detached worktree before the first session, plugin root proved in both repos | PARTIAL — path recorded, no SHA |
+| 1 | **PASS** — one session, `/spec → /plan → native tasks → /run → merge` | PARTIAL — assembled from two sessions |
+| 2 | **PASS** — plan to merged PR in a single unattended turn; the refusal qualified by finding 11 | PARTIAL — 3 of 5 |
+| 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
+| 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
+| 4 | **PASS** — both denials live, `rc=1` | PASS |
+| 5 | **PASS** — RED and GREEN at one SHA this time | PASS, and it caught a live regression |
+| 6 | this file | this file |
 
-The promised flow — `/spec → /plan → native tasks → /run` — has never been observed end to end in a
-single session, because the task tools were absent in all but the first. Until it is, nothing here
-closes the branch.
+**The promised flow was observed end to end, in one session, twice** — attended in
+`cc-tuner-eval-3` and unattended in `cc-tuner-eval-4`. What run 3 does not carry is a human at a
+terminal: the sessions were driven headless and the operator was another Claude Code session. The
+harness is described in full at the top of run 3, and every claim here is bounded by it.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
 exists to remove — so a step is either observed or it is blank.
@@ -76,6 +79,11 @@ should not lose it.
 need a session in which the task tools exist, and until then the promised flow —
 `/spec → /plan → native tasks → /run` — has never been observed end to end in one session.
 
+> **Superseded by run 3 (2026-08-21).** The tools were there — `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in
+> the environment — and the flow was observed end to end twice. The paragraph above is left standing
+> because it is what the record said before the run, and the method that produced it was right; only
+> its conclusion expired.
+
 
 ### Evidence captured before the eval repositories were deleted (2026-08-20)
 
@@ -120,11 +128,12 @@ deliberately not shareable — step 2 must not inherit step 1's workspace.
 Read [`fixture-spec.md`](fixture-spec.md): the task to hand `/cc-tuner:spec`, which two repositories
 to run it in, and why that task rather than a smaller one.
 
-Both repositories exist and are configured (2026-08-15). What that setup had to get right, in case
-it ever needs redoing: a GitHub remote, `gh auth status` clean, a runnable test command, and **at
-least one required status check on the target branch**. `merge.sh` refuses a repository that
-requires nothing — absent CI is unproven CI — so a repo without branch protection fails step 2b for
-a reason that has nothing to do with the code under test.
+The repositories are built fresh for each run — `-1` and `-2` for run 2, `-3` and `-4` for run 3 —
+because the fixture's defect has to be present on `main` for the spec's baseline to reproduce, and a
+previous run's merge removes it. What that setup has to get right: a GitHub remote, `gh auth status`
+clean, a runnable test command, and **at least one required status check on the target branch**.
+`merge.sh` refuses a repository that requires nothing — absent CI is unproven CI — so a repo without
+branch protection fails step 2b for a reason that has nothing to do with the code under test.
 
 ## Running it
 
@@ -137,18 +146,28 @@ rather than replacing the installed one, and run 1 showed `/cc-tuner:run` resolv
 cd <eval-repo> && claude plugin disable cc-tuner@cc-tuner --scope local
 ```
 
-Then launch against **this checkout**:
+Then freeze the SHA **as a property, not a promise**, and launch against the frozen tree:
 
 ```bash
-claude --plugin-dir <path-to-this-repo>/plugins/cc-tuner
+git -C <path-to-this-repo> worktree add --detach /tmp/cc-tuner-frozen <sha>
+cd <eval-repo> && claude --plugin-dir /tmp/cc-tuner-frozen/plugins/cc-tuner
 ```
 
-Then record, in the log below, the resolved plugin root and this repository's SHA:
+A detached worktree cannot follow the branch, so a fix committed mid-run — which is what happened in
+run 2, and why it could record no SHA — changes nothing the session is reading. Record the SHA and
+the resolved plugin root in the log:
 
 ```
-/cc-tuner:setup          # its doctor prints the resolved plugin path
+/cc-tuner:setup          # the doctor call it runs carries the expanded ${CLAUDE_PLUGIN_ROOT}
 git -C <path-to-this-repo> rev-parse HEAD
 ```
+
+The proof is the expanded path in the session's own Bash calls, and the *absence* of
+`~/.claude/plugins/cache/cc-tuner/` from the whole transcript. Both are greppable if the session is
+run with `--output-format stream-json`.
+
+Also export `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` before launching, or steps 1, 2 and 3 measure a session
+with no task tools — finding 9.
 
 This is step 0 and it is not ceremony. Without it the eval can exercise the installed 0.10.0 and
 report a pass — which is not hypothetical. It is the original defect: sessions holding a frozen
@@ -188,6 +207,120 @@ count as a pass, and the branch is not finished until this file says so.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 3 — 2026-08-20/21 (three scenarios, one frozen SHA)
+
+The shape the previous run's failure asked for: three separate scenarios, each in its own workspace,
+all against **one SHA recorded before anything started**.
+
+**The SHA was made immutable rather than promised.** `git worktree add --detach
+~/Projects/ai/cc-tuner-frozen cd9fa2f`, and every session launched with `--plugin-dir
+<frozen>/plugins/cc-tuner`. Run 2 recorded no SHA because the branch moved underneath it; a detached
+worktree cannot move while the branch does, so this is the promise turned into a property. The
+frozen root appears in every session's Bash calls and the installed
+`~/.claude/plugins/cache/cc-tuner/…/0.10.0` appears in none — grepped, not assumed.
+
+**How the sessions were driven, stated plainly, because it bounds every claim below.** Headless
+`claude -p --output-format stream-json --resume`, one process per turn, `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`
+in the environment. Scenario A additionally carried `--append-system-prompt` declaring that an
+operator reads the last message of each turn and answers in the next; scenario B carried nothing,
+which is what `--auto` means. **No human sat at a terminal**: the operator was the driving session,
+answering `/spec`'s interview and the delivery boundaries. That is fidelity enough for every
+assertion below — each is about what the skills do, not about who typed — but it is not the same
+thing as a human run, and no claim here should be read as if it were.
+
+| | workspace | session |
+|---|---|---|
+| A — attended | `cc-tuner-eval-3` | `da3f0edd` |
+| B — `--auto` | `cc-tuner-eval-4` | `43d89c1a` |
+| C — recovery | `cc-tuner-eval-4` | `a0238e8a`, then `25e884c7` after `/clear` |
+| refusal probe | `cc-tuner-eval-4-probe` (local clone of B's branch) | one session, killed at the 10-minute cap |
+
+Both repositories were built from the run-2 fixture, public, with `test` required on `main`, and the
+installed copy disabled locally in each.
+
+| Step | Outcome | What was observed |
+|---|---|---|
+| 0 | **PASS** | `cd9fa2f` recorded before the first session and held by a detached worktree. Both repos' sessions resolved `${CLAUDE_PLUGIN_ROOT}` to the frozen tree; zero references to the installed 0.10.0 in either transcript. Run 2 could record only half of this step; this one records both halves because the second was made unfalsifiable. |
+| 1 | **PASS** | One session, `/spec → /plan → native tasks → /run → merge`. Issue and branch created before any file was written and `main` never touched; `/plan` presented four slices with their edges and **wrote nothing** until approved — checked as a clean tree and an absent `docs/task-plans/`, not taken from its report. Plan committed, `plan-lint.sh` clean on the first run, four tasks published, work in frontier order, 27 criteria ticked, and a stop at every boundary: seven operator turns to get from the plan to a merge. |
+| 2 | **PASS**, with the refusal qualified below | Fresh repo, fresh session. `/plan --auto` asked nothing and committed the plan; three tasks with their edges; `/run --auto` went from plan to **merged PR in a single turn** — three review rounds, two new candidate SHAs, no operator input. |
+| 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
+| 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
+| 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
+| 5 | **PASS** | Of the nine probes, eight target files unchanged since their 2026-08-20 measurement at `32f362b`; `sensitive-small-diff-review` targets `deep-review/SKILL.md`, which changed after it, so it was re-measured. **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill as shipped at `cd9fa2f`, 2/2 fanned out and named pricing. |
+| 6 | this section | |
+
+**Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
+Twice, in two modes, on two repositories, against one frozen SHA.
+
+#### Finding 10 — a verdict that says APPROVE, parsed as no decision, and it cost a paid round
+
+Codex's round-2 reply in scenario B ended `APPROVE` **without a trailing newline**, so the driver's
+`---` terminator joined it into `APPROVE---`. The lenient parser strips that; the strict required
+parser refuses it by design, and recorded `NO_DECISION` on a genuine approval. The run re-dispatched
+against the identical candidate rather than editing the state file or manufacturing a commit, and
+approval came at attempt 3 of 5.
+
+This is the **third** instance of one seam in eight days: a producer whose last line is not terminated
+and a checker that requires it. The first was `merge.sh` reading a whole review body instead of its
+first line; the second was `codex-thread.sh`'s `sed 's/^/  /'` dropping the final newline (PR #6 in
+`cc-codex-triage`, fixed with `awk`). Each was invisible to every test on both sides, because each
+side's suite asserted only its own half. **The fix belongs in `cc-codex-triage`**: the terminator
+must not be able to touch the payload — emit it on its own line unconditionally, the same way `awk`
+fixed the indenting.
+
+#### Finding 11 — the blocked task was refused, but not by `blockedBy`
+
+Step 2 asks that a task with a non-empty `blockedBy` be refused when attempted out of order. It was:
+told to deliver slice 3 first, `/run --auto` published the graph, then declined and worked 1 → 2 → 3.
+But it declined **for the wrong reason, and said so in as many words**: "not because of the dependency
+edge" — it had read slice 3's acceptance criteria, found them unsatisfiable against code that does not
+yet exist, and reasoned from that.
+
+The refusal is real and it is the behaviour we want. What is *not* demonstrated is that `blockedBy`
+causes it. On this fixture the two coincide, so the assertion cannot separate them, and the platform
+does not enforce the edge either — measured in the spike: `TaskUpdate status=in_progress` on a blocked
+task succeeds. **The visible graph is documentation; the refusal came from the plan file.** Which is
+the ADR's position, arrived at from the other direction.
+
+#### Finding 12 — the fan-out rule was known, understood, and not followed
+
+In both scenarios the review phase computed that the candidate was over the contract's thresholds
+(scenario A: 7 files, ~447 lines against 5 / 50) and named parallel reviewer agents as the mandated
+shape. Both then reviewed **serially**, and both said why: a user-level instruction in this
+environment forbids spawning agents unrequested, and in scenario A the operator confirmed no fan-out.
+
+So this is **not** clean evidence that the skill fails to cause fan-out — the deviation has a stated,
+legitimate cause, and the honest reading is that the rule was legible and an external constraint won.
+Two things are still worth carrying into the remediation plan. First, the thresholds themselves were
+obtained by the model **going to `workflow-contract.json` and parsing it** — which nothing tells it to
+do; it is a habit, not a contract, and step 5's ablation shows what happens when the numbers are only
+there. Second, the skill's sentence grants a permission ("may run all lenses serially … within both
+contract-defined thresholds") without stating the obligation on the other side of it. A rule that only
+says when you *may* do the cheap thing is one an environment constraint can quietly consume.
+
+#### Finding 13 — an acceptance clause about an artifact neither session produced
+
+Step 1 asks to "confirm the branch exists before `CONTEXT.md` is written". Neither `/spec` wrote a
+`CONTEXT.md`: scenario A judged the vocabulary to be general programming terms and said so; scenario B
+folded the domain notes into the spec's Architecture section and flagged the deviation. Two sessions,
+two different justifications, the same outcome.
+
+The placement rule the clause exists to guard — nothing write-capable runs before the task branch — was
+still checked, and held: the branch existed before the first write and `main` was untouched in both
+repositories. But the clause as written tests an artifact that is optional in practice, so it can never
+fail for the right reason. Either `/spec` owes `CONTEXT.md` deterministically, or the acceptance clause
+should name the first write of any kind. That is a decision, not a defect.
+
+#### A discarded first attempt at scenario A, recorded because it shaped the harness
+
+The first headless `/spec` announced "this session is non-interactive, so the grilling step could not
+run as an interview" and resolved all five decisions itself. Scenario A was restarted from a rebuilt
+repository with the operator declared in the system prompt, and the interview then ran normally — six
+questions, one at a time. The discarded attempt cost nothing but tokens and the SHA never moved.
+
+Worth noting that the detection is not deterministic: scenario B's `/spec`, run with **no** operator
+note at all, asked its questions anyway and stopped for an answer.
 
 ### Run 2 — 2026-08-15/16 (attended, in progress)
 
