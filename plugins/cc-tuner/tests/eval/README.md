@@ -13,7 +13,7 @@ contradicted the table below until the second pass, which is the defect it exist
 
 | step | status |
 |---|---|
-| 0 | PASS |
+| 0 | **PARTIAL** — the plugin path was recorded, the SHA was not, and step 0 requires both |
 | 1 | **PARTIAL** — observed across two sessions, not one |
 | 2 | **PARTIAL** — 3 of 5 assertions |
 | 2b | PASS |
@@ -205,7 +205,7 @@ any fix found along the way ends that run rather than being folded into it.
 
 | Step | Outcome | What was observed |
 |---|---|---|
-| 0 | **PASS** | The loaded skill path is this checkout's `skills/run`; `runctl` appears in the transcript only inside the stale state file it was reading. |
+| 0 | **PARTIAL** | The loaded skill path is this checkout's `skills/run` — `runctl` appears in the transcript only inside the stale state file it was reading. But step 0 asks for the path **and** the repository SHA, and no SHA describes this run: the branch moved underneath it. Half of the step is what makes it worth having. |
 | 1 | **PARTIAL** | Every named behaviour was observed — but across **two** sessions, not one. Run 2 gave `/run`: four slices in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary, 27/27 ticked, PR #3. The task list with its edges was observed only in run 1, whose `/run` was the *installed* plugin. A composite of two runs is not the attended flow this step names. |
 | 2 | **PARTIAL — 3 of 5** | Fresh repo, fresh session, `cc-tuner-eval-2`. `/plan --auto` asked **zero** questions where `/spec` had asked eight; plan committed and lint-clean; `/run --auto` worked all three slices to a PR **without a single user turn** — the attended run needed one per slice. Two of the five named assertions have no observation: tasks created with their edges, and a task with a non-empty `blockedBy` refused out of order. The task tools were absent; `/plan` named the step it could not complete rather than skipping quietly. |
 | 2b | **PASS**, after a blocked first attempt | On a fresh review thread Codex approved and the gate recorded `status=APPROVED gate_eligible=true`. `/run` published `cc-tuner-verdict: APPROVE 5905a3ef…` at the exact head, then merged through `scripts/merge.sh 3 squash 5905a3ef…` — not a raw `gh pr merge`. PR #3 merged 2026-08-18T19:00:57Z, four minutes after the verdict. The earlier attempt is finding 7, and its cause turned out to be intermittent. |
