@@ -129,6 +129,12 @@ need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"
 need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
 need "spec-hands-off-to-plan"       '/cc-tuner:plan docs/PLANS' "$SPEC"
 need "plan-two-pass-publication"    'addBlockedBy' "$PLAN_SKILL"
+# The task tools are opt-in from Claude Code 2.1.233 on current models, and nothing the plugin ships
+# can turn them on. Three eval sessions published no visible plan while their operator watched for
+# one, so the skill has to name what is lost rather than mention it in passing.
+need "plan-names-the-optin"        'CLAUDE_CODE_ENABLE_TODO_TOOLS' "$PLAN_SKILL"
+need "plan-stops-for-an-answer"    'Then ask which, and wait' "$PLAN_SKILL"
+need "plan-auto-still-reports"     "points in the run's first report" "$PLAN_SKILL"
 need "plan-commits-the-plan"        'Commit the plan file' "$PLAN_SKILL"
 # The pin is no longer the skill's to remember: merge.sh always adds it. What the skill must still
 # say is that merges go through that script rather than a raw gh call.

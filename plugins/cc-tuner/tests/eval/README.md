@@ -8,12 +8,57 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: run 2 in progress, 2026-08-16.** Steps 0, 1 and 4 observed PASS against a live PR; the
+**Status: Task 8 is NOT complete, and two statuses were corrected downward on 2026-08-20 after review.** Steps 0, 1 and 4 observed PASS against a live PR; the
 step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. **step 5 PASS** and it caught a live regression. Step 3 is the only one left, and finding 9 explains why it was never reachable. Run 1 is kept below:
 it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
 exists to remove — so a step is either observed or it is blank.
+
+
+## Review of 2026-08-20, and what it changed
+
+An external review challenged the statuses above. Most of it held; two things in it did not, and both
+were settled by counting tool calls rather than by argument.
+
+**Held, and acted on.** Step 1 was PASS on evidence assembled from two sessions — `/run` from one and
+the task list from another, the latter being the session whose `/run` was the *installed* plugin. The
+step names a single attended flow, and a composite is not one. Step 2 was "PASS, one part unmeasured"
+when two of its five assertions have no observation. Both corrected above. The rule was already
+written in this file — a step is either observed or it is blank — and it took a reviewer to apply it
+to my own results.
+
+**Did not hold, on the facts.** The review states the task tools were missing "in both eval sessions".
+There were three, and in the first they existed and `/plan` used them:
+
+| transcript | TaskCreate | TaskUpdate | TaskList |
+|---|---|---|---|
+| `b15e8fc3` (eval-1, run 1) | **4** | **3** | **1** |
+| `2a4ddf8e` (eval-1, run 2) | 0 | 0 | 0 |
+| `98c8f6ed` (eval-2, `--auto`) | 0 | 0 | 0 |
+
+Four tasks, then exactly three `addBlockedBy` matching the plan file's edges. That is the only
+observation of the visible plan existing at all, it came from this checkout's `/plan`, and it stands.
+It does not rescue step 1 — it belongs to a different session — but it is not nothing, and the record
+should not lose it.
+
+**Also settled by measurement rather than assumed:**
+
+- *Capability probe, both branches the review asked for.* On 2.1.235, an Opus 5 session calling
+  `TaskCreate` answers `UNAVAILABLE` **without** the plugin and `UNAVAILABLE` **with**
+  `--plugin-dir`. So this is an environment limitation cc-tuner must detect, not a frontmatter or
+  routing defect. `doctor` now detects it (finding 9).
+- *No gate was waived.* The review saw an offer to merge with the Codex gate waived. It was not taken:
+  the thread records `status=APPROVED`, `verdict=APPROVE`, `gate_eligible=true`, and the single
+  contextual use of "waiver" in the transcript is about the spec's `[eyes]` criterion, which records
+  `waiver: none` and was signed off, not waived.
+- *Step 5 was not run against the deleted runtime.* All nine probes were re-measured on 2026-08-20
+  against the skills as shipped at `32f362b`, after the old runtime was gone. One reproduced its own
+  baseline, and that regression is finding 8.
+
+**What remains true and is the point of the review:** Task 8 is not complete. Steps 1, 2 and 3 all
+need a session in which the task tools exist, and until then the promised flow —
+`/spec → /plan → native tasks → /run` — has never been observed end to end in one session.
 
 ## What it costs
 
@@ -104,8 +149,8 @@ resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan
 | Step | Outcome | What was observed |
 |---|---|---|
 | 0 | **PASS** | The loaded skill path is this checkout's `skills/run`; `runctl` appears in the transcript only inside the stale state file it was reading. |
-| 1 | **PASS** | Four slices worked in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary. 27/27 criteria ticked, tree clean, PR #3 opened at `4f70dca`. |
-| 2 | **PASS, one part unmeasured** | Fresh repo, fresh session, `cc-tuner-eval-2`. `/plan --auto` asked **zero** questions where `/spec` had asked eight; plan committed and lint-clean; `/run --auto` worked all three slices to a PR **without a single user turn** — the attended run needed one per slice. Task publication could not be measured: the task tools were absent and `/plan` said so rather than skipping quietly. See below. |
+| 1 | **PARTIAL** | Every named behaviour was observed — but across **two** sessions, not one. Run 2 gave `/run`: four slices in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary, 27/27 ticked, PR #3. The task list with its edges was observed only in run 1, whose `/run` was the *installed* plugin. A composite of two runs is not the attended flow this step names. |
+| 2 | **PARTIAL — 3 of 5** | Fresh repo, fresh session, `cc-tuner-eval-2`. `/plan --auto` asked **zero** questions where `/spec` had asked eight; plan committed and lint-clean; `/run --auto` worked all three slices to a PR **without a single user turn** — the attended run needed one per slice. Two of the five named assertions have no observation: tasks created with their edges, and a task with a non-empty `blockedBy` refused out of order. The task tools were absent; `/plan` named the step it could not complete rather than skipping quietly. |
 | 2b | **PASS**, after a blocked first attempt | On a fresh review thread Codex approved and the gate recorded `status=APPROVED gate_eligible=true`. `/run` published `cc-tuner-verdict: APPROVE 5905a3ef…` at the exact head, then merged through `scripts/merge.sh 3 squash 5905a3ef…` — not a raw `gh pr merge`. PR #3 merged 2026-08-18T19:00:57Z, four minutes after the verdict. The earlier attempt is finding 7, and its cause turned out to be intermittent. |
 | 5 | **PASS**, and it caught a live regression | All nine probes re-measured 2026-08-20 against the shipped skills. Eight reproduced. **`sensitive-small-diff-review` reproduced its own baseline** — the model called a `SERVICE_FEE_RATE` change "no sensitive surfaces" and chose serial review. Cause and fix below. |
 | 4 | **PASS** | Measured against the live PR: no verdict at the head → refused naming the SHA and the account; a SHA that is not the head → refused naming both. |

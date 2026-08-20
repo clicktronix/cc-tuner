@@ -90,6 +90,24 @@ Two passes, because `TaskCreate` takes no dependency argument:
 Then `TaskList` and check the edges are the ones in the file. The edges are the half a one-pass
 implementation drops silently, and a task list without them looks finished when it is not.
 
+**When the task tools are absent, say what is lost and stop for an answer.** From Claude Code 2.1.233
+they are off by default on Opus 4.8, Sonnet 5 and later, restored by `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`
+or `--allowedTools TaskCreate` — both set outside this session, so neither this skill nor the plugin
+can turn them on. `allowed-tools` in this file's frontmatter permits them; it does not provide them.
+
+Report, in these words rather than as a passing remark:
+
+- the plan file is committed and is the durable store, so the work can proceed from it;
+- **not** published, and therefore unavailable for the rest of the run: the visible task list, its
+  dependency edges, the frontier `TaskList` would compute, and the refusal that depends on reading
+  `blockedBy`;
+- how to get them: restart with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, or continue Markdown-only.
+
+Then ask which, and wait. Continuing unasked is what makes a run look like it published a plan it did
+not — measured: three sessions in a row published nothing while their operator was watching for a task
+list. Under `--auto`, where there is nobody to ask, continue Markdown-only and put the same three
+points in the run's first report.
+
 ## Hand off
 
 Print the plan path and the next command, carrying the same spec path and the same mode:
