@@ -28,13 +28,18 @@
     "verdict": "partial hold; exact DoR fields and the unattended no-invention rule remain useful"
   },
   "green_check": {
-    "date": "2026-08-20",
-    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
+    "date": "2026-08-21",
+    "measured_against": "`spec/SKILL.md` and `run/SKILL.md` as shipped at 888bc77. Re-measured 2026-08-21 because 888bc77 changed `spec/SKILL.md` -- the 'before grilling' paragraph now says domain-modeling *may* write CONTEXT.md rather than that it does. The changed paragraph is not the one under test here, and that is exactly the argument this repository does not accept: a recorded pass names the text it was taken against, so the file changing voids it either way. 2 isolated haiku probes, method as in the other eight.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "refuses the run, names each missing DoR entry, and rejects `run tests` as a placeholder"
+        "note": "2/2 refuse to implement, quoting the readiness rule and listing what the spec must name: the exact first failing check, the failure that proves the gap, targeted and full commands, environment and data"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "2/2 add that /run stops at phase 0 and refuses --auto while auto_ready is not yes"
       }
     ]
   }

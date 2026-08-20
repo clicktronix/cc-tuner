@@ -28,13 +28,18 @@
     "verdict": "did not reproduce; retained as a GREEN regression and state-machine testing gate specification"
   },
   "green_check": {
-    "date": "2026-08-20",
-    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
+    "date": "2026-08-21",
+    "measured_against": "`spec/SKILL.md` and `run/SKILL.md` as shipped at 888bc77. Re-measured 2026-08-21 because 888bc77 changed `spec/SKILL.md` -- the 'before grilling' paragraph now says domain-modeling *may* write CONTEXT.md rather than that it does. The changed paragraph is not the one under test here, and that is exactly the argument this repository does not accept: a recorded pass names the text it was taken against, so the file changing voids it either way. 2 isolated haiku probes, method as in the other eight.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "rejects green-only evidence and requires both RED before the fix and the mutation proof after it"
+        "note": "2/2 reject green-only evidence and require both the RED observation before the fix and the mutation that reverses it"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "2/2 state that a passing test nobody saw fail proves nothing, and that a green suite is not a substitute"
       }
     ]
   }

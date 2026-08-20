@@ -171,7 +171,11 @@ done
 # (or an empty/failed GREEN arm) from silently replacing the reviewed evidence in source control.
 #
 # `measured_against` is required because a recorded pass says nothing without the text it was measured
-# against. Every one of these GREENs was taken on 2026-08-10, against `commands/run.md` — a file this
+# against. The corollary bites every time a skill is edited: changing a file stales every scenario that
+# loads it, including scenarios whose clause is nowhere near the edit. On 2026-08-21 a two-line
+# correction to spec/SKILL.md staled two probes, and the fix that resolved the parallel-review
+# contradiction staled a third. Re-measuring costs two haiku calls; arguing that the changed region is
+# disjoint costs the field its meaning. Re-measure. Every one of these GREENs was taken on 2026-08-10, against `commands/run.md` — a file this
 # branch then deleted. A date alone does not make that visible; naming the subject does, and requiring
 # the field here stops the record being quietly dropped once Task 8 re-measures.
 task_run_evidence=0
