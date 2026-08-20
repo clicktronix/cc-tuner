@@ -8,9 +8,23 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: Task 8 is NOT complete, and two statuses were corrected downward on 2026-08-20 after review.** Steps 0, 1 and 4 observed PASS against a live PR; the
-step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. **step 5 PASS** and it caught a live regression. Step 3 is the only one left, and finding 9 explains why it was never reachable. Run 1 is kept below:
-it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
+**Status: Task 8 is NOT complete.** Corrected 2026-08-20, twice, after review — this summary
+contradicted the table below until the second pass, which is the defect it exists to prevent.
+
+| step | status |
+|---|---|
+| 0 | PASS |
+| 1 | **PARTIAL** — observed across two sessions, not one |
+| 2 | **PARTIAL** — 3 of 5 assertions |
+| 2b | PASS |
+| 3 | **not run** |
+| 4 | PASS |
+| 5 | PASS, and it caught a live regression |
+| 6 | this file |
+
+The promised flow — `/spec → /plan → native tasks → /run` — has never been observed end to end in a
+single session, because the task tools were absent in all but the first. Until it is, nothing here
+closes the branch.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
 exists to remove — so a step is either observed or it is blank.
@@ -46,8 +60,10 @@ should not lose it.
 
 - *Capability probe, both branches the review asked for.* On 2.1.235, an Opus 5 session calling
   `TaskCreate` answers `UNAVAILABLE` **without** the plugin and `UNAVAILABLE` **with**
-  `--plugin-dir`. So this is an environment limitation cc-tuner must detect, not a frontmatter or
-  routing defect. `doctor` now detects it (finding 9).
+  `--plugin-dir`. So this is an environment limitation cc-tuner must surface, not a frontmatter or
+  routing defect. `doctor` now reports the variable that usually causes it — a hint, not a probe: a
+  separate process cannot ask a session which tools it holds. The capability answer belongs to
+  `/plan`, which is in that session and finds out by calling (finding 9).
 - *No gate was waived.* The review saw an offer to merge with the Codex gate waived. It was not taken:
   the thread records `status=APPROVED`, `verdict=APPROVE`, `gate_eligible=true`, and the single
   contextual use of "waiver" in the transcript is about the spec's `[eyes]` criterion, which records
@@ -61,10 +77,14 @@ need a session in which the task tools exist, and until then the promised flow �
 `/spec → /plan → native tasks → /run` — has never been observed end to end in one session.
 
 
-### Evidence preserved before the eval repositories were deleted (2026-08-20)
+### Evidence captured against deleting the eval repositories (2026-08-20)
 
-The two scratch repositories were public throwaways and were deleted once the eval was recorded, as
-planned. What they held that this file cites, captured first so the citations stay checkable:
+**They are NOT deleted.** An earlier revision of this section said they were; the `gh repo delete`
+call failed for want of the `delete_repo` scope, and the sentence recorded the intention as the act.
+That is the failure this whole file exists to catch, written into the file itself. `clicktronix/cc-tuner-eval-1`
+and `-2` both still exist.
+
+Captured first, so the citations below stay checkable when they do go:
 
 | | |
 |---|---|
@@ -170,6 +190,14 @@ that does or does not establish. Leave the outcome blank until it is observed.
 Same repository and branch as run 1, after disabling the installed copy locally. `/cc-tuner:run`
 resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan-path.sh` and
 `plan-lint.sh` — this checkout's runtime, with no `runctl` anywhere in the session.
+
+**No frozen SHA, and that is a finding rather than a gap in the notes.** Step 0 requires the plugin
+path *and* the repository SHA. The path is recorded; the SHA cannot be, because the branch moved
+underneath the run — `merge.sh` was fixed at `643c509` while the session was mid-flight, precisely so
+the session could get past the defect it had just surfaced. A skill is read from the working tree at
+the moment it is invoked, so this run exercised more than one revision and no single SHA describes
+what it tested. The next eval must run start to finish against one SHA recorded before it begins, and
+any fix found along the way ends that run rather than being folded into it.
 
 | Step | Outcome | What was observed |
 |---|---|---|

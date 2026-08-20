@@ -90,7 +90,7 @@ routes the agent to do it.
 
 The task loop is split in three. `/cc-tuner:spec` does the asking, creates the task branch, and
 commits machine-checkable acceptance criteria. `/cc-tuner:plan` breaks the spec into vertical slices
-with explicit blocking edges, commits the plan file, and publishes the slices as native tasks.
+with explicit blocking edges, commits the plan file, and — when the Task tools are available — publishes the slices as native tasks.
 `/cc-tuner:run` works that plan to a merged pull request. Each takes `--auto` except `/spec`; without
 it they stop at delivery boundaries.
 
@@ -102,7 +102,7 @@ acceptance criterion names its deciding machine or human step; every `[eyes]` it
 replacement or waiver. Its DoD binds verification, reviews, PR head, and CI to the same candidate.
 
 `/cc-tuner:plan [--auto] <spec>` slices it. Each slice is a tracer bullet with explicit `Blocked by`
-edges; the plan is committed and then published as native tasks, in two passes because `TaskCreate`
+edges; the plan is committed, and published as native tasks in two passes because `TaskCreate`
 takes no dependency argument.
 
 `/cc-tuner:run [--auto] <spec>` works that plan. It takes the frontier in order, proves each slice

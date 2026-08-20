@@ -156,6 +156,18 @@ first one. Recorded here so it is not proposed again.
 
 The visible plan, dependency edges, statuses, and the hook events above.
 
+**Amended 2026-08-20: the visible plan is a projection, not the store.** From Claude Code 2.1.233 the
+Task tools are off by default on Opus 4.8, Sonnet 5 and later, restored only from outside the session
+(`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, `--allowedTools`, `--tools`). Measured on 2.1.235: an Opus 5
+session calling `TaskCreate` answers `UNAVAILABLE` both with and without this plugin loaded. So on a
+current model, by default, there is no visible plan at all.
+
+The design survives because the committed Markdown plan was always the durable store and a run drives
+from it — three eval sessions produced commits, PRs and a merge with no task list in existence. What
+this amendment corrects is the promise: **the committed plan is required, the native task list is an
+optional projection of it.** `/cc-tuner:plan` names what is lost when the tools are absent and stops
+for a decision; it cannot turn them on.
+
 Plan mode is deliberately NOT used. `ExitPlanMode` reads `~/.claude/plans/<name>.md`, a different
 document from the plan this flow commits, so wrapping the proposal in it would mean two plan
 documents for one plan. `/cc-tuner:plan` asks for approval in conversation instead; the cost — plan
