@@ -9,7 +9,7 @@ exists. That is what this is for, and it is why `tests/run.sh` does not include 
 it costs tokens, and it runs by hand.
 
 **Status: run 2 in progress, 2026-08-16.** Steps 0, 1 and 4 observed PASS against a live PR; the
-step 2 also PASS with one part unmeasured; 2b blocked by a dependency; steps 3 and 5 not run. Run 1 is kept below:
+step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. Steps 3 and 5 not run. Run 1 is kept below:
 it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
@@ -106,7 +106,7 @@ resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan
 | 0 | **PASS** | The loaded skill path is this checkout's `skills/run`; `runctl` appears in the transcript only inside the stale state file it was reading. |
 | 1 | **PASS** | Four slices worked in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary. 27/27 criteria ticked, tree clean, PR #3 opened at `4f70dca`. |
 | 2 | **PASS, one part unmeasured** | Fresh repo, fresh session, `cc-tuner-eval-2`. `/plan --auto` asked **zero** questions where `/spec` had asked eight; plan committed and lint-clean; `/run --auto` worked all three slices to a PR **without a single user turn** — the attended run needed one per slice. Task publication could not be measured: the task tools were absent and `/plan` said so rather than skipping quietly. See below. |
-| 2b | **BLOCKED** | Not by cc-tuner: Codex approved in substance, the required gate could not parse it, and `/run` correctly refused to publish an approval it could not attribute. See finding 7. |
+| 2b | **PASS**, after a blocked first attempt | On a fresh review thread Codex approved and the gate recorded `status=APPROVED gate_eligible=true`. `/run` published `cc-tuner-verdict: APPROVE 5905a3ef…` at the exact head, then merged through `scripts/merge.sh 3 squash 5905a3ef…` — not a raw `gh pr merge`. PR #3 merged 2026-08-18T19:00:57Z, four minutes after the verdict. The earlier attempt is finding 7, and its cause turned out to be intermittent. |
 | 4 | **PASS** | Measured against the live PR: no verdict at the head → refused naming the SHA and the account; a SHA that is not the head → refused naming both. |
 
 **Slices verified independently, not read off the transcript.** Re-running each slice's own criteria
@@ -298,6 +298,8 @@ run established, only that it is not consistent.
 repositories, which writes `.claude/settings.local.json` there and leaves the user-scope install
 alone. Verified afterwards that `personal-os` and the `cc-tuner` checkout still report
 `enabled=true`.
+
+**Later observation, and it corrects this finding.** The same thread log carries `  APPROVE---` at line 306 and a clean `  APPROVE` at line 388 — whether Codex terminates its reply **varies between rounds**. The gate was intermittent, not broken, which is why a fresh thread later attributed an approval with the defect still unfixed in the installed copy. An intermittent gate is worse to diagnose than a dead one: the same candidate, reviewed twice, is attributable once.
 
 **Left open:** whether a released version has this problem. After a normal `/plugin update` the
 installed copy *is* the new one, so `commands/run.md` no longer exists anywhere — the collision is
