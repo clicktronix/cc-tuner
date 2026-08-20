@@ -60,6 +60,31 @@ should not lose it.
 need a session in which the task tools exist, and until then the promised flow —
 `/spec → /plan → native tasks → /run` — has never been observed end to end in one session.
 
+
+### Evidence preserved before the eval repositories were deleted (2026-08-20)
+
+The two scratch repositories were public throwaways and were deleted once the eval was recorded, as
+planned. What they held that this file cites, captured first so the citations stay checkable:
+
+| | |
+|---|---|
+| `cc-tuner-eval-1` PR #3 | **MERGED** 2026-08-18T19:00:57Z, head `5905a3ef`, title "Retry budget for the HTTP client" |
+| — its two verdicts | `cc-tuner-verdict: REQUEST_CHANGES 7d1c028b…` at `7d1c028b`, then `cc-tuner-verdict: APPROVE 5905a3ef…` at `5905a3ef` — the second at the exact head, four minutes before the merge |
+| — merge path | `scripts/merge.sh 3 squash 5905a3ef…`, not a raw `gh pr merge` |
+| — gate state | `status=APPROVED verdict=APPROVE gate_eligible=true round=1` |
+| `cc-tuner-eval-1` PR #1 | CLOSED — the setup probe that confirmed `gh pr checks --required` returns `pass` |
+| `cc-tuner-eval-2` PR #2 | OPEN at head `22b1e3ae`, the `--auto` run, never merged |
+
+**The transcripts are the primary record and survive the deletion** — they live under
+`~/.claude/projects/`, not in the repositories:
+
+- `-…-cc-tuner-eval-1/b15e8fc3-…jsonl` — run 1, the only session in which the task tools existed
+- `-…-cc-tuner-eval-1/2a4ddf8e-…jsonl` — run 2, `/run` from this checkout through to the merge
+- `-…-cc-tuner-eval-2/98c8f6ed-…jsonl` — the `--auto` run
+
+Local clones were kept at `~/Projects/ai/cc-tuner-eval-{1,2}`. Note that eval-1's clone holds only
+two commits: the squash merge collapsed the branch, and the branch history existed only on GitHub.
+
 ## What it costs
 
 One session per scenario, two scratch repositories, and a handful of real PRs. Budget an hour of
