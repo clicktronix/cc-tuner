@@ -37,7 +37,21 @@ Do not infer correctness from green CI, a plan checkbox, another review, or the 
 Run every applicable lens independently. Always perform the review; small-diff thresholds only decide
 execution shape. The owning reviewer may run all lenses serially for a candidate within both
 contract-defined thresholds and outside every sensitive surface. Otherwise fan them out to parallel
-reviewer agents against the immutable candidate. Keep the lifecycle outside the review sequential and
+reviewer agents against the immutable candidate.
+
+**The sensitive surfaces, named — because "sensitive" is not self-evident and size is not the test:**
+
+- authentication, authorization, secrets, and cryptography;
+- migrations and destructive data operations;
+- public APIs, persisted schemas, and cross-service contracts;
+- money, payments, pricing, billing, and entitlements;
+- infrastructure, CI, deployment, and release configuration;
+- security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and
+  server-side allowlists.
+
+Size is not the test: a candidate inside the thresholds still fans out when it touches any of these.
+The list lived only in `workflow-contract.json`, which nothing loads at runtime, so the sentence above
+asked the reviewer to stay outside a boundary it had no way to see. Keep the lifecycle outside the review sequential and
 give every reviewer the same literal base, candidate, tree, spec, and read-only constraint.
 
 1. **Correctness and edge cases** — logic, state transitions, concurrency, errors, cleanup,

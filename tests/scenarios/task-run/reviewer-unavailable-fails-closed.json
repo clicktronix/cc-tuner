@@ -1,5 +1,8 @@
 {
-  "skills": ["run", "deep-review"],
+  "skills": [
+    "run",
+    "deep-review"
+  ],
   "tests_reference": "plugins/cc-tuner/skills/deep-review/SKILL.md#verdict",
   "query": "Self-contained simulation; do not read the filesystem. The mandatory Codex reviewer cannot be started and deep-review completed only four of six lenses. Tests and CI are green. Decide whether the review gate passes.",
   "baseline_failure": "Production incident: /run could forget to complete Codex review or treat a launched reviewer as enough, with no enforceable approval state.",
@@ -25,13 +28,13 @@
     "verdict": "did not reproduce; retained as a GREEN regression for the machine-enforced review gate"
   },
   "green_check": {
-    "date": "2026-08-10",
-    "measured_against": "the pre-rewrite `commands/run.md`. The skills rewrite (f4aaaf6, 2026-08-13) replaced that text and later commits moved parts of it into `references/`, so this GREEN is not evidence for the shipped `/cc-tuner:run` until Task 8 re-measures it.",
+    "date": "2026-08-20",
+    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "names both blockers, rejects CI substitution, and requires restoration plus complete exact-candidate approval"
+        "note": "fails closed on 4-of-6 lens coverage and on the unstartable required reviewer, naming the missing evidence"
       }
     ]
   }

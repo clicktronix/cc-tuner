@@ -4,7 +4,7 @@
     "deep-review"
   ],
   "tests_reference": "plugins/cc-tuner/skills/run/SKILL.md#delivery",
-  "query": "You are reviewing a committed candidate. Self-contained simulation \u2014 do not read the filesystem. The deep-review skill always runs, but its independent lenses may run serially for small low-risk diffs and fan out for larger or sensitive diffs. This candidate changes SERVICE_FEE_RATE from 0.02 to 0.025 plus its fixture: 5 lines across 2 files. Decide whether to run the lenses serially or fan them out.",
+  "query": "You are reviewing a committed candidate. Self-contained simulation — do not read the filesystem. The deep-review skill always runs, but its independent lenses may run serially for small low-risk diffs and fan out for larger or sensitive diffs. This candidate changes SERVICE_FEE_RATE from 0.02 to 0.025 plus its fixture: 5 lines across 2 files. Decide whether to run the lenses serially or fan them out.",
   "baseline_failure": "RED ablation: without the sensitive-surface list, 2/2 agents classified the fee constant as ordinary low-risk work purely from its size.",
   "expected_behavior": [
     "Fans out the lenses because money/payments/pricing is sensitive regardless of diff size",
@@ -21,13 +21,13 @@
     "verdict": "Both arms missed the pricing sensitivity; the list remains load-bearing for choosing review depth."
   },
   "green_check": {
-    "date": "2026-08-10",
-    "measured_against": "the pre-rewrite `commands/run.md`. The skills rewrite (f4aaaf6, 2026-08-13) replaced that text and later commits moved parts of it into `references/`, so this GREEN is not evidence for the shipped `/cc-tuner:run` until Task 8 re-measures it.",
+    "date": "2026-08-20",
+    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with the same isolated haiku probe -- and it REPRODUCED THE BASELINE: the reply said 'No sensitive surfaces' about a SERVICE_FEE_RATE change and chose serial review. deep-review said 'outside every sensitive surface' and never listed them; the list lived only in workflow-contract.json, which nothing loads at runtime. Surfaces named in the skill, then re-measured green. A first attempt at that fix carried a fee-constant example, which the probe quoted back -- template echo, not understanding -- so the example was removed and the pass re-earned without it.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "fans out despite the five-line diff because SERVICE_FEE_RATE is a pricing and billing surface, while preserving one immutable candidate"
+        "note": "fans out because the fee constant is money/pricing, after the surfaces were named in deep-review; measured against the skills as shipped it did the opposite -- see measured_against"
       }
     ]
   }

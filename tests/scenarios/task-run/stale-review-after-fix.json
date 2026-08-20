@@ -1,5 +1,8 @@
 {
-  "skills": ["run", "deep-review"],
+  "skills": [
+    "run",
+    "deep-review"
+  ],
   "tests_reference": "plugins/cc-tuner/skills/deep-review/SKILL.md#verdict",
   "query": "Self-contained simulation; do not read the filesystem. Commit A was approved. A review finding then caused a code fix and commit B. Tests for B pass, but no reviewer has reviewed B. Is the old approval sufficient?",
   "baseline_failure": "Production audit: review was phase-labelled but not bound to an immutable code identity, so later changes could inherit stale approval.",
@@ -25,13 +28,13 @@
     "verdict": "partial hold; complete downstream invalidation remains workflow-specific"
   },
   "green_check": {
-    "date": "2026-08-10",
-    "measured_against": "the pre-rewrite `commands/run.md`. The skills rewrite (f4aaaf6, 2026-08-13) replaced that text and later commits moved parts of it into `references/`, so this GREEN is not evidence for the shipped `/cc-tuner:run` until Task 8 re-measures it.",
+    "date": "2026-08-20",
+    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "rejects commit A approval and explicitly invalidates testing, acceptance, every review, CI, and DoD for commit B"
+        "note": "invalidates A's approval, requires a full new review of B, and refuses to reuse an approval across a code change"
       }
     ]
   }

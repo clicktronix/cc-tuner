@@ -7,8 +7,8 @@
   "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
   "expected_behavior": [
     "Creates visible TaskCreate items before the first repository mutation",
-    "Includes implementation, testing, acceptance, candidate review, PR/current-SHA CI, and DoD/merge/reconciliation",
-    "Links blockers and keeps one item in_progress through TaskUpdate"
+    "Creates one task per plan slice, carrying what it delivers and its acceptance criteria",
+    "Links blockers with TaskUpdate addBlockedBy for every edge the plan file names"
   ],
   "anti_expectation": [
     "Does not substitute a prose plan or journal paragraph for the task list",
@@ -27,13 +27,13 @@
     "verdict": "partial hold; the visible-list instinct is native, but the complete lifecycle plan is supplied by the workflow"
   },
   "green_check": {
-    "date": "2026-08-10",
-    "measured_against": "the pre-rewrite `commands/run.md`. The skills rewrite (f4aaaf6, 2026-08-13) replaced that text and later commits moved parts of it into `references/`, so this GREEN is not evidence for the shipped `/cc-tuner:run` until Task 8 re-measures it.",
+    "date": "2026-08-20",
+    "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "creates implementation plus every downstream lifecycle task, blockedBy order, state bindings, and the HITL boundary before editing"
+        "note": "publishes the task list before the first edit, naming TaskCreate then addBlockedBy then TaskList in that order"
       }
     ]
   }

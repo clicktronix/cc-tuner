@@ -9,7 +9,7 @@ exists. That is what this is for, and it is why `tests/run.sh` does not include 
 it costs tokens, and it runs by hand.
 
 **Status: run 2 in progress, 2026-08-16.** Steps 0, 1 and 4 observed PASS against a live PR; the
-step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. Steps 3 and 5 not run. Run 1 is kept below:
+step 2 also PASS with one part unmeasured, and **2b PASS** — the whole positive path ran end to end through `merge.sh`. **step 5 PASS** and it caught a live regression. Step 3 is the only one left. Run 1 is kept below:
 it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
@@ -107,6 +107,7 @@ resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan
 | 1 | **PASS** | Four slices worked in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary. 27/27 criteria ticked, tree clean, PR #3 opened at `4f70dca`. |
 | 2 | **PASS, one part unmeasured** | Fresh repo, fresh session, `cc-tuner-eval-2`. `/plan --auto` asked **zero** questions where `/spec` had asked eight; plan committed and lint-clean; `/run --auto` worked all three slices to a PR **without a single user turn** — the attended run needed one per slice. Task publication could not be measured: the task tools were absent and `/plan` said so rather than skipping quietly. See below. |
 | 2b | **PASS**, after a blocked first attempt | On a fresh review thread Codex approved and the gate recorded `status=APPROVED gate_eligible=true`. `/run` published `cc-tuner-verdict: APPROVE 5905a3ef…` at the exact head, then merged through `scripts/merge.sh 3 squash 5905a3ef…` — not a raw `gh pr merge`. PR #3 merged 2026-08-18T19:00:57Z, four minutes after the verdict. The earlier attempt is finding 7, and its cause turned out to be intermittent. |
+| 5 | **PASS**, and it caught a live regression | All nine probes re-measured 2026-08-20 against the shipped skills. Eight reproduced. **`sensitive-small-diff-review` reproduced its own baseline** — the model called a `SERVICE_FEE_RATE` change "no sensitive surfaces" and chose serial review. Cause and fix below. |
 | 4 | **PASS** | Measured against the live PR: no verdict at the head → refused naming the SHA and the account; a SHA that is not the head → refused naming both. |
 
 **Slices verified independently, not read off the transcript.** Re-running each slice's own criteria
@@ -135,6 +136,34 @@ Measured on `cc-tuner-eval-2`, a repository and session that shared nothing with
 - **Unmeasured: the visible task list.** `TaskCreate`/`TaskUpdate`/`TaskList` were unavailable — two `ToolSearch` attempts, recorded. `/plan --auto` **named the step it could not complete** instead of passing over it, which is the behaviour to want; but "tasks created with their edges" and "a task with a non-empty `blockedBy` refused out of order" have no observation in this run. The first half was observed in run 1 (four `TaskCreate`, three `addBlockedBy`); the refusal has still never been observed and remains the one `--auto` rule with no evidence either way.
 
 The task tooling has now been absent in three consecutive sessions. That is an environment property, not a finding about cc-tuner — but it means the frontier rule, which the ADR already calls an instruction rather than a gate, is also the rule this eval keeps failing to reach.
+
+
+#### Finding 8 — a rule survived the rewrite; the list it depended on did not
+
+Step 5 exists because the nine GREEN runs predated the skills rewrite. Eight reproduced. One did not,
+and the failure is the point.
+
+`deep-review/SKILL.md` still says a candidate may be reviewed serially only when it is "outside every
+sensitive surface" — and **never names them**. The list lives in `workflow-contract.json`, which
+nothing loads at runtime; the ADR says so plainly, and the contract was reduced on exactly that
+principle. So the sentence asked the reviewer to stay outside a boundary it had no way to see. Asked
+about a five-line fee-rate change, the probe answered "No sensitive surfaces … Straightforward
+configuration update" and chose serial review — which is, close to verbatim, the recorded baseline
+this scenario was built to prevent (`without the sensitive-surface list, 2/2 agents classified the fee
+constant as ordinary low-risk work purely from its size`).
+
+Fixed by naming the six surfaces in the skill that uses the concept. **The first attempt at that fix
+failed a check it should have failed:** it carried a worked example — "a five-line change to a fee
+constant touches the fourth" — and the probe quoted that sentence back. That is a template echo, not
+understanding, and `superpowers:writing-skills` names it as the thing that makes automated scoring
+overstate a pass. The example was removed and the probe re-run; it now maps the constant to
+money/pricing on its own.
+
+**What this says about the reduction.** Cutting the contract to what something reads was right, and
+the ADR is right that nothing loads it. What went unnoticed is that a *skill* still depended on the
+contract's contents in prose while losing access to them — a dangling reference with no file path to
+make it visible, so no link checker could have found it. The generalisation worth carrying: when a
+document stops being loaded, grep for the concepts it defined, not only for its filename.
 
 #### Finding 7 — the same seam again, in cc-codex-triage, and it stopped the eval
 
