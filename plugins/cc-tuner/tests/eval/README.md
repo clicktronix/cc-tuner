@@ -9,7 +9,7 @@ exists. That is what this is for, and it is why `tests/run.sh` does not include 
 it costs tokens, and it runs by hand.
 
 **Status: run 2 in progress, 2026-08-16.** Steps 0, 1 and 4 observed PASS against a live PR; the
-review and merge steps (2b) are next, and steps 2, 3 and 5 have not been run. Run 1 is kept below:
+step 2 also PASS with one part unmeasured; 2b blocked by a dependency; steps 3 and 5 not run. Run 1 is kept below:
 it is the run where `/run` silently resolved to the *installed* plugin, which step 0 caught.
 
 A step recorded as passing on the strength of reading a skill's text is the exact failure this branch
@@ -105,6 +105,7 @@ resolved to `~/Projects/ai/cc-tuner/plugins/cc-tuner/skills/run` and drove `plan
 |---|---|---|
 | 0 | **PASS** | The loaded skill path is this checkout's `skills/run`; `runctl` appears in the transcript only inside the stale state file it was reading. |
 | 1 | **PASS** | Four slices worked in frontier order, each RED→GREEN→mutation→tick→commit, stopping at every boundary. 27/27 criteria ticked, tree clean, PR #3 opened at `4f70dca`. |
+| 2 | **PASS, one part unmeasured** | Fresh repo, fresh session, `cc-tuner-eval-2`. `/plan --auto` asked **zero** questions where `/spec` had asked eight; plan committed and lint-clean; `/run --auto` worked all three slices to a PR **without a single user turn** — the attended run needed one per slice. Task publication could not be measured: the task tools were absent and `/plan` said so rather than skipping quietly. See below. |
 | 2b | **BLOCKED** | Not by cc-tuner: Codex approved in substance, the required gate could not parse it, and `/run` correctly refused to publish an approval it could not attribute. See finding 7. |
 | 4 | **PASS** | Measured against the live PR: no verdict at the head → refused naming the SHA and the account; a SHA that is not the head → refused naming both. |
 
@@ -123,6 +124,17 @@ That is the rule this branch learned the hard way, followed by a model reading t
 
 **It refused to rubber-stamp the `[eyes]` criterion.** Slice 4's README criterion is the spec's only
 human-eyes item with `waiver: none`; the run stopped and asked rather than deciding for itself.
+
+
+#### What step 2 established, and the one thing it could not
+
+Measured on `cc-tuner-eval-2`, a repository and session that shared nothing with step 1:
+
+- **`--auto` is a different mode, not a louder one.** `/spec` asked eight grilling questions — it has no `--auto` by design — and `/plan --auto` then asked none. `/run --auto` produced eight commits, three slices in frontier order (`RetryConfig` → `RetryBudgetExhausted` → README), 21/21 criteria ticked, and opened PR #2, across **zero** user turns. In the attended run the same skill stopped after every slice.
+- **The work is real.** Verified outside the session: the budget is spent exactly (`max_attempts=5` → 5 calls, `=2` → 2), `.attempts` matches, `RetryBudgetExhausted` is not a subclass of `TransientError`, no integer literal bounds the loop, and the suite is green.
+- **Unmeasured: the visible task list.** `TaskCreate`/`TaskUpdate`/`TaskList` were unavailable — two `ToolSearch` attempts, recorded. `/plan --auto` **named the step it could not complete** instead of passing over it, which is the behaviour to want; but "tasks created with their edges" and "a task with a non-empty `blockedBy` refused out of order" have no observation in this run. The first half was observed in run 1 (four `TaskCreate`, three `addBlockedBy`); the refusal has still never been observed and remains the one `--auto` rule with no evidence either way.
+
+The task tooling has now been absent in three consecutive sessions. That is an environment property, not a finding about cc-tuner — but it means the frontier rule, which the ADR already calls an instruction rather than a gate, is also the rule this eval keeps failing to reach.
 
 #### Finding 7 — the same seam again, in cc-codex-triage, and it stopped the eval
 
