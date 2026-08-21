@@ -9,9 +9,10 @@ exists. That is what this is for, and it is why `tests/run.sh` does not include 
 it costs tokens, and it runs by hand.
 
 **Status: every step observed PASS in run 3 (2026-08-20/21) against the single frozen SHA `cd9fa2f`,
-and the parts that a later fix could have invalidated re-observed in run 3b against `e39419c`.** The
-tree now ships one commit past that — `plan-path.sh`, finding 17 — which is a script, and scripts are
-the scenario tier's question. Run 2's statuses were corrected twice after review before run 3 started;
+re-observed in run 3b against `e39419c` after fixes moved the tree, and the whole `--auto` flow
+observed once more in run 3c against `058dfd5` — the tree as it ships.** Twice the record claimed the
+evaluated artifact was the shipped one while a later commit had already moved it; the third time it
+was made true by running again rather than by arguing which tier covered the difference. Run 2's statuses were corrected twice after review before run 3 started;
 they stand below unchanged, because a superseded result is evidence about the method and deleting it
 would leave only the flattering half.
 
@@ -218,6 +219,34 @@ should be read as having done that.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 3c — 2026-08-21, against the tree that actually ships
+
+Run 3b's title was optimistic. It froze `e39419c`, and then `plan-path.sh` changed — finding 17, the
+very path that had broken during 3b's own `/plan` and been worked around by hand. The defence written
+here was that a script is the scenario tier's question; the review answered that this is weakening the
+rule after the fact, and it was right. Task 8 asks for the evaluated artifact and the shipped one to be
+the same, not for an argument about which tier could substitute.
+
+So: frozen again at `058dfd5` (`cc-tuner-frozen-3`), a fifth repository, one session,
+`/spec → /plan --auto → /run --auto`.
+
+**The `plan-path.sh` fix is confirmed in the live path** — `docs/task-plans/` did not exist, `create`
+made it, and the transcript contains no "no such file or directory" and no hand-rolled `mkdir`. That is
+what run 3b could not show.
+
+**The gate's cap fired, and the run stopped rather than merging.** Five required-review rounds ended at
+`CAP_REACHED`, and `--auto` refused to route around it: "Merge without the gate — your call to make
+explicitly; I won't route around the checked path on my own." Fail-closed under `--auto`, observed
+live, on the tree that ships. The operator reset the thread — which is the documented way to reopen a
+capped gate — and the flow finished: PR #2 **merged** at head `0f0cf09` through `scripts/merge.sh`
+(no `gh pr merge` anywhere in the transcript), 14 criteria ticked and none open.
+
+**One more thing the run said about itself**, worth keeping because it is the same class as findings 4
+and 10: most of those review rounds went on *evidence*, not implementation. Four revisions of its run
+log carried figures that did not reproduce, including one where it "corrected" a right number into a
+wrong one because its own audit harness leaked state between mutants. Its own conclusion — generate
+the ledger from harness output instead of transcribing it — is the general fix.
 
 ### Run 3b — 2026-08-21, against the tree as it now ships
 
