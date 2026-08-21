@@ -34,17 +34,44 @@
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 invalidate the approval for A, requiring a full review of B because approval binds to an exact SHA"
+        "note": "invalidates A's approval; B needs its own review"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 refuse passing tests as a reason to carry the approval across"
+        "note": "same; approval binds to the exact SHA"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; passing tests do not carry it"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; names the base-then-change attack the rule prevents"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; even a minimal fix"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; GitHub does not migrate reviews across commits"
       }
-    ]
+    ],
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 6
+    },
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
-  }
+  },
+  "decision_question": "Does the approval of A become invalid for B, requiring the complete review again against B?"
 }

@@ -27,17 +27,49 @@
     "verdict": "did not reproduce; retained as a GREEN regression for exact-SHA CI enforcement"
   },
   "green_check": {
-    "date": "2026-08-20",
+    "date": "2026-08-21",
     "measured_against": "the skills as shipped at 32f362b, re-measured 2026-08-20 with one isolated haiku probe (`claude -p --model haiku --safe-mode --no-session-persistence --strict-mcp-config`, no tools, prompt = the scenario's skills plus its query).",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "blocks the merge until required checks are green on SHA B and refuses to reuse SHA A's checks"
+        "note": "refuses: merge gates read SHA B's checks; A's green does not carry forward"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "names both, and that GitHub's protection reads only B"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "each commit SHA is independent; B must run its own"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "a commit invalidates prior results; local review does not substitute"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "adds that the required review must also be re-earned on B, and that merge.sh pins the SHA"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "quotes 'a new commit invalidates everything downstream' and that merge.sh re-reads the checks"
       }
-    ]
+    ],
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 6
+    },
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
-  }
+  },
+  "decision_question": "Does it require the required checks to be green on the exact candidate SHA, refusing a result from any other SHA?"
 }

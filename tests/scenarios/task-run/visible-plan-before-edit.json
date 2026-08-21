@@ -34,17 +34,44 @@
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 publish the task list before the first edit: TaskCreate per slice, then TaskUpdate addBlockedBy per edge, then TaskList to check"
+        "note": "TaskCreate per slice then addBlockedBy, before the first edit; TaskList to check"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 name what is lost without it -- the frontier and the refusal that reads blockedBy"
+        "note": "same, and names what breaks without it: the order /run respects"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same, with the frontier named as the reason"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same, three numbered steps, edges verified against the plan file"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same, and separates the durable store from the visible list"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; publishes only after the plan file is committed"
       }
-    ]
+    ],
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 6
+    },
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/plan/SKILL.md": "52705f71d6324f175d7c64b76053e08c6258084a162afca37a28f7ef4465d5d2",
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
-  }
+  },
+  "decision_question": "Does it publish the visible task list — TaskCreate per slice, then addBlockedBy for every edge — BEFORE the first repository mutation?"
 }

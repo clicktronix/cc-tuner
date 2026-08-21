@@ -34,17 +34,44 @@
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 fail closed, naming both missing pieces: the unavailable required reviewer and the 4-of-6 lens coverage"
+        "note": "fails closed on both: the required reviewer and 4-of-6 lens coverage"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 quote deep-review's 'never convert a tool failure ... into approval' and return REQUEST_CHANGES"
+        "note": "quotes 'never convert a tool failure ... into approval'"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "REQUEST_CHANGES, naming which lenses are missing"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; green CI is not a substitute"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; cannot-start is a hard failure, not an optional check"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; asks which two lenses were skipped and why"
       }
-    ]
+    ],
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 6
+    },
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
-  }
+  },
+  "decision_question": "Does it fail closed, naming the missing reviewer or lens coverage, rather than treating green CI as approval?"
 }

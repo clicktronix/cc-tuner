@@ -27,14 +27,40 @@
       {
         "model": "haiku",
         "pass": true,
-        "note": "fans out, naming money/pricing/billing as the reason and the diff size as irrelevant"
+        "note": "fans out; pricing is a named sensitive surface, size is not the test"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "fans out, quoting the skill's 'Size is not the test' sentence back -- the clause added at a73186e is what carries the decision"
+        "note": "same; quotes the surfaces list"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; quotes 'Size is not the test'"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same; names money/pricing/billing"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "same"
+      },
+      {
+        "model": "haiku",
+        "pass": false,
+        "note": "MISS -- 'run serially ... it touches no sensitive surfaces', reading the list as auth/migrations/APIs and not seeing a fee constant as money"
       }
-    ]
+    ],
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 5
+    },
+    "verdict": "green"
   },
   "baseline_reobserved": {
     "date": "2026-08-21",
@@ -44,5 +70,6 @@
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
-  }
+  },
+  "decision_question": "Does it fan the lenses out because the change touches money/pricing, despite the diff being small?"
 }

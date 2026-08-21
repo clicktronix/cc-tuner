@@ -23,7 +23,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PASS** — all five probes whose target changed are now measured at the frozen SHA; the first pass claimed eight were unaffected when four are | PASS, and it caught a live regression |
+| 5 | **PASS** — all nine re-taken at n=6 against a question written before the sample: seven 6/6, two 5/6, both misses on the record | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -306,7 +306,7 @@ installed copy disabled locally in each.
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PASS**, after a correction | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. |
+| 5 | **PASS**, after two corrections | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=6 under a written `decision_question`** (finding 16), because n=2 was the second thing this row got wrong: seven at 6/6, two at 5/6, both misses recorded rather than dropped. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
@@ -433,6 +433,52 @@ read-only lenses over an immutable candidate, which is the only thing `deep-revi
 narrowing the prohibition to the review *decision* and naming the lens exception in the same
 paragraph, and `implementation-only-parallelism`, whose expectation pinned the old flat wording, was
 amended and re-measured.
+
+#### Finding 17 — `plan-path.sh create` hands back a path the caller cannot write
+
+Observed on the final-tree run: `create` printed `docs/task-plans/2026-08-21-….md` in a repository
+that had no `docs/task-plans/` yet, and `/plan`'s first Write failed with *no such file or directory*.
+The session made the directory itself and carried on, which is why nothing else showed it.
+
+`create` is the one mode whose entire purpose is producing a path the caller can write — `resolve`
+answers "where is it", `pattern` answers "what shape is it", `create` answers "where do I put the new
+one". Fixed by `mkdir -p "$DIR"` in that branch, with a flow test that builds a repository with no
+`docs/` at all and asserts the directory exists afterwards; reverting the `mkdir` fails it.
+
+This one belongs to the **scenario tier**, not here: it is a shell script with observable inputs, and
+the two-tier rule says such questions are settled there. The eval's contribution was noticing it at
+all, which no existing scenario did because every fixture already had a `docs/` directory.
+
+#### Finding 16 — every recorded GREEN was taken at n=2, and the bar was never written down
+
+Enforcing the re-measure rule turned up something the rule was not looking for. Every GREEN in
+`tests/scenarios/task-run/` was recorded at **n = 2**, and n = 2 cannot see a coin flip.
+
+Two attempts to fix that failed before the third worked, and the failures are the finding:
+
+- **Re-sampling against an unwritten bar.** `implementation-only-parallelism` scored 2 of 6 — judged
+  by me, after the fact, against a stricter reading than any file contained.
+- **An automated judge fed the whole expectation list as a conjunction.** It scored `current-sha-ci`
+  1 of 6 on six answers that were all correct, failing them for not enumerating every rubric item
+  under a query that asks for under 80 words. That measures the rubric's shape, not the skill.
+
+**What works: write the bar first.** Each scenario now carries a `decision_question` — one question
+decidable by reading, fixed in the file before any sample is taken — and the protocol is n = 6,
+classified by hand, GREEN at ≥ 5 of 6. Under it, all nine are green, and the same scenario that
+scored 2 of 6 against the unwritten bar scores **5 of 6** against its written one. The difference was
+entirely the bar.
+
+Both misses are recorded rather than dropped, because they are the useful part:
+
+- `sensitive-small-diff-review` 5/6 — the miss read the six surfaces as auth/migrations/APIs and did
+  not see a fee constant as money.
+- `implementation-only-parallelism` 5/6 — the miss refused to answer at all, asking for the spec and
+  owned paths instead of deciding.
+
+`tests/run.sh` enforces the whole contract now: the sha256 of every file a scenario loads, that
+`skills` names the skill the scenario is about, six recorded outcomes whose counts match the
+outcomes, and a verdict that must equal what the threshold computes. Claiming 6 of 6 while recording
+a miss, relabelling 4 of 6 as green, and trimming back to two samples each fail it.
 
 #### Finding 17 — `plan-path.sh create` hands back a path the caller cannot write
 

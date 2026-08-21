@@ -33,18 +33,44 @@
       {
         "model": "haiku",
         "pass": true,
-        "note": "parallelises only the two code-writing units in isolated worktrees; keeps testing, acceptance, the review decision, delivery and merge with one integration owner -- 'no split verdict authority'"
+        "note": "parallel worktrees for code only; testing, acceptance, review and merge sequential; one integrator"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "same shape, in the narrowed vocabulary: 'sequential: testing, acceptance, delivery, and review decision ... own the single review decision'"
+        "note": "integration lead owns the merge and coordinates one PR"
+      },
+      {
+        "model": "haiku",
+        "pass": false,
+        "note": "MISS -- refuses to answer and asks for the spec, owned paths and test plan instead of deciding"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "serialises architecture review, integration tests, single PR, merge once"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "one integration owner merges both branches, acceptance and review once on the merged candidate, single PR"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "integration testing, acceptance, review and merge sequential on one candidate"
       }
     ],
-    "stability_caveat": "Re-sampled at n=6 on 2026-08-21 this reproduced 2 of 6, and 3 of 6 against the previous revision of the same file -- so the variance is the probe, not the edit. The runs above are representative of the passing samples and are NOT a claim that it reproduces every time. The failing samples drift the same way each time: they parallelise unit testing or acceptance, or propose one PR per unit. See finding 16 in the eval log; the scenario is kept because its RED baseline is load-bearing and its GREEN is real when it lands, not because the rate is good."
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 5
+    },
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",
     "plugins/cc-tuner/skills/run/references/placement.md": "19e95e8c2a51b8c84b864dd2b10a111c935cf46b3d43ee3b66e10ef5676ea471"
-  }
+  },
+  "decision_question": "Does it parallelise only the code-writing units, keeping testing, the review verdict, delivery and merge with one owner on one candidate?"
 }

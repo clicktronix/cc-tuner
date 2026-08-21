@@ -34,17 +34,44 @@
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 refuse to merge, requiring the finding fixed, a new candidate SHA, and a fresh review of it"
+        "note": "blocks; fix, new candidate SHA, re-run checks, re-review"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "2/2 name the loop explicitly and refuse green tests as a substitute"
+        "note": "blocks; quotes 'a new commit invalidates everything downstream'"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "blocks; quotes the skill's line about one round with REQUEST_CHANGES standing"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "blocks; only APPROVE on the final candidate clears the merge"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "blocks; a deadline does not change it"
+      },
+      {
+        "model": "haiku",
+        "pass": true,
+        "note": "blocks; each commit is a new candidate needing a fresh verdict"
       }
-    ]
+    ],
+    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "reproduction": {
+      "samples": 6,
+      "passes": 6
+    },
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
-  }
+  },
+  "decision_question": "Does REQUEST_CHANGES block the merge until the finding is dispositioned and a fresh approval binds to the current SHA?"
 }

@@ -188,14 +188,17 @@ done
 # small: two haiku calls. On 2026-08-21 a two-line correction to spec/SKILL.md staled two probes and the
 # parallel-review fix staled a third, and only one of the three was noticed without this check.
 #
-# What this check still does NOT establish is how often a recorded GREEN reproduces. Every one of them
-# was taken at n=2, and n=2 cannot see a coin flip: re-sampling `implementation-only-parallelism` at n=6
-# reproduced 2 of 6 (and 3 of 6 against the previous revision of the same file, so the drift is the
-# probe rather than the edit). Recording that honestly needs a sampling protocol this repository does
-# not have yet -- an automated judge tried on 2026-08-21 failed answers for not enumerating a checklist
-# under the query's own word limit, which measures the rubric's shape and not the skill. Finding 16 in
-# the eval log carries the observation and the open work; this validator deliberately does not pretend
-# to a rate it cannot defend.
+# How often a GREEN reproduces is the second half, and it used to be unrecorded. Every one of these was
+# taken at n=2, and n=2 cannot see a coin flip. The protocol is now fixed and enforced above: a
+# `decision_question` written BEFORE the sample -- one decidable question, not the full expectation
+# checklist -- six samples, each outcome recorded including the misses, counts that must match the
+# outcomes, and GREEN at >= 5 of 6.
+#
+# The bar being written first is the load-bearing part. Judged against an unwritten stricter reading
+# after the fact, `implementation-only-parallelism` scored 2 of 6; against its written question, 5 of 6,
+# and the difference was entirely in the bar. An automated judge fed the whole expectation list as a
+# conjunction scored `current-sha-ci` 1 of 6 on six answers that were all correct -- it was measuring
+# the rubric's shape. Hence: one question, decided by hand, fixed in the file before the sample runs.
 task_run_evidence=0
 for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
   implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \
@@ -207,12 +210,19 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.baseline_observed.method | type == "string" and length > 0) and
     (.baseline_observed.verdict | type == "string" and length > 0) and
     (.green_check.measured_against | type == "string" and length > 0) and
-    (.green_check.runs | type == "array" and length > 0) and
-    all(.green_check.runs[]; .pass == true and (.note | type == "string" and length > 0))
+    (.green_check.protocol | type == "string" and length > 0) and
+    (.decision_question | type == "string" and length > 0) and
+    (.green_check.runs | type == "array" and length >= 6) and
+    all(.green_check.runs[]; (.pass | type == "boolean") and (.note | type == "string" and length > 0)) and
+    (.green_check.reproduction.samples == (.green_check.runs | length)) and
+    (.green_check.reproduction.passes == ([.green_check.runs[] | select(.pass)] | length)) and
+    (.green_check.verdict == (if .green_check.reproduction.passes * 6 >= .green_check.reproduction.samples * 5
+                              then "green" else "unstable" end)) and
+    (.green_check.verdict == "green")
   ' "$file" >/dev/null 2>&1; then
     task_run_evidence=$((task_run_evidence + 1))
   else
-    bad "tests/scenarios/task-run/$name.json lacks recorded baseline/GREEN evidence"
+    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question and protocol, at least 6 recorded outcomes with notes, counts that match the outcomes, and a verdict of green (>= 5 of 6)"
   fi
 
   # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever
