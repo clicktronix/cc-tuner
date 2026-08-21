@@ -284,7 +284,7 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
 
   | method | workspace | why |
   |---|---|---|
-  | `grill-with-docs`, `grilling` | **task branch, created by `/spec` first** | it calls `domain-modeling`, which writes `CONTEXT.md` and ADRs — it is not spec-only |
+  | `grill-with-docs`, `grilling` | **task branch, created by `/spec` first** | it calls `domain-modeling`, which **may** write `CONTEXT.md` and ADRs — lazily, only when there is something to write, and "may" is enough: the ordering has to hold for the runs where it does |
   | `research`, `domain-modeling` | **task branch** | their output is kept and committed — a saved artifact is a write, however much reading produced it |
   | `prototype` | **disposable branch or worktree** | its output is throwaway by definition; landing it on the task branch is how a spike becomes the implementation by accident |
   | `tdd` | task branch, around the slice's deciding check | that check is the red/green boundary |
@@ -472,8 +472,9 @@ script that is about to be removed.
       where the last live references to `runctl.sh`, `journal.sh` and the prepared-file machinery
       leave the tree.
 - [x] **Step 2b: rewrite `spec` so it creates the task branch before grilling.** `commands/spec.md:29`
-      invokes `grilling` with `domain-modeling` today, and `domain-modeling` writes `CONTEXT.md` and
-      ADRs — so `/spec` persists to the repository with no branch. The placement rule in Task 3 says
+      invokes `grilling` with `domain-modeling` today, and `domain-modeling` **may** write `CONTEXT.md`
+      and ADRs — so `/spec` may persist to the repository with no branch, and on the runs where it does,
+      it did. The placement rule in Task 3 says
       the branch comes first; without this step that rule is a paragraph nobody implements. Move
       branch creation ahead of section 2 of the command.
 - [x] **Step 2c: a test for the order.** The scenario this step originally asked for cannot exist in

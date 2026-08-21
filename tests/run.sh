@@ -215,13 +215,34 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     bad "tests/scenarios/task-run/$name.json lacks recorded baseline/GREEN evidence"
   fi
 
-  # The target set is derived the same way the probe harness derives it: one SKILL.md per entry in
-  # `skills`, plus `tests_reference` when it names a references/ file. Deriving it rather than trusting
-  # a hand-listed set is the point -- a scenario that forgets to list a file it loads is the failure
-  # this replaces.
+  # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever
+  # `tests_reference` points at, anchor stripped. **Always that second one**, not only when the path
+  # says `references/` -- an earlier revision of this check made that exemption, and it reproduced the
+  # very defect it was written after: `visible-plan-before-edit` pointed at `plan/SKILL.md` while its
+  # `skills` said only `run`, so the file the scenario is about carried no hash at all and the check
+  # went green anyway.
+  #
+  # The comparison is set equality, not containment. A missing key is an unhashed target; a stale extra
+  # key is a target the scenario stopped loading, and leaving those behind turns the record into a list
+  # of files that were once relevant.
   targets="$(jq -r '[ (.skills[]? | "plugins/cc-tuner/skills/" + . + "/SKILL.md"),
-                      (.tests_reference | select(test("references/")) | sub("#.*"; "")) ]
+                      (.tests_reference // "" | sub("#.*"; "") | select(length > 0)) ]
                     | unique | .[]' "$file" 2>/dev/null)"
+  jq -e '(.skills | type == "array" and length > 0)' "$file" >/dev/null 2>&1 \
+    || bad "tests/scenarios/task-run/$name.json lists no skills, so no target set can be derived"
+  # `skills` must also name the skill its `tests_reference` points into. The hash set no longer depends
+  # on that -- tests_reference is hashed either way -- but the probe harness reads `skills` to decide
+  # what to put in front of the model, so a scenario about `plan` with `skills: ["run"]` is measured
+  # without the file it is about. That is the shape this whole check was written after.
+  ref_skill="$(jq -r '(.tests_reference // "") | capture("skills/(?<s>[^/]+)/SKILL\\.md") | .s' "$file" 2>/dev/null)"
+  if [ -n "$ref_skill" ]; then
+    jq -e --arg s "$ref_skill" 'any(.skills[]?; . == $s)' "$file" >/dev/null 2>&1 \
+      || bad "tests/scenarios/task-run/$name.json points at the '$ref_skill' skill but does not list it in .skills, so the probe is run without it"
+  fi
+  recorded="$(jq -r '(.measured_targets // {}) | keys[]?' "$file" 2>/dev/null | sort)"
+  derived="$(printf '%s\n' $targets | sort)"
+  [ "$recorded" = "$derived" ] \
+    || bad "tests/scenarios/task-run/$name.json measured_targets does not match what it loads — recorded [$(printf '%s' "$recorded" | tr '\n' ' ')] derived [$(printf '%s' "$derived" | tr '\n' ' ')]"
   for t in $targets; do
     [ -f "$ROOT/$t" ] || { bad "$name.json names a target that does not exist: $t"; continue; }
     have="$(sha256_of "$ROOT/$t")"

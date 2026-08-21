@@ -259,7 +259,7 @@ independently.
 | | |
 |---|---|
 | covered at `e39419c` | `/spec` including the changed placement paragraph, `/plan --auto`, `/run --auto`, the review shape after finding 14's fix, the gate, the checked merge, and the `blockedBy` refusal under `--auto` |
-| not repeated | the attended flow, recovery, and the live merge denial — no production file they exercise changed between `cd9fa2f` and `e39419c` |
+| not repeated | the attended flow, recovery, and the live merge denial. **Not because nothing they touch changed** — `spec/SKILL.md` and `placement.md` both did, and the attended flow reads both. The defensible claim is narrower: the instructions those two files carry are shared with the auto flow and were re-covered by it, and what is attended-only — the stop-and-ask boundaries — lives in `run/SKILL.md`, which did not change |
 | after `e39419c` | one script, `plan-path.sh`, and finding 17 is why. A script is the scenario tier's question by the two-tier rule, and it ships a flow test that fails when the fix is reverted |
 
 **Finding 12 gets its clean answer.** With `placement.md` no longer saying the opposite, this run still
