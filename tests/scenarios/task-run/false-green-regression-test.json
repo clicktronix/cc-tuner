@@ -33,41 +33,68 @@
     "runs": [
       {
         "model": "haiku",
+        "sample": 1,
         "pass": true,
-        "note": "rejects green-only; requires RED before GREEN and a reversal"
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No. This is insufficient. Best practice requires: 1. **RED before GREEN** — run the test and watch it fail before applying the fix, proving it actually tests the gap 2. **Mutation proof** — revert the fix and confirm the"
       },
       {
         "model": "haiku",
+        "sample": 2,
         "pass": true,
-        "note": "same, and says the test may not test the actual gap"
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "**No.** The regression test must be shown failing *before* the fix to prove it actually tests the gap. A test that never fails could be wrong, too permissive, or testing unrelated code. Equally critical: the fix must be "
       },
       {
         "model": "haiku",
+        "sample": 3,
         "pass": true,
-        "note": "same; 'it may pass vacuously'"
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No, this is insufficient. The spec requires: 1. **RED before GREEN** — Run the test and observe it fail first, proving it tests the actual gap 2. **Mutation proof** — Revert the fix and confirm the test fails, proving it"
       },
       {
         "model": "haiku",
+        "sample": 4,
         "pass": true,
-        "note": "same; names both disciplines explicitly"
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No. Per `/cc-tuner:run` spec requirements: 1. **No RED → GREEN proof**: The test never failed before the fix, so there's no evidence it actually catches the bug. It could be a false positive. 2. **No mutation proof**: Th"
       },
       {
         "model": "haiku",
+        "sample": 5,
         "pass": true,
-        "note": "same"
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No. **Critical gap: the test was never RED.** Without seeing it fail before the fix, you cannot prove it tests the fixed bug — it may be vacuously true or test something unrelated. The spec requires \"Regression check was"
       },
       {
         "model": "haiku",
+        "sample": 6,
         "pass": true,
-        "note": "same; 'proving the fix causes the pass, not coincidence'"
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No. Testing & Code Verification requires: 1. **RED before GREEN** — the test must be observed failing *before* the fix, proving it catches the gap. 2. **Prove the guard** — remove/reverse the fix and confirm the test fai"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "pass": true,
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No. This is a RED-before-GREEN gap. A test that was never seen failing has not been shown to test anything — it may pass for unrelated reasons or test nothing at all. You must: 1. **Run the new test on the unfixed code**"
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "pass": true,
+        "note": "rejects green-only; requires the RED observation and a reversal",
+        "answer": "No. This is insufficient for three reasons: 1. **No RED state.** You haven't shown the test failing before the fix, so you don't know it actually tests the gap. 2. **No mutation proof.** Without reverting the fix or muta"
       }
     ],
-    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
-      "samples": 6,
-      "passes": 6
+      "samples": 8,
+      "passes": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "samples_file": "plugins/cc-tuner/tests/eval/samples/false-green-regression-test.txt"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",

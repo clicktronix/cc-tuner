@@ -33,41 +33,68 @@
     "runs": [
       {
         "model": "haiku",
+        "sample": 1,
         "pass": true,
-        "note": "invalidates A's approval; B needs its own review"
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. A new commit invalidates the prior approval. Commit B is a different SHA from A, so it requires its own review and approval, regardless of why B was created. The old approval for A cannot apply to B—every candidate S"
       },
       {
         "model": "haiku",
+        "sample": 2,
         "pass": true,
-        "note": "same; approval binds to the exact SHA"
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. An approval is bound to an exact commit SHA. Commit B is a different SHA, so the approval for A does not transfer. Even though B fixes a finding from A's review, B itself has not been reviewed. The fix could introduc"
       },
       {
         "model": "haiku",
+        "sample": 3,
         "pass": true,
-        "note": "same; passing tests do not carry it"
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. A new commit invalidates the old approval. According to `/cc-tuner:run`, \"A published approval stands until the SHA changes.\" Commit B has a different SHA than A, so it requires its own review and approval. The old a"
       },
       {
         "model": "haiku",
+        "sample": 4,
         "pass": true,
-        "note": "same; names the base-then-change attack the rule prevents"
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. A new commit invalidates previous approvals because the code has changed. Commit B introduced a code fix that wasn't in the reviewed commit A. Even though B's tests pass, the modified code itself must be reviewed. Ap"
       },
       {
         "model": "haiku",
+        "sample": 5,
         "pass": true,
-        "note": "same; even a minimal fix"
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. An approval for commit A is bound to that specific SHA and tree. Commit B is a new commit with changed code, which invalidates the prior approval. From the deep-review skill: \"A new commit invalidates everything down"
       },
       {
         "model": "haiku",
+        "sample": 6,
         "pass": true,
-        "note": "same; GitHub does not migrate reviews across commits"
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. A new commit invalidates prior approvals. Commit B requires its own review, even though it fixes a finding from B's review. The approval on A does not transfer to B—each commit is a separate candidate that must be re"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "pass": true,
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. The approval for commit A does not apply to commit B. Approvals are bound to specific commits (SHAs). When a review finding requires a code fix, that fix creates a new commit with a new SHA—which invalidates the prio"
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "pass": true,
+        "note": "invalidates A's approval for B; the complete review runs again on B",
+        "answer": "No. A new commit invalidates the prior approval. Per cc-tuner:deep-review: \"A published approval stands until the SHA changes.\" Commit B is a different SHA than A, so it requires a fresh review. The old approval bound to"
       }
     ],
-    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
-      "samples": 6,
-      "passes": 6
+      "samples": 8,
+      "passes": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "samples_file": "plugins/cc-tuner/tests/eval/samples/stale-review-after-fix.txt"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",

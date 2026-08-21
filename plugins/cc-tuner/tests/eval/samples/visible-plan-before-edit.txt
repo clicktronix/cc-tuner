@@ -1,0 +1,29 @@
+# visible-plan-before-edit — 8 raw samples
+# question the answers are judged against: Does it publish the visible task list — TaskCreate per slice, then addBlockedBy for every edge — BEFORE the first repository mutation?
+# model claude-haiku-4-5-20251001, isolated (--strict-mcp-config, empty mcp config)
+# system prompt: plugins/cc-tuner/skills/plan/SKILL.md, plugins/cc-tuner/skills/run/SKILL.md
+
+## sample 1
+Before editing: **run `/cc-tuner:plan`** to slice the spec into tracer bullets, write and validate the plan file, then commit it. This creates the durable store. Then **publish the plan as visible tasks**: two passes with `TaskCreate` (each slice) and `TaskUpdate` (blocking edges). The visible task list with dependency edges is what gates the frontier order during work. Only then edit the first slice. 
+
+## sample 2
+The plan must be published as a visible task list. Even though the plan file exists and is committed, **TaskCreate** hasn't run yet — so there are no tasks to track progress or enforce blocking edges. Before any edit: 1. **TaskCreate** for each slice (in order) 2. **TaskUpdate** with `addBlockedBy` for each blocker 3. **TaskList** to verify edges match the plan Only then: take the lowest-numbered pending task with empty `blockedBy` and work it. The task list is the visible frontier; the plan file is the durable store. 
+
+## sample 3
+Before editing the first source file, you must: 1. **Create the plan** via `/cc-tuner:plan` — slice the spec's three tasks into tracers through every layer, specify blocking edges, validate with plan-lint, and commit the plan file. 2. **Publish the visible task list** via two TaskCreate/TaskUpdate passes to wire up dependencies, so the task frontier is visible and blocking edges are enforced during the run. Then the work can proceed in frontier order. 
+
+## sample 4
+Before editing: **publish the plan as tasks**. Run `TaskCreate` for each slice in order (subject = slice title, description = deliverables + acceptance criteria), then `TaskUpdate addBlockedBy` for each blocking relationship. Run `TaskList` to verify edges match the plan file. Only after the visible task graph is built can work on the frontier task begin. 
+
+## sample 5
+Publish the plan's slices to the visible task list. Two passes: 1. **TaskCreate** for every slice in order (subject: title, description: deliverables + acceptance criteria) 2. **TaskUpdate** with `addBlockedBy` for each blocking edge Then verify with **TaskList** that the edges match the plan file. The task list is the frontier you read to pick the next work; an unpublished plan has none, so you'd have no feedback on which slices are unblocked and ready. 
+
+## sample 6
+Before editing, publish the plan's visible task list: 1. **Spec committed** — confirm it's tracked (required to cite it) 2. **Plan created** — run `/cc-tuner:plan <spec-path>` to generate and commit the plan file 3. **Tasks published** — two passes: `TaskCreate` for each slice in order, then `TaskUpdate addBlockedBy` to wire dependencies 4. **Verify TaskList** — confirm all edges are wired correctly Only then edit the first slice. The task list is the frontier; skipping it leaves the spec and plan invisible. 
+
+## sample 7
+The plan must be published as a task list. Before the edit: the plan file must exist (generated from the spec, validated with plan-lint, committed), then TaskCreate for each slice in order, then TaskUpdate for all blocking edges. Only then does TaskList show the frontier, and you work the lowest-numbered unblocked pending task. The task list is the visible plan the run loop enforces; without it, nothing stops starting a blocked task or skipping the frontier. 
+
+## sample 8
+Create and publish the plan. Run `/cc-tuner:plan <spec-path>` to slice the three tasks into tracer-bullet slices with blocking edges, validate it, commit the plan file, then run `TaskCreate` for each slice followed by `TaskUpdate addBlockedBy` for the edges. Only then does `TaskList` show the frontier, and you can work the first unblocked task. The plan file is the durable store; the visible task list makes progress trackable across sessions. 
+

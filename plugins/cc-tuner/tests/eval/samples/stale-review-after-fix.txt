@@ -1,0 +1,29 @@
+# stale-review-after-fix — 8 raw samples
+# question the answers are judged against: Does the approval of A become invalid for B, requiring the complete review again against B?
+# model claude-haiku-4-5-20251001, isolated (--strict-mcp-config, empty mcp config)
+# system prompt: plugins/cc-tuner/skills/deep-review/SKILL.md, plugins/cc-tuner/skills/run/SKILL.md
+
+## sample 1
+No. A new commit invalidates the prior approval. Commit B is a different SHA from A, so it requires its own review and approval, regardless of why B was created. The old approval for A cannot apply to B—every candidate SHA must be reviewed and approved independently. 
+
+## sample 2
+No. An approval is bound to an exact commit SHA. Commit B is a different SHA, so the approval for A does not transfer. Even though B fixes a finding from A's review, B itself has not been reviewed. The fix could introduce new issues, incomplete changes, or unintended side effects. The reviewer must confirm that the specific changes in B actually resolve the finding correctly and create no new problems. Tests passing verifies behavior, not that the fix meets review standards. 
+
+## sample 3
+No. A new commit invalidates the old approval. According to `/cc-tuner:run`, "A published approval stands until the SHA changes." Commit B has a different SHA than A, so it requires its own review and approval. The old approval cannot be reused—the cc-tuner workflow denies merge on an unapproved candidate by construction. Commit B must be reviewed and approved independently before merging. 
+
+## sample 4
+No. A new commit invalidates previous approvals because the code has changed. Commit B introduced a code fix that wasn't in the reviewed commit A. Even though B's tests pass, the modified code itself must be reviewed. Approvals are bound to specific SHAs—once the tree changes, reviewers must re-examine it. Skipping review of B would defeat the purpose of the review finding that prompted its creation. 
+
+## sample 5
+No. An approval for commit A is bound to that specific SHA and tree. Commit B is a new commit with changed code, which invalidates the prior approval. From the deep-review skill: "A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done." The fix requires a fresh review of B at its exact SHA. Tests passing doesn't substitute for human review—they verify correctness, not that the fix matches spec or introduces no new issues. 
+
+## sample 6
+No. A new commit invalidates prior approvals. Commit B requires its own review, even though it fixes a finding from B's review. The approval on A does not transfer to B—each commit is a separate candidate that must be reviewed at its exact SHA. Passing tests prove regression coverage, not correctness against the specification or the fix itself. 
+
+## sample 7
+No. The approval for commit A does not apply to commit B. Approvals are bound to specific commits (SHAs). When a review finding requires a code fix, that fix creates a new commit with a new SHA—which invalidates the prior approval. Commit B must be reviewed independently to verify the fix correctly addresses the finding without introducing new issues. The principle: **each new commit resets the review requirement**. One review round with REQUEST_CHANGES, then a fix, then a new complete review. 
+
+## sample 8
+No. A new commit invalidates the prior approval. Per cc-tuner:deep-review: "A published approval stands until the SHA changes." Commit B is a different SHA than A, so it requires a fresh review. The old approval bound to A's hash no longer applies. Tests passing doesn't substitute for reviewer approval—it's an orthogonal gate. Commit B must be reviewed and approved independently before merge. 
+

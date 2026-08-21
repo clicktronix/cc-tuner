@@ -8,9 +8,10 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: every step observed PASS in run 3 (2026-08-20/21) against the single frozen SHA `cd9fa2f`,
-re-observed in run 3b against `e39419c` after fixes moved the tree, and the whole `--auto` flow
-observed once more in run 3c against `058dfd5` — the tree as it ships.** Twice the record claimed the
+**Status: the flow is observed end to end and step 5 is PARTIAL, so Task 8 is not complete.** Runs 3,
+3b and 3c observed `/spec → /plan → native tasks → /run → merge` against `cd9fa2f`, `e39419c` and
+`058dfd5` — the last being the tree as it ships. What is open is step 5: re-measured at n=8, eight
+probes are green and `implementation-only-parallelism` reproduces **5 of 8** (finding 16). Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
 was made true by running again rather than by arguing which tier covered the difference — and then
 made **checkable**: `EVALUATED_SHA` in this directory names the evaluated commit, and `tests/run.sh`
@@ -27,7 +28,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PASS** — all nine re-taken at n=6 against a question written before the sample: seven 6/6, two 5/6, both misses on the record | PASS, and it caught a live regression |
+| 5 | **PARTIAL** — all nine re-taken at n=8 against a question committed before the sample: eight green, `implementation-only-parallelism` **5 of 8** | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -338,7 +339,7 @@ installed copy disabled locally in each.
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PASS**, after two corrections | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=6 under a written `decision_question`** (finding 16), because n=2 was the second thing this row got wrong: seven at 6/6, two at 5/6, both misses recorded rather than dropped. |
+| 5 | **PARTIAL**, after two corrections | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` is **5 of 8 and recorded unstable**, which is what makes this step PARTIAL rather than PASS. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
@@ -481,74 +482,46 @@ This one belongs to the **scenario tier**, not here: it is a shell script with o
 the two-tier rule says such questions are settled there. The eval's contribution was noticing it at
 all, which no existing scenario did because every fixture already had a `docs/` directory.
 
-#### Finding 16 — every recorded GREEN was taken at n=2, and the bar was never written down
+#### Finding 16 — every recorded GREEN was taken at n=2, and one probe does not survive a real sample
 
 Enforcing the re-measure rule turned up something the rule was not looking for. Every GREEN in
 `tests/scenarios/task-run/` was recorded at **n = 2**, and n = 2 cannot see a coin flip.
 
-Two attempts to fix that failed before the third worked, and the failures are the finding:
+Three attempts, and the two failures are as much the finding as the third:
 
 - **Re-sampling against an unwritten bar.** `implementation-only-parallelism` scored 2 of 6 — judged
   by me, after the fact, against a stricter reading than any file contained.
 - **An automated judge fed the whole expectation list as a conjunction.** It scored `current-sha-ci`
   1 of 6 on six answers that were all correct, failing them for not enumerating every rubric item
   under a query that asks for under 80 words. That measures the rubric's shape, not the skill.
+- **What works:** one `decision_question` per scenario, decidable by reading, **committed at `2ed8521`
+  before the sample that judges it was taken**; n = 8; every raw answer kept in
+  `tests/eval/samples/<scenario>.txt`; classification by hand; GREEN at ≥ 7 of 8.
 
-**What works: write the bar first.** Each scenario now carries a `decision_question` — one question
-decidable by reading, fixed in the file before any sample is taken — and the protocol is n = 6,
-classified by hand, GREEN at ≥ 5 of 6. Under it, all nine are green, and the same scenario that
-scored 2 of 6 against the unwritten bar scores **5 of 6** against its written one. The difference was
-entirely the bar.
+The threshold is named for what it is — a smoke bar. A fair coin clears 7 of 8 about **3.5%** of the
+time; the 5 of 6 it replaces let one through **10.9%** of the time, which is not a bar a coin should
+be able to clear that often.
 
-Both misses are recorded rather than dropped, because they are the useful part:
+**Result: eight green, one unstable.**
 
-- `sensitive-small-diff-review` 5/6 — the miss read the six surfaces as auth/migrations/APIs and did
-  not see a fee constant as money.
-- `implementation-only-parallelism` 5/6 — the miss refused to answer at all, asking for the spec and
-  owned paths instead of deciding.
+| | |
+|---|---|
+| 8 of 8 | `current-sha-ci`, `visible-plan-before-edit`, `dor-first-failing-check`, `false-green-regression-test`, `request-changes-blocks-merge`, `stale-review-after-fix`, `reviewer-unavailable-fails-closed` |
+| 7 of 8 | `sensitive-small-diff-review` — the miss says "run serially … touches none of the sensitive surfaces" in a sentence that lists payments among them |
+| **5 of 8** | `implementation-only-parallelism` — **unstable**. Three answers split the review verdict across two candidates: "Independent PRs reviewed in parallel", "separate PRs allow independent feedback", and one that hands ownership to "whichever unit landed first" |
 
-`tests/run.sh` enforces the whole contract now: the sha256 of every file a scenario loads, that
-`skills` names the skill the scenario is about, six recorded outcomes whose counts match the
-outcomes, and a verdict that must equal what the threshold computes. Claiming 6 of 6 while recording
-a miss, relabelling 4 of 6 as green, and trimming back to two samples each fail it.
+**The instability is not something finding 14's fix caused.** Against the revision of `placement.md`
+*before* the parallel-review narrowing the same probe ran 3 of 6; after it, 5 of 8. Both are poor and
+the second is no worse, so the rule was weak here before it was corrected. What that leaves open is a
+real question about the skill, not about the probe: the text tells a model what may fan out and what
+may not, and three answers in eight still land two PRs on one plan.
 
-#### Finding 17 — `plan-path.sh create` hands back a path the caller cannot write
-
-Observed on the final-tree run: `create` printed `docs/task-plans/2026-08-21-….md` in a repository
-that had no `docs/task-plans/` yet, and `/plan`'s first Write failed with *no such file or directory*.
-The session made the directory itself and carried on, which is why nothing else showed it.
-
-`create` is the one mode whose entire purpose is producing a path the caller can write — `resolve`
-answers "where is it", `pattern` answers "what shape is it", `create` answers "where do I put the new
-one". Fixed by `mkdir -p "$DIR"` in that branch, with a flow test that builds a repository with no
-`docs/` at all and asserts the directory exists afterwards; reverting the `mkdir` fails it.
-
-This one belongs to the **scenario tier**, not here: it is a shell script with observable inputs, and
-the two-tier rule says such questions are settled there. The eval's contribution was noticing it at
-all, which no existing scenario did because every fixture already had a `docs/` directory.
-
-#### Finding 16 — the probe evidence is thinner than the records say, and the instrument to fix it does not exist yet
-
-Enforcing the re-measure rule turned up something the rule was not looking for. Every GREEN in
-`tests/scenarios/task-run/` was recorded at **n = 2**, and n = 2 cannot see a coin flip.
-
-Re-sampled at n = 6, `implementation-only-parallelism` reproduced **2 of 6** — and **3 of 6** against
-the previous revision of the same file, so the variance is the probe, not the edit that prompted the
-re-measure. The failures drift the same way every time: unit testing or acceptance parallelised, or
-one PR per unit rather than one candidate.
-
-**The obvious next move was tried and does not work yet.** An automated judge, given each scenario's
-`expected_behavior` and `anti_expectation` as a conjunctive rubric, failed answers for not
-enumerating every item — under a query that asks for under 90 words. That measures the rubric's
-shape, not the skill: `current-sha-ci` scored 1 of 6 on answers that were not wrong. So the rates
-above are honest about one scenario and the whole layer is weaker than it reads, and no rate was
-written into the other eight, because a number nobody can defend is worse than an admitted gap.
-
-`tests/run.sh` now pins each scenario to the sha256 of every file its probe loads, so a skill edit
-reddens the scenarios that read it until they are re-measured. That is the half that can be enforced
-today. The open half is a sampling protocol: a decisive per-scenario question rather than a checklist,
-a sample size that can see a coin flip, and a way to record "reproduces 4 of 6" without the schema
-turning it into a clean pass.
+`tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
+names the skill the scenario is about, that `samples_file` is in the tree, exactly eight outcomes each
+carrying a verbatim answer, counts that match them, and a verdict that agrees with the threshold.
+`unstable` is a **recordable** verdict — a probe reproducing 5 times in 8 is a finding about the
+skill, and forcing every verdict to be green is exactly how it would have become green. The runner
+names the unstable ones on its ok line rather than burying them.
 
 #### A discarded first attempt at scenario A, recorded because it shaped the harness
 

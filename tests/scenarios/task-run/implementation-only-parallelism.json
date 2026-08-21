@@ -32,41 +32,68 @@
     "runs": [
       {
         "model": "haiku",
+        "sample": 1,
         "pass": true,
-        "note": "parallel worktrees for code only; testing, acceptance, review and merge sequential; one integrator"
+        "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
+        "answer": "**Parallelism:** The two independent code units run simultaneously in isolated worktrees. Each owns its module completely—no merge conflicts, no shared state edits. **Sequential:** Testing, acceptance, architecture revie"
       },
       {
         "model": "haiku",
+        "sample": 2,
         "pass": true,
-        "note": "integration lead owns the merge and coordinates one PR"
+        "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
+        "answer": "**Parallel:** Code the two units in isolated worktrees; they don't block each other. **Sequential:** Testing (full regression), acceptance (acceptance criteria), architecture review, PR/merge. These read state others are"
       },
       {
         "model": "haiku",
+        "sample": 3,
         "pass": false,
-        "note": "MISS -- refuses to answer and asks for the spec, owned paths and test plan instead of deciding"
+        "note": "MISS -- 'Independent PRs reviewed in parallel': the review verdict is split across two candidates",
+        "answer": "**Parallelism:** Both units code simultaneously in separate worktrees/branches. **Reviews:** Independent PRs reviewed in parallel (disjoint modules allow this). **Testing:** Unit tests per-module parallel; integration te"
       },
       {
         "model": "haiku",
-        "pass": true,
-        "note": "serialises architecture review, integration tests, single PR, merge once"
+        "sample": 4,
+        "pass": false,
+        "note": "MISS -- two branches, no single candidate, and ownership handed to 'whichever unit landed first'",
+        "answer": "**Parallel:** Both units code independently in separate branches—no integration gate until both are feature-complete. Each runs its own unit tests in parallel. **Sequential gates:** Architecture review (single approval),"
       },
       {
         "model": "haiku",
+        "sample": 5,
         "pass": true,
-        "note": "one integration owner merges both branches, acceptance and review once on the merged candidate, single PR"
+        "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
+        "answer": "**Parallelism:** Both implementation units can run concurrently in isolated git worktrees since they touch disjoint modules. **Sequential:** Testing, acceptance, architecture review, and PR lifecycle remain sequential—ne"
       },
       {
         "model": "haiku",
+        "sample": 6,
         "pass": true,
-        "note": "integration testing, acceptance, review and merge sequential on one candidate"
+        "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
+        "answer": "**Parallelism:** Both implementation units run concurrently on isolated worktrees—no shared state dependency. **Testing & acceptance:** Sequential, per unit, then integrated. Testing decisions read candidate state others"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "pass": true,
+        "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
+        "answer": "**Parallel:** The two implementation units can code concurrently (disjoint modules). Unit testing for each happens immediately after. **Sequential:** After both units complete, one integration owner orchestrates: runs in"
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "pass": false,
+        "note": "MISS -- 'separate PRs allow independent feedback', merge A then B: two candidates, two merges",
+        "answer": "**Code in parallel** across two feature branches; each unit owns its tests. **Integrate sequentially**: merge Unit A first, then Unit B atop it to catch cross-module issues early. **Architecture review** happens pre-merg"
       }
     ],
-    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
-      "samples": 6,
+      "samples": 8,
       "passes": 5
     },
-    "verdict": "green"
+    "verdict": "unstable",
+    "samples_file": "plugins/cc-tuner/tests/eval/samples/implementation-only-parallelism.txt"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",

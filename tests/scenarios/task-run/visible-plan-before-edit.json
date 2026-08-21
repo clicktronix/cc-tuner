@@ -33,41 +33,68 @@
     "runs": [
       {
         "model": "haiku",
+        "sample": 1,
         "pass": true,
-        "note": "TaskCreate per slice then addBlockedBy, before the first edit; TaskList to check"
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "Before editing: **run `/cc-tuner:plan`** to slice the spec into tracer bullets, write and validate the plan file, then commit it. This creates the durable store. Then **publish the plan as visible tasks**: two passes wit"
       },
       {
         "model": "haiku",
+        "sample": 2,
         "pass": true,
-        "note": "same, and names what breaks without it: the order /run respects"
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "The plan must be published as a visible task list. Even though the plan file exists and is committed, **TaskCreate** hasn't run yet — so there are no tasks to track progress or enforce blocking edges. Before any edit: 1."
       },
       {
         "model": "haiku",
+        "sample": 3,
         "pass": true,
-        "note": "same, with the frontier named as the reason"
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "Before editing the first source file, you must: 1. **Create the plan** via `/cc-tuner:plan` — slice the spec's three tasks into tracers through every layer, specify blocking edges, validate with plan-lint, and commit the"
       },
       {
         "model": "haiku",
+        "sample": 4,
         "pass": true,
-        "note": "same, three numbered steps, edges verified against the plan file"
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "Before editing: **publish the plan as tasks**. Run `TaskCreate` for each slice in order (subject = slice title, description = deliverables + acceptance criteria), then `TaskUpdate addBlockedBy` for each blocking relation"
       },
       {
         "model": "haiku",
+        "sample": 5,
         "pass": true,
-        "note": "same, and separates the durable store from the visible list"
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "Publish the plan's slices to the visible task list. Two passes: 1. **TaskCreate** for every slice in order (subject: title, description: deliverables + acceptance criteria) 2. **TaskUpdate** with `addBlockedBy` for each "
       },
       {
         "model": "haiku",
+        "sample": 6,
         "pass": true,
-        "note": "same; publishes only after the plan file is committed"
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "Before editing, publish the plan's visible task list: 1. **Spec committed** — confirm it's tracked (required to cite it) 2. **Plan created** — run `/cc-tuner:plan <spec-path>` to generate and commit the plan file 3. **Ta"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "pass": true,
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "The plan must be published as a task list. Before the edit: the plan file must exist (generated from the spec, validated with plan-lint, committed), then TaskCreate for each slice in order, then TaskUpdate for all blocki"
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "pass": true,
+        "note": "publishes TaskCreate per slice then addBlockedBy per edge before the first edit",
+        "answer": "Create and publish the plan. Run `/cc-tuner:plan <spec-path>` to slice the three tasks into tracer-bullet slices with blocking edges, validate it, commit the plan file, then run `TaskCreate` for each slice followed by `T"
       }
     ],
-    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
-      "samples": 6,
-      "passes": 6
+      "samples": 8,
+      "passes": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "samples_file": "plugins/cc-tuner/tests/eval/samples/visible-plan-before-edit.txt"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/plan/SKILL.md": "52705f71d6324f175d7c64b76053e08c6258084a162afca37a28f7ef4465d5d2",

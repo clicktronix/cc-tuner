@@ -181,6 +181,11 @@ done
 # fine -- it just means the ADR says "proposed" until the eval has seen it.
 EVAL_SHA_FILE="$ROOT/plugins/cc-tuner/tests/eval/EVALUATED_SHA"
 ADR="$ROOT/docs/adr/2026-08-13-native-first-lifecycle.md"
+# Fail closed on its own inputs. An earlier revision wrapped the whole check in `if [ -f A ] && [ -f B ]`
+# with no else, so deleting or renaming either file turned the guard off and the suite stayed green --
+# a guard whose disappearance is indistinguishable from its success.
+[ -f "$EVAL_SHA_FILE" ] || bad "plugins/cc-tuner/tests/eval/EVALUATED_SHA is missing — the check that the eval saw the shipped tree cannot run without it"
+[ -f "$ADR" ] || bad "docs/adr/2026-08-13-native-first-lifecycle.md is missing — its status is what the EVALUATED_SHA check reads"
 if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
   eval_sha="$(grep -v "^#" "$EVAL_SHA_FILE" | tr -d "[:space:]")"
   adr_status="$(sed -n "s/^\*\*Status:\*\* *\([a-z]*\).*/\1/p" "$ADR" | head -1)"
@@ -221,10 +226,14 @@ fi
 # outcomes, and GREEN at >= 5 of 6.
 #
 # The bar being written first is the load-bearing part. Judged against an unwritten stricter reading
-# after the fact, `implementation-only-parallelism` scored 2 of 6; against its written question, 5 of 6,
-# and the difference was entirely in the bar. An automated judge fed the whole expectation list as a
-# conjunction scored `current-sha-ci` 1 of 6 on six answers that were all correct -- it was measuring
-# the rubric's shape. Hence: one question, decided by hand, fixed in the file before the sample runs.
+# after the fact, `implementation-only-parallelism` scored 2 of 6; against its written question at n=6,
+# 5 of 6; at n=8 with every answer kept, 5 of 8 -- unstable. An automated judge fed the whole expectation
+# list as a conjunction scored `current-sha-ci` 1 of 6 on six answers that were all correct: it was
+# measuring the rubric's shape. Hence: one question, committed before the sample, decided by hand, with
+# the raw answers in the tree so the classification can be disputed.
+#
+# `unstable` is a recordable verdict, not a failure. A probe that reproduces 5 times in 8 is a finding
+# about the skill, and forcing it to be either green or absent is how it would become green.
 task_run_evidence=0
 for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
   implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \
@@ -238,17 +247,19 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.green_check.measured_against | type == "string" and length > 0) and
     (.green_check.protocol | type == "string" and length > 0) and
     (.decision_question | type == "string" and length > 0) and
-    (.green_check.runs | type == "array" and length >= 6) and
-    all(.green_check.runs[]; (.pass | type == "boolean") and (.note | type == "string" and length > 0)) and
-    (.green_check.reproduction.samples == (.green_check.runs | length)) and
+    (.green_check.samples_file | type == "string" and length > 0) and
+    (.green_check.runs | type == "array" and length == 8) and
+    all(.green_check.runs[]; (.pass | type == "boolean")
+                             and (.note | type == "string" and length > 0)
+                             and (.answer | type == "string" and length > 0)) and
+    (.green_check.reproduction.samples == 8) and
     (.green_check.reproduction.passes == ([.green_check.runs[] | select(.pass)] | length)) and
-    (.green_check.verdict == (if .green_check.reproduction.passes * 6 >= .green_check.reproduction.samples * 5
-                              then "green" else "unstable" end)) and
-    (.green_check.verdict == "green")
+    ((.green_check.verdict == "green") == (.green_check.reproduction.passes >= 7)) and
+    ((.green_check.verdict | IN("green", "unstable")))
   ' "$file" >/dev/null 2>&1; then
     task_run_evidence=$((task_run_evidence + 1))
   else
-    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question and protocol, at least 6 recorded outcomes with notes, counts that match the outcomes, and a verdict of green (>= 5 of 6)"
+    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, a protocol, a samples_file, exactly 8 outcomes each carrying a verbatim answer and a note, counts that match them, and a verdict that agrees with the >= 7 of 8 threshold"
   fi
 
   # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever
@@ -270,11 +281,20 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
   # on that -- tests_reference is hashed either way -- but the probe harness reads `skills` to decide
   # what to put in front of the model, so a scenario about `plan` with `skills: ["run"]` is measured
   # without the file it is about. That is the shape this whole check was written after.
-  ref_skill="$(jq -r '(.tests_reference // "") | capture("skills/(?<s>[^/]+)/SKILL\\.md") | .s' "$file" 2>/dev/null)"
+  # First segment after `skills/`, whatever follows it. Matching only `skills/<x>/SKILL.md` missed every
+  # nested reference: `skills/run/references/placement.md` returned nothing, so a scenario could name
+  # `deep-review` in `skills`, point at a file under `run`, never load `run/SKILL.md`, and still pass.
+  ref_skill="$(jq -r '(.tests_reference // "") | capture("skills/(?<s>[^/]+)/") | .s' "$file" 2>/dev/null)"
   if [ -n "$ref_skill" ]; then
     jq -e --arg s "$ref_skill" 'any(.skills[]?; . == $s)' "$file" >/dev/null 2>&1 \
       || bad "tests/scenarios/task-run/$name.json points at the '$ref_skill' skill but does not list it in .skills, so the probe is run without it"
   fi
+  sfile="$(jq -r '.green_check.samples_file // ""' "$file")"
+  [ -n "$sfile" ] && [ -f "$ROOT/$sfile" ] \
+    || bad "tests/scenarios/task-run/$name.json names samples_file '$sfile', which is not in the tree — the classification cannot be rechecked without the raw answers"
+  case "$(jq -r '.green_check.verdict' "$file")" in
+    unstable) unstable_list="${unstable_list:+$unstable_list }$name" ;;
+  esac
   recorded="$(jq -r '(.measured_targets // {}) | keys[]?' "$file" 2>/dev/null | sort)"
   derived="$(printf '%s\n' $targets | sort)"
   [ "$recorded" = "$derived" ] \
@@ -290,7 +310,13 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     fi
   done
 done
-[ "$task_run_evidence" -eq 9 ] && ok "task-run RED/GREEN evidence is recorded ($task_run_evidence scenarios)"
+if [ "$task_run_evidence" -eq 9 ]; then
+  if [ -n "${unstable_list:-}" ]; then
+    ok "task-run evidence is recorded (9 scenarios, n=8 each) — UNSTABLE, below 7 of 8: ${unstable_list}"
+  else
+    ok "task-run evidence is recorded (9 scenarios, n=8 each, all >= 7 of 8)"
+  fi
+fi
 
 # --- 7. relative markdown links resolve --------------------------------------------------------
 broken=0

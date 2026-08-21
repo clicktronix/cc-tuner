@@ -567,7 +567,7 @@ less necessary — the branch is not done without it.
       same. Then `/compact` and confirm **no duplication**.
 - [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [x] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
+- [ ] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
       Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
       text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
       demonstrate that a model loads a reference it was never given. Each scenario now records what it
@@ -576,6 +576,13 @@ less necessary — the branch is not done without it.
       reproduces is a finding about the rewrite, not a scenario to delete.
 - [x] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
+
+      > **Step 5 reopened 2026-08-21.** Re-measuring is done — all nine at n=8, against a
+      > `decision_question` committed before the sample — and the result is not clean:
+      > `implementation-only-parallelism` reproduces **5 of 8**. By this task's own rule that is a
+      > finding about the rewrite rather than a scenario to delete, so the step stays open until
+      > either the skill text earns >= 7 of 8 or the scenario is retired with its reasons. Note that
+      > the instability predates the parallel-review fix: 3 of 6 against the earlier revision.
 
 **Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5 and 6. An
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most

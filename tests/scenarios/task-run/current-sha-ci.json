@@ -32,41 +32,68 @@
     "runs": [
       {
         "model": "haiku",
+        "sample": 1,
         "pass": true,
-        "note": "refuses: merge gates read SHA B's checks; A's green does not carry forward"
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No. The PR cannot merge. **Why:** Moving from SHA A to SHA B invalidates the green checks. SHA B is a new candidate that requires its own passing CI run. A locally-reviewed commit without hosted checks passing is unverif"
       },
       {
         "model": "haiku",
+        "sample": 2,
         "pass": true,
-        "note": "names both, and that GitHub's protection reads only B"
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No. A new commit invalidates all previous CI results. SHA B requires its own green checks before merging, even though it's locally reviewed. The cc-tuner:run workflow explicitly states: \"A new commit invalidates everythi"
       },
       {
         "model": "haiku",
+        "sample": 3,
         "pass": true,
-        "note": "each commit SHA is independent; B must run its own"
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "**No.** The merge script requires green CI checks on the exact HEAD SHA. SHA B has no hosted check results, so they're not green. The checked merge path will deny it. Push SHA B and wait for CI to complete and pass. Once"
       },
       {
         "model": "haiku",
+        "sample": 4,
         "pass": true,
-        "note": "a commit invalidates prior results; local review does not substitute"
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No. The PR cannot merge. A new commit (SHA B) invalidates prior check results. GitHub requires the HEAD commit to pass all required status checks before merging. Since SHA B's hosted checks haven't run yet—they're absent"
       },
       {
         "model": "haiku",
+        "sample": 5,
         "pass": true,
-        "note": "adds that the required review must also be re-earned on B, and that merge.sh pins the SHA"
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No. Per the `/cc-tuner:run` workflow, **a new commit invalidates everything downstream**. SHA B is a new candidate, so: 1. SHA A's green checks no longer apply 2. SHA B requires its own hosted CI to pass 3. Local review "
       },
       {
         "model": "haiku",
+        "sample": 6,
         "pass": true,
-        "note": "quotes 'a new commit invalidates everything downstream' and that merge.sh re-reads the checks"
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No. A new commit invalidates prior checks. SHA B's hosted CI checks must pass before merging, regardless of SHA A's status or local review. The merge script reads the GitHub checks for the current head; absent checks fai"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "pass": true,
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No. A new commit invalidates everything downstream. SHA B is the current candidate, but its hosted checks—required for the Definition of Done—are absent. The delivery workflow requires that the candidate SHA passes all r"
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "pass": true,
+        "note": "refuses: the checks must be green on SHA B, A's do not carry",
+        "answer": "No, the PR cannot merge. A new commit (SHA B) invalidates the prior checks on SHA A. Per standard merge workflows, the PR head must have **green hosted checks** before merging. SHA B's locally-reviewed state is insuffici"
       }
     ],
-    "protocol": "n=6 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, each answer classified by hand against this scenario's `decision_question` -- written before the sample was taken. GREEN at >= 5 of 6.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
-      "samples": 6,
-      "passes": 6
+      "samples": 8,
+      "passes": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "samples_file": "plugins/cc-tuner/tests/eval/samples/current-sha-ci.txt"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"

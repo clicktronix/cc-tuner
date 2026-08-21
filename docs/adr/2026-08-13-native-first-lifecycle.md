@@ -1,14 +1,15 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** accepted, 2026-08-21, on run 3c. It was moved to accepted on 2026-08-21 and moved back the same
+**Status:** proposed. Accepted briefly on 2026-08-21 on run 3c's evidence and returned the same day, twice — first because the shipped tree had moved past the evaluated one, then because step 5 of Task 8 reopened: re-measured at n=8, `implementation-only-parallelism` reproduces 5 of 8 (finding 16), and this plan's acceptance requires every step PASS. It was moved to accepted on 2026-08-21 and moved back the same
 day, on review, and the reason is worth keeping: the eval had observed `cd9fa2f` (run 3) and
 `e39419c` (run 3b), and then the tree moved again — `plan-path.sh`, the very path that broke during
 run 3b's `/plan` and was compensated by hand. Task 8 requires the evaluated artifact and the shipped
 one to be the same, and "a flow test covers that script" is an argument for weakening the rule after
-the fact rather than meeting it. That run has now been made: run 3c, frozen at `058dfd5`, one session from `/spec`
-through a merge performed by `merge.sh` — including the fail-closed stop when the review gate hit its
-cap, which `--auto` refused to route around. One limit still bounds all of it, and is stated in full in
+the fact rather than meeting it. The run that was missing has been made: run 3c, frozen at `058dfd5`, one session from
+`/spec` through a merge performed by `merge.sh` — including the fail-closed stop when the review gate
+hit its cap, which `--auto` refused to route around. The lifecycle itself is therefore observed; what
+holds this at proposed is one probe, not the flow. One limit still bounds all of it, and is stated in full in
 `plugins/cc-tuner/tests/eval/README.md`: the sessions are driven headless, so what is observed is what
 the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
 load-bearing because `/run` invokes the checked merge script directly; the question left the design
