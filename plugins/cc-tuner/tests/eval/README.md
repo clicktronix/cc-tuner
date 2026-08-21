@@ -12,7 +12,10 @@ it costs tokens, and it runs by hand.
 re-observed in run 3b against `e39419c` after fixes moved the tree, and the whole `--auto` flow
 observed once more in run 3c against `058dfd5` — the tree as it ships.** Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
-was made true by running again rather than by arguing which tier covered the difference. Run 2's statuses were corrected twice after review before run 3 started;
+was made true by running again rather than by arguing which tier covered the difference — and then
+made **checkable**: `EVALUATED_SHA` in this directory names the evaluated commit, and `tests/run.sh`
+refuses to let the ADR say "accepted" while the production surface has moved past it. Editing a skill
+stays allowed; claiming the eval saw it does not. Run 2's statuses were corrected twice after review before run 3 started;
 they stand below unchanged, because a superseded result is evidence about the method and deleting it
 would leave only the flattering half.
 

@@ -172,6 +172,32 @@ for f in "$ROOT"/tests/scenarios/*/*.json; do
 done
 [ "$dangling" -eq 0 ] && ok "scenario tests_reference paths resolve ($scen scenarios)"
 
+# --- 6a2. the ADR may not claim "accepted" while the shipped tree is past the evaluated one --------
+# Task 8 step 0 exists so the eval exercises the artifact that ships. Prose cannot hold that: run 3
+# was recorded against cd9fa2f and two skill files then changed; run 3b against e39419c and
+# plan-path.sh then changed. Both times the claim survived the change until a reviewer caught it, and
+# both times the reply was an argument about which tier covered the difference. So the claim is now a
+# comparison: production surface at the evaluated SHA versus the working tree. Editing a skill is
+# fine -- it just means the ADR says "proposed" until the eval has seen it.
+EVAL_SHA_FILE="$ROOT/plugins/cc-tuner/tests/eval/EVALUATED_SHA"
+ADR="$ROOT/docs/adr/2026-08-13-native-first-lifecycle.md"
+if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
+  eval_sha="$(grep -v "^#" "$EVAL_SHA_FILE" | tr -d "[:space:]")"
+  adr_status="$(sed -n "s/^\*\*Status:\*\* *\([a-z]*\).*/\1/p" "$ADR" | head -1)"
+  if ! git -C "$ROOT" cat-file -e "$eval_sha^{commit}" 2>/dev/null; then
+    bad "EVALUATED_SHA names $eval_sha, which is not a commit here"
+  elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
+         plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
+         plugins/cc-tuner/assets plugins/cc-tuner/references \
+         plugins/cc-tuner/.claude-plugin plugins/cc-tuner/workflow-contract.json 2>/dev/null; then
+    ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
+  elif [ "$adr_status" = "accepted" ]; then
+    bad "the ADR says accepted, but the production surface has moved since the evaluated commit ${eval_sha%${eval_sha#???????}} — re-run the eval and update EVALUATED_SHA, or set the ADR back to proposed"
+  else
+    ok "production surface has moved since the eval, and the ADR says '$adr_status' rather than accepted"
+  fi
+fi
+
 # --- 6b. the lifecycle rewrite has recorded model evidence ------------------------------------
 # These scenarios originally shipped as `not run`, contradicting their own RED→GREEN rule. The
 # validator cannot prove that an external model call happened, but it can prevent an unmeasured row

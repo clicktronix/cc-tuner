@@ -1,0 +1,9 @@
+# The commit the authenticated eval last ran against, end to end, in the frozen-worktree form
+# described in this directory's README ("Running it").
+#
+# tests/run.sh compares the production surface at this commit with the working tree, and refuses to
+# let the ADR say "accepted" while they differ. Twice the record claimed the evaluated artifact was
+# the shipped one when a later commit had already moved it, and both times a reader had to catch it.
+#
+# Change this line only after an eval run against the commit it names.
+058dfd5e2f7f13bdc1b5125f7fb0868fa0fffebd
