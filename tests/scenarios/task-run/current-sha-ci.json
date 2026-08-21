@@ -36,5 +36,8 @@
         "note": "blocks the merge until required checks are green on SHA B and refuses to reuse SHA A's checks"
       }
     ]
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
   }
 }

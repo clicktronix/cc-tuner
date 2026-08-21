@@ -36,5 +36,7 @@ The axis is what a method **persists**, not whether it feels exploratory.
 | `diagnosing-bugs`, probe edits | a disposable workspace — instrumentation and bisect stubs are experiments, and an experiment that lands is a regression waiting |
 | `code-review`, deep-review | the candidate SHA |
 
-`/cc-tuner:spec` created the task branch before any of this, because its own grilling phase writes
-`CONTEXT.md` and ADRs.
+`/cc-tuner:spec` created the task branch before any of this, because its own grilling phase **may**
+write `CONTEXT.md` and ADRs — `domain-modeling` creates those lazily, only when there is something to
+write, and "may" is enough to force the branch first: the ordering has to hold for the runs where it
+does write.

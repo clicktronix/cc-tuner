@@ -28,18 +28,23 @@
   },
   "green_check": {
     "date": "2026-08-21",
-    "measured_against": "`run/SKILL.md` plus `run/references/placement.md` as shipped at aa7ef59 -- the commit that narrowed 'never parallelise review' to the review decision and named deep-review's read-only lenses as the exception (finding 14). Re-measured because this scenario's expectation pinned the old flat wording. 2 isolated haiku probes, method as in the other eight. The lens exception itself is not decidable from this query, which asks about lifecycle phases, so it is asserted in `deep-review`'s own scenario rather than here.",
+    "measured_against": "`run/SKILL.md` plus `run/references/placement.md` as shipped at the commit that narrowed 'never parallelise review' to the review decision (finding 14), and re-checked after the later CONTEXT.md wording fix to the same file. Method: isolated haiku probes, as for the other eight.",
     "runs": [
       {
         "model": "haiku",
         "pass": true,
-        "note": "parallelises the two code-writing units in isolated worktrees and keeps testing, acceptance, review and merge sequential with one integration owner -- 'no split verdict authority'"
+        "note": "parallelises only the two code-writing units in isolated worktrees; keeps testing, acceptance, the review decision, delivery and merge with one integration owner -- 'no split verdict authority'"
       },
       {
         "model": "haiku",
         "pass": true,
-        "note": "same shape; names the gates that stay sequential and says two finished units are not a finished candidate"
+        "note": "same shape, in the narrowed vocabulary: 'sequential: testing, acceptance, delivery, and review decision ... own the single review decision'"
       }
-    ]
+    ],
+    "stability_caveat": "Re-sampled at n=6 on 2026-08-21 this reproduced 2 of 6, and 3 of 6 against the previous revision of the same file -- so the variance is the probe, not the edit. The runs above are representative of the passing samples and are NOT a claim that it reproduces every time. The failing samples drift the same way each time: they parallelise unit testing or acceptance, or propose one PR per unit. See finding 16 in the eval log; the scenario is kept because its RED baseline is load-bearing and its GREEN is real when it lands, not because the rate is good."
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",
+    "plugins/cc-tuner/skills/run/references/placement.md": "19e95e8c2a51b8c84b864dd2b10a111c935cf46b3d43ee3b66e10ef5676ea471"
   }
 }

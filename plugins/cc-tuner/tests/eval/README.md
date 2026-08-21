@@ -181,7 +181,7 @@ Task 8, with what it must observe and why it exists. In brief:
 | # | What it observes |
 |---|---|
 | 0 | The session is running this checkout, proved by the recorded path and SHA |
-| 1 | Attended `spec → plan → run`: branch before `CONTEXT.md`, plan committed and linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, stops at each delivery boundary |
+| 1 | Attended `spec → plan → run`: branch before the first committed write of any kind — amended from "before `CONTEXT.md`", finding 13 — plan committed and linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, stops at each delivery boundary |
 | 2 | `--auto`, whole flow, **fresh repository and session**: no approval question, plan committed, tasks created, boundaries not stopped at, a task with a non-empty `blockedBy` refused out of order |
 | 2b | Producer → checked path: verdict posted only after the `--required` marker, `commit.oid` equal to the head SHA, and `merge.sh --check-only` reporting the candidate would be accepted |
 | 3 | Recovery on the **graph**: same `blockedBy` edges after a fresh session, same after `/clear`, no duplication after `/compact` |
@@ -383,6 +383,29 @@ read-only lenses over an immutable candidate, which is the only thing `deep-revi
 narrowing the prohibition to the review *decision* and naming the lens exception in the same
 paragraph, and `implementation-only-parallelism`, whose expectation pinned the old flat wording, was
 amended and re-measured.
+
+#### Finding 16 — the probe evidence is thinner than the records say, and the instrument to fix it does not exist yet
+
+Enforcing the re-measure rule turned up something the rule was not looking for. Every GREEN in
+`tests/scenarios/task-run/` was recorded at **n = 2**, and n = 2 cannot see a coin flip.
+
+Re-sampled at n = 6, `implementation-only-parallelism` reproduced **2 of 6** — and **3 of 6** against
+the previous revision of the same file, so the variance is the probe, not the edit that prompted the
+re-measure. The failures drift the same way every time: unit testing or acceptance parallelised, or
+one PR per unit rather than one candidate.
+
+**The obvious next move was tried and does not work yet.** An automated judge, given each scenario's
+`expected_behavior` and `anti_expectation` as a conjunctive rubric, failed answers for not
+enumerating every item — under a query that asks for under 90 words. That measures the rubric's
+shape, not the skill: `current-sha-ci` scored 1 of 6 on answers that were not wrong. So the rates
+above are honest about one scenario and the whole layer is weaker than it reads, and no rate was
+written into the other eight, because a number nobody can defend is worse than an admitted gap.
+
+`tests/run.sh` now pins each scenario to the sha256 of every file its probe loads, so a skill edit
+reddens the scenarios that read it until they are re-measured. That is the half that can be enforced
+today. The open half is a sampling protocol: a decisive per-scenario question rather than a checklist,
+a sample size that can see a coin flip, and a way to record "reproduces 4 of 6" without the schema
+turning it into a clean pass.
 
 #### A discarded first attempt at scenario A, recorded because it shaped the harness
 

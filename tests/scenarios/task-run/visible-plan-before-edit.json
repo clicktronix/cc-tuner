@@ -42,5 +42,9 @@
         "note": "2/2 name what is lost without it -- the frontier and the refusal that reads blockedBy"
       }
     ]
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/plan/SKILL.md": "52705f71d6324f175d7c64b76053e08c6258084a162afca37a28f7ef4465d5d2",
+    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
   }
 }

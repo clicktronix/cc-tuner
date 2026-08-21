@@ -12,6 +12,13 @@ say() { printf '%s\n' "$1"; }
 ok() { say "ok   $1"; }
 bad() { say "FAIL $1"; fails=1; }
 
+# sha256, portable between macOS (shasum) and the Linux runners in CI (sha256sum). Prints the digest
+# alone -- both tools append the filename, and a digest carrying a path would differ between checkouts.
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d" " -f1
+  else sha256sum "$1" | cut -d" " -f1; fi
+}
+
 command -v jq >/dev/null 2>&1 || { say "FATAL: jq is required"; exit 1; }
 
 # --- 1. bash suites -----------------------------------------------------------------------------
@@ -171,13 +178,24 @@ done
 # (or an empty/failed GREEN arm) from silently replacing the reviewed evidence in source control.
 #
 # `measured_against` is required because a recorded pass says nothing without the text it was measured
-# against. The corollary bites every time a skill is edited: changing a file stales every scenario that
-# loads it, including scenarios whose clause is nowhere near the edit. On 2026-08-21 a two-line
-# correction to spec/SKILL.md staled two probes, and the fix that resolved the parallel-review
-# contradiction staled a third. Re-measuring costs two haiku calls; arguing that the changed region is
-# disjoint costs the field its meaning. Re-measure. Every one of these GREENs was taken on 2026-08-10, against `commands/run.md` — a file this
-# branch then deleted. A date alone does not make that visible; naming the subject does, and requiring
-# the field here stops the record being quietly dropped once Task 8 re-measures.
+# against. Every one of these GREENs was once taken on 2026-08-10 against `commands/run.md` — a file
+# this branch then deleted. A date alone does not make that visible; naming the subject does.
+#
+# But prose cannot enforce it, and a review pointed out that this check accepted any non-empty string:
+# after the next skill edit the old sentence would keep passing. So `measured_targets` carries the
+# sha256 of every file the probe actually loads, and the loop below recomputes them. Edit a skill and
+# the scenarios that read it go red until they are re-measured — which is the intended cost, and it is
+# small: two haiku calls. On 2026-08-21 a two-line correction to spec/SKILL.md staled two probes and the
+# parallel-review fix staled a third, and only one of the three was noticed without this check.
+#
+# What this check still does NOT establish is how often a recorded GREEN reproduces. Every one of them
+# was taken at n=2, and n=2 cannot see a coin flip: re-sampling `implementation-only-parallelism` at n=6
+# reproduced 2 of 6 (and 3 of 6 against the previous revision of the same file, so the drift is the
+# probe rather than the edit). Recording that honestly needs a sampling protocol this repository does
+# not have yet -- an automated judge tried on 2026-08-21 failed answers for not enumerating a checklist
+# under the query's own word limit, which measures the rubric's shape and not the skill. Finding 16 in
+# the eval log carries the observation and the open work; this validator deliberately does not pretend
+# to a rate it cannot defend.
 task_run_evidence=0
 for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
   implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \
@@ -196,6 +214,24 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
   else
     bad "tests/scenarios/task-run/$name.json lacks recorded baseline/GREEN evidence"
   fi
+
+  # The target set is derived the same way the probe harness derives it: one SKILL.md per entry in
+  # `skills`, plus `tests_reference` when it names a references/ file. Deriving it rather than trusting
+  # a hand-listed set is the point -- a scenario that forgets to list a file it loads is the failure
+  # this replaces.
+  targets="$(jq -r '[ (.skills[]? | "plugins/cc-tuner/skills/" + . + "/SKILL.md"),
+                      (.tests_reference | select(test("references/")) | sub("#.*"; "")) ]
+                    | unique | .[]' "$file" 2>/dev/null)"
+  for t in $targets; do
+    [ -f "$ROOT/$t" ] || { bad "$name.json names a target that does not exist: $t"; continue; }
+    have="$(sha256_of "$ROOT/$t")"
+    want="$(jq -r --arg t "$t" '.measured_targets[$t] // ""' "$file")"
+    if [ -z "$want" ]; then
+      bad "tests/scenarios/task-run/$name.json has no measured_targets entry for $t"
+    elif [ "$have" != "$want" ]; then
+      bad "tests/scenarios/task-run/$name.json was measured against a different $t — re-measure it, or the recorded pass is about text that no longer exists"
+    fi
+  done
 done
 [ "$task_run_evidence" -eq 9 ] && ok "task-run RED/GREEN evidence is recorded ($task_run_evidence scenarios)"
 

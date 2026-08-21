@@ -42,5 +42,9 @@
         "note": "2/2 refuse passing tests as a reason to carry the approval across"
       }
     ]
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
+    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
   }
 }

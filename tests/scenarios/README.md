@@ -34,7 +34,7 @@ row says so.
 | task-run/visible-plan-before-edit | partial hold | passes | guidance adds the complete downstream lifecycle and state/UI bindings omitted by the RED arm |
 | task-run/dor-first-failing-check | partial hold | passes | guidance removes the RED arm's option to discover/invent missing contract details during the run |
 | task-run/false-green-regression-test | holds unaided | passes | not load-bearing in isolation; retained as cheap regression and machine-gate specification |
-| task-run/implementation-only-parallelism | **reproduced** | passes | **load-bearing** — RED parallelizes review and proposes multiple PRs; GREEN confines delegation to code writing |
+| task-run/implementation-only-parallelism | **reproduced** | passes | **load-bearing** — RED parallelizes the lifecycle and proposes multiple PRs; GREEN keeps integration, the testing decision, the review **verdict**, delivery and merge with the parent. Since 2026-08-21 that is narrower than "delegation is code writing only": independent read-only review lenses over one immutable candidate may fan out, and `deep-review` requires them to — see finding 14 in the eval log |
 | task-run/request-changes-blocks-merge | partial hold | passes | guidance requires a fresh review after disposition; tree changes also require a new immutable candidate, all review steps, and a fresh machine-checkable verdict |
 | task-run/stale-review-after-fix | partial hold | passes | guidance invalidates testing, acceptance, every review, CI, and DoD rather than only reviewer sign-off |
 | task-run/reviewer-unavailable-fails-closed | holds unaided | passes | not load-bearing in isolation; retained for machine-enforced reviewer/lens completeness |

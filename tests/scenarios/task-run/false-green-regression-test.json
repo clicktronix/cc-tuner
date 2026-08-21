@@ -42,5 +42,9 @@
         "note": "2/2 state that a passing test nobody saw fail proves nothing, and that a green suite is not a substitute"
       }
     ]
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",
+    "plugins/cc-tuner/skills/spec/SKILL.md": "45013f3cf441ac9ad623decfd009d9f1da57135dd4f10b82ca14160808eb4657"
   }
 }

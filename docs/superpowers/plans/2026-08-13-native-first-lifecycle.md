@@ -274,9 +274,11 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
   The axis is **what each method persists**, not whether it feels exploratory. An earlier draft called
   `research` and `domain-modeling` read-only and put `prototype` on the task branch; both are backwards.
 
-  **This forces the branch earlier than `/run`.** `commands/spec.md:31` invokes `grilling` with
-  `domain-modeling`, and `domain-modeling` writes `CONTEXT.md` and ADRs — so `/spec` persists to the
-  repository before `/run` is ever called. An earlier draft placed `grill-with-docs` "inside `/spec`,
+  **This forces the branch earlier than `/run`.** `/spec` invokes `grilling` with `domain-modeling`,
+  and `domain-modeling` **may** write `CONTEXT.md` and ADRs — it creates them lazily, only when there is
+  something to write, so `/spec` may persist to the repository before `/run` is ever called. "May" is
+  enough: the ordering has to hold for the runs where it does, and run 3 was one where it wrote ADRs
+  and no `CONTEXT.md`. An earlier draft placed `grill-with-docs` "inside `/spec`,
   no branch, writes only the spec", which is wrong twice. **The task branch is created by `/spec`,
   before its grilling phase**, and the rule below is what makes that non-negotiable.
 

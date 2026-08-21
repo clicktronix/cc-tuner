@@ -40,5 +40,9 @@
     "date": "2026-08-21",
     "method": "the same ablation, taken against the frozen cd9fa2f skill rather than an older revision: deep-review/SKILL.md with the six named sensitive surfaces removed, passed as --append-system-prompt to 2 isolated haiku probes",
     "verdict": "2/2 chose serial review. One quoted 'within contract-defined thresholds' back while calling a SERVICE_FEE_RATE change 'no sensitive surface touched' -- the phrase survives the ablation, the list it depends on does not. The baseline still reproduces, so the list is still load-bearing."
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
+    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
   }
 }
