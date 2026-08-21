@@ -1,15 +1,16 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** accepted, 2026-08-21. Moved back to proposed on 2026-08-13 because the authenticated eval
-had not run and nothing had observed a real session completing this flow. It has now: run 3 recorded
-every step of Task 8 against one frozen SHA (`cd9fa2f`), including `/spec → /plan → native tasks →
-/run → merge` end to end in a single session, twice; and run 3b re-observed the whole `--auto` flow
-against `e39419c` after fixes to two skill files meant the evaluated tree was no longer the shipped
-one. Two bounds on that evidence, both stated in full in `plugins/cc-tuner/tests/eval/README.md`: the
-sessions were driven headless, so what is observed is what the skills cause and not what a human at a
-terminal sees; and the tree now ships one commit past `e39419c`, a change to `plan-path.sh`, which the
-scenario tier covers with a test that fails when the fix is reverted. The two questions below are settled. The skill-hook measurement is no longer
+**Status:** proposed, pending one run. It was moved to accepted on 2026-08-21 and moved back the same
+day, on review, and the reason is worth keeping: the eval had observed `cd9fa2f` (run 3) and
+`e39419c` (run 3b), and then the tree moved again — `plan-path.sh`, the very path that broke during
+run 3b's `/plan` and was compensated by hand. Task 8 requires the evaluated artifact and the shipped
+one to be the same, and "a flow test covers that script" is an argument for weakening the rule after
+the fact rather than meeting it. The eval evidence is real and is recorded in full in
+`plugins/cc-tuner/tests/eval/README.md`; what is missing is one frozen `--auto` run against the tree
+as it now stands. Accepted when that run is recorded — and it stays bounded either way by the second
+limit stated there: the sessions are driven headless, so what is observed is what the skills cause,
+not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
 load-bearing because `/run` invokes the checked merge script directly; the question left the design
 rather than being answered. And the narrowing — **one** SHA-bound verdict
 plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing
