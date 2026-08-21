@@ -75,6 +75,11 @@ case "$MODE" in
       printf 'plan-path: %s already exists on disk\n' "$CANDIDATE" >&2
       exit 1
     }
+    # Create the directory, because `create` exists to hand back a path the caller can write. It did
+    # not until 2026-08-21, and in a repository with no plan directory yet the caller's first Write
+    # failed with "no such file or directory" -- observed in a live run, which recovered by making the
+    # directory itself. Every caller would have to, so the one that knows the path does it.
+    mkdir -p "$DIR" || die "cannot create $DIR"
     printf '%s\n' "$CANDIDATE"
     ;;
   resolve)

@@ -107,6 +107,21 @@ W="$(flow_workdir)"
 OUT="$(run "$W" resolve)"
 check "outside-a-repo-fails" "not a git repository" "$OUT"
 
+# --- create hands back a path that can actually be written ---------------------------------------
+# A live run on 2026-08-21 got the path and then failed its first Write: the directory did not exist.
+# `create` is the one mode whose whole purpose is producing a writable path.
+R7="$(flow_repo)"
+( cd "$R7" && git checkout -q -b feat/7-fresh && rm -rf docs wiki )
+OUT="$(run "$R7" create)"
+check "create-in-a-repo-with-no-docs-dir" 'docs/task-plans/' "$OUT"
+check "create-names-the-branch"           '-feat-7-fresh.md'  "$OUT"
+check "create-rc0-with-no-docs-dir"       'rc=0'              "$OUT"
+if [ -d "$R7/docs/task-plans" ]; then
+  pass "create-makes-the-directory"
+else
+  fail "create-makes-the-directory (the caller cannot write the path it was handed)"
+fi
+
 OUT="$(run "$R" bogus)"
 check "unknown-mode-fails" "usage:" "$OUT"
 

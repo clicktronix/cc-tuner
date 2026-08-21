@@ -384,6 +384,21 @@ narrowing the prohibition to the review *decision* and naming the lens exception
 paragraph, and `implementation-only-parallelism`, whose expectation pinned the old flat wording, was
 amended and re-measured.
 
+#### Finding 17 — `plan-path.sh create` hands back a path the caller cannot write
+
+Observed on the final-tree run: `create` printed `docs/task-plans/2026-08-21-….md` in a repository
+that had no `docs/task-plans/` yet, and `/plan`'s first Write failed with *no such file or directory*.
+The session made the directory itself and carried on, which is why nothing else showed it.
+
+`create` is the one mode whose entire purpose is producing a path the caller can write — `resolve`
+answers "where is it", `pattern` answers "what shape is it", `create` answers "where do I put the new
+one". Fixed by `mkdir -p "$DIR"` in that branch, with a flow test that builds a repository with no
+`docs/` at all and asserts the directory exists afterwards; reverting the `mkdir` fails it.
+
+This one belongs to the **scenario tier**, not here: it is a shell script with observable inputs, and
+the two-tier rule says such questions are settled there. The eval's contribution was noticing it at
+all, which no existing scenario did because every fixture already had a `docs/` directory.
+
 #### Finding 16 — the probe evidence is thinner than the records say, and the instrument to fix it does not exist yet
 
 Enforcing the re-measure rule turned up something the rule was not looking for. Every GREEN in
