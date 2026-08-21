@@ -11,7 +11,7 @@ it costs tokens, and it runs by hand.
 **Status: the flow is observed end to end and step 5 is PARTIAL, so Task 8 is not complete.** Runs 3,
 3b and 3c observed `/spec → /plan → native tasks → /run → merge` against `cd9fa2f`, `e39419c` and
 `058dfd5` — the last being the tree as it ships. What is open is step 5: re-measured at n=8, eight
-probes are green and `implementation-only-parallelism` reproduces **5 of 8** (finding 16). Twice the record claimed the
+probes are green and `implementation-only-parallelism` reproduces **4 of 8** (finding 16). Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
 was made true by running again rather than by arguing which tier covered the difference — and then
 made **checkable**: `EVALUATED_SHA` in this directory names the evaluated commit, and `tests/run.sh`
@@ -28,7 +28,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PARTIAL** — all nine re-taken at n=8 against a question committed before the sample: eight green, `implementation-only-parallelism` **5 of 8** | PASS, and it caught a live regression |
+| 5 | **PARTIAL** — all nine re-taken at n=8 against a question committed before the sample: eight green, `implementation-only-parallelism` **4 of 8** | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -339,7 +339,7 @@ installed copy disabled locally in each.
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PARTIAL**, after two corrections | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` is **5 of 8 and recorded unstable**, which is what makes this step PARTIAL rather than PASS. |
+| 5 | **PARTIAL**, after two corrections | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` is **4 of 8 and recorded unstable**, which is what makes this step PARTIAL rather than PASS. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
@@ -496,7 +496,7 @@ Three attempts, and the two failures are as much the finding as the third:
   under a query that asks for under 80 words. That measures the rubric's shape, not the skill.
 - **What works:** one `decision_question` per scenario, decidable by reading, **committed at `2ed8521`
   before the sample that judges it was taken**; n = 8; every raw answer kept in
-  `tests/eval/samples/<scenario>.txt`; classification by hand; GREEN at ≥ 7 of 8.
+  the scenario's own `runs[].answer` and nowhere else; classification by hand; GREEN at ≥ 7 of 8.
 
 The threshold is named for what it is — a smoke bar. A fair coin clears 7 of 8 about **3.5%** of the
 time; the 5 of 6 it replaces let one through **10.9%** of the time, which is not a bar a coin should
@@ -508,20 +508,23 @@ be able to clear that often.
 |---|---|
 | 8 of 8 | `current-sha-ci`, `visible-plan-before-edit`, `dor-first-failing-check`, `false-green-regression-test`, `request-changes-blocks-merge`, `stale-review-after-fix`, `reviewer-unavailable-fails-closed` |
 | 7 of 8 | `sensitive-small-diff-review` — the miss says "run serially … touches none of the sensitive surfaces" in a sentence that lists payments among them |
-| **5 of 8** | `implementation-only-parallelism` — **unstable**. Three answers split the review verdict across two candidates: "Independent PRs reviewed in parallel", "separate PRs allow independent feedback", and one that hands ownership to "whichever unit landed first" |
+| **4 of 8** | `implementation-only-parallelism` — **unstable**. Half the answers split delivery across more than one candidate: "Independent PRs reviewed in parallel", "separate PRs allow independent feedback", "Unit PRs → integration PR → architecture review → merge", and one handing ownership to "whichever unit landed first". I first classified the third of those as a pass and a reviewer caught it, which is the argument for keeping each answer beside its classification |
 
 **The instability is not something finding 14's fix caused.** Against the revision of `placement.md`
-*before* the parallel-review narrowing the same probe ran 3 of 6; after it, 5 of 8. Both are poor and
+*before* the parallel-review narrowing the same probe ran 3 of 6; after it, 4 of 8. Both are poor and
 the second is no worse, so the rule was weak here before it was corrected. What that leaves open is a
 real question about the skill, not about the probe: the text tells a model what may fan out and what
-may not, and three answers in eight still land two PRs on one plan.
+may not, and half the answers still land more than one PR on one plan.
 
 `tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
-names the skill the scenario is about, that `samples_file` is in the tree, exactly eight outcomes each
-carrying a verbatim answer, counts that match them, and a verdict that agrees with the threshold.
-`unstable` is a **recordable** verdict — a probe reproducing 5 times in 8 is a finding about the
-skill, and forcing every verdict to be green is exactly how it would have become green. The runner
-names the unstable ones on its ok line rather than burying them.
+names the skill the scenario is about, exactly eight outcomes numbered 1..8 each
+carrying the whole answer it was judged on, counts that match them, a verdict that agrees with the
+threshold, and — since an unstable probe is step 5 left open — **a refusal to let the ADR say
+"accepted" while any probe is unstable**.
+
+`unstable` is a **recordable** verdict: a probe reproducing 4 times in 8 is a finding about the skill,
+and forcing every verdict to be green is exactly how it would have become green. The runner names the
+unstable ones on its ok line rather than burying them, and the ADR check makes that naming bite.
 
 #### A discarded first attempt at scenario A, recorded because it shaped the harness
 
