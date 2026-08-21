@@ -8,16 +8,18 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: every step observed PASS in run 3 (2026-08-20/21), against the single frozen SHA
-`cd9fa2f`.** Run 2's statuses were corrected twice after review before this run started; they stand
-below unchanged, because a superseded result is evidence about the method and deleting it would leave
-only the flattering half.
+**Status: every step observed PASS in run 3 (2026-08-20/21) against the single frozen SHA `cd9fa2f`,
+and the parts that a later fix could have invalidated re-observed in run 3b against `e39419c`.** The
+tree now ships one commit past that — `plan-path.sh`, finding 17 — which is a script, and scripts are
+the scenario tier's question. Run 2's statuses were corrected twice after review before run 3 started;
+they stand below unchanged, because a superseded result is evidence about the method and deleting it
+would leave only the flattering half.
 
 | step | run 3 | run 2 |
 |---|---|---|
 | 0 | **PASS** — SHA frozen in a detached worktree before the first session, plugin root proved in both repos | PARTIAL — path recorded, no SHA |
 | 1 | **PASS** — one session, `/spec → /plan → native tasks → /run → merge`, against a clause amended for the reason in finding 13 | PARTIAL — assembled from two sessions |
-| 2 | **PASS** — plan to merged PR in a single unattended turn; the `blockedBy` refusal took a second, isolating fixture (finding 11) | PARTIAL — 3 of 5 |
+| 2 | **PASS** — plan to merged PR in a single unattended turn, twice; the `blockedBy` refusal took a second, isolating fixture and then a third pass to measure it under `--auto` rather than attended (finding 11, run 3b) | PARTIAL — 3 of 5 |
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
@@ -216,6 +218,54 @@ should be read as having done that.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 3b — 2026-08-21, against the tree as it now ships
+
+Run 3 measured `cd9fa2f`. Fixing what the review of that record found then changed two production
+files — `spec/SKILL.md` and `run/references/placement.md` — so the evaluated tree and the shipped tree
+stopped being the same artifact, which Task 8 step 0 exists to prevent. The review said so, and it was
+right: an eval that describes a tree nobody will run is the original defect wearing a later date.
+
+Frozen again the same way, at `e39419c`: `git worktree add --detach ~/Projects/ai/cc-tuner-frozen-2`,
+every session on `--plugin-dir` into it.
+
+**Step 2, `--auto`, in the mode the contract names.** Run 3's isolating probe was attended — the
+session says so itself, "No `--auto` in your args, so this is an attended run" — which measures the
+human-in-the-loop stop, not the unattended guard. Repeated with `--auto`, on the same fixture, saying
+nothing but "start with slice 2":
+
+> I didn't start with slice 2, as you asked. Its `blockedBy: 1` is in the committed plan, and `--auto`
+> refuses a blocked task — the platform stores that edge without enforcing it.
+
+It then worked slice 1, which unblocked slice 2, and delivered both. **The plan file was not amended**
+— `Blocked by: 1` still stands in it — which is the difference from finding 11b, where the operator
+supplied a reason and got an edit with a note.
+
+**Step 2, the whole flow, on the final tree.** A fourth repository (`cc-tuner-eval-6`), one session:
+`/spec` (nine questions, one batch, answered once), `/plan --auto` (no approval question, plan
+committed, three tasks whose edges match the file), `/run --auto` → **PR #2 merged unattended** at
+`9a7ba22`, 17 criteria ticked and none open, all three tasks `completed`.
+
+Four required-review rounds found **nine surviving mutations** the run's own mutation pass had missed,
+because it had only mutated behaviours it had already written tests for. The one worth naming:
+`send(url) or None`, which converts an empty body or a zero into `None` and so reinstates the exact
+ambiguity the change existed to remove — through a suite the run had already called well-tested. The
+final sweep ran 29 mutations, byte-compiling each so a syntax error could not pass as a caught mutant;
+one survivor was classified an equivalent mutant over the documented input domain, and Codex agreed
+independently.
+
+**What run 3b does and does not extend.**
+
+| | |
+|---|---|
+| covered at `e39419c` | `/spec` including the changed placement paragraph, `/plan --auto`, `/run --auto`, the review shape after finding 14's fix, the gate, the checked merge, and the `blockedBy` refusal under `--auto` |
+| not repeated | the attended flow, recovery, and the live merge denial — no production file they exercise changed between `cd9fa2f` and `e39419c` |
+| after `e39419c` | one script, `plan-path.sh`, and finding 17 is why. A script is the scenario tier's question by the two-tier rule, and it ships a flow test that fails when the fix is reverted |
+
+**Finding 12 gets its clean answer.** With `placement.md` no longer saying the opposite, this run still
+reviewed serially and named exactly one reason: "this session instructs me not to dispatch agents
+unasked". The plugin's own contradiction was a real cause and is gone; what remains is an environment
+instruction, which is the operator's to change.
 
 ### Run 3 — 2026-08-20/21 (three scenarios, one frozen SHA)
 

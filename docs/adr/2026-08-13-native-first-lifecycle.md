@@ -4,9 +4,12 @@
 **Status:** accepted, 2026-08-21. Moved back to proposed on 2026-08-13 because the authenticated eval
 had not run and nothing had observed a real session completing this flow. It has now: run 3 recorded
 every step of Task 8 against one frozen SHA (`cd9fa2f`), including `/spec → /plan → native tasks →
-/run → merge` end to end in a single session, twice. The bound on that evidence is stated where it
-belongs, in `plugins/cc-tuner/tests/eval/README.md`: the sessions were driven headless, so what is
-observed is what the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
+/run → merge` end to end in a single session, twice; and run 3b re-observed the whole `--auto` flow
+against `e39419c` after fixes to two skill files meant the evaluated tree was no longer the shipped
+one. Two bounds on that evidence, both stated in full in `plugins/cc-tuner/tests/eval/README.md`: the
+sessions were driven headless, so what is observed is what the skills cause and not what a human at a
+terminal sees; and the tree now ships one commit past `e39419c`, a change to `plan-path.sh`, which the
+scenario tier covers with a test that fails when the fix is reverted. The two questions below are settled. The skill-hook measurement is no longer
 load-bearing because `/run` invokes the checked merge script directly; the question left the design
 rather than being answered. And the narrowing — **one** SHA-bound verdict
 plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing
