@@ -36,65 +36,64 @@
         "sample": 1,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. The spec violates **Definition of Ready**: it lacks the exact test command, expected failure reason, environment, fixtures, and negative/mutation proof required by the test plan section. `/run` would reject it at `pl"
+        "answer": "No. The spec violates **Definition of Ready**: it lacks the exact test command, expected failure reason, environment, fixtures, and negative/mutation proof required by the test plan section. `/run` would reject it at `plan-lint check` or stop immediately—you cannot prove RED before GREEN (regression check failing for the stated reason) without those specifics. The spec must be grilled to completion before `/run` can start."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. `/run` reads the spec first and must stop if it's incomplete. A spec saying only \"run tests\" lacks required details: exact commands, expected first failure, environment, fixtures, and negative/mutation proof. These a"
+        "answer": "No. `/run` reads the spec first and must stop if it's incomplete. A spec saying only \"run tests\" lacks required details: exact commands, expected first failure, environment, fixtures, and negative/mutation proof. These are explicitly required in the Definition of Ready checklist. A pending, vague, or \"TBD\" test plan means the spec is not ready. `/run` refuses to proceed without a committed, executable contract. Return to `/cc-tuner:spec` to grill those details."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. The spec violates Definition of Ready. The skill explicitly states: \"A pending `TBD`, 'as appropriate', unknown test command, or unstated expected failure means the spec is not ready.\" `/run` reads the spec's test pl"
+        "answer": "No. The spec violates Definition of Ready. The skill explicitly states: \"A pending `TBD`, 'as appropriate', unknown test command, or unstated expected failure means the spec is not ready.\" `/run` reads the spec's test plan and accepts no ambiguity — \"run tests\" is incomplete without the exact command, expected failure, environment, and fixtures. It refuses to start if DoR is incomplete. Return to `/cc-tuner:spec` and grill the test plan until every detail is explicit."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. `/run` requires a committed spec with explicit Definition of Ready. Per the skill, \"a pending `TBD`, unknown test command, or unstated expected failure means the spec is not ready.\" Your spec lacks: - Regression test"
+        "answer": "No. `/run` requires a committed spec with explicit Definition of Ready. Per the skill, \"a pending `TBD`, unknown test command, or unstated expected failure means the spec is not ready.\" Your spec lacks: - Regression test path and assertion - Exact failing command and expected error - Environment and fixtures - Negative/mutation proof These are not decoration—they are the boundary between planning and delivery. The spec must return to `/cc-tuner:spec` (or `spec` directly) for grilling before `/run` can work it."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. `/run` reads the spec first and stops if DoR is incomplete. This spec lacks required DoR details: - Exact regression test path and assertion - Exact command (`run tests` is not specific) - Expected failure evidence -"
+        "answer": "No. `/run` reads the spec first and stops if DoR is incomplete. This spec lacks required DoR details: - Exact regression test path and assertion - Exact command (`run tests` is not specific) - Expected failure evidence - Environment and fixtures The skill says: *\"A pending `TBD`, 'as appropriate', unknown test command, or unstated expected failure means the spec is not ready.\"* Implementation cannot start until the spec names concrete verification commands and proves a failing baseline."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. `/run` cannot start implementation. The spec is not ready. The `/cc-tuner:spec` rule states: \"A pending `TBD`, \"as appropriate\", unknown test command, or **unstated expected failure means the spec is not ready**.\" Th"
+        "answer": "No. `/run` cannot start implementation. The spec is not ready. The `/cc-tuner:spec` rule states: \"A pending `TBD`, \"as appropriate\", unknown test command, or **unstated expected failure means the spec is not ready**.\" This spec lacks the test plan's binding details: the exact command, expected failure proving the bug exists, environment, fixtures, and mutation proof. Without them, there's no objective passing criterion and no way to show RED before GREEN. \"Run tests\" is a placeholder, not a plan. **The spec must name the regression test (file/assertion), exact command, expected failure, environment, and negative proof before `/run` begins.**"
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "**No.** The spec is incomplete. `/cc-tuner:run` stops in Phase 0 if `auto_ready` is not `yes`, which it cannot be without: - exact regression test path and assertion - first failing command and expected failure - targete"
+        "answer": "**No.** The spec is incomplete. `/cc-tuner:run` stops in Phase 0 if `auto_ready` is not `yes`, which it cannot be without: - exact regression test path and assertion - first failing command and expected failure - targeted and full regression commands - environment, fixtures, and dependencies - negative/mutation proof The spec must name these specifics before `/run` can proceed. Return to `/cc-tuner:spec` to grill the test plan until every command, failure, and baseline is explicit."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "refuses; requires the exact first failing command and its expected failure",
-        "answer": "No. The spec is incomplete and blocks `/run` in Phase 0. The Definition of Ready requires: - Problem/baseline with **evidence** - Acceptance criteria with **deciding checks** - Test plan with **exact command, expected fa"
+        "answer": "No. The spec is incomplete and blocks `/run` in Phase 0. The Definition of Ready requires: - Problem/baseline with **evidence** - Acceptance criteria with **deciding checks** - Test plan with **exact command, expected failure, environment, and data** \"`/cc-tuner:spec`\" states: \"A pending TBD, unknown test command, or unstated expected failure means the spec is not ready.\" `/run` reads the spec first and stops if any DoR item is missing. Route back to `/cc-tuner:spec` to grill the baseline, regression test, and first failing check before attempting implementation."
       }
     ],
-    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
       "samples": 8,
       "passes": 8
     },
-    "verdict": "green",
-    "samples_file": "plugins/cc-tuner/tests/eval/samples/dor-first-failing-check.txt"
+    "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",

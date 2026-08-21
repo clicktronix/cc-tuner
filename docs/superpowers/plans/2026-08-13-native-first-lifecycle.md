@@ -580,9 +580,12 @@ less necessary — the branch is not done without it.
       > **Step 5 reopened 2026-08-21.** Re-measuring is done — all nine at n=8, against a
       > `decision_question` committed before the sample — and the result is not clean:
       > `implementation-only-parallelism` reproduces **5 of 8**. By this task's own rule that is a
-      > finding about the rewrite rather than a scenario to delete, so the step stays open until
-      > either the skill text earns >= 7 of 8 or the scenario is retired with its reasons. Note that
-      > the instability predates the parallel-review fix: 3 of 6 against the earlier revision.
+      > finding about the rewrite rather than a scenario to delete, so the step stays open until the
+      > **skill text earns >= 7 of 8**, or until an equivalent proof replaces this scenario — replaced,
+      > not written off, which an earlier revision of this note allowed by offering "retired with its
+      > reasons" three lines under a rule that forbids exactly that. Note that the instability predates
+      > the parallel-review fix: 3 of 6 against the earlier revision, so it is the rule's legibility
+      > that is in question, not the correction to it.
 
 **Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5 and 6. An
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most

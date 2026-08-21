@@ -29,65 +29,64 @@
         "sample": 1,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out.** Size is not the test—sensitive surfaces are. SERVICE_FEE_RATE is pricing/billing, which is explicitly listed as sensitive. A small diff on a sensitive surface still requires parallel independent lenses to ca"
+        "answer": "**Fan out.** Size is not the test—sensitive surfaces are. SERVICE_FEE_RATE is pricing/billing, which is explicitly listed as sensitive. A small diff on a sensitive surface still requires parallel independent lenses to catch impacts across correctness, spec, standards, architecture, security, and testing. Serial review would risk missing cross-lens issues that a single reviewer might not notice."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out.** This is a small diff (5 lines), but SERVICE_FEE_RATE change touches the **sensitive surface: pricing and billing**. Per deep-review guidelines, candidates inside small-diff thresholds still fan out when they"
+        "answer": "**Fan out.** This is a small diff (5 lines), but SERVICE_FEE_RATE change touches the **sensitive surface: pricing and billing**. Per deep-review guidelines, candidates inside small-diff thresholds still fan out when they affect sensitive surfaces. Parallel lenses (correctness, specification, standards, architecture, security/data, tests/operability) will independently review this financial constant's correctness, impact, test coverage, and compliance."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out in parallel.** This change touches SERVICE_FEE_RATE—a sensitive surface under money/payments/billing. Even though the diff is small (5 lines), the deep-review skill requires parallel review whenever a sensitive"
+        "answer": "**Fan out in parallel.** This change touches SERVICE_FEE_RATE—a sensitive surface under money/payments/billing. Even though the diff is small (5 lines), the deep-review skill requires parallel review whenever a sensitive surface is involved, regardless of size. The rule is: \"contract-defined thresholds and outside every sensitive surface\" can run serially; anything touching a sensitive surface must fan out to parallel reviewers to ensure exhaustive coverage of financial/billing impact."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out.** This change modifies SERVICE_FEE_RATE—a pricing constant—which falls under the \"money, payments, pricing, billing, and entitlements\" sensitive surface. Per deep-review, size is not the test; sensitive-surfac"
+        "answer": "**Fan out.** This change modifies SERVICE_FEE_RATE—a pricing constant—which falls under the \"money, payments, pricing, billing, and entitlements\" sensitive surface. Per deep-review, size is not the test; sensitive-surface touches require parallel lenses regardless of diff size. Run all six lenses concurrently against this immutable candidate."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out the lenses.** Though this diff is small (5 lines), it touches a sensitive surface: pricing and billing (SERVICE_FEE_RATE). The skill requires fanning out whenever a candidate touches sensitive surfaces regardle"
+        "answer": "**Fan out the lenses.** Though this diff is small (5 lines), it touches a sensitive surface: pricing and billing (SERVICE_FEE_RATE). The skill requires fanning out whenever a candidate touches sensitive surfaces regardless of size. Parallel review ensures independent lenses catch the implications — whether this fee change is correctly scoped, affects all relevant consumers, passes necessary approvals, and doesn't introduce unintended billing logic."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out to parallel reviewers.** Though only 5 lines, this diff touches pricing—an explicit sensitive surface. The deep-review skill states: \"Size is not the test: a candidate inside the thresholds still fans out when "
+        "answer": "**Fan out to parallel reviewers.** Though only 5 lines, this diff touches pricing—an explicit sensitive surface. The deep-review skill states: \"Size is not the test: a candidate inside the thresholds still fans out when it touches any of these.\" Fee-rate changes require independent correctness, specification (acceptance criteria), architecture (downstream pricing impact), and security (injection/precision) lenses running in parallel to catch contract violations or systemic effects a serial pass might miss."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": false,
         "note": "MISS -- 'run serially ... touches none of the sensitive surfaces', in a sentence that lists payments among them",
-        "answer": "**Run serially.** This is a 5-line, 2-file constant-value change. It touches none of the sensitive surfaces (auth, migrations, schemas, payments, infrastructure, injection). Serial execution is appropriate for small, low"
+        "answer": "**Run serially.** This is a 5-line, 2-file constant-value change. It touches none of the sensitive surfaces (auth, migrations, schemas, payments, infrastructure, injection). Serial execution is appropriate for small, low-risk diffs — the overhead of fanning out reviewers would exceed the value of parallel analysis. One reviewer checks all six lenses sequentially, records findings, and reports the verdict."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "This is well within small-diff thresholds (5 lines, 2 files), but SERVICE_FEE_RATE touches a sensitive surface: pricing/billing. Per the skill contract, size is not the test—sensitive surfaces require fanout regardless. "
+        "answer": "This is well within small-diff thresholds (5 lines, 2 files), but SERVICE_FEE_RATE touches a sensitive surface: pricing/billing. Per the skill contract, size is not the test—sensitive surfaces require fanout regardless. **Recommendation: Fan out the lenses.** Even though this is minimal risk, pricing changes warrant parallel independent review (correctness, spec, standards, architecture, security/data, tests) to catch any unintended business logic impact or undocumented scope."
       }
     ],
-    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
       "samples": 8,
       "passes": 7
     },
-    "verdict": "green",
-    "samples_file": "plugins/cc-tuner/tests/eval/samples/sensitive-small-diff-review.txt"
+    "verdict": "green"
   },
   "baseline_reobserved": {
     "date": "2026-08-21",

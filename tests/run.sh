@@ -221,9 +221,15 @@ fi
 #
 # How often a GREEN reproduces is the second half, and it used to be unrecorded. Every one of these was
 # taken at n=2, and n=2 cannot see a coin flip. The protocol is now fixed and enforced above: a
-# `decision_question` written BEFORE the sample -- one decidable question, not the full expectation
-# checklist -- six samples, each outcome recorded including the misses, counts that must match the
-# outcomes, and GREEN at >= 5 of 6.
+# `decision_question` committed BEFORE the sample -- one decidable question, not the full expectation
+# checklist -- exactly eight samples numbered 1..8, each recorded with the answer it was judged on and
+# including the misses, counts that must match the outcomes, and GREEN at >= 7 of 8. That bar is a smoke
+# threshold, not a significance test: a fair coin clears it 9 times in 256, where 5 of 6 let one through
+# 28 times in 256.
+#
+# The answers live in the scenario JSON and nowhere else. An earlier revision also wrote them to
+# tests/eval/samples/*.txt and checked only that the file existed, so the two copies could disagree
+# about what was classified while the suite stayed green -- two sources, one of them unchecked.
 #
 # The bar being written first is the load-bearing part. Judged against an unwritten stricter reading
 # after the fact, `implementation-only-parallelism` scored 2 of 6; against its written question at n=6,
@@ -247,11 +253,12 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.green_check.measured_against | type == "string" and length > 0) and
     (.green_check.protocol | type == "string" and length > 0) and
     (.decision_question | type == "string" and length > 0) and
-    (.green_check.samples_file | type == "string" and length > 0) and
     (.green_check.runs | type == "array" and length == 8) and
     all(.green_check.runs[]; (.pass | type == "boolean")
                              and (.note | type == "string" and length > 0)
-                             and (.answer | type == "string" and length > 0)) and
+                             and (.answer | type == "string" and length > 40)
+                             and (.sample | type == "number")) and
+    ([.green_check.runs[].sample] | sort == [1,2,3,4,5,6,7,8]) and
     (.green_check.reproduction.samples == 8) and
     (.green_check.reproduction.passes == ([.green_check.runs[] | select(.pass)] | length)) and
     ((.green_check.verdict == "green") == (.green_check.reproduction.passes >= 7)) and
@@ -289,9 +296,6 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     jq -e --arg s "$ref_skill" 'any(.skills[]?; . == $s)' "$file" >/dev/null 2>&1 \
       || bad "tests/scenarios/task-run/$name.json points at the '$ref_skill' skill but does not list it in .skills, so the probe is run without it"
   fi
-  sfile="$(jq -r '.green_check.samples_file // ""' "$file")"
-  [ -n "$sfile" ] && [ -f "$ROOT/$sfile" ] \
-    || bad "tests/scenarios/task-run/$name.json names samples_file '$sfile', which is not in the tree — the classification cannot be rechecked without the raw answers"
   case "$(jq -r '.green_check.verdict' "$file")" in
     unstable) unstable_list="${unstable_list:+$unstable_list }$name" ;;
   esac
@@ -316,6 +320,13 @@ if [ "$task_run_evidence" -eq 9 ]; then
   else
     ok "task-run evidence is recorded (9 scenarios, n=8 each, all >= 7 of 8)"
   fi
+fi
+
+# An unstable probe is Task 8 step 5 left open, and step 5 open means the plan's acceptance is not met.
+# The EVALUATED_SHA check above only asks whether the eval saw the shipped tree; it would happily pass
+# an ADR that says accepted while a scenario reproduces 4 times in 8. Both conditions have to hold.
+if [ -n "${unstable_list:-}" ] && [ "${adr_status:-}" = "accepted" ]; then
+  bad "the ADR says accepted while these scenarios are unstable: ${unstable_list} — step 5 of Task 8 is open, and its acceptance requires every step to pass"
 fi
 
 # --- 7. relative markdown links resolve --------------------------------------------------------

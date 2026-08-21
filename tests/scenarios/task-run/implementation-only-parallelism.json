@@ -35,65 +35,64 @@
         "sample": 1,
         "pass": true,
         "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
-        "answer": "**Parallelism:** The two independent code units run simultaneously in isolated worktrees. Each owns its module completely—no merge conflicts, no shared state edits. **Sequential:** Testing, acceptance, architecture revie"
+        "answer": "**Parallelism:** The two independent code units run simultaneously in isolated worktrees. Each owns its module completely—no merge conflicts, no shared state edits. **Sequential:** Testing, acceptance, architecture review, and merge cannot parallelize. They read state that the other branch is changing. **Integration owner:** A lead architect. They define the contract between units *before* coding starts—function signatures, data formats, error handling. Before merge, they verify both implementations honor the contract and resolve any integration gaps."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
-        "answer": "**Parallel:** Code the two units in isolated worktrees; they don't block each other. **Sequential:** Testing (full regression), acceptance (acceptance criteria), architecture review, PR/merge. These read state others are"
+        "answer": "**Parallel:** Code the two units in isolated worktrees; they don't block each other. **Sequential:** Testing (full regression), acceptance (acceptance criteria), architecture review, PR/merge. These read state others are changing—one candidate, one review round, one verdict. **Integration ownership:** Designate one engineer to orchestrate the merge: they pull both units into the main branch, run final regression, verify Definition of Done, merge. The other unit's author reviews the integration for correctness. **Decision:** Parallelize only code-writing; serialize testing and delivery."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": false,
         "note": "MISS -- 'Independent PRs reviewed in parallel': the review verdict is split across two candidates",
-        "answer": "**Parallelism:** Both units code simultaneously in separate worktrees/branches. **Reviews:** Independent PRs reviewed in parallel (disjoint modules allow this). **Testing:** Unit tests per-module parallel; integration te"
+        "answer": "**Parallelism:** Both units code simultaneously in separate worktrees/branches. **Reviews:** Independent PRs reviewed in parallel (disjoint modules allow this). **Testing:** Unit tests per-module parallel; integration tests after both merge. **Integration owner:** Assign one engineer as integration lead—responsible for validating the units work together, writing integration tests, and managing merge order if dependencies exist. **Merge:** Squash each PR independently into target, or stack if one depends on the other. Integration lead verifies green post-merge."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": false,
         "note": "MISS -- two branches, no single candidate, and ownership handed to 'whichever unit landed first'",
-        "answer": "**Parallel:** Both units code independently in separate branches—no integration gate until both are feature-complete. Each runs its own unit tests in parallel. **Sequential gates:** Architecture review (single approval),"
+        "answer": "**Parallel:** Both units code independently in separate branches—no integration gate until both are feature-complete. Each runs its own unit tests in parallel. **Sequential gates:** Architecture review (single approval), merged PR review (both lenses), then integration testing before merge. Integration ownership: whichever unit landed first owns resolving conflicts in the other's PR, or a neutral third party if symmetric. **Testing:** Each unit's acceptance tests run independently; regression suite runs once pre-merge on the combined candidate."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
-        "answer": "**Parallelism:** Both implementation units can run concurrently in isolated git worktrees since they touch disjoint modules. **Sequential:** Testing, acceptance, architecture review, and PR lifecycle remain sequential—ne"
+        "answer": "**Parallelism:** Both implementation units can run concurrently in isolated git worktrees since they touch disjoint modules. **Sequential:** Testing, acceptance, architecture review, and PR lifecycle remain sequential—never parallelize decisions over shared candidates. **Integration owner:** One person synthesizes both results, verifies no module interactions broke, runs full regression, and shepherds through review and merge. **Rationale:** Parallel coding is safe; parallel *decisions* about one candidate creates conflicting verdicts."
       },
       {
         "model": "haiku",
         "sample": 6,
-        "pass": true,
-        "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
-        "answer": "**Parallelism:** Both implementation units run concurrently on isolated worktrees—no shared state dependency. **Testing & acceptance:** Sequential, per unit, then integrated. Testing decisions read candidate state others"
+        "pass": false,
+        "note": "MISS -- 'Delivery sequence: Unit PRs -> integration PR -> architecture review -> merge': several PRs and several delivery stages, where the question asks for one owner on one candidate",
+        "answer": "**Parallelism:** Both implementation units run concurrently on isolated worktrees—no shared state dependency. **Testing & acceptance:** Sequential, per unit, then integrated. Testing decisions read candidate state others are changing; parallelize those and answers diverge. **Integration owner:** One person merges the units' logic and owns the integration PR—prevents inconsistent decisions when implementations touch. **Delivery sequence:** Unit PRs → integration PR → architecture review → merge."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "code units parallel; testing, review verdict, delivery and merge sequential with one owner on one candidate",
-        "answer": "**Parallel:** The two implementation units can code concurrently (disjoint modules). Unit testing for each happens immediately after. **Sequential:** After both units complete, one integration owner orchestrates: runs in"
+        "answer": "**Parallel:** The two implementation units can code concurrently (disjoint modules). Unit testing for each happens immediately after. **Sequential:** After both units complete, one integration owner orchestrates: runs integration tests, gathers both for a single architecture review pass (all changes at once), creates the PR, and merges. **Owner mapping:** Each unit gets its developer; one owner handles integration testing, review coordination, PR creation, and merge. Testing serializes per level (unit → integration → acceptance), but the units themselves proceed concurrently."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": false,
         "note": "MISS -- 'separate PRs allow independent feedback', merge A then B: two candidates, two merges",
-        "answer": "**Code in parallel** across two feature branches; each unit owns its tests. **Integrate sequentially**: merge Unit A first, then Unit B atop it to catch cross-module issues early. **Architecture review** happens pre-merg"
+        "answer": "**Code in parallel** across two feature branches; each unit owns its tests. **Integrate sequentially**: merge Unit A first, then Unit B atop it to catch cross-module issues early. **Architecture review** happens pre-merge on each; one owner (likely tech lead) verifies integration points. **PR strategy**: separate PRs allow independent feedback. **Testing**: unit tests run parallel; full regression after both merge. This avoids integration surprises and keeps responsibility clear."
       }
     ],
-    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every raw answer kept in `samples_file`, each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
       "samples": 8,
-      "passes": 5
+      "passes": 4
     },
-    "verdict": "unstable",
-    "samples_file": "plugins/cc-tuner/tests/eval/samples/implementation-only-parallelism.txt"
+    "verdict": "unstable"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",
