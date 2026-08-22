@@ -561,9 +561,24 @@ path — came only from adversarial review and were never observed in use. Each 
 with its own message and its own fixture, and by the end this helper weighed what `merge.sh` weighs:
 20 refusal sites against `merge.sh`'s 20, for a tool whose worst outcome is a wrong line in a run log
 rather than an unreviewed merge into `main`. They are one rule — *restoring puts a fresh inode at the
-path, so the path must be a plain file with one name* — and they are now written once, as one check
-with five diagnostics. Six refusal sites remain. Nothing was given up: removing the consolidated check
-still turns the suite red.
+path* — but **one rule is not one check, and saying so was overstating it.** The rule needs three
+mechanisms at three moments: `kind_of()` classifies the target before anything is written, a separate
+check refuses a backup path that is already taken (including by a symlink `-e` cannot see), and the
+restore stages through `mktemp` and re-checks the file it put back. What consolidated is the *concept*
+and the diagnostics — five messages became one classification — and refusal sites went from 20 to 6.
+The line count barely moved:
+
+| | script | executable | test |
+|---|---|---|---|
+| before | 182 | 105 | 280 |
+| after | 191 | 117 | 254 |
+| `merge.sh`, for scale | 161 | 71 | 265 |
+
+So the honest summary is: the *description* got simpler, the implementation did not, and this helper
+still carries more executable code than the only sanctioned path for merging into `main`. It is also
+not a helper any more — `run/SKILL.md` makes the mutation proof a step of every slice, so it is a
+runtime dependency of the lifecycle. That is a reason to keep it small, not a licence for the next
+theoretical attack: new filesystem refusals go in when something actually crosses the stated boundary.
 
 The class is also now bounded in `--help`, which is where the caller looks: `/cc-tuner:run` sends
 them there for "the verdicts, the exit codes, the refusals", and until 2026-08-23 the refusals were
