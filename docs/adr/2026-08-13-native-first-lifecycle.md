@@ -1,7 +1,7 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. Accepted on 2026-08-22 and returned the same day on review. One of the two reasons is settled — the probe classification that had been softened after the fact was corrected, and the probe now runs 8 of 8 against the current tree. The other stands: run 3d observed four of the eight Task 8 steps against the shipped tree, and the rest were last seen on earlier ones. Step 7 of Task 8 is the open checkpoint. It reached accepted on 2026-08-21 and came back twice the same day,
+**Status:** proposed. Accepted on 2026-08-22 and returned the same day on review. One of the two reasons is settled — the probe classification that had been softened after the fact was corrected, and the probe now runs 8 of 8 against the current tree. The other stands, and has grown: run 3d observed four of the eight steps against `f4410f2`, and the tree has since moved past that too — `mutate.sh`, `run/SKILL.md` and `placement.md`. **Seven observations are owed on whatever tree ships**, and they are Step 7 of Task 8, the single open checkpoint: step 0 on the new freeze, the attended flow, the whole of step 2, step 2's isolated `blockedBy` refusal, step 2b, recovery, and the live denial. It reached accepted on 2026-08-21 and came back twice the same day,
 and both reasons are worth keeping. First, the shipped tree had moved past the evaluated one — `plan-path.sh`,
 the very path that broke during run 3b's `/plan` and was compensated by hand — and "a flow test covers
 that script" is an argument for weakening Task 8's rule rather than meeting it. That was met by

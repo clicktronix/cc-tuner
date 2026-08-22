@@ -92,7 +92,12 @@ fi
 [ -n "$SYNTAX_CMD" ] || die "SYNTAX     $FILE  no syntax check for this file and none given — pass one as the 4th argument; an unchecked mutant that fails the test cannot be told from a broken file"
 
 BACKUP="$FILE.premutation"
-[ -e "$BACKUP" ] && die "$BACKUP already exists — an earlier mutation did not restore; deal with that first"
+# `-e || -L`, for the same reason as the target above and in the place it actually mattered: a dangling
+# symlink parked at the backup path is invisible to `-e`, and `cp` then follows it and writes the
+# original wherever it pointed — outside this directory, consuming the link. Measured.
+if [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; then
+  die "$BACKUP already exists — an earlier mutation did not restore, or something else owns that path; deal with that first"
+fi
 
 # 1. Baseline, before anything is written. A suite that is already red grades every mutant as killed --
 # and the backup is created only after this passes, because a test command that inspects the working

@@ -162,19 +162,50 @@ check "the-kept-original-is-the-original" "$RBEFORE" "$(shasum -a 256 "$R/calc.p
 rm -f "$R/calc.py.premutation"
 
 # --- a signal restores through the same path ------------------------------------------------------
-G="$(flow_workdir)"; subject "$G"
-GBEFORE="$(shasum -a 256 "$G/calc.py" | cut -d' ' -f1)"
-# The test command has to be quick on the baseline and slow afterwards, or the signal lands before the
-# mutation and proves nothing — which is what the first version of this test did, and a mutation of the
-# signal handler survived it.
-cat > "$G/slow.sh" <<SLOW
-if [ -e "$G/seen" ]; then sleep 30; else : > "$G/seen"; fi
+# The harness runs in the FOREGROUND and its own test command signals it. Two earlier versions put it
+# in a background job and killed that: a background job inherits an ignored SIGINT, so removing INT
+# from the trap left the suite at 64 PASS while proving nothing. `sh -c` execs the test command, so
+# $PPID inside it is this harness.
+for sig in TERM INT; do
+  X="$(flow_workdir)"; subject "$X"
+  XBEFORE="$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
+  cat > "$X/slow.sh" <<SLOW
+if [ -e "$X/seen" ]; then kill -$sig \$PPID; sleep 5; else : > "$X/seen"; fi
 SLOW
-( bash "$MUTATE" "$G/calc.py" "bash $G/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE" >/dev/null 2>&1 ) &
-sig_pid=$!
-sleep 3; kill -TERM "$sig_pid" 2>/dev/null; wait "$sig_pid" 2>/dev/null
-check "signal-restores-the-bytes" "$GBEFORE" "$(shasum -a 256 "$G/calc.py" | cut -d' ' -f1)"
-absent "signal-leaves-no-backup"  "premutation" "$(ls "$G")"
+  OUT="$(run "$X/calc.py" "sh $X/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 400 \$MUTATE_FILE")"
+  chmod 644 "$X/calc.py" 2>/dev/null
+  check  "signal-$sig-rc2"                       "rc=2"     "$OUT"
+  equals "signal-$sig-restores-an-unwritable-mutant" "$XBEFORE" "$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
+  absent "signal-$sig-leaves-no-backup"          "premutation" "$(ls "$X")"
+done
+
+# --- a signal arriving when the restore cannot finish keeps the original --------------------------
+# The two halves were tested apart: an ordinary failed restore, and an ordinary signal. Their
+# combination is what loses data — the earlier handler deleted the backup whether or not its copy had
+# worked. Read-only directory, so the staging copy cannot even be created.
+for sig in TERM INT; do
+  Y="$(flow_workdir)"; subject "$Y"
+  YBEFORE="$(shasum -a 256 "$Y/calc.py" | cut -d' ' -f1)"
+  cat > "$Y/slow.sh" <<SLOW
+if [ -e "$Y/seen" ]; then kill -$sig \$PPID; sleep 5; else : > "$Y/seen"; fi
+SLOW
+  OUT="$(run "$Y/calc.py" "sh $Y/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 500 $Y")"
+  chmod 755 "$Y" 2>/dev/null
+  check  "signal-$sig-unrestorable-rc2"            "rc=2"        "$OUT"
+  check  "signal-$sig-unrestorable-keeps-original" "premutation" "$(ls "$Y")"
+  equals "signal-$sig-kept-copy-is-the-original"   "$YBEFORE"    "$(shasum -a 256 "$Y/calc.py.premutation" 2>/dev/null | cut -d' ' -f1)"
+  rm -f "$Y/calc.py.premutation"
+done
+
+# --- a dangling symlink at the backup path is not an empty slot -----------------------------------
+# `-e` does not see it, so `cp` followed it and wrote the original outside this directory, consuming
+# the link — and then graded the run. Measured on 3737e9a.
+E="$(flow_workdir)"; subject "$E"; mkdir "$E/out"; ln -s "$E/out/escaped" "$E/calc.py.premutation"
+OUT="$(run "$E/calc.py" "bash $E/check.sh" "$MUTATE_GUARD")"
+check  "dangling-backup-path-refused" "already exists" "$OUT"
+absent "dangling-backup-path-writes-nothing-outside" "escaped" "$(ls "$E/out")"
+if [ -L "$E/calc.py.premutation" ]; then pass "dangling-backup-link-left-alone"; else fail "dangling-backup-link-left-alone (the link was consumed)"; fi
+rm -f "$E/calc.py.premutation"
 
 # --- the baseline runs against the tree the run will see ------------------------------------------
 # The backup used to be created first, so a test command that refuses stray files failed the baseline
