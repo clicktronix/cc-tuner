@@ -16,6 +16,15 @@
 #
 # Exit: 0 KILLED (the test was green and the mutant turned it red), 1 SURVIVED (green either way, so
 # the guard does not bite), 2 nothing was proved — and the line says which of the above it was.
+#
+# WHAT THIS DEFENDS AGAINST, and what it does not. It exists to stop a mutation run reporting a result
+# it did not earn: no baseline, an ignored exit code, a patch that no-opped, an unchecked mutant, a
+# lost original. The mutation command is written by whoever runs it, in the same session as the test
+# command -- it is careless, not hostile. Where a careless command could quietly change something
+# outside its own subject (a symlink, a second hard link, a planted staging path) this refuses rather
+# than proceeds, because refusing is a line of code. It is not a sandbox and does not try to be one:
+# a command that means harm has a hundred routes this cannot see, and chasing them would grow the
+# script past the defect it was written to remove.
 # bash 3.2 compatible: macOS ships 3.2.57.
 set -u
 
