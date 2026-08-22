@@ -47,11 +47,14 @@ USAGE
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 [ "$#" -ge 3 ] && [ "$#" -le 4 ] || { usage >&2; exit 2; }
 FILE="$1"; TEST_CMD="$2"; MUT_CMD="$3"; SYNTAX_CMD="${4:-}"
-[ -f "$FILE" ] || die "no such file: $FILE"
+# `-e || -L` rather than `-f`: a dangling symlink is not "no such file", and saying so sends the caller
+# looking for the wrong thing.
+[ -e "$FILE" ] || [ -L "$FILE" ] || die "no such file: $FILE"
 # A symlink target makes "restore the file" ambiguous -- write through it, or replace it? -- and the
 # ambiguity is not worth resolving for a mutation harness. Refusing means the restore below can always
 # produce a regular file, which is a property it can then check.
 [ ! -L "$FILE" ] || die "refusing a symlink target: $FILE — mutate the file it points at"
+[ -f "$FILE" ] || die "not a regular file: $FILE"
 
 # Refuse to mutate the script that is running: bash reads a script incrementally, from a byte offset,
 # so editing this file mid-run makes the interpreter continue inside the mutant. Measured twice.
@@ -67,6 +70,14 @@ mode_of() {
   if stat -f '%Lp' "$1" >/dev/null 2>&1; then stat -f '%Lp' "$1"   # BSD
   else stat -c '%a' "$1"; fi                                        # GNU
 }
+links_of() {
+  if stat -f '%l' "$1" >/dev/null 2>&1; then stat -f '%l' "$1"     # BSD
+  else stat -c '%h' "$1"; fi                                        # GNU
+}
+# Restoring moves a fresh inode into place, so any other name for the old inode keeps the mutant and
+# the two names come apart. Measured: with a second hardlink, the subject came back and the alias did
+# not. Restoring in place instead would trade this for the symlink hole, so the harness refuses.
+[ "$(links_of "$FILE")" -le 1 ] 2>/dev/null || die "refusing a target with $(links_of "$FILE") hard links: $FILE — restoring replaces the inode, so every other name would keep the mutant"
 
 # Resolve the syntax check before anything is touched, so an unsupported file is refused while the
 # tree is still clean rather than after a mutant is sitting in it.
@@ -104,8 +115,12 @@ restore_failed() {
   exit 2
 }
 restore() {
-  tmp="$(dirname "$FILE")/.mutate.restore.$$"
-  cp "$BACKUP" "$tmp" 2>/dev/null || restore_failed "RESTORE FAILED (cannot stage a copy)"
+  # mktemp, not a name built from $$: the mutation command is arbitrary shell, it can read $PPID, and a
+  # symlink planted at a predictable staging path would have this `cp` write through it into whatever
+  # the link pointed at. mktemp creates the file itself, exclusively.
+  tmp="$(mktemp "$(dirname "$FILE")/.mutate.restore.XXXXXX" 2>/dev/null)" \
+    || restore_failed "RESTORE FAILED (cannot stage a copy)"
+  cp "$BACKUP" "$tmp" 2>/dev/null || { rm -f "$tmp"; restore_failed "RESTORE FAILED (cannot stage a copy)"; }
   chmod "$BEFORE_MODE" "$tmp" 2>/dev/null || { rm -f "$tmp"; restore_failed "RESTORE FAILED (cannot set mode)"; }
   [ "$(sha_of "$tmp")" = "$BEFORE" ] || { rm -f "$tmp"; restore_failed "RESTORE MISMATCH (staged copy differs)"; }
   mv -f "$tmp" "$FILE" 2>/dev/null || { rm -f "$tmp"; restore_failed "RESTORE FAILED (cannot replace the file)"; }

@@ -183,6 +183,54 @@ B="$(flow_workdir)"; subject "$B"
 OUT="$(run "$B/calc.py" "test ! -e $B/calc.py.premutation && bash $B/check.sh" "$MUTATE_GUARD")"
 check "baseline-sees-no-backup" "KILLED" "$OUT"
 
+# --- a second name for the same inode is refused --------------------------------------------------
+# Restoring moves a fresh inode into place. Measured before this refusal existed: the subject came back
+# and the alias kept the mutant, so the two names silently came apart.
+H="$(flow_workdir)"; subject "$H"; ln "$H/calc.py" "$H/alias.py"
+OUT="$(run "$H/calc.py" "bash $H/check.sh" "$MUTATE_GUARD")"
+check "hardlinked-target-refused" "hard links" "$OUT"
+check "hardlinked-target-rc2"     "rc=2"       "$OUT"
+equals "hardlink-alias-untouched" "$(shasum -a 256 "$H/calc.py" | cut -d' ' -f1)" "$(shasum -a 256 "$H/alias.py" | cut -d' ' -f1)"
+
+# --- a dangling symlink is refused as a symlink, not as a missing file ----------------------------
+D="$(flow_workdir)"; ln -s "$D/never-existed.py" "$D/dangling.py"
+OUT="$(run "$D/dangling.py" "true" "true")"
+check "dangling-symlink-refused-as-symlink" "refusing a symlink target" "$OUT"
+absent "dangling-symlink-target-not-created" "never-existed" "$(ls "$D")"
+
+# --- the staging path cannot be guessed and pre-planted -------------------------------------------
+# The mutation command is arbitrary shell and can read $PPID. A symlink parked at a staging path built
+# from the pid would have the restore copy write through it, into a file that has nothing to do with
+# this run.
+P="$(flow_workdir)"; subject "$P"; printf 'do not touch me\n' > "$P/victim"
+VICTIM="$(shasum -a 256 "$P/victim" | cut -d' ' -f1)"
+OUT="$(run "$P/calc.py" "bash $P/check.sh" "ln -s $P/victim \$(dirname \$MUTATE_FILE)/.mutate.restore.\$PPID; $MUTATE_GUARD")"
+check "planted-staging-path-does-not-divert-the-restore" "KILLED" "$OUT"
+equals "planted-staging-path-leaves-the-victim-alone" "$VICTIM" "$(shasum -a 256 "$P/victim" | cut -d' ' -f1)"
+
+# --- a signal arriving on a mutant that cannot be written over ------------------------------------
+# The two halves were tested apart: an ordinary failed restore, and an ordinary signal. Their
+# combination is what loses data, and the first attempt at this fixture did not discriminate: it made
+# the *directory* read-only, where the old unsafe trap's `cp` still succeeded and its `rm` still
+# failed, so both implementations passed. The case that separates them is a mutant with mode 000 in a
+# writable directory: `cp` onto it is denied while `rm` of the backup succeeds, so the old handler
+# deletes the last copy and leaves the mutant, and the current one replaces the file by rename.
+# Read-only, not unreadable: mode 000 fails the syntax check instead, and the run ends before any
+# signal can arrive — which is how a second version of this fixture passed against both handlers.
+for sig in TERM INT; do
+  X="$(flow_workdir)"; subject "$X"
+  XBEFORE="$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
+  cat > "$X/slow.sh" <<SLOW
+if [ -e "$X/seen" ]; then sleep 30; else : > "$X/seen"; fi
+SLOW
+  ( bash "$MUTATE" "$X/calc.py" "bash $X/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 400 \$MUTATE_FILE" >/dev/null 2>&1 ) &
+  xp=$!
+  sleep 3; kill -"$sig" "$xp" 2>/dev/null; wait "$xp" 2>/dev/null
+  chmod 644 "$X/calc.py" 2>/dev/null
+  equals "signal-$sig-restores-an-unwritable-mutant" "$XBEFORE" "$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
+  absent "signal-$sig-leaves-no-backup" "premutation" "$(ls "$X")"
+done
+
 # --- refusals that are not about mutants at all ---------------------------------------------------
 OUT="$(run "$W/calc.py" "true" "true" "true" "extra")"
 check "too-many-arguments-refused" "usage:" "$OUT"

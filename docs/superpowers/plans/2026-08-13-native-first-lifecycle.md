@@ -603,12 +603,22 @@ less necessary — the branch is not done without it.
 - [ ] **Step 7: repeat, against the tree that ships, every step last observed on an earlier one.**
       Added 2026-08-22, because eight ticked boxes and a footnote is not a readable plan: a reader saw
       no open checkpoint while the ADR and the eval log both said Task 8 was unfinished. The steps
-      above were observed — that is why they stay ticked — but four of them plus the isolated half of
-      step 2 were last seen on `cd9fa2f` or `e39419c`, and step 0 requires the eval to exercise the
-      artifact that ships. Owed on the final tree: **step 1** (attended whole flow), **step 2's
-      `blockedBy` refusal on an isolating fixture**, **step 2b** (`--check-only`, then the same script
-      merges), **step 3** (fresh session, `/clear`, `/compact`), and **step 4** (live denial, both
-      branches). The per-step table of what was last seen where is in `tests/eval/README.md`.
+      above were observed — that is why they stay ticked — but they were observed on trees that have
+      since moved, and step 0 requires the eval to exercise the artifact that ships. **Seven
+      observations are owed**, not five: an earlier revision of this step listed five and forgot the
+      two that its own premise implies.
+
+      1. **Step 0** — the frozen SHA and the resolved plugin root, for the new freeze. Every other
+         item here is a claim about *this* tree, and step 0 is what makes that checkable.
+      2. **Step 1** — attended whole flow, last seen on `cd9fa2f`.
+      3. **Step 2, whole** — unattended `/spec → /plan --auto → /run --auto → merge`. Last seen on
+         `f4410f2`, which `mutate.sh`, `run/SKILL.md` and `placement.md` have all moved past.
+      4. **Step 2's `blockedBy` refusal**, on a fixture that isolates the edge — last seen on `e39419c`.
+      5. **Step 2b** — `--check-only` accepts, then the same script merges. Last on `cd9fa2f`.
+      6. **Step 3** — fresh session, `/clear`, `/compact`, edges intact. Last on `cd9fa2f`.
+      7. **Step 4** — live denial, both branches. Last on `cd9fa2f`.
+
+      The per-step table of what was last seen where is in `tests/eval/README.md`.
 
 **Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5, 6 and 7. An
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most

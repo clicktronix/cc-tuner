@@ -22,11 +22,12 @@ otherwise. What each step was last observed against:
 | 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
 | 4 — live denial, both branches | `cd9fa2f` | run 3 |
 | 5 — the nine probes | the current tree | all nine re-measured at n=8, all ≥ 7 of 8 |
-| 7 — the repeat on the shipped tree | — | **open**: steps 1, 2's isolated refusal, 2b, 3 and 4 |
+| 7 — the repeat on the shipped tree | — | **open**: seven observations — step 0 on the new freeze, step 1, step 2 whole, step 2's isolated refusal, 2b, 3 and 4 |
 | 6 — this file | — | — |
 
-**Task 8 says "run against THIS checkout" and requires every step observed.** Four steps plus the
-isolated half of step 2 therefore owe a repeat against whatever tree ships, and that is now **step 7
+**Task 8 says "run against THIS checkout" and requires every step observed.** Seven observations
+therefore owe a repeat against whatever tree ships — including step 0 for the new freeze and the whole
+of step 2, both of which two earlier drafts of this paragraph left out — and that is now **step 7
 of Task 8** — a checkbox rather than a footnote, because eight ticks and a paragraph left a reader
 with no open checkpoint while this file and the ADR both said the task was unfinished.
 `EVALUATED_SHA` proves only that *some* of the eval ran on the shipped surface, which is less than it
@@ -532,14 +533,34 @@ because no oracle exists. So `scripts/mutate.sh` now owns the parts that went wr
 patch that left the file byte-identical, refuses a mutant that no longer parses, restores from a copy
 beside the file and verifies the restore, and prints one ledger line to be pasted rather than retyped.
 
-Three of its guards were earned during its own construction, which is the argument for having it:
+Its guards were earned one review round at a time, and the list is the argument for having the tool at
+all — every one of these was a way a hand-rolled mutation pass could report a result it had not earned:
 
 - the fixture's first mutation deleted a `raise` and left an `if` with an empty body — the syntax
   refusal caught the test author, not the subject;
 - the backup lived in `$TMPDIR` until a test command that sweeps temp space produced `RESTORE FAILED`
   and a dirty tree; it now sits beside the file, and a leftover backup is itself a refusal;
 - mutating the running script corrupted the interpreter's read position twice — bash reads a script
-  incrementally — so the script refuses itself as a target and says why.
+  incrementally — so the script refuses itself as a target and says why;
+- a red suite graded every mutant as killed, and a mutation command that edited the file and then
+  exited 7 was graded killed too: the test must be **green first**, and the mutation must **succeed**;
+- the backup was created before that baseline ran, so a test command that refuses stray files failed
+  on the file this script had just written next to the subject;
+- an unchecked file type still produced a verdict, which cannot be told from a broken file failing
+  everything — now it refuses, and takes a syntax command as a fourth argument;
+- a mutation that swapped the file for a symlink wrote *through* the link on restore, left the tree
+  changed and deleted the backup; a second hard link to the same inode came apart from the subject
+  because restoring moves a fresh inode into place. Both are refused;
+- the staging path for the restore was built from `$$`, and the mutation command can read `$PPID`;
+- the interrupt handler ignored whether its copy worked and deleted the backup regardless — on a
+  mutant that could not be written over, that lost the original outright.
+
+**Three of those fixtures were wrong before they were right**, and each wrong version passed:
+a mutation that deleted a `raise` and left an empty `if` body (caught by the syntax refusal, on the
+test author); a signal fixture that fired during the baseline, before any mutation existed; and its
+successor, which made the mutant unreadable rather than unwritable, so the run ended at the syntax
+check before the signal could arrive. Each was found by mutating the guard it was supposed to protect
+and watching it survive.
 
 The idea is borrowed openly: it is the gate from [`pbshgthm/arc-skill`](https://github.com/pbshgthm/arc-skill),
 where no button may be pressed without a claim the next frame can contradict, and the harness rather
