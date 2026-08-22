@@ -26,8 +26,17 @@ that candidate, carry it through one review to one verdict, and open the one pul
 merges. A unit does not open its own PR, does not merge, and does not claim its own approval — two
 candidates reviewed apart are two things nobody reviewed together.
 
-One plan, one candidate, one verdict, one merge. The parallelism lives in the writing and nowhere
-else.
+**A unit runs whatever checks it needs while it writes** — those are part of writing, not a second
+opinion about the candidate. What never fans out is the **decision**: whether the assembled candidate
+passes, what the review verdict is, and every step of delivery. Those read one candidate and belong to
+one owner.
+
+One plan, one candidate, one verdict, one merge.
+
+An earlier revision of this paragraph ended "the parallelism lives in the writing and nowhere else",
+which reads as forbidding a unit its own tests while the rule two paragraphs up forbids only a
+parallel *testing decision*. One plugin, two readings — the same defect as finding 14, introduced by
+the fix for finding 14.
 
 Two slices are independent when their `Owned paths` do not overlap. If they do, they are one unit.
 
