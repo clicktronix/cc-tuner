@@ -21,67 +21,67 @@
     "verdict": "Both arms missed the pricing sensitivity; the list remains load-bearing for choosing review depth."
   },
   "green_check": {
-    "date": "2026-08-21",
-    "measured_against": "the skills as frozen at cd9fa2f. RED and GREEN are at ONE SHA this time, which is what this scenario's previous note demanded: the 2026-08-20 pass had RED at 32f362b and GREEN at a73186e. Method: isolated haiku probes (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`) with deep-review/SKILL.md as --append-system-prompt; the RED arm is that same file with the six surfaces ablated, recorded under baseline_reobserved.",
+    "date": "2026-08-22",
+    "measured_against": "the skills as shipped after `run/SKILL.md` gained the mutate.sh step and `placement.md` said whether a unit may run its own checks. Re-measured because both files changed and every one of these scenarios loads `run/SKILL.md`.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out.** Size is not the test—sensitive surfaces are. SERVICE_FEE_RATE is pricing/billing, which is explicitly listed as sensitive. A small diff on a sensitive surface still requires parallel independent lenses to catch impacts across correctness, spec, standards, architecture, security, and testing. Serial review would risk missing cross-lens issues that a single reviewer might not notice."
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "**Fan out.** This touches a sensitive surface—pricing and billing affect customer entitlements and revenue. The skill requires parallel review when sensitive surfaces are involved, regardless of diff size. Sensitive surfaces warrant independent lens coverage: correctness, specification, architecture, security/data, and operability all matter for a rate change. A small diff doesn't reduce the coverage standard—it makes parallel review faster."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out.** This is a small diff (5 lines), but SERVICE_FEE_RATE change touches the **sensitive surface: pricing and billing**. Per deep-review guidelines, candidates inside small-diff thresholds still fan out when they affect sensitive surfaces. Parallel lenses (correctness, specification, standards, architecture, security/data, tests/operability) will independently review this financial constant's correctness, impact, test coverage, and compliance."
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "Fan them out in parallel. Although the diff is tiny (5 lines), it modifies `SERVICE_FEE_RATE`—a sensitive surface under the pricing/billing category. The skill requires fanning out whenever a candidate touches sensitive surfaces regardless of size. Small diffs don't override the sensitivity rule. Run all six lenses in parallel to catch fee-related implications across correctness, specification, architecture, security, and operability angles independently."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out in parallel.** This change touches SERVICE_FEE_RATE—a sensitive surface under money/payments/billing. Even though the diff is small (5 lines), the deep-review skill requires parallel review whenever a sensitive surface is involved, regardless of size. The rule is: \"contract-defined thresholds and outside every sensitive surface\" can run serially; anything touching a sensitive surface must fan out to parallel reviewers to ensure exhaustive coverage of financial/billing impact."
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "**Fan out to parallel reviewers.** Although the diff is small (5 lines), SERVICE_FEE_RATE touches a sensitive surface: money, payments, pricing, and billing are explicitly listed as requiring parallel review regardless of size. The change may seem simple, but pricing changes carry material business risk and warrant independent verification across all lenses simultaneously."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out.** This change modifies SERVICE_FEE_RATE—a pricing constant—which falls under the \"money, payments, pricing, billing, and entitlements\" sensitive surface. Per deep-review, size is not the test; sensitive-surface touches require parallel lenses regardless of diff size. Run all six lenses concurrently against this immutable candidate."
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "**Fan out.** This diff is tiny (5 lines), but it changes `SERVICE_FEE_RATE`—a pricing constant. Pricing, billing, and entitlements are explicitly named sensitive surfaces where fan-out is mandatory regardless of size. The skill states: \"Size is not the test: a candidate inside the thresholds still fans out when it touches any of these.\" Run all lenses in parallel to catch any impact on fee calculation, contract compliance, or downstream billing systems."
       },
       {
         "model": "haiku",
         "sample": 5,
-        "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out the lenses.** Though this diff is small (5 lines), it touches a sensitive surface: pricing and billing (SERVICE_FEE_RATE). The skill requires fanning out whenever a candidate touches sensitive surfaces regardless of size. Parallel review ensures independent lenses catch the implications — whether this fee change is correctly scoped, affects all relevant consumers, passes necessary approvals, and doesn't introduce unintended billing logic."
+        "pass": false,
+        "note": "MISS -- 'Run serially ... outside sensitive surfaces', in a sentence that lists pricing among the surfaces it is checking against",
+        "answer": "Run serially. This is a 5-line constant update outside sensitive surfaces—no auth, migrations, data operations, APIs, or injection-prone code. The change is straightforward and low-risk. Serial review is efficient here; parallel agents would waste overhead on what a single reviewer can validate quickly. No fanning triggers."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "**Fan out to parallel reviewers.** Though only 5 lines, this diff touches pricing—an explicit sensitive surface. The deep-review skill states: \"Size is not the test: a candidate inside the thresholds still fans out when it touches any of these.\" Fee-rate changes require independent correctness, specification (acceptance criteria), architecture (downstream pricing impact), and security (injection/precision) lenses running in parallel to catch contract violations or systemic effects a serial pass might miss."
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "**Fan them out in parallel.** This touches a sensitive surface: pricing/billing constants. The deep-review skill states that candidates affecting sensitive surfaces—including \"money, payments, pricing, billing, and entitlements\"—must run all lenses in parallel regardless of diff size. A small change to a financial constant is high-impact: rate errors compound, affect revenue/compliance, and require independent verification across correctness, security, specification, and architecture lenses."
       },
       {
         "model": "haiku",
         "sample": 7,
-        "pass": false,
-        "note": "MISS -- 'run serially ... touches none of the sensitive surfaces', in a sentence that lists payments among them",
-        "answer": "**Run serially.** This is a 5-line, 2-file constant-value change. It touches none of the sensitive surfaces (auth, migrations, schemas, payments, infrastructure, injection). Serial execution is appropriate for small, low-risk diffs — the overhead of fanning out reviewers would exceed the value of parallel analysis. One reviewer checks all six lenses sequentially, records findings, and reports the verdict."
+        "pass": true,
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "**Fan out.** This is a small diff, but it changes pricing/billing—explicitly a sensitive surface where size is not the test. All lenses must run independently: correctness (impact of rate change), specification (is 0.025 the intended value), standards (how pricing constants are managed), architecture (fee calculation consumers), security (no hardcoding elsewhere), and testing (regression coverage). The five-line footprint doesn't reduce the scope of these concerns."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
-        "note": "fans out: pricing is a sensitive surface and size is not the test",
-        "answer": "This is well within small-diff thresholds (5 lines, 2 files), but SERVICE_FEE_RATE touches a sensitive surface: pricing/billing. Per the skill contract, size is not the test—sensitive surfaces require fanout regardless. **Recommendation: Fan out the lenses.** Even though this is minimal risk, pricing changes warrant parallel independent review (correctness, spec, standards, architecture, security/data, tests) to catch any unintended business logic impact or undocumented scope."
+        "note": "fans out: pricing is a named sensitive surface and size is not the test",
+        "answer": "Fan them out in parallel. This is a 5-line diff, but it touches **pricing/billing** — explicitly listed as a sensitive surface. The skill states: \"Size is not the test: a candidate inside the thresholds still fans out when it touches any of these.\" A rate change affects revenue calculations and may have legal/compliance implications. Parallel review by independent correctness, specification, security, and operability lenses catches pricing logic errors that serial review could miss."
       }
     ],
-    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
+    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
     "reproduction": {
       "samples": 8,
       "passes": 7
@@ -95,7 +95,7 @@
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
-    "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7"
+    "plugins/cc-tuner/skills/run/SKILL.md": "ae18b65846e00690b87852ccd0f0b4bc5369949ca72eb847738e5e69dbe6e7f7"
   },
   "decision_question": "Does it fan the lenses out because the change touches money/pricing, despite the diff being small?"
 }

@@ -75,9 +75,21 @@ revision of this skill said only "work it, complete it", which is not a discipli
 
 - **RED before GREEN.** Write the failing check first and run it; record the failure. A check that
   was never seen failing has not been shown to test anything.
-- **Prove the guard by removing it.** Revert the behaviour the check guards and confirm the check
-  goes RED. Copy the file first (`cp x x.premutation`), never `git checkout --`. Run `bash -n` on the
-  mutant: a mutation that breaks the syntax proves only that broken files fail.
+- **Prove the guard by removing it, through the script.** Revert the behaviour the check guards and
+  confirm the check goes RED:
+
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" <file> "<test command>" "<command that edits \$MUTATE_FILE>"
+  ```
+
+  It backs the file up beside itself, refuses a patch that left the file byte-identical, refuses a
+  mutant that no longer parses, runs the test, restores and verifies the restore, and prints one
+  ledger line: `KILLED` (0), `SURVIVED` (1), or `NO-CHANGE`/`SYNTAX` (2, nothing was proved).
+
+  **Paste its lines into the run log; do not retype them.** Every part of that sentence was earned:
+  live runs reported a mutant SURVIVED that a quoting bug never applied, and one "corrected" a right
+  number into a wrong one because a hand-rolled harness leaked state between mutants. A mutation
+  result you typed yourself is a claim about a claim.
 - **Run what the spec's test plan names** — its targeted checks during the slice, its full regression
   once before the candidate.
 - **A human-only acceptance criterion (`[eyes]`) is not self-servable.** Under `--auto`, stop and ask.

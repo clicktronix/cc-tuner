@@ -513,6 +513,35 @@ narrowing the prohibition to the review *decision* and naming the lens exception
 paragraph, and `implementation-only-parallelism`, whose expectation pinned the old flat wording, was
 amended and re-measured.
 
+#### Finding 18 — the mutation step was prose, and two live runs lied to themselves inside it
+
+`run/SKILL.md` asked for a mutation proof in two lines: copy the file, run `bash -n`, watch the check
+go red. Both live runs did it by hand and both produced false evidence about their own work:
+
+- run 3c: *"a shell-quoting error made a patch a no-op, and my check reported SURVIVED for code that
+  was never mutated"*, and separately *"I corrected a right number into a wrong one because my audit
+  harness leaked state between mutants"*;
+- run 3d ran 29 mutants with its own byte-compile step, rebuilt from scratch because nothing shipped.
+
+This is the one place in cc-tuner with a **cheap oracle** — a mutation either turns a named test red
+or it does not, and a program can say which. Everywhere else the eval tier is expensive precisely
+because no oracle exists. So `scripts/mutate.sh` now owns the parts that went wrong: it refuses a
+patch that left the file byte-identical, refuses a mutant that no longer parses, restores from a copy
+beside the file and verifies the restore, and prints one ledger line to be pasted rather than retyped.
+
+Three of its guards were earned during its own construction, which is the argument for having it:
+
+- the fixture's first mutation deleted a `raise` and left an `if` with an empty body — the syntax
+  refusal caught the test author, not the subject;
+- the backup lived in `$TMPDIR` until a test command that sweeps temp space produced `RESTORE FAILED`
+  and a dirty tree; it now sits beside the file, and a leftover backup is itself a refusal;
+- mutating the running script corrupted the interpreter's read position twice — bash reads a script
+  incrementally — so the script refuses itself as a target and says why.
+
+The idea is borrowed openly: it is the gate from [`pbshgthm/arc-skill`](https://github.com/pbshgthm/arc-skill),
+where no button may be pressed without a claim the next frame can contradict, and the harness rather
+than the agent grades it.
+
 #### Finding 17 — `plan-path.sh create` hands back a path the caller cannot write
 
 Observed on the final-tree run: `create` printed `docs/task-plans/2026-08-21-….md` in a repository

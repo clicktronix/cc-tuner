@@ -50,6 +50,7 @@ plugins/
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
       merge.sh                      # the only checked merge path: verdict + required CI on the head SHA
+      mutate.sh                     # one mutation, graded by the program: no-op and syntax refusals, verified restore
       plan-lint.sh                  # the plan format's validator, and the parser the hook reads it with
       plan-path.sh                  # the one branch -> plan-path resolver
       setup/doctor.sh               # environment checks behind /cc-tuner:setup
