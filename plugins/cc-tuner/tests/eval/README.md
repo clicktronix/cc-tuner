@@ -8,13 +8,29 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: every step of Task 8 observed, against the tree that ships.** Runs 3, 3b, 3c and 3d observed
-`/spec → /plan → native tasks → /run → merge` against `cd9fa2f`, `e39419c`, `058dfd5` and `f4410f2`,
-each frozen in a detached worktree before its run. Step 5 reopened on 2026-08-21 when
-`implementation-only-parallelism` re-measured at **4 of 8**, and closed on 2026-08-22 when the skill
-text earned **7 of 8** — after which the eval ran once more, because that fix moved the production
-surface. Two checks now hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any
-probe is unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the
+**Status: Task 8 is not complete, and this line has now overstated it twice.** Every step has been
+observed — but not all of them against the same tree, and the sentence that used to stand here said
+otherwise. What each step was last observed against:
+
+| step | last observed at | in |
+|---|---|---|
+| 0 — this checkout | `f4410f2` | run 3d, and every run before it |
+| 1 — attended whole flow | `cd9fa2f` | run 3, scenario A |
+| 2 — `--auto` whole flow | `f4410f2` | run 3d |
+| 2 — the `blockedBy` refusal, isolated | `e39419c` | run 3b |
+| 2b — `--check-only` then the same script merges | `cd9fa2f` | run 3, scenario A. Run 3d merged through `merge.sh` but never called `--check-only` |
+| 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
+| 4 — live denial, both branches | `cd9fa2f` | run 3 |
+| 5 — the nine probes | mixed, and **open**: `implementation-only-parallelism` is 6 of 8 |
+| 6 — this file | — | — |
+
+**Task 8 says "run against THIS checkout" and requires every step observed.** Four steps therefore owe
+a repeat against whatever tree ships. `EVALUATED_SHA` proves only that *some* of the eval ran on the
+shipped surface, which is less than it reads like, and that gap is why the claim above could be wrong
+while the suite stayed green.
+
+Two checks do hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any probe is
+unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
 was made true by running again rather than by arguing which tier covered the difference — and then
 made **checkable**: `EVALUATED_SHA` in this directory names the evaluated commit, and `tests/run.sh`
@@ -31,7 +47,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PASS** — all nine at n=8 against a question committed before the sample; the one that came back 4 of 8 was fixed in the skill and re-probed to 7 of 8 | PASS, and it caught a live regression |
+| 5 | **open** — all nine at n=8 against a question committed before the sample; `implementation-only-parallelism` went 4 of 8, was fixed in the skill, and re-probed to **6 of 8** once a softened classification was corrected | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -369,7 +385,7 @@ installed copy disabled locally in each.
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PASS**, after two corrections and a fix | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` came back **4 of 8**, which held this step at PARTIAL until the skill was fixed and re-probed at **7 of 8** — see run 3d. |
+| 5 | **open**, after two corrections and a fix | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` came back **4 of 8**, which held this step at PARTIAL until the skill was fixed and re-probed at **7 of 8** — see run 3d. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**

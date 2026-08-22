@@ -82,17 +82,17 @@
       {
         "model": "haiku",
         "sample": 8,
-        "pass": true,
-        "note": "code units parallel; one owner takes their commits into a single candidate, and testing, the verdict, the PR and the merge stay with that candidate",
+        "pass": false,
+        "note": "MISS -- 'Testing runs independently per unit'. The question says testing stays with one owner on one candidate, so this is a miss against the bar as written. I first recorded it as a pass by reading 'scoped unit tests are part of writing' into a question that does not say so -- softening the bar after seeing the answer, which is the one thing the protocol exists to stop.",
         "answer": "I appreciate the skill invocation, but I notice this task doesn't fit the writing-plans workflow—you're asking for a **direct architectural decision** in 80 words, not a comprehensive implementation plan. Let me answer your actual question: **Parallelism Strategy:** - **Code both units in parallel** — disjoint modules, no dependencies, no shared state. Separate branches or worktrees. - **Testing runs independently** per unit (unit tests, integration tests for each module). **Integration Ownership:** - **One owner integrates** — merges both units' commits into a single candidate SHA. - That owner runs full regression, obtains one review/approval on the merged candidate, opens one PR. - **Why:** One candidate means one review round, one verdict, one merge. Two candidates reviewed separately aren't reviewed together. **Delivery:** Sequential — code parallel, integrate serial, test → review → merge as one gate."
       }
     ],
     "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question` -- which was committed at 2ed8521, before this sample was taken. GREEN at >= 7 of 8. The threshold is a smoke bar, not a significance test: a fair coin clears 7/8 about 3.5% of the time (9/256), where the 5/6 it replaces let one through 10.9% of the time.",
     "reproduction": {
       "samples": 8,
-      "passes": 7
+      "passes": 6
     },
-    "verdict": "green"
+    "verdict": "unstable"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "8542c01c47cefc61034c353976e3bb78b3c79b43bec098771dbabf279979ecb7",

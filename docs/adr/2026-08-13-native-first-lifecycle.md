@@ -1,7 +1,7 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** accepted, 2026-08-22. It reached accepted on 2026-08-21 and came back twice the same day,
+**Status:** proposed. Accepted on 2026-08-22 and returned the same day on review, for two reasons that are now the open work: one probe classification was softened after the fact (6 of 8, not 7), and run 3d observed four of the eight Task 8 steps against the shipped tree rather than all eight. It reached accepted on 2026-08-21 and came back twice the same day,
 and both reasons are worth keeping. First, the shipped tree had moved past the evaluated one — `plan-path.sh`,
 the very path that broke during run 3b's `/plan` and was compensated by hand — and "a flow test covers
 that script" is an argument for weakening Task 8's rule rather than meeting it. That was met by
