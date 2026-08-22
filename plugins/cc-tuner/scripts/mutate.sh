@@ -56,14 +56,21 @@ USAGE
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 [ "$#" -ge 3 ] && [ "$#" -le 4 ] || { usage >&2; exit 2; }
 FILE="$1"; TEST_CMD="$2"; MUT_CMD="$3"; SYNTAX_CMD="${4:-}"
-# `-e || -L` rather than `-f`: a dangling symlink is not "no such file", and saying so sends the caller
-# looking for the wrong thing.
-[ -e "$FILE" ] || [ -L "$FILE" ] || die "no such file: $FILE"
-# A symlink target makes "restore the file" ambiguous -- write through it, or replace it? -- and the
-# ambiguity is not worth resolving for a mutation harness. Refusing means the restore below can always
-# produce a regular file, which is a property it can then check.
-[ ! -L "$FILE" ] || die "refusing a symlink target: $FILE — mutate the file it points at"
-[ -f "$FILE" ] || die "not a regular file: $FILE"
+# One precondition where there were five. Restoring puts a *fresh inode* at this path, so the path has
+# to be a plain file with a single name: a symlink (live or dangling) would be written through, a second
+# hard link would keep the mutant after the subject came back, and anything else is not a file this can
+# put back at all. Reviewers found each of those separately; they are one rule.
+kind_of() {
+  [ -L "$1" ] && { printf 'a symlink'; return; }
+  [ -e "$1" ] || { printf 'a missing'; return; }
+  [ -f "$1" ] || { printf 'a non-regular'; return; }
+  if stat -f '%l' "$1" >/dev/null 2>&1; then n="$(stat -f '%l' "$1")"; else n="$(stat -c '%h' "$1")"; fi
+  [ "$n" -le 1 ] 2>/dev/null || { printf 'a hard-linked'; return; }
+  printf 'regular'
+}
+KIND="$(kind_of "$FILE")"
+[ "$KIND" = "a missing" ] && die "no such file: $FILE"
+[ "$KIND" = regular ] || die "refusing $KIND target: $FILE — restoring replaces the inode, so this takes a plain file with one name and nothing else"
 
 # Refuse to mutate the script that is running: bash reads a script incrementally, from a byte offset,
 # so editing this file mid-run makes the interpreter continue inside the mutant. Measured twice.
@@ -79,14 +86,6 @@ mode_of() {
   if stat -f '%Lp' "$1" >/dev/null 2>&1; then stat -f '%Lp' "$1"   # BSD
   else stat -c '%a' "$1"; fi                                        # GNU
 }
-links_of() {
-  if stat -f '%l' "$1" >/dev/null 2>&1; then stat -f '%l' "$1"     # BSD
-  else stat -c '%h' "$1"; fi                                        # GNU
-}
-# Restoring moves a fresh inode into place, so any other name for the old inode keeps the mutant and
-# the two names come apart. Measured: with a second hardlink, the subject came back and the alias did
-# not. Restoring in place instead would trade this for the symlink hole, so the harness refuses.
-[ "$(links_of "$FILE")" -le 1 ] 2>/dev/null || die "refusing a target with $(links_of "$FILE") hard links: $FILE — restoring replaces the inode, so every other name would keep the mutant"
 
 # Resolve the syntax check before anything is touched, so an unsupported file is refused while the
 # tree is still clean rather than after a mutant is sitting in it.

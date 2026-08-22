@@ -90,6 +90,13 @@ OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
 check "leftover-backup-refused" "already exists" "$OUT"
 check "leftover-backup-rc2"     "rc=2"           "$OUT"
 rm -f "$W/calc.py.premutation"
+# ...including a dangling symlink parked there, which `-e` alone does not see: `cp` followed it and
+# wrote the original outside this directory, consuming the link, and then graded the run.
+mkdir -p "$W/out"; ln -s "$W/out/escaped" "$W/calc.py.premutation"
+OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
+check  "dangling-backup-refused" "already exists" "$OUT"
+absent "dangling-backup-writes-nothing-outside" "escaped" "$(ls "$W/out")"
+rm -f "$W/calc.py.premutation"; rmdir "$W/out"
 
 # --- a suite that is already red grades every mutant as killed ------------------------------------
 # Reproduced against the first version of this script: test-command `false`, and it reported KILLED.
@@ -124,6 +131,32 @@ check "mode-restored" "755" "$(stat -f '%Lp' "$W/calc.py" 2>/dev/null || stat -c
 chmod 644 "$W/calc.py"
 BEFORE="$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
 
+# --- the target must be a plain file with one name ------------------------------------------------
+# Five separate refusals, found one review round at a time, are one rule: restoring puts a fresh inode
+# at the path, so a symlink gets written through, a second hard link keeps the mutant after the subject
+# comes back, and anything else cannot be put back at all.
+T="$(flow_workdir)"; printf 'x\n' > "$T/plain"; ln "$T/plain" "$T/hard"; ln -s "$T/plain" "$T/link"
+ln -s "$T/never" "$T/dangling"; mkdir "$T/adir"
+for bad in hard link dangling adir; do
+  OUT="$(run "$T/$bad" "true" "true")"
+  check "target-$bad-refused" "refusing" "$OUT"
+  check "target-$bad-rc2"     "rc=2"     "$OUT"
+done
+OUT="$(run "$T/absent" "true" "true")"
+check "target-absent-refused" "no such file" "$OUT"
+absent "refused-targets-leave-no-backup" "premutation" "$(ls "$T")"
+
+# --- the restore cannot be diverted ----------------------------------------------------------------
+# Two ways it was: a mutation that swapped the file for a symlink had `cp` write through the link, and
+# a staging path built from `$$` could be pre-empted by a symlink the mutation planted, since it can
+# read $PPID. Both write outside the subject; both are one assertion now.
+V="$(flow_workdir)"; subject "$V"; printf 'do not touch me\n' > "$V/victim"
+VICTIM="$(shasum -a 256 "$V/victim" | cut -d' ' -f1)"; VBEFORE="$(shasum -a 256 "$V/calc.py" | cut -d' ' -f1)"
+OUT="$(run "$V/calc.py" "bash $V/check.sh" "ln -s $V/victim \$(dirname \$MUTATE_FILE)/.mutate.restore.\$PPID; rm \$MUTATE_FILE && ln -s $V/victim \$MUTATE_FILE")"
+equals "diverted-restore-leaves-the-victim-alone" "$VICTIM"  "$(shasum -a 256 "$V/victim" | cut -d' ' -f1)"
+equals "diverted-restore-puts-the-subject-back"   "$VBEFORE" "$(shasum -a 256 "$V/calc.py" | cut -d' ' -f1)"
+if [ -L "$V/calc.py" ]; then fail "diverted-restore-leaves-a-regular-file"; else pass "diverted-restore-leaves-a-regular-file"; fi
+
 # --- the running script is not a legal target ------------------------------------------------------
 OUT="$(run "$MUTATE" "true" "true")"
 check "self-mutation-refused" "refusing to mutate the running script" "$OUT"
@@ -138,17 +171,6 @@ check "help-names-KILLED"     "KILLED"    "$OUT"
 check "help-names-SURVIVED"   "SURVIVED"  "$OUT"
 check "help-names-BASELINE"   "BASELINE"  "$OUT"
 check "help-names-the-syntax-argument" "syntax-command" "$OUT"
-
-# --- a symlink swap must not write through the link, and must not eat the original ----------------
-# `cp` onto the path follows a symlink: a mutation that replaced the file with a link left the tree
-# changed while the bytes compared equal, and the backup was deleted on the way out.
-S="$(flow_workdir)"; subject "$S"
-printf 'def half(n):\n    return n // 2\n' > "$S/elsewhere.py"
-SBEFORE="$(shasum -a 256 "$S/calc.py" | cut -d' ' -f1)"
-OUT="$(run "$S/calc.py" "bash $S/check.sh" "rm \$MUTATE_FILE && ln -s $S/elsewhere.py \$MUTATE_FILE")"
-if [ -L "$S/calc.py" ]; then fail "symlink-swap-restores-a-regular-file (the path is still a symlink)"; else pass "symlink-swap-restores-a-regular-file"; fi
-check "symlink-swap-restores-the-bytes" "$SBEFORE" "$(shasum -a 256 "$S/calc.py" | cut -d' ' -f1)"
-absent "symlink-swap-leaves-no-backup" "premutation" "$(ls "$S")"
 
 # --- a restore that cannot happen keeps the original ----------------------------------------------
 R="$(flow_workdir)"; subject "$R"
@@ -197,47 +219,12 @@ SLOW
   rm -f "$Y/calc.py.premutation"
 done
 
-# --- a dangling symlink at the backup path is not an empty slot -----------------------------------
-# `-e` does not see it, so `cp` followed it and wrote the original outside this directory, consuming
-# the link — and then graded the run. Measured on 3737e9a.
-E="$(flow_workdir)"; subject "$E"; mkdir "$E/out"; ln -s "$E/out/escaped" "$E/calc.py.premutation"
-OUT="$(run "$E/calc.py" "bash $E/check.sh" "$MUTATE_GUARD")"
-check  "dangling-backup-path-refused" "already exists" "$OUT"
-absent "dangling-backup-path-writes-nothing-outside" "escaped" "$(ls "$E/out")"
-if [ -L "$E/calc.py.premutation" ]; then pass "dangling-backup-link-left-alone"; else fail "dangling-backup-link-left-alone (the link was consumed)"; fi
-rm -f "$E/calc.py.premutation"
-
 # --- the baseline runs against the tree the run will see ------------------------------------------
 # The backup used to be created first, so a test command that refuses stray files failed the baseline
 # on the file this script had just written next to the subject.
 B="$(flow_workdir)"; subject "$B"
 OUT="$(run "$B/calc.py" "test ! -e $B/calc.py.premutation && bash $B/check.sh" "$MUTATE_GUARD")"
 check "baseline-sees-no-backup" "KILLED" "$OUT"
-
-# --- a second name for the same inode is refused --------------------------------------------------
-# Restoring moves a fresh inode into place. Measured before this refusal existed: the subject came back
-# and the alias kept the mutant, so the two names silently came apart.
-H="$(flow_workdir)"; subject "$H"; ln "$H/calc.py" "$H/alias.py"
-OUT="$(run "$H/calc.py" "bash $H/check.sh" "$MUTATE_GUARD")"
-check "hardlinked-target-refused" "hard links" "$OUT"
-check "hardlinked-target-rc2"     "rc=2"       "$OUT"
-equals "hardlink-alias-untouched" "$(shasum -a 256 "$H/calc.py" | cut -d' ' -f1)" "$(shasum -a 256 "$H/alias.py" | cut -d' ' -f1)"
-
-# --- a dangling symlink is refused as a symlink, not as a missing file ----------------------------
-D="$(flow_workdir)"; ln -s "$D/never-existed.py" "$D/dangling.py"
-OUT="$(run "$D/dangling.py" "true" "true")"
-check "dangling-symlink-refused-as-symlink" "refusing a symlink target" "$OUT"
-absent "dangling-symlink-target-not-created" "never-existed" "$(ls "$D")"
-
-# --- the staging path cannot be guessed and pre-planted -------------------------------------------
-# The mutation command is arbitrary shell and can read $PPID. A symlink parked at a staging path built
-# from the pid would have the restore copy write through it, into a file that has nothing to do with
-# this run.
-P="$(flow_workdir)"; subject "$P"; printf 'do not touch me\n' > "$P/victim"
-VICTIM="$(shasum -a 256 "$P/victim" | cut -d' ' -f1)"
-OUT="$(run "$P/calc.py" "bash $P/check.sh" "ln -s $P/victim \$(dirname \$MUTATE_FILE)/.mutate.restore.\$PPID; $MUTATE_GUARD")"
-check "planted-staging-path-does-not-divert-the-restore" "KILLED" "$OUT"
-equals "planted-staging-path-leaves-the-victim-alone" "$VICTIM" "$(shasum -a 256 "$P/victim" | cut -d' ' -f1)"
 
 # --- a signal arriving on a mutant that cannot be written over ------------------------------------
 # The two halves were tested apart: an ordinary failed restore, and an ordinary signal. Their

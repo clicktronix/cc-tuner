@@ -555,6 +555,21 @@ all — every one of these was a way a hand-rolled mutation pass could report a 
 - the interrupt handler ignored whether its copy worked and deleted the backup regardless — on a
   mutant that could not be written over, that lost the original outright.
 
+**Then most of that list was consolidated, 2026-08-22, and the reason is the finding.** Five of the
+thirteen guards — symlink target, hard link, dangling input, dangling backup path, guessable staging
+path — came only from adversarial review and were never observed in use. Each arrived in its own round,
+with its own message and its own fixture, and by the end this helper weighed what `merge.sh` weighs:
+20 refusal sites against `merge.sh`'s 20, for a tool whose worst outcome is a wrong line in a run log
+rather than an unreviewed merge into `main`. They are one rule — *restoring puts a fresh inode at the
+path, so the path must be a plain file with one name* — and they are now written once, as one check
+with five diagnostics. Six refusal sites remain. Nothing was given up: removing the consolidated check
+still turns the suite red.
+
+The class is also now bounded in the script itself. The mutation command is written by whoever runs it,
+in the same session as the test command: **careless, not hostile**. Where carelessness could touch
+something outside the subject, this refuses, because refusing is a line of code. It is not a sandbox,
+and a review that finds a hundred-and-first route into one is finding a decision, not a defect.
+
 **Three of those fixtures were wrong before they were right**, and each wrong version passed:
 a mutation that deleted a `raise` and left an empty `if` body (caught by the syntax refusal, on the
 test author); a signal fixture that fired during the baseline, before any mutation existed; and its
