@@ -41,8 +41,18 @@ usage: mutate.sh <file> <test-command> <mutation-command> [syntax-command]
                       is installed; required otherwise, because an unchecked mutant that fails the
                       test is indistinguishable from a broken file that fails everything.
 
+Refuses before touching anything, because restoring puts a fresh inode at the path:
+  * a symlink, dangling or not, a hard-linked file, a directory — the path must be a plain file with
+    one name, or "put it back" cannot be checked afterwards;
+  * a <file>.premutation that already exists, including a symlink parked there;
+  * this script itself, since bash re-reads a running script as it goes.
 If a restore cannot finish, the original is left at <file>.premutation and this says so — the backup
-is deleted only after the file is verified back to a regular file with the original bytes and mode.
+is deleted only after the file is verified back to a regular file with the original bytes and mode,
+and the staging copy is made with mktemp so nothing can pre-empt its path.
+
+Scope: the mutation command is careless, not hostile — written by whoever runs this, in the same
+session as the test command. The refusals above stop carelessness reaching past the subject. This is
+not a sandbox and does not try to be one.
 
 Prints one ledger line — paste it, do not retype it.
   KILLED     exit 0   the test was green, the mutant turned it red: the guard bites

@@ -565,10 +565,19 @@ path, so the path must be a plain file with one name* — and they are now writt
 with five diagnostics. Six refusal sites remain. Nothing was given up: removing the consolidated check
 still turns the suite red.
 
-The class is also now bounded in the script itself. The mutation command is written by whoever runs it,
+The class is also now bounded in `--help`, which is where the caller looks: `/cc-tuner:run` sends
+them there for "the verdicts, the exit codes, the refusals", and until 2026-08-23 the refusals were
+only in source comments the caller never reads — the pointer promised a contract the contract did not
+carry. The scope statement is there too, for the same reason. The mutation command is written by whoever runs it,
 in the same session as the test command: **careless, not hostile**. Where carelessness could touch
 something outside the subject, this refuses, because refusing is a line of code. It is not a sandbox,
 and a review that finds a hundred-and-first route into one is finding a decision, not a defect.
+
+**And one wrong fixture survived being replaced.** The background signal loop was rewritten into two
+foreground ones, and a third copy of it stayed behind — duplicating the assertions, using the route
+already known to prove nothing, and costing 60 of the suite's 77 seconds. Four hollow PASSes reported
+as evidence. Deleting it took the suite to 16 seconds. The lesson it recorded now lives in the fixture
+that replaced it, which is where One rule, one home would have put it.
 
 **Three of those fixtures were wrong before they were right**, and each wrong version passed:
 a mutation that deleted a `raise` and left an empty `if` body (caught by the syntax refusal, on the

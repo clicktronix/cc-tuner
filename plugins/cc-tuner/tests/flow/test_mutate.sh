@@ -171,6 +171,12 @@ check "help-names-KILLED"     "KILLED"    "$OUT"
 check "help-names-SURVIVED"   "SURVIVED"  "$OUT"
 check "help-names-BASELINE"   "BASELINE"  "$OUT"
 check "help-names-the-syntax-argument" "syntax-command" "$OUT"
+# `/run` sends the caller here for "the verdicts, the exit codes, the refusals", so the refusals have
+# to be here. They lived only in source comments, which the caller does not read.
+check "help-names-the-target-refusals" "hard-linked" "$OUT"
+check "help-names-the-backup-refusal"  "premutation that already exists" "$OUT"
+check "help-names-the-staging-rule"    "mktemp"      "$OUT"
+check "help-names-its-scope"           "not a sandbox" "$OUT"
 
 # --- a restore that cannot happen keeps the original ----------------------------------------------
 R="$(flow_workdir)"; subject "$R"
@@ -196,6 +202,10 @@ if [ -e "$X/seen" ]; then kill -$sig \$PPID; sleep 5; else : > "$X/seen"; fi
 SLOW
   OUT="$(run "$X/calc.py" "sh $X/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 400 \$MUTATE_FILE")"
   chmod 644 "$X/calc.py" 2>/dev/null
+  # Mode 400, not 000: an unreadable mutant fails the syntax check instead, and the run ends before the
+  # signal can arrive. An earlier fixture made that mistake, and a third made a worse one — it put the
+  # harness in a background job, where SIGINT is inherited ignored, so removing INT from the trap left
+  # the suite green. Both are why this signals a foreground process from its own test command.
   check  "signal-$sig-rc2"                       "rc=2"     "$OUT"
   equals "signal-$sig-restores-an-unwritable-mutant" "$XBEFORE" "$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
   absent "signal-$sig-leaves-no-backup"          "premutation" "$(ls "$X")"
@@ -225,29 +235,6 @@ done
 B="$(flow_workdir)"; subject "$B"
 OUT="$(run "$B/calc.py" "test ! -e $B/calc.py.premutation && bash $B/check.sh" "$MUTATE_GUARD")"
 check "baseline-sees-no-backup" "KILLED" "$OUT"
-
-# --- a signal arriving on a mutant that cannot be written over ------------------------------------
-# The two halves were tested apart: an ordinary failed restore, and an ordinary signal. Their
-# combination is what loses data, and the first attempt at this fixture did not discriminate: it made
-# the *directory* read-only, where the old unsafe trap's `cp` still succeeded and its `rm` still
-# failed, so both implementations passed. The case that separates them is a mutant with mode 000 in a
-# writable directory: `cp` onto it is denied while `rm` of the backup succeeds, so the old handler
-# deletes the last copy and leaves the mutant, and the current one replaces the file by rename.
-# Read-only, not unreadable: mode 000 fails the syntax check instead, and the run ends before any
-# signal can arrive — which is how a second version of this fixture passed against both handlers.
-for sig in TERM INT; do
-  X="$(flow_workdir)"; subject "$X"
-  XBEFORE="$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
-  cat > "$X/slow.sh" <<SLOW
-if [ -e "$X/seen" ]; then sleep 30; else : > "$X/seen"; fi
-SLOW
-  ( bash "$MUTATE" "$X/calc.py" "bash $X/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 400 \$MUTATE_FILE" >/dev/null 2>&1 ) &
-  xp=$!
-  sleep 3; kill -"$sig" "$xp" 2>/dev/null; wait "$xp" 2>/dev/null
-  chmod 644 "$X/calc.py" 2>/dev/null
-  equals "signal-$sig-restores-an-unwritable-mutant" "$XBEFORE" "$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
-  absent "signal-$sig-leaves-no-backup" "premutation" "$(ls "$X")"
-done
 
 # --- refusals that are not about mutants at all ---------------------------------------------------
 OUT="$(run "$W/calc.py" "true" "true" "true" "extra")"
