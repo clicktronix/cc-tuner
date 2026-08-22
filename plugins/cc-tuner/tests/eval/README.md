@@ -22,12 +22,15 @@ otherwise. What each step was last observed against:
 | 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
 | 4 — live denial, both branches | `cd9fa2f` | run 3 |
 | 5 — the nine probes | the current tree | all nine re-measured at n=8, all ≥ 7 of 8 |
+| 7 — the repeat on the shipped tree | — | **open**: steps 1, 2's isolated refusal, 2b, 3 and 4 |
 | 6 — this file | — | — |
 
-**Task 8 says "run against THIS checkout" and requires every step observed.** Four steps therefore owe
-a repeat against whatever tree ships. `EVALUATED_SHA` proves only that *some* of the eval ran on the
-shipped surface, which is less than it reads like, and that gap is why the claim above could be wrong
-while the suite stayed green.
+**Task 8 says "run against THIS checkout" and requires every step observed.** Four steps plus the
+isolated half of step 2 therefore owe a repeat against whatever tree ships, and that is now **step 7
+of Task 8** — a checkbox rather than a footnote, because eight ticks and a paragraph left a reader
+with no open checkpoint while this file and the ADR both said the task was unfinished.
+`EVALUATED_SHA` proves only that *some* of the eval ran on the shipped surface, which is less than it
+reads like, and that gap is why the claim above could be wrong while the suite stayed green.
 
 Two checks do hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any probe is
 unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the
@@ -226,7 +229,7 @@ scenario to delete.**
 
 ## Acceptance
 
-Every step — 0, 1, 2, 2b, 3, 4, 5 and 6 — observed PASS in a real session. Not-yet-run does not
+Every step — 0, 1, 2, 2b, 3, 4, 5, 6 and 7 — observed PASS in a real session, and step 7 is the one that says the observations were all against the tree that ships. Not-yet-run does not
 count as a pass, and the branch is not finished until this file says so.
 
 **What this eval does not cover, stated here rather than left in the prose of a run.** Run 3 was

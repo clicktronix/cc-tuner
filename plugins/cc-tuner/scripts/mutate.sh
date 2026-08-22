@@ -32,6 +32,9 @@ usage: mutate.sh <file> <test-command> <mutation-command> [syntax-command]
                       is installed; required otherwise, because an unchecked mutant that fails the
                       test is indistinguishable from a broken file that fails everything.
 
+If a restore cannot finish, the original is left at <file>.premutation and this says so — the backup
+is deleted only after the file is verified back to a regular file with the original bytes and mode.
+
 Prints one ledger line — paste it, do not retype it.
   KILLED     exit 0   the test was green, the mutant turned it red: the guard bites
   SURVIVED   exit 1   green before and after: nothing in the suite covers this behaviour
@@ -45,6 +48,10 @@ case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 [ "$#" -ge 3 ] && [ "$#" -le 4 ] || { usage >&2; exit 2; }
 FILE="$1"; TEST_CMD="$2"; MUT_CMD="$3"; SYNTAX_CMD="${4:-}"
 [ -f "$FILE" ] || die "no such file: $FILE"
+# A symlink target makes "restore the file" ambiguous -- write through it, or replace it? -- and the
+# ambiguity is not worth resolving for a mutation harness. Refusing means the restore below can always
+# produce a regular file, which is a property it can then check.
+[ ! -L "$FILE" ] || die "refusing a symlink target: $FILE — mutate the file it points at"
 
 # Refuse to mutate the script that is running: bash reads a script incrementally, from a byte offset,
 # so editing this file mid-run makes the interpreter continue inside the mutant. Measured twice.
@@ -75,25 +82,42 @@ fi
 
 BACKUP="$FILE.premutation"
 [ -e "$BACKUP" ] && die "$BACKUP already exists — an earlier mutation did not restore; deal with that first"
-cp "$FILE" "$BACKUP" || die "cannot copy $FILE"
-BEFORE="$(sha_of "$FILE")"; BEFORE_MODE="$(mode_of "$FILE")"
 
-# The backup is never deleted on a failed restore: it is the last copy of the original.
-restore() {
-  cp "$BACKUP" "$FILE" 2>/dev/null || { printf 'mutate: RESTORE FAILED for %s — the mutant is still in the tree; the original is %s\n' "$FILE" "$BACKUP" >&2; exit 2; }
-  chmod "$BEFORE_MODE" "$FILE" 2>/dev/null || true
-  [ "$(sha_of "$FILE")" = "$BEFORE" ] && [ "$(mode_of "$FILE")" = "$BEFORE_MODE" ] \
-    || { printf 'mutate: RESTORE MISMATCH for %s — the original is kept at %s\n' "$FILE" "$BACKUP" >&2; exit 2; }
-  rm -f "$BACKUP"
-}
-trap 'cp "$BACKUP" "$FILE" 2>/dev/null; chmod "$BEFORE_MODE" "$FILE" 2>/dev/null; rm -f "$BACKUP"; exit 2' INT TERM
-
-# 1. Baseline. A suite that is already red grades every mutant as killed.
+# 1. Baseline, before anything is written. A suite that is already red grades every mutant as killed --
+# and the backup is created only after this passes, because a test command that inspects the working
+# tree (a linter over untracked files, a "no stray files" check) would otherwise fail on the backup
+# this script had just dropped next to the subject. Measured in a clean git repository.
 if ! sh -c "$TEST_CMD" >/dev/null 2>&1; then
-  restore
   printf 'BASELINE   %s  the test command already fails before any mutation — nothing could be graded\n' "$FILE"
   exit 2
 fi
+
+cp "$FILE" "$BACKUP" || die "cannot copy $FILE"
+BEFORE="$(sha_of "$FILE")"; BEFORE_MODE="$(mode_of "$FILE")"
+
+# Restore through a temp regular file in the same directory, verified, then moved into place. `cp`
+# straight onto the path writes *through* a symlink, so a mutation that swapped the file for a link
+# left the tree changed while the bytes compared equal -- and the backup was deleted on the way out.
+# The backup is removed only after the final state is checked: regular file, exact bytes, exact mode.
+restore_failed() {
+  printf 'mutate: %s for %s — the mutant is still in the tree; the original is kept at %s\n' "$1" "$FILE" "$BACKUP" >&2
+  exit 2
+}
+restore() {
+  tmp="$(dirname "$FILE")/.mutate.restore.$$"
+  cp "$BACKUP" "$tmp" 2>/dev/null || restore_failed "RESTORE FAILED (cannot stage a copy)"
+  chmod "$BEFORE_MODE" "$tmp" 2>/dev/null || { rm -f "$tmp"; restore_failed "RESTORE FAILED (cannot set mode)"; }
+  [ "$(sha_of "$tmp")" = "$BEFORE" ] || { rm -f "$tmp"; restore_failed "RESTORE MISMATCH (staged copy differs)"; }
+  mv -f "$tmp" "$FILE" 2>/dev/null || { rm -f "$tmp"; restore_failed "RESTORE FAILED (cannot replace the file)"; }
+  [ -f "$FILE" ] && [ ! -L "$FILE" ] || restore_failed "RESTORE MISMATCH (not a regular file)"
+  [ "$(sha_of "$FILE")" = "$BEFORE" ] || restore_failed "RESTORE MISMATCH (bytes)"
+  [ "$(mode_of "$FILE")" = "$BEFORE_MODE" ] || restore_failed "RESTORE MISMATCH (mode)"
+  rm -f "$BACKUP"
+}
+# The signal path goes through the same restore, with the trap cleared first so a second signal cannot
+# re-enter it. An earlier version inlined a cp, ignored whether it worked, and deleted the backup
+# anyway -- on a mutant that could not be overwritten that lost the original outright.
+trap 'trap - INT TERM; restore; exit 2' INT TERM
 
 # 2. The mutation itself has to succeed and to change something.
 MUTATE_FILE="$FILE" sh -c "$MUT_CMD" >/dev/null 2>&1

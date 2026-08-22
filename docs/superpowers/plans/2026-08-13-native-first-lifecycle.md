@@ -600,7 +600,17 @@ less necessary — the branch is not done without it.
       > the parallel-review fix: 3 of 6 against the earlier revision, so it is the rule's legibility
       > that is in question, not the correction to it.
 
-**Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5 and 6. An
+- [ ] **Step 7: repeat, against the tree that ships, every step last observed on an earlier one.**
+      Added 2026-08-22, because eight ticked boxes and a footnote is not a readable plan: a reader saw
+      no open checkpoint while the ADR and the eval log both said Task 8 was unfinished. The steps
+      above were observed — that is why they stay ticked — but four of them plus the isolated half of
+      step 2 were last seen on `cd9fa2f` or `e39419c`, and step 0 requires the eval to exercise the
+      artifact that ships. Owed on the final tree: **step 1** (attended whole flow), **step 2's
+      `blockedBy` refusal on an isolating fixture**, **step 2b** (`--check-only`, then the same script
+      merges), **step 3** (fresh session, `/clear`, `/compact`), and **step 4** (live denial, both
+      branches). The per-step table of what was last seen where is in `tests/eval/README.md`.
+
+**Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5, 6 and 7. An
 earlier draft said "all five steps" while listing seven, which would have let the two that matter most
 fall outside acceptance: step 0, which proves the eval tested this checkout rather than the installed
 version, and step 2b, the only live proof that the producer writes something the checked path can read.

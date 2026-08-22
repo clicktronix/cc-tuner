@@ -129,7 +129,68 @@ OUT="$(run "$MUTATE" "true" "true")"
 check "self-mutation-refused" "refusing to mutate the running script" "$OUT"
 check "self-mutation-rc2"     "rc=2"                                  "$OUT"
 
+# --- the published contract is reachable ----------------------------------------------------------
+# `/cc-tuner:run` now points at `--help` instead of restating the contract, so the help text is public
+# surface. Nothing asserted it existed until a reviewer pointed that out.
+OUT="$( bash "$MUTATE" --help 2>&1; printf 'rc=%s\n' "$?" )"
+check "help-exits-0"          "rc=0"      "$OUT"
+check "help-names-KILLED"     "KILLED"    "$OUT"
+check "help-names-SURVIVED"   "SURVIVED"  "$OUT"
+check "help-names-BASELINE"   "BASELINE"  "$OUT"
+check "help-names-the-syntax-argument" "syntax-command" "$OUT"
+
+# --- a symlink swap must not write through the link, and must not eat the original ----------------
+# `cp` onto the path follows a symlink: a mutation that replaced the file with a link left the tree
+# changed while the bytes compared equal, and the backup was deleted on the way out.
+S="$(flow_workdir)"; subject "$S"
+printf 'def half(n):\n    return n // 2\n' > "$S/elsewhere.py"
+SBEFORE="$(shasum -a 256 "$S/calc.py" | cut -d' ' -f1)"
+OUT="$(run "$S/calc.py" "bash $S/check.sh" "rm \$MUTATE_FILE && ln -s $S/elsewhere.py \$MUTATE_FILE")"
+if [ -L "$S/calc.py" ]; then fail "symlink-swap-restores-a-regular-file (the path is still a symlink)"; else pass "symlink-swap-restores-a-regular-file"; fi
+check "symlink-swap-restores-the-bytes" "$SBEFORE" "$(shasum -a 256 "$S/calc.py" | cut -d' ' -f1)"
+absent "symlink-swap-leaves-no-backup" "premutation" "$(ls "$S")"
+
+# --- a restore that cannot happen keeps the original ----------------------------------------------
+R="$(flow_workdir)"; subject "$R"
+RBEFORE="$(shasum -a 256 "$R/calc.py" | cut -d' ' -f1)"
+OUT="$(run "$R/calc.py" "bash $R/check.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 500 \$(dirname \$MUTATE_FILE)")"
+chmod 755 "$R" 2>/dev/null
+check "unrestorable-says-so"        "RESTORE"     "$OUT"
+check "unrestorable-rc2"            "rc=2"        "$OUT"
+check "unrestorable-keeps-original" "premutation" "$(ls "$R")"
+check "the-kept-original-is-the-original" "$RBEFORE" "$(shasum -a 256 "$R/calc.py.premutation" | cut -d' ' -f1)"
+rm -f "$R/calc.py.premutation"
+
+# --- a signal restores through the same path ------------------------------------------------------
+G="$(flow_workdir)"; subject "$G"
+GBEFORE="$(shasum -a 256 "$G/calc.py" | cut -d' ' -f1)"
+# The test command has to be quick on the baseline and slow afterwards, or the signal lands before the
+# mutation and proves nothing — which is what the first version of this test did, and a mutation of the
+# signal handler survived it.
+cat > "$G/slow.sh" <<SLOW
+if [ -e "$G/seen" ]; then sleep 30; else : > "$G/seen"; fi
+SLOW
+( bash "$MUTATE" "$G/calc.py" "bash $G/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE" >/dev/null 2>&1 ) &
+sig_pid=$!
+sleep 3; kill -TERM "$sig_pid" 2>/dev/null; wait "$sig_pid" 2>/dev/null
+check "signal-restores-the-bytes" "$GBEFORE" "$(shasum -a 256 "$G/calc.py" | cut -d' ' -f1)"
+absent "signal-leaves-no-backup"  "premutation" "$(ls "$G")"
+
+# --- the baseline runs against the tree the run will see ------------------------------------------
+# The backup used to be created first, so a test command that refuses stray files failed the baseline
+# on the file this script had just written next to the subject.
+B="$(flow_workdir)"; subject "$B"
+OUT="$(run "$B/calc.py" "test ! -e $B/calc.py.premutation && bash $B/check.sh" "$MUTATE_GUARD")"
+check "baseline-sees-no-backup" "KILLED" "$OUT"
+
 # --- refusals that are not about mutants at all ---------------------------------------------------
+OUT="$(run "$W/calc.py" "true" "true" "true" "extra")"
+check "too-many-arguments-refused" "usage:" "$OUT"
+
+L="$(flow_workdir)"; subject "$L"; ln -s "$L/calc.py" "$L/link.py"
+OUT="$(run "$L/link.py" "true" "true")"
+check "symlink-target-refused" "refusing a symlink target" "$OUT"
+
 OUT="$(run "$W/does-not-exist.py" "true" "true")"
 check "missing-file-refused" "no such file" "$OUT"
 check "missing-file-rc2"     "rc=2"         "$OUT"
