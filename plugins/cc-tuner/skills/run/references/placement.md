@@ -20,6 +20,15 @@ Until 2026-08-21 this paragraph said "never parallelise review" flat, which cont
 `deep-review/SKILL.md` inside the same plugin. Run 3 caught both rules quoted in one session, and a
 model handed two opposite rules follows the cheaper one.
 
+**A fanned-out unit hands back commits, never a pull request.** Whoever fanned the work out is the
+one owner: they take the units' commits into a **single candidate**, run the authoritative tests on
+that candidate, carry it through one review to one verdict, and open the one pull request that
+merges. A unit does not open its own PR, does not merge, and does not claim its own approval — two
+candidates reviewed apart are two things nobody reviewed together.
+
+One plan, one candidate, one verdict, one merge. The parallelism lives in the writing and nowhere
+else.
+
 Two slices are independent when their `Owned paths` do not overlap. If they do, they are one unit.
 
 ## Where each method runs
