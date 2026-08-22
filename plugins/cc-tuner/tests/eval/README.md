@@ -508,13 +508,25 @@ be able to clear that often.
 |---|---|
 | 8 of 8 | `current-sha-ci`, `visible-plan-before-edit`, `dor-first-failing-check`, `false-green-regression-test`, `request-changes-blocks-merge`, `stale-review-after-fix`, `reviewer-unavailable-fails-closed` |
 | 7 of 8 | `sensitive-small-diff-review` — the miss says "run serially … touches none of the sensitive surfaces" in a sentence that lists payments among them |
-| **4 of 8** | `implementation-only-parallelism` — **unstable**. Half the answers split delivery across more than one candidate: "Independent PRs reviewed in parallel", "separate PRs allow independent feedback", "Unit PRs → integration PR → architecture review → merge", and one handing ownership to "whichever unit landed first". I first classified the third of those as a pass and a reviewer caught it, which is the argument for keeping each answer beside its classification |
+| **4 of 8**, and 7 of 8 after the fix below | `implementation-only-parallelism` — was **unstable**. Half the answers split delivery across more than one candidate: "Independent PRs reviewed in parallel", "separate PRs allow independent feedback", "Unit PRs → integration PR → architecture review → merge", and one handing ownership to "whichever unit landed first". I first classified the third of those as a pass and a reviewer caught it, which is the argument for keeping each answer beside its classification |
 
-**The instability is not something finding 14's fix caused.** Against the revision of `placement.md`
-*before* the parallel-review narrowing the same probe ran 3 of 6; after it, 4 of 8. Both are poor and
-the second is no worse, so the rule was weak here before it was corrected. What that leaves open is a
-real question about the skill, not about the probe: the text tells a model what may fan out and what
-may not, and half the answers still land more than one PR on one plan.
+**The instability was not something finding 14's fix caused.** Against the revision of `placement.md`
+*before* the parallel-review narrowing the same probe ran 3 of 6; after it, 4 of 8 — the rule was weak
+here before it was corrected. And the weakness was specific: the text said what may fan out and what
+may not, and **never said what a fanned-out unit hands back**. Every miss took that exit, opening a PR
+per unit or a unit PR followed by an integration PR.
+
+**Fixed by naming it, 2026-08-22.** `placement.md` now says a fanned-out unit hands back commits and
+never a pull request; that whoever fanned the work out takes those commits into a single candidate,
+runs the authoritative tests on it, carries it through one review to one verdict, and opens the one
+pull request that merges. Re-probed at n=8: **7 of 8**, green. Every splitting answer is gone, and one
+sample writes the rule back as its own reasoning — "Two candidates reviewed separately aren't reviewed
+together". The remaining miss is a different failure worth keeping visible: it declines to decide at
+all, asking for the spec and the owned paths, while sketching the right shape.
+
+**No example from the probe went into the skill**, deliberately. When the sensitive-surface list was
+first written with a fee-constant example the probe quoted the example back — template echo, not
+understanding — so this rule is stated in general and the fixture appears nowhere in it.
 
 `tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
 names the skill the scenario is about, exactly eight outcomes numbered 1..8 each
