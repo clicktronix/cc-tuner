@@ -29,63 +29,63 @@
   },
   "green_check": {
     "date": "2026-08-22",
-    "measured_against": "the skills as shipped after `run/SKILL.md` gained the mutate.sh step and `placement.md` said whether a unit may run its own checks. Re-measured because both files changed and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped after `run/SKILL.md` was reduced to the mutate.sh invocation plus a pointer to its `--help`, and after `placement.md` said whether a unit may run its own checks. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. This lacks two critical proofs: 1. **No RED baseline** — the test must be seen failing before the fix to prove it detects the actual problem. 2. **No mutation proof** — reverting the fix and re-running the test confirms it catches the regression (not a false positive). Without both, you cannot distinguish between \"test is correct\" and \"test never fails.\" Passing tests alone prove nothing about whether the fix addresses the gap or the test guards it."
+        "answer": "No. **Red before Green** is unmet—no evidence the test *failed* before the fix. **Prove the guard by removing it** is unmet—no mutation showing the test *breaks* when you revert the fix. Both are required: a test that never fails proves nothing. A passing test that doesn't fail when the fix is removed could be checking the wrong thing or passing for unrelated reasons. Run the test *before* the fix, then mutate the fix to confirm the test goes red."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. This is insufficient. The test must: 1. **Run RED before the fix** — prove it actually fails without your change 2. **Be killed by reverting the fix** — mutation testing shows the test catches regressions A test passing after a fix, with no prior failure proof, doesn't verify the test is guarding anything. It's \"green without proof of red\" — a common false-confidence pattern. You've shown the new test doesn't break the fix, but not that it catches the bug. Mutation first, then green."
+        "answer": "No, this is insufficient. Two critical gaps: 1. **No RED baseline**: The new test never failed before the fix, so it's unproven—it may pass for unrelated reasons or not actually test the issue. 2. **No mutation proof**: Reversing the fix and re-running should make the test fail. Without this, you don't know the test guards the fix; it could pass with or without the change. Existing tests passing is necessary but not sufficient—they likely never caught the bug. A spec-driven verification needs: failing test first, fix applied, test passes, fix removed, test fails again."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. This lacks two critical pieces of evidence: 1. **RED baseline missing**: The test was never seen failing before the fix. You don't know it tests anything — a passing test written after a fix often passes regardless. 2. **Mutation proof missing**: You didn't revert the behavior and re-run the test to confirm it goes RED. Without this, the test might pass for an unrelated reason (e.g., it doesn't actually exercise the changed code). The /cc-tuner:run workflow requires both: observe the check RED first, then prove it guards by mutation. Passing existing tests alone doesn't substitute."
+        "answer": "No. This lacks critical verification evidence: 1. **RED before GREEN missing** — the test passing doesn't prove it tests anything. You must show it failing *before* the fix. 2. **Mutation proof missing** — you must revert the fix and confirm the test goes RED. Without this, the test may pass regardless of whether your fix is correct. All existing tests passing is good but doesn't validate the new test. Both gaps must be closed before marking the slice done."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. The specification requires **RED before GREEN** — the test must be observed failing before the fix. Without that baseline, the test hasn't proven it catches the actual bug. Additionally, **mutation proof** is needed: revert the fix and confirm the test fails, proving it guards the change. A passing test on a fixed branch only demonstrates the fixed code satisfies the test, not that the test validates the fix itself. Both RED and mutation proof are required for complete evidence."
+        "answer": "No. It's insufficient without two critical pieces: 1. **RED before GREEN**: The regression test must be observed failing for the expected reason *before* the fix. Without this, you don't know if the test validates the fix or passes anyway. 2. **Mutation proof**: Revert the fix and confirm the test goes RED. This proves the test guards against the exact behavior the fix addresses. Passing tests alone don't prove causation—only mutation and pre-fix failure do."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. The /cc-tuner:run Definition of Done requires: 1. **RED before GREEN** — the test must be **seen failing** before the fix, proving it actually tests the gap. 2. **Mutation proof** — the test must fail when the fix is removed/reversed, proving it guards the behavior. Passing existing tests is good. A new test passing on the fixed branch only proves the code runs without crashing — not that the test validates the actual fix or would catch regressions. Both RED and mutation evidence are mandatory."
+        "answer": "**No.** This is insufficient. You've shown GREEN but not RED—the test was never observed failing before the fix, so it's unknown whether it actually tests the bug. Without mutation proof (reverting the fix to show the test fails), you can't confirm the test guards the behavior. Both are required for verification. Run the test on the unfixed branch first, then mutate/revert the fix to verify the test catches the regression."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. The skill's Definition of Done requires: 1. **RED baseline**: The test must be shown failing *before* the fix. A test never seen failing hasn't proven it tests anything. 2. **Mutation proof**: Revert the fix with `mutate.sh` and confirm the test goes RED. This proves the test actually guards the behavior. Passing existing tests + a passing new test on the fixed branch proves the code doesn't break things, but doesn't prove the fix is necessary or that the test is effective. Both RED and mutation are required."
+        "answer": "No, it's insufficient. You've shown the test passes with the fix, but not that it *catches* the bug. You need two proofs: 1. **RED before GREEN**: Run the test against the original code and confirm it fails (proving it tests the gap). 2. **Mutation proof**: Revert/remove the fix and re-run; the test must fail, proving the fix is actually what makes it pass. Without these, the test may be passing for unrelated reasons. The fix is unvalidated."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. Per the `/cc-tuner:run` Definition of Done, you need: 1. **RED before GREEN** — the test must fail first, proving it exercises the gap, not just passing code 2. **Guard proof via mutation** — revert the fix and confirm the test fails again, proving it guards against regression A test that never went RED and was never mutated through the script has not been shown to test anything. Passing existing tests confirm no breakage, but don't prove the new test works."
+        "answer": "No. The /cc-tuner:run specification requires **RED before GREEN**: the failing check must be observed before the fix to prove it actually tests the gap. A test that was never seen failing has not been shown to test anything. Additionally, the fix must be mutated or reversed and the check must be confirmed RED again, proving the test genuinely guards that behavior. Passing existing tests only confirms you didn't break those — not that your fix works."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "rejects green-only evidence; requires the RED observation and a mutation that reverses the fix",
-        "answer": "No. A regression test that never failed before the fix provides no proof it tests anything. The pattern is RED before GREEN: run the failing check first and record the failure, then apply the fix and verify it turns green. Without that baseline, the test could be passing for unrelated reasons or not actually guard the behavior you intended. Mutation proof (reverting the fix and seeing the test fail) is also absent here. This requires additional work."
+        "answer": "No. The /cc-tuner:run discipline requires two things missing here: 1. **RED before GREEN**: The test must be observed failing *before* the fix. Without it, the test may be broken or unrelated to the problem. 2. **Mutation proof**: The fix must be reverted/mutated and the test re-run to confirm it goes RED. Without this, the test doesn't prove the fix guards anything. Passing tests alone don't prove they test the fix."
       }
     ],
     "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
@@ -96,7 +96,7 @@
     "verdict": "green"
   },
   "measured_targets": {
-    "plugins/cc-tuner/skills/run/SKILL.md": "ae18b65846e00690b87852ccd0f0b4bc5369949ca72eb847738e5e69dbe6e7f7",
+    "plugins/cc-tuner/skills/run/SKILL.md": "ad422c7a0d48e33bb71f668da040625b2a6a1f0e08dd7e1220e37816c903510b",
     "plugins/cc-tuner/skills/spec/SKILL.md": "45013f3cf441ac9ad623decfd009d9f1da57135dd4f10b82ca14160808eb4657"
   },
   "decision_question": "Does it reject green-only evidence, requiring both the RED observation before the fix and a mutation that reverses it?"

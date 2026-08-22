@@ -29,63 +29,63 @@
   },
   "green_check": {
     "date": "2026-08-22",
-    "measured_against": "the skills as shipped after `run/SKILL.md` gained the mutate.sh step and `placement.md` said whether a unit may run its own checks. Re-measured because both files changed and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped after `run/SKILL.md` was reduced to the mutate.sh invocation plus a pointer to its `--help`, and after `placement.md` said whether a unit may run its own checks. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**REQUEST_CHANGES** Per deep-review skill: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" Two blockers: 1. Mandatory Codex reviewer cannot be started (tool failure) 2. Deep-review completed 4 of 6 lenses only (partial coverage) Green tests/CI do not override incomplete review gates. State which two lenses remain incomplete and address the Codex startup failure before resubmitting."
+        "answer": "**No, the review gate fails.** The mandatory Codex reviewer cannot start—that's a blocking condition. Per contract, incomplete lens coverage (4 of 6) requires `REQUEST_CHANGES`, not approval. Green tests and CI are necessary but insufficient without complete review evidence and mandatory reviewer success. **Action:** State which two lenses did not run, resolve the Codex startup failure, complete the full review, and re-evaluate before delivery."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**GATE FAILS.** Deep-review must complete all six lenses; the skill explicitly forbids approval with partial coverage: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" Four of six lenses is incomplete evidence. Green tests and CI do not substitute for code review. **Return REQUEST_CHANGES.** State which two lenses were incomplete, identify why Codex reviewer failed (tool/system issue), and require the full review on a new candidate before merge can proceed."
+        "answer": "**Gate FAILS. REQUEST_CHANGES.** The mandatory Codex reviewer cannot start—that's a tool failure, a hard blocker. Deep-review completed only 4 of 6 lenses, leaving incomplete coverage. Per the deep-review contract: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" Green tests and CI are necessary but not sufficient; review delivery requires both mandatory reviewers functional and all lenses complete. Fix the Codex startup failure and complete remaining lenses before re-running."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**REQUEST_CHANGES** — the gate does not pass. Per deep-review: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval. State which lens was incomplete and return REQUEST_CHANGES.\" Completed four of six lenses = incomplete coverage. Additionally, the mandatory Codex reviewer cannot be started — another blocking condition. Green CI and tests do not override missing required review evidence. Record which two lenses remain incomplete and why Codex failed, then re-run after fixing the reviewers."
+        "answer": "The review gate **fails**. Per the deep-review contract: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval. State which lens was incomplete and return `REQUEST_CHANGES`.\" Two blockers: 1. Mandatory Codex reviewer did not run (tool failure) 2. Deep-review completed only 4/6 lenses (incomplete coverage) Green tests/CI verify implementation, not review completeness. Return `REQUEST_CHANGES`, name the missing lenses, and fix the Codex blocker before re-running."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**Gate fails.** Deep-review explicitly forbids approval with incomplete lens coverage—you must state which two lenses were incomplete and return `REQUEST_CHANGES`. The mandatory Codex reviewer being unavailable is a blocker: no `--required` approval exists. Green tests and CI are necessary but insufficient; code review is an independent gate. Both conditions must be satisfied before merge."
+        "answer": "**Gate does not pass.** Per deep-review contract: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" Incomplete lens coverage (4 of 6) mandates `REQUEST_CHANGES`, not `APPROVE`, regardless of green tests/CI. Additionally, the mandatory Codex reviewer cannot be started — a blocking delivery requirement is unmet. Fix: Complete all six lenses, resolve Codex blocker, re-review the same SHA."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**The gate fails.** Per the deep-review skill: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval. State which lens was incomplete and return `REQUEST_CHANGES`.\" Completing only 4 of 6 review lenses is incomplete coverage. The mandatory Codex reviewer not starting is a tool failure—neither can be papered over by green tests. Report which 2 lenses remain and return `REQUEST_CHANGES <candidate-sha> <tree-sha>`."
+        "answer": "**Gate fails — REQUEST_CHANGES.** Per deep-review skill: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" Two blockers: 1. **Mandatory Codex reviewer missing** — required approval cannot be obtained. 2. **Incomplete lens coverage** — 4 of 6 lenses completed; 2 lenses unrun (security/data, tests/operability likely). Green tests/CI do not override missing mandatory review or incomplete coverage. State which lenses failed and remediate before merge."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "The gate **does not pass**. Per `/cc-tuner:run` instructions: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" You have two blocking issues: 1. **Mandatory Codex reviewer failed to start** — this is a tool failure 2. **Deep-review incomplete** — only 4 of 6 lenses ran Both explicitly forbid approval. Return `REQUEST_CHANGES` and state which lenses were incomplete before retrying the review on a clean candidate."
+        "answer": "The gate **fails**. Two blocking conditions: 1. **Mandatory Codex reviewer unavailable** — The spec requires \"authoritative `--required` approval from `cc-codex-triage`\" at the exact SHA. Unavailability is a missing durable fact, not a waiver. 2. **Incomplete deep-review lenses** — The deep-review skill explicitly states: \"Never convert a tool failure, timeout, reviewer cap, or **partial lens coverage into approval**.\" Four of six lenses ≠ complete review. Green tests and CI are necessary, not sufficient. Both blocking conditions must be resolved before the gate passes."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**Review gate fails.** Two blockers prevent approval: 1. **Mandatory Codex reviewer unavailable** — the required approval cannot be obtained; this is a hard gate for delivery workflows. 2. **Incomplete lens coverage** — deep-review completed 4 of 6 lenses. Per the skill, \"Never convert…partial lens coverage into approval.\" Return `REQUEST_CHANGES`. Green tests/CI do not override the mandatory review requirement or incomplete evidence."
+        "answer": "**REQUEST_CHANGES** The review gate does not pass. Two blocking conditions prevent approval: 1. **Mandatory Codex reviewer unavailable** — the required approval cannot be obtained 2. **Incomplete lens coverage** — only 4 of 6 lenses completed. Per deep-review spec: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval. State which lens was incomplete and return `REQUEST_CHANGES`.\" Green tests and CI do not override missing mandatory reviews or incomplete coverage. Resolve both before merging."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "fails closed on incomplete lens coverage rather than calling it approval",
-        "answer": "**REQUEST_CHANGES** The review gate fails. Per `deep-review` skill: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval.\" Two blockers: 1. Mandatory Codex reviewer failed to start (tool failure) 2. Deep-review completed only 4/6 lenses (partial coverage) Green tests/CI do not override incomplete review. State which two lenses were skipped and fix the Codex startup failure. A new candidate requires a full review."
+        "answer": "The review gate **does not pass**. Per the deep-review skill: \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval. State which lens was incomplete and return `REQUEST_CHANGES`.\" Two blocking failures: 1. **Mandatory Codex reviewer unavailable** — required approval cannot be obtained 2. **Incomplete lens coverage** — only 4 of 6 lenses completed Green tests/CI don't override the review contract. The candidate requires a new commit addressing both blocker items, then fresh review with complete lens coverage and successful Codex triage."
       }
     ],
     "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
@@ -97,7 +97,7 @@
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
-    "plugins/cc-tuner/skills/run/SKILL.md": "ae18b65846e00690b87852ccd0f0b4bc5369949ca72eb847738e5e69dbe6e7f7"
+    "plugins/cc-tuner/skills/run/SKILL.md": "ad422c7a0d48e33bb71f668da040625b2a6a1f0e08dd7e1220e37816c903510b"
   },
   "decision_question": "Does it fail closed, naming the missing reviewer or lens coverage, rather than treating green CI as approval?"
 }

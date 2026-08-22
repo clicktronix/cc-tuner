@@ -567,7 +567,7 @@ less necessary — the branch is not done without it.
       same. Then `/compact` and confirm **no duplication**.
 - [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [ ] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
+- [x] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
       Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
       text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
       demonstrate that a model loads a reference it was never given. Each scenario now records what it
@@ -577,8 +577,12 @@ less necessary — the branch is not done without it.
 - [x] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
-      > **Step 5 reopened 2026-08-21, closed 2026-08-22.** The way out was the only one this note
-      > allowed: the skill text earned the threshold. `placement.md` never said what a fanned-out unit
+      > **Step 5 reopened 2026-08-21, closed 2026-08-22 after four measurements of one probe.** It was
+      > called closed once too early: the classification that produced 7 of 8 had softened the bar after
+      > seeing the answer, and correcting it gave 6 of 8, with both misses being refusals to decide
+      > rather than splits. Naming a unit's own checks as writing removed the ambiguity that invited
+      > those refusals, and the probe now runs 8 of 8. The way out taken was the only one this note
+      > allows: `placement.md` never said what a fanned-out unit
       > hands back, and every failing answer took that exit; saying it — commits, never a pull request,
       > with one owner assembling a single candidate — took the probe from 4 of 8 to **7 of 8**. The
       > production surface moved, so the eval ran again against it (run 3d). What follows is the state

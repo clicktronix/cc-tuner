@@ -29,63 +29,63 @@
   },
   "green_check": {
     "date": "2026-08-22",
-    "measured_against": "the skills as shipped after `run/SKILL.md` gained the mutate.sh step and `placement.md` said whether a unit may run its own checks. Re-measured because both files changed and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped after `run/SKILL.md` was reduced to the mutate.sh invocation plus a pointer to its `--help`, and after `placement.md` said whether a unit may run its own checks. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. **A new commit invalidates prior approval.** The approval was bound to commit A's specific SHA. Commit B is a different commit with a different SHA — it is a new candidate that must be reviewed independently, even though it fixes a finding from A's review. An approval carries forward only if the SHA doesn't change. Since B changed the code, the old approval no longer applies."
+        "answer": "No. The old approval for commit A becomes invalid once commit B changes the code. Each new commit creates a new candidate SHA that requires fresh review. The approval was bound to A's specific tree state—commit B altered that state, so the evidence no longer covers the current code. Per delivery workflow best practices: fix the issue, commit B, re-run tests, obtain a new review on B's SHA, then merge. This prevents the scenario where code changes after approval but ships with the old review intact."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. A code fix creates a new commit with a new SHA, invalidating the prior approval. The approval of A stands only at A's SHA; once B is committed, B is the candidate and requires its own review. A finding that requires code changes necessitates a new commit and fresh review—it's the mechanism ensuring fixes are actually reviewed before merge, not just tested. Re-running the review on B's SHA is required."
+        "answer": "No. Per the deep-review contract: **\"A new commit invalidates everything downstream of it.\"** When commit B is created, it has a new SHA. The approval for commit A covers only that exact SHA; it does not extend to B, even if B fixes an issue A's review found. Commit B requires its own full review cycle and approval before delivery."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The approval for commit A is invalidated by commit B's new SHA. Reviews are bound to exact commits, not code concepts. When a review finding triggers a fix, that creates a new candidate commit requiring fresh review—testing alone doesn't restore the approval. The old review result is stale evidence; B must be reviewed independently. This prevents review findings from being escaped by committing fixes without verification that the fixes actually address the original concern."
+        "answer": "No. A new commit invalidates the prior approval. An approval is bound to a specific commit SHA; commit B is a different SHA, so the approval of A does not cover B. Even though the fix addresses a reviewer finding and tests pass, B requires a fresh review at its exact SHA before it can proceed. The old approval cannot be reused for a different commit. This prevents shipping unreviewed code and maintains the integrity of the review process."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. Each approval binds to a specific commit SHA. Commit B has a different SHA than A, so the approval for A does not apply to B. Even though tests pass, the code changed and must be reviewed anew. Passing tests prove behavior, not that the code meets standards, architecture, or security requirements. B needs an independent review and approval before it can merge."
+        "answer": "No. An approval covers a specific commit SHA. When commit B introduces new code (even if fixing a finding from A), it's a different commit requiring a new review. The approval for A doesn't transfer to B—the code changed, so the evidence did too. B's tests passing doesn't substitute for reviewer validation. You need to review B before merging."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The old approval is stale. A new commit invalidates all downstream evidence—testing, acceptance, and review. Commit B has a different SHA, so the approval for commit A does not carry forward. You must obtain a fresh review and approval for commit B before merging. The principle: approval binds to an exact SHA and tree. Any code change requires a new candidate, fresh verification, and a new review round."
+        "answer": "No. The approval for commit A does not transfer to commit B. Code review approval is tied to a specific commit SHA and its tree. Any code changes after approval require a new review. The finding that prompted the fix makes B a different candidate from A—changing the code changes the SHA and invalidates the prior approval. Each commit must be individually reviewed and approved before merging."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The approval for commit A does not transfer to commit B. Each new commit is a distinct candidate requiring independent review. Even if B fixes only A's finding, it's a different SHA and different code state. The old approval is stale evidence — it bound to A's tree, not B's. Workflow: Review B independently, publish a new verdict for B's SHA, then proceed to merge. This prevents findings introduced *by* the fix from going unseen."
+        "answer": "No. An approval is bound to a specific commit SHA. Commit B is a different commit, so the approval for A doesn't apply to it—even if B only fixes something A's review found. The fix requires a new review of B's exact SHA before it's approvable. This prevents the loop where reviewers approve, findings surface, fixes are made, but the code ships unreviewed. The rule ensures every merged commit has been reviewed."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. A new commit invalidates prior approval. Commit B is a new candidate SHA that requires a fresh review cycle. The approval bound to commit A only covers that exact commit. When B introduces the fix, it changes the candidate — even if the fix is minimal. A reviewer must examine B at that new SHA before it can proceed. Tests passing is necessary but not sufficient; approval must be obtained for the actual commit that will merge."
+        "answer": "No. The approval for commit A is not sufficient for commit B. **Each commit is independently reviewable.** An approval binds to a specific SHA—once the code changes, the candidate is a different commit with a different hash. The old approval covered commit A's state; commit B, though addressing the finding, requires its own review. Reusing an old approval would mask potential regressions or unintended side effects introduced by the fix itself. Review B before merge."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. An approval binds to a specific commit SHA. Once code changes, that approval is stale evidence. Commit B is a new SHA requiring its own review. The finding that triggered the fix established a defect in A—reviewing only A's code cannot validate B's correction. Tests passing on B proves the fix compiles and passes tests, not that it correctly addresses the finding or introduces no new issues. **Verdict:** Commit B must be reviewed before merging."
+        "answer": "No. The old approval for commit A does not cover commit B. Per the deep-review and cc-tuner specs: **\"Any fix requires a new candidate commit, fresh verification, and a full new review. An approval for an older SHA or tree is stale evidence and must not be reused.\"** A new commit invalidates prior approvals—the SHA changed, so everything downstream (testing, review, CI) must be re-earned. Commit B needs a full review before it can be approved and merged, even though it fixes a finding from A's review."
       }
     ],
     "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
@@ -97,7 +97,7 @@
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
-    "plugins/cc-tuner/skills/run/SKILL.md": "ae18b65846e00690b87852ccd0f0b4bc5369949ca72eb847738e5e69dbe6e7f7"
+    "plugins/cc-tuner/skills/run/SKILL.md": "ad422c7a0d48e33bb71f668da040625b2a6a1f0e08dd7e1220e37816c903510b"
   },
   "decision_question": "Does the approval of A become invalid for B, requiring the complete review again against B?"
 }

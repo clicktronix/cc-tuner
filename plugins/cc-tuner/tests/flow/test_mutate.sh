@@ -57,9 +57,9 @@ check "survived-restores-the-file"    "$BEFORE"  "$(shasum -a 256 "$W/calc.py" |
 # --- the defect this script exists for: a patch that changes nothing ------------------------------
 # A live run recorded SURVIVED for a mutant that a quoting bug never applied. Reporting a result for
 # code that was never mutated is worse than reporting nothing, so this is neither KILLED nor SURVIVED.
-OUT="$(run "$W/calc.py" "bash $W/check.sh" "grep -v 'this string is not in the file' \$MUTATE_FILE > /dev/null")"
-check "no-change-is-not-a-result" "NO-CHANGE" "$OUT"
-check "no-change-exits-2"         "rc=2"      "$OUT"
+OUT="$(run "$W/calc.py" "bash $W/check.sh" "cat \$MUTATE_FILE > /dev/null")"
+check "no-change-is-not-a-result" "byte-identical" "$OUT"
+check "no-change-exits-2"         "rc=2"           "$OUT"
 check "no-change-restores"        "$BEFORE"   "$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
 
 # --- a mutant that does not parse proves only that broken files fail ------------------------------
@@ -72,7 +72,7 @@ check "syntax-break-restores"      "$BEFORE" "$(shasum -a 256 "$W/calc.py" | cut
 OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
 check "ledger-names-the-file"      "calc.py"  "$OUT"
 check "ledger-names-the-mutation"  "n < -1"   "$OUT"
-check "ledger-records-the-syntax-check" "py_compile clean" "$OUT"
+check "ledger-records-the-baseline"     "green before, red after" "$OUT"
 
 # --- the backup survives a test command that sweeps temp space ------------------------------------
 # The first attempt to mutate this script with its own suite as the test command ended in RESTORE
@@ -90,6 +90,39 @@ OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
 check "leftover-backup-refused" "already exists" "$OUT"
 check "leftover-backup-rc2"     "rc=2"           "$OUT"
 rm -f "$W/calc.py.premutation"
+
+# --- a suite that is already red grades every mutant as killed ------------------------------------
+# Reproduced against the first version of this script: test-command `false`, and it reported KILLED.
+OUT="$(run "$W/calc.py" "false" "$MUTATE_GUARD")"
+check "already-red-is-not-a-kill" "BASELINE" "$OUT"
+check "already-red-rc2"           "rc=2"     "$OUT"
+check "already-red-restores"      "$BEFORE"  "$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
+
+# --- a mutation command that fails is not a mutant ------------------------------------------------
+# Also reproduced: a command that edits the file and then exits non-zero was graded KILLED.
+OUT="$(run "$W/calc.py" "bash $W/check.sh" "printf 'x = 1\n' >> \$MUTATE_FILE; exit 7")"
+check "failed-mutation-is-not-a-kill" "MUTATION" "$OUT"
+check "failed-mutation-names-the-code" "exited 7" "$OUT"
+check "failed-mutation-restores"      "$BEFORE"  "$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
+
+# --- no syntax check available: refuse, do not grade ----------------------------------------------
+cp "$W/calc.py" "$W/thing.unknownext"
+OUT="$(run "$W/thing.unknownext" "true" "printf 'x\n' >> \$MUTATE_FILE")"
+check "unknown-extension-refused" "no syntax check for this file" "$OUT"
+check "unknown-extension-rc2"     "rc=2"                          "$OUT"
+absent "unknown-extension-leaves-no-backup" "premutation" "$(ls "$W")"
+
+# --- ...unless one is supplied -------------------------------------------------------------------
+OUT="$(run "$W/thing.unknownext" "bash $W/check.sh" "sed 's/n < 0/n < -1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE" "python3 -m py_compile \$MUTATE_FILE")"
+check "supplied-syntax-command-is-used" "SURVIVED" "$OUT"
+rm -f "$W/thing.unknownext"
+
+# --- the file comes back with its mode, not just its bytes ----------------------------------------
+chmod 755 "$W/calc.py"
+OUT="$(run "$W/calc.py" "bash $W/check.sh" "chmod 600 \$MUTATE_FILE && sed 's/n < 0/n < -1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE && chmod 600 \$MUTATE_FILE")"
+check "mode-restored" "755" "$(stat -f '%Lp' "$W/calc.py" 2>/dev/null || stat -c '%a' "$W/calc.py")"
+chmod 644 "$W/calc.py"
+BEFORE="$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
 
 # --- the running script is not a legal target ------------------------------------------------------
 OUT="$(run "$MUTATE" "true" "true")"

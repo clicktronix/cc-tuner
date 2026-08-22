@@ -8,14 +8,18 @@ that script" is an argument for weakening Task 8's rule rather than meeting it. 
 running again: **run 3c**, frozen at `058dfd5`, one session from `/spec` through a merge performed by
 `merge.sh`, including the fail-closed stop when the review gate hit its cap, which `--auto` refused to
 route around. Second, step 5 of Task 8 reopened: re-measured at n=8, `implementation-only-parallelism`
-reproduced **4 of 8** (finding 16), and this plan's acceptance requires every step to pass. That was
-met the only way the plan allows — by the skill text earning the threshold. `placement.md` now says
-what a fanned-out unit hands back, the probe runs **7 of 8**, and because that moved the production
-surface the eval ran once more against it: **run 3d**, frozen at `f4410f2`, `/spec → /plan --auto →
-/run --auto` to a merge through `merge.sh` with the head pinned.
+reproduced **4 of 8** (finding 16), and this plan's acceptance requires every step to pass. **Step 5 is now
+settled and the coverage is not.** The skill fix did what it was for — `placement.md` now says what a
+fanned-out unit hands back and whether a unit may run its own checks — and the probe reached **8 of 8**
+after four measurements, one of which corrected a classification of mine. But run 3d, frozen at
+`f4410f2`, observed four of
+the eight steps: `/spec → /plan --auto → /run --auto` to a merge through `merge.sh`. The attended
+flow, the isolated `blockedBy` refusal, `merge.sh --check-only`, recovery through a fresh session with
+`/clear` and `/compact`, and the live denial were last observed on earlier trees.
 
-So the lifecycle is observed end to end, against the tree that ships, with every step of Task 8
-recorded. `tests/run.sh` now refuses an accepted status here while any probe is unstable or while the
+So the lifecycle has been observed end to end, and every probe is at or above its threshold — but not
+all of it against one shipped tree. That is the single thing this status is waiting on, and the eval
+log carries the step-by-step table of what was last seen where. `tests/run.sh` now refuses an accepted status here while any probe is unstable or while the
 production surface has moved past `EVALUATED_SHA`, so this line cannot drift back on its own. One
 limit bounds all of it, stated in full in `plugins/cc-tuner/tests/eval/README.md`: the sessions are
 driven headless, so what is observed is what the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer

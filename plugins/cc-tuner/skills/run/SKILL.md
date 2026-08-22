@@ -80,16 +80,16 @@ revision of this skill said only "work it, complete it", which is not a discipli
 
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" <file> "<test command>" "<command that edits \$MUTATE_FILE>"
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" --help   # the verdicts, the exit codes, the refusals
   ```
 
-  It backs the file up beside itself, refuses a patch that left the file byte-identical, refuses a
-  mutant that no longer parses, runs the test, restores and verifies the restore, and prints one
-  ledger line: `KILLED` (0), `SURVIVED` (1), or `NO-CHANGE`/`SYNTAX` (2, nothing was proved).
+  It grades the mutation instead of taking your account of it, and it refuses rather than guessing —
+  `--help` is the contract, and it cannot drift from the code the way a paragraph here can.
 
-  **Paste its lines into the run log; do not retype them.** Every part of that sentence was earned:
-  live runs reported a mutant SURVIVED that a quoting bug never applied, and one "corrected" a right
-  number into a wrong one because a hand-rolled harness leaked state between mutants. A mutation
-  result you typed yourself is a claim about a claim.
+  **Paste its lines into the run log; do not retype them.** Live runs reported a mutant SURVIVED that
+  a quoting bug never applied, and one "corrected" a right number into a wrong one because a
+  hand-rolled harness leaked state between mutants. A mutation result you typed yourself is a claim
+  about a claim.
 - **Run what the spec's test plan names** — its targeted checks during the slice, its full regression
   once before the candidate.
 - **A human-only acceptance criterion (`[eyes]`) is not self-servable.** Under `--auto`, stop and ask.

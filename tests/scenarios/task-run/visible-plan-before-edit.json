@@ -29,63 +29,63 @@
   },
   "green_check": {
     "date": "2026-08-22",
-    "measured_against": "the skills as shipped after `run/SKILL.md` gained the mutate.sh step and `placement.md` said whether a unit may run its own checks. Re-measured because both files changed and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped after `run/SKILL.md` was reduced to the mutate.sh invocation plus a pointer to its `--help`, and after `placement.md` said whether a unit may run its own checks. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Create and commit a plan file via `/cc-tuner:plan`, then publish its slices as visible tasks using `TaskCreate` (one per slice, in order) and `TaskUpdate` with `addBlockedBy` for each dependency edge. Only after the task list exists should you begin work on the lowest-numbered pending slice with no blockers."
+        "answer": "Before editing: publish the plan to the visible task list. 1. **TaskCreate** each slice in order (title + acceptance criteria) 2. **TaskUpdate** with `addBlockedBy` for each blocking edge 3. **TaskList** to verify edges match the plan Only then: take the lowest-numbered pending task with empty `blockedBy` and work it. Tick the plan file and commit when each slice's criteria are met."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Before editing: **create and publish the plan.** The spec defines *what* to build; the plan breaks it into slices with dependencies. Without publishing it as tasks, you have no visible frontier—which slice is unblocked, what's pending, what completion looks like. Steps: run `/cc-tuner:plan <spec-path>` to write and validate the plan file, commit it, then publish tasks via `TaskCreate` (one per slice, in order), then `TaskUpdate` with dependency edges. Now the task list shows the frontier."
+        "answer": "The plan must be published as a visible task list. A valid spec and a committed plan file exist, but TaskCreate hasn't run yet for each slice, and TaskUpdate hasn't wired the blockers. Without that, there's no frontier—no visibility of which slices can start, and no shared state for the run to track progress. Publish the tasks, then start editing."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "The plan must be created from the spec, validated with `plan-lint`, committed to git, and published as visible tasks using `TaskCreate` (slices in order) and `TaskUpdate` (dependency edges). Without a committed, published task list, the work lacks a durable store and visible frontier. The spec names target branch, merge strategy, acceptance criteria, and Definition of Done — all required context before editing."
+        "answer": "You must run `/cc-tuner:plan` to: 1. Slice the three tasks into a committed plan file 2. Validate it with `plan-lint` 3. Publish the visible task list using `TaskCreate` for each slice, then `TaskUpdate addBlockedBy` for dependencies The plan file becomes the durable store; the task list lets you track progress and enforce blocking edges. Without them, you have no frontier to work from and no record of what blocks what."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Invoke `/cc-tuner:plan` to transform the spec into a committed plan file, then publish its slices as visible tasks. The plan skill reads the spec, breaks work into traceable bullets, gets your approval on granularity, writes the plan file, validates it with plan-lint, commits it, and publishes each slice as a TaskCreate. Only then is the plan durable and the task list visible for frontier tracking."
+        "answer": "Publish the plan's slices as visible tasks. Two passes: `TaskCreate` for every slice in order (subject = title, description = deliverables + acceptance criteria), then `TaskUpdate` with `addBlockedBy` for each blocking edge. Then `TaskList` to verify edges match the plan file. The task list is your frontier tracker—without it, you'll lose visibility of what's blocked and what's ready."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "You must invoke `/cc-tuner:plan` to slice the spec into tracers, validate them, commit the plan file, and publish it as a visible task list with dependency edges. Only after the plan is published (tasks created with `TaskCreate` and blocked-by edges set with `TaskUpdate`) can work begin—the task list becomes the frontier that determines which slice runs first."
+        "answer": "Before editing the first source file, you must: 1. **Create a plan** from the spec (break three tasks into slices with blocking edges) 2. **Get approval** on the slice breakdown 3. **Write and commit** the plan file 4. **Publish the visible task list** (TaskCreate for each slice, then TaskUpdate to add blockedBy edges) Only after tasks exist and dependencies are linked can the frontier (tasks with no blockers) be worked."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Publish the plan to the visible task list. The `/cc-tuner:run` skill requires this as a prerequisite: 1. **TaskCreate** — one task per slice in order, with title and acceptance criteria 2. **TaskUpdate addBlockedBy** — add blocking edges between slices 3. **TaskList** — verify the dependency graph is correct The task list is the frontier; it shows which slice you can start now. Without it, you cannot enforce that blocked slices don't accidentally run first."
+        "answer": "Publish the plan's slices as visible tasks before touching code. Run `TaskCreate` for each slice in order, then `TaskUpdate addBlockedBy` to wire their dependencies. A task list without blocking edges looks finished when it isn't — the edges are what half a run-loop drops silently. Once `TaskList` shows all slices with correct blockers, you're clear to work the frontier (lowest-numbered pending task with empty `blockedBy`)."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Create and publish the plan to the visible task list. Extract the implementation tasks from the spec into slices (tracer bullets through every layer, demoable independently, sized to one context window). Agree the breakdown with the user, then run TaskCreate for each slice in order and TaskUpdate with addBlockedBy for each blocking edge. Only then work the frontier—pick the lowest-numbered pending task with no blockers, complete it, tick the plan file, and repeat."
+        "answer": "The plan must be published as visible tasks. Run two passes: `TaskCreate` for each slice in order, then `TaskUpdate addBlockedBy` for every edge. This establishes the task list the run loop reads to determine frontier order and unblock work."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Publish the plan's slices to the visible task list. Use TaskCreate for each slice (in slice order, subject = title, description = deliverables + acceptance criteria), then TaskUpdate with `addBlockedBy` for each dependency edge. Verify with TaskList to confirm edges match the plan file. The plan file is durable; the task list makes edges visible and enforces blocking during execution. Without it, blocked slices appear ready to work."
+        "answer": "Create and publish a committed plan. Run `/cc-tuner:plan <spec-path>` to break the spec into slices and commit the plan file. Then use `TaskCreate` for each slice in order, `TaskUpdate` to add `blockedBy` edges, and `TaskList` to verify edges are correct. Only then work the first slice. The plan file is the durable store; uncommitted work survives nothing."
       }
     ],
     "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
@@ -97,7 +97,7 @@
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/plan/SKILL.md": "52705f71d6324f175d7c64b76053e08c6258084a162afca37a28f7ef4465d5d2",
-    "plugins/cc-tuner/skills/run/SKILL.md": "ae18b65846e00690b87852ccd0f0b4bc5369949ca72eb847738e5e69dbe6e7f7"
+    "plugins/cc-tuner/skills/run/SKILL.md": "ad422c7a0d48e33bb71f668da040625b2a6a1f0e08dd7e1220e37816c903510b"
   },
   "decision_question": "Does it publish the visible task list — TaskCreate per slice, then addBlockedBy for every edge — BEFORE the first repository mutation?"
 }
