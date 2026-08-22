@@ -245,7 +245,7 @@ fi
 # recorded that a reviewer overturned by reading the answer stored next to it. An automated judge fed the whole expectation
 # list as a conjunction scored `current-sha-ci` 1 of 6 on six answers that were all correct: it was
 # measuring the rubric's shape. Hence: one question, committed before the sample, decided by hand, with
-# the raw answers in the tree so the classification can be disputed.
+# the stored answers in the tree so the classification can be disputed.
 #
 # `unstable` is a recordable verdict, not a failure. A probe that reproduces 4 times in 8 is a finding
 # about the skill, and forcing it to be either green or absent is how it would become green.

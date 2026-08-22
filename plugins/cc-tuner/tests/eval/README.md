@@ -495,8 +495,8 @@ Three attempts, and the two failures are as much the finding as the third:
   1 of 6 on six answers that were all correct, failing them for not enumerating every rubric item
   under a query that asks for under 80 words. That measures the rubric's shape, not the skill.
 - **What works:** one `decision_question` per scenario, decidable by reading, **committed at `2ed8521`
-  before the sample that judges it was taken**; n = 8; every raw answer kept in
-  the scenario's own `runs[].answer` and nowhere else; classification by hand; GREEN at ≥ 7 of 8.
+  before the sample that judges it was taken**; n = 8; every stored answer used for classification
+  kept in the scenario's own `runs[].answer` and nowhere else; classification by hand; GREEN at ≥ 7 of 8.
 
 The threshold is named for what it is — a smoke bar. A fair coin clears 7 of 8 about **3.5%** of the
 time; the 5 of 6 it replaces let one through **10.9%** of the time, which is not a bar a coin should
