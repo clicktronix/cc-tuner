@@ -567,7 +567,7 @@ less necessary — the branch is not done without it.
       same. Then `/compact` and confirm **no duplication**.
 - [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [ ] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
+- [x] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
       Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
       text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
       demonstrate that a model loads a reference it was never given. Each scenario now records what it
@@ -577,7 +577,14 @@ less necessary — the branch is not done without it.
 - [x] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
-      > **Step 5 reopened 2026-08-21.** Re-measuring is done — all nine at n=8, against a
+      > **Step 5 reopened 2026-08-21, closed 2026-08-22.** The way out was the only one this note
+      > allowed: the skill text earned the threshold. `placement.md` never said what a fanned-out unit
+      > hands back, and every failing answer took that exit; saying it — commits, never a pull request,
+      > with one owner assembling a single candidate — took the probe from 4 of 8 to **7 of 8**. The
+      > production surface moved, so the eval ran again against it (run 3d). What follows is the state
+      > that reopened the step, kept because the shape of the fix is only legible against it.
+      >
+      > **Reopened 2026-08-21.** Re-measuring is done — all nine at n=8, against a
       > `decision_question` committed before the sample — and the result is not clean:
       > `implementation-only-parallelism` reproduces **4 of 8**. By this task's own rule that is a
       > finding about the rewrite rather than a scenario to delete, so the step stays open until the

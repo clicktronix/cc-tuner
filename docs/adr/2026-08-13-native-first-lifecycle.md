@@ -1,17 +1,21 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. It reached accepted on 2026-08-21 and came back twice the same day, and both
-reasons are worth keeping. First, the shipped tree had moved past the evaluated one — `plan-path.sh`,
+**Status:** accepted, 2026-08-22. It reached accepted on 2026-08-21 and came back twice the same day,
+and both reasons are worth keeping. First, the shipped tree had moved past the evaluated one — `plan-path.sh`,
 the very path that broke during run 3b's `/plan` and was compensated by hand — and "a flow test covers
 that script" is an argument for weakening Task 8's rule rather than meeting it. That was met by
 running again: **run 3c**, frozen at `058dfd5`, one session from `/spec` through a merge performed by
 `merge.sh`, including the fail-closed stop when the review gate hit its cap, which `--auto` refused to
 route around. Second, step 5 of Task 8 reopened: re-measured at n=8, `implementation-only-parallelism`
-reproduces **4 of 8** (finding 16), and this plan's acceptance requires every step to pass.
+reproduced **4 of 8** (finding 16), and this plan's acceptance requires every step to pass. That was
+met the only way the plan allows — by the skill text earning the threshold. `placement.md` now says
+what a fanned-out unit hands back, the probe runs **7 of 8**, and because that moved the production
+surface the eval ran once more against it: **run 3d**, frozen at `f4410f2`, `/spec → /plan --auto →
+/run --auto` to a merge through `merge.sh` with the head pinned.
 
-So the lifecycle itself is observed end to end; what holds this at proposed is one probe, not the
-flow. `tests/run.sh` now refuses an accepted status here while any probe is unstable or while the
+So the lifecycle is observed end to end, against the tree that ships, with every step of Task 8
+recorded. `tests/run.sh` now refuses an accepted status here while any probe is unstable or while the
 production surface has moved past `EVALUATED_SHA`, so this line cannot drift back on its own. One
 limit bounds all of it, stated in full in `plugins/cc-tuner/tests/eval/README.md`: the sessions are
 driven headless, so what is observed is what the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer

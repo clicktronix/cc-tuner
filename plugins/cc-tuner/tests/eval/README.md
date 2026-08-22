@@ -8,10 +8,13 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: the flow is observed end to end and step 5 is PARTIAL, so Task 8 is not complete.** Runs 3,
-3b and 3c observed `/spec → /plan → native tasks → /run → merge` against `cd9fa2f`, `e39419c` and
-`058dfd5` — the last being the tree as it ships. What is open is step 5: re-measured at n=8, eight
-probes are green and `implementation-only-parallelism` reproduces **4 of 8** (finding 16). Twice the record claimed the
+**Status: every step of Task 8 observed, against the tree that ships.** Runs 3, 3b, 3c and 3d observed
+`/spec → /plan → native tasks → /run → merge` against `cd9fa2f`, `e39419c`, `058dfd5` and `f4410f2`,
+each frozen in a detached worktree before its run. Step 5 reopened on 2026-08-21 when
+`implementation-only-parallelism` re-measured at **4 of 8**, and closed on 2026-08-22 when the skill
+text earned **7 of 8** — after which the eval ran once more, because that fix moved the production
+surface. Two checks now hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any
+probe is unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
 was made true by running again rather than by arguing which tier covered the difference — and then
 made **checkable**: `EVALUATED_SHA` in this directory names the evaluated commit, and `tests/run.sh`
@@ -28,7 +31,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PARTIAL** — all nine re-taken at n=8 against a question committed before the sample: eight green, `implementation-only-parallelism` **4 of 8** | PASS, and it caught a live regression |
+| 5 | **PASS** — all nine at n=8 against a question committed before the sample; the one that came back 4 of 8 was fixed in the skill and re-probed to 7 of 8 | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -224,6 +227,33 @@ should be read as having done that.
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
 
+### Run 3d — 2026-08-22, after the last open finding was fixed
+
+Step 5's unstable probe was closed the only way the plan allows: `placement.md` earned the threshold
+(finding 16). That moved the production surface, so the eval owed one more run against it — the rule
+that had already been broken twice and is now a check.
+
+Frozen at `f4410f2` (`cc-tuner-frozen-4`), sixth repository, one session, `--auto` throughout.
+
+| | |
+|---|---|
+| `/spec` | nine questions in one batch, answered once, spec committed on the task branch |
+| `/plan --auto` | no approval question; two slices; the task store carried `#2 blockedBy=1`, matching the file |
+| `/run --auto` | two required-review rounds, two candidates, **PR #2 merged** at `b662374` — through `bash …/cc-tuner-frozen-4/…/merge.sh 2 squash b6623745…`, head pinned, no `gh pr merge` anywhere |
+| after | 13 criteria ticked, none open, both tasks `completed`, `main` at `01da863` |
+
+Seven references to the frozen plugin root in the transcript and **zero** to the installed 0.10.0.
+
+**What the run flagged about itself, and did not hide.** A blocking review finding demanded a
+`TypeError` for a non-integer budget, which the spec never asked for. It implemented it and left the
+spec describing the pre-agreed contract rather than editing the spec afterwards to match the code —
+the retrofit that a reviewer caught in run 3c, refused here without being asked.
+
+**Both guards were exercised by this change before it landed**, which is the point of having them:
+editing `placement.md` turned `implementation-only-parallelism` red for a stale hash, and the
+`EVALUATED_SHA` check reported the surface had moved while the ADR still said `proposed`. Neither
+needed a human to notice.
+
 ### Run 3c — 2026-08-21, against the tree that actually ships
 
 Run 3b's title was optimistic. It froze `e39419c`, and then `plan-path.sh` changed — finding 17, the
@@ -339,7 +369,7 @@ installed copy disabled locally in each.
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PARTIAL**, after two corrections | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` is **4 of 8 and recorded unstable**, which is what makes this step PARTIAL rather than PASS. |
+| 5 | **PASS**, after two corrections and a fix | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` came back **4 of 8**, which held this step at PARTIAL until the skill was fixed and re-probed at **7 of 8** — see run 3d. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
