@@ -1,17 +1,20 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. Accepted briefly on 2026-08-21 on run 3c's evidence and returned the same day, twice — first because the shipped tree had moved past the evaluated one, then because step 5 of Task 8 reopened: re-measured at n=8, `implementation-only-parallelism` reproduces 5 of 8 (finding 16), and this plan's acceptance requires every step PASS. It was moved to accepted on 2026-08-21 and moved back the same
-day, on review, and the reason is worth keeping: the eval had observed `cd9fa2f` (run 3) and
-`e39419c` (run 3b), and then the tree moved again — `plan-path.sh`, the very path that broke during
-run 3b's `/plan` and was compensated by hand. Task 8 requires the evaluated artifact and the shipped
-one to be the same, and "a flow test covers that script" is an argument for weakening the rule after
-the fact rather than meeting it. The run that was missing has been made: run 3c, frozen at `058dfd5`, one session from
-`/spec` through a merge performed by `merge.sh` — including the fail-closed stop when the review gate
-hit its cap, which `--auto` refused to route around. The lifecycle itself is therefore observed; what
-holds this at proposed is one probe, not the flow. One limit still bounds all of it, and is stated in full in
-`plugins/cc-tuner/tests/eval/README.md`: the sessions are driven headless, so what is observed is what
-the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
+**Status:** proposed. It reached accepted on 2026-08-21 and came back twice the same day, and both
+reasons are worth keeping. First, the shipped tree had moved past the evaluated one — `plan-path.sh`,
+the very path that broke during run 3b's `/plan` and was compensated by hand — and "a flow test covers
+that script" is an argument for weakening Task 8's rule rather than meeting it. That was met by
+running again: **run 3c**, frozen at `058dfd5`, one session from `/spec` through a merge performed by
+`merge.sh`, including the fail-closed stop when the review gate hit its cap, which `--auto` refused to
+route around. Second, step 5 of Task 8 reopened: re-measured at n=8, `implementation-only-parallelism`
+reproduces **4 of 8** (finding 16), and this plan's acceptance requires every step to pass.
+
+So the lifecycle itself is observed end to end; what holds this at proposed is one probe, not the
+flow. `tests/run.sh` now refuses an accepted status here while any probe is unstable or while the
+production surface has moved past `EVALUATED_SHA`, so this line cannot drift back on its own. One
+limit bounds all of it, stated in full in `plugins/cc-tuner/tests/eval/README.md`: the sessions are
+driven headless, so what is observed is what the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
 load-bearing because `/run` invokes the checked merge script directly; the question left the design
 rather than being answered. And the narrowing — **one** SHA-bound verdict
 plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing

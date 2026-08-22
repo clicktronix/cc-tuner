@@ -579,11 +579,13 @@ less necessary — the branch is not done without it.
 
       > **Step 5 reopened 2026-08-21.** Re-measuring is done — all nine at n=8, against a
       > `decision_question` committed before the sample — and the result is not clean:
-      > `implementation-only-parallelism` reproduces **5 of 8**. By this task's own rule that is a
+      > `implementation-only-parallelism` reproduces **4 of 8**. By this task's own rule that is a
       > finding about the rewrite rather than a scenario to delete, so the step stays open until the
-      > **skill text earns >= 7 of 8**, or until an equivalent proof replaces this scenario — replaced,
-      > not written off, which an earlier revision of this note allowed by offering "retired with its
-      > reasons" three lines under a rule that forbids exactly that. Note that the instability predates
+      > **skill text earns >= 7 of 8**. That is the only way out, and the narrowing is deliberate: two
+      > earlier revisions of this note offered an escape — first "retired with its reasons", then
+      > "replaced by an equivalent proof" — three lines under a rule that forbids writing a failing
+      > scenario off, and an undefined equivalence is the same escape wearing a better word. Note that
+      > the instability predates
       > the parallel-review fix: 3 of 6 against the earlier revision, so it is the rule's legibility
       > that is in question, not the correction to it.
 

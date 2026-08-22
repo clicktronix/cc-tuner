@@ -518,8 +518,9 @@ may not, and half the answers still land more than one PR on one plan.
 
 `tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
 names the skill the scenario is about, exactly eight outcomes numbered 1..8 each
-carrying the whole answer it was judged on, counts that match them, a verdict that agrees with the
-threshold, and — since an unstable probe is step 5 left open — **a refusal to let the ADR say
+carrying the stored answer it was judged on — the check establishes that something is
+there to argue with, not that it is the whole reply, and a hashed second copy is the machinery this
+contract just removed — counts that match them, a verdict that agrees with the threshold, and — since an unstable probe is step 5 left open — **a refusal to let the ADR say
 "accepted" while any probe is unstable**.
 
 `unstable` is a **recordable** verdict: a probe reproducing 4 times in 8 is a finding about the skill,

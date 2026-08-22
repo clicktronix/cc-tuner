@@ -188,7 +188,15 @@ ADR="$ROOT/docs/adr/2026-08-13-native-first-lifecycle.md"
 [ -f "$ADR" ] || bad "docs/adr/2026-08-13-native-first-lifecycle.md is missing — its status is what the EVALUATED_SHA check reads"
 if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
   eval_sha="$(grep -v "^#" "$EVAL_SHA_FILE" | tr -d "[:space:]")"
-  adr_status="$(sed -n "s/^\*\*Status:\*\* *\([a-z]*\).*/\1/p" "$ADR" | head -1)"
+  adr_status="$(sed -n "s/^\*\*Status:\*\* *\([A-Za-z]*\).*/\1/p" "$ADR" | head -1 | tr "[:upper:]" "[:lower:]")"
+  # A status this cannot read must fail, not quietly disable the two rules that read it. The earlier
+  # pattern matched `[a-z]*`, so "**Status:** Accepted" -- or a missing line -- produced an empty string
+  # that compared unequal to "accepted" and let both a moved tree and an unstable probe through. A guard
+  # keyed on a value it failed to parse is worse than no guard: it reports ok.
+  case "$adr_status" in
+    accepted|proposed) ;;
+    *) bad "cannot read the ADR's status (got '${adr_status:-<none>}') — it must be a line reading '**Status:** accepted' or '**Status:** proposed', because two checks here are keyed on it" ;;
+  esac
   if ! git -C "$ROOT" cat-file -e "$eval_sha^{commit}" 2>/dev/null; then
     bad "EVALUATED_SHA names $eval_sha, which is not a commit here"
   elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
@@ -233,12 +241,13 @@ fi
 #
 # The bar being written first is the load-bearing part. Judged against an unwritten stricter reading
 # after the fact, `implementation-only-parallelism` scored 2 of 6; against its written question at n=6,
-# 5 of 6; at n=8 with every answer kept, 5 of 8 -- unstable. An automated judge fed the whole expectation
+# 5 of 6; at n=8 with every answer kept, 4 of 8 -- unstable, and one of those four was a pass I had
+# recorded that a reviewer overturned by reading the answer stored next to it. An automated judge fed the whole expectation
 # list as a conjunction scored `current-sha-ci` 1 of 6 on six answers that were all correct: it was
 # measuring the rubric's shape. Hence: one question, committed before the sample, decided by hand, with
 # the raw answers in the tree so the classification can be disputed.
 #
-# `unstable` is a recordable verdict, not a failure. A probe that reproduces 5 times in 8 is a finding
+# `unstable` is a recordable verdict, not a failure. A probe that reproduces 4 times in 8 is a finding
 # about the skill, and forcing it to be either green or absent is how it would become green.
 task_run_evidence=0
 for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
@@ -256,6 +265,10 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.green_check.runs | type == "array" and length == 8) and
     all(.green_check.runs[]; (.pass | type == "boolean")
                              and (.note | type == "string" and length > 0)
+                             # a stored answer, not a stub. It gives the classification something to be
+                             # argued with; it does not establish that the text is the whole reply --
+                             # nothing here can, and a second hashed copy is the machinery this contract
+                             # just removed.
                              and (.answer | type == "string" and length > 40)
                              and (.sample | type == "number")) and
     ([.green_check.runs[].sample] | sort == [1,2,3,4,5,6,7,8]) and
@@ -266,7 +279,7 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
   ' "$file" >/dev/null 2>&1; then
     task_run_evidence=$((task_run_evidence + 1))
   else
-    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, a protocol, a samples_file, exactly 8 outcomes each carrying a verbatim answer and a note, counts that match them, and a verdict that agrees with the >= 7 of 8 threshold"
+    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, a protocol, exactly 8 outcomes numbered 1..8, each carrying the stored answer it was judged on and a note, counts that match them, and a verdict that agrees with the >= 7 of 8 threshold"
   fi
 
   # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever
