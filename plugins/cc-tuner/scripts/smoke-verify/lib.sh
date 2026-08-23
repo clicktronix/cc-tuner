@@ -25,12 +25,11 @@ smoke_cfg_get() { # $1=key
 }
 
 # Path from a porcelain line: strip the 3-char "XY " prefix; renames keep the
-# destination side (the side that exists in the worktree). Git C-quotes paths
-# with specials ("My Comp.tsx") — surrounding quotes are stripped so `patterns`
-# anchors like \.tsx$ still match; inner escape sequences are left as-is
-# (stable across runs, which is all the fingerprint needs — a path whose
-# escapes don't resolve simply contributes no content bytes, identically in
-# both callers).
+# destination side (the side that exists in the worktree). The caller disables
+# core.quotePath so ordinary non-ASCII names remain real filesystem paths. Git
+# can still C-quote control characters; surrounding quotes are stripped so the
+# common path grammar stays readable, but such adversarial names are outside
+# this advisory gate's boundary.
 smoke_line_path() { # $1=porcelain line
   local p="${1:3}"
   case "$p" in *" -> "*) p="${p##* -> }";; esac
@@ -45,7 +44,7 @@ smoke_line_path() { # $1=porcelain line
 # extracted path, not the raw porcelain line, so ^ anchors work (`(^|/)app/`
 # matches a top-level app/ dir). The gate's own state dir never triggers it.
 smoke_matched_paths() { # $1=patterns-ERE
-  git status --porcelain -uall 2>/dev/null \
+  git -c core.quotePath=false status --porcelain -uall 2>/dev/null \
     | grep -vF "$SMOKE_STATE_DIR/" \
     | grep -vF "$SMOKE_CFG" \
     | while IFS= read -r _line; do

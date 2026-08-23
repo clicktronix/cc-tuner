@@ -55,7 +55,7 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   if (!(from in blk) || blk[from] == "" || blk[from] == "none") return 0
   m = split(blk[from], parts, /[ \t]*,[ \t]*/)
   for (j = 1; j <= m; j++) {
-    p = parts[j]; gsub(/[^0-9]/, "", p)
+    p = trim(parts[j])
     if (p == "" || !(p in ex)) continue
     if (reaches(p, target, blk, ex, path, depth + 1)) return 1
   }
@@ -64,6 +64,9 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
 
 /^##[ \t]+Slice[ \t]+[0-9]+/ {
   n = $0; sub(/^##[ \t]+Slice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n)
+  heading_tail = $0; sub(/^##[ \t]+Slice[ \t]+[0-9]+/, "", heading_tail)
+  if (heading_tail !~ /^[ \t]+[-—–:][ \t]*[^ \t]/)
+    err[++e] = "slice " n " heading needs a separator and title (use \"## Slice " n " — Title\")"
   title = $0; sub(/^##[ \t]+Slice[ \t]+[0-9]+[ \t]*/, "", title)
   sub(/^[-—–:][ \t]*/, "", title)
 
@@ -85,6 +88,7 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
 
 /^[ \t]*Blocked[ \t]+by[ \t]*:/ {
   if (cur == "") { err[++e] = "\"Blocked by\" before the first slice heading"; next }
+  if (cur in blocked) { err[++e] = "slice " cur " has more than one \"Blocked by\" line"; next }
   v = $0; sub(/^[ \t]*Blocked[ \t]+by[ \t]*:[ \t]*/, "", v)
   blocked[cur] = trim(v)
   next
@@ -108,6 +112,7 @@ END {
 
   for (i = 1; i <= count; i++) {
     n = order[i]
+    if (titles[n] == "") err[++e] = "slice " n " has no title"
     # A fourth check, beyond the three the plan names. Progress is derived from the checkboxes, so a
     # slice with none can never be done: it stays open forever and the restore hook resurrects it in
     # every session. A plan that cannot finish is worth catching where it is written.
@@ -136,8 +141,8 @@ END {
     }
     m = split(b, parts, /[ \t]*,[ \t]*/)
     for (j = 1; j <= m; j++) {
-      p = parts[j]; gsub(/[^0-9]/, "", p)
-      if (p == "")        { err[++e] = "slice " n " blocked by \"" parts[j] "\", which is not a slice number"; continue }
+      p = trim(parts[j])
+      if (p !~ /^[0-9]+$/) { err[++e] = "slice " n " blocked by \"" parts[j] "\", which is not a slice number"; continue }
       if (!(p in seen))   { err[++e] = "slice " n " is blocked by slice " p ", which does not exist" }
     }
   }
@@ -173,7 +178,7 @@ END {
     b = (n in blocked) ? blocked[n] : ""
     if (b == "none") { b = "-" } else {
       m = split(b, parts, /[ \t]*,[ \t]*/); b = ""
-      for (j = 1; j <= m; j++) { p = parts[j]; gsub(/[^0-9]/, "", p)
+      for (j = 1; j <= m; j++) { p = trim(parts[j])
         if (p != "") b = (b == "") ? p : b "," p }
       if (b == "") b = "-"
     }

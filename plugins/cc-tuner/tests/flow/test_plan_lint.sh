@@ -247,6 +247,57 @@ Delivers: behaviour
 ')"
 check "a-literal-dash-is-not-a-blocker-list" "not a slice number" "$(lint check "$P")"
 
+# Blocker tokens are numbers, not prose from which the parser can salvage a number. The old parser
+# stripped every non-digit, so `slice-1` validated and was silently restored as edge `1`.
+P="$(plan proseblocker '## Slice 1 — A
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — B
+Blocked by: slice-1
+Owned paths: b/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+')"
+check "blocker-token-is-exact" "not a slice number" "$(lint check "$P")"
+
+P="$(plan notitle '## Slice 1
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+check "slice-title-is-required" "has no title" "$(lint check "$P")"
+
+P="$(plan joinedtitle '## Slice 1Title
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+check "slice-heading-needs-a-separator" "heading needs a separator and title" "$(lint check "$P")"
+
+P="$(plan duplicateblocked '## Slice 1 — A
+Blocked by: none
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+check "blocked-by-is-one-record" 'more than one "Blocked by" line' "$(lint check "$P")"
+
 # --- the shipped template passes the shipped linter ----------------------------------------------
 # The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan
 # is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is

@@ -1,33 +1,24 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. Accepted on 2026-08-22 and returned the same day on review. One of the two reasons is settled — the probe classification that had been softened after the fact was corrected, and the probe now runs 8 of 8 against the current tree. The other stands, and has grown: run 3d observed four of the eight steps against `f4410f2`, and the tree has since moved past that too — `mutate.sh`, `run/SKILL.md` and `placement.md`. **Seven observations are owed on whatever tree ships**, and they are Step 7 of Task 8, the single open checkpoint: step 0 on the new freeze, the attended flow, the whole of step 2, step 2's isolated `blockedBy` refusal, step 2b, recovery, and the live denial. It reached accepted on 2026-08-21 and came back twice the same day,
-and both reasons are worth keeping. First, the shipped tree had moved past the evaluated one — `plan-path.sh`,
-the very path that broke during run 3b's `/plan` and was compensated by hand — and "a flow test covers
-that script" is an argument for weakening Task 8's rule rather than meeting it. That was met by
-running again: **run 3c**, frozen at `058dfd5`, one session from `/spec` through a merge performed by
-`merge.sh`, including the fail-closed stop when the review gate hit its cap, which `--auto` refused to
-route around. Second, step 5 of Task 8 reopened: re-measured at n=8, `implementation-only-parallelism`
-reproduced **4 of 8** (finding 16), and this plan's acceptance requires every step to pass. **Step 5 is now
-settled and the coverage is not.** The skill fix did what it was for — `placement.md` now says what a
-fanned-out unit hands back and whether a unit may run its own checks — and the probe reached **8 of 8**
-after four measurements, one of which corrected a classification of mine. But run 3d, frozen at
-`f4410f2`, observed four of
-the eight steps: `/spec → /plan --auto → /run --auto` to a merge through `merge.sh`. The attended
-flow, the isolated `blockedBy` refusal, `merge.sh --check-only`, recovery through a fresh session with
-`/clear` and `/compact`, and the live denial were last observed on earlier trees.
+**Status:** proposed. Step 5 is closed: all nine task-run probes meet the precommitted threshold, and
+the four affected by the latest `deep-review` rule were measured only after that rule was committed,
+at 8 of 8 each. The sole open checkpoint is Task 8 Step 7: repeat seven live observations against one
+frozen tree that can ship — the new freeze and plugin root, attended flow, whole `--auto` flow, the
+isolated `blockedBy` refusal, `merge.sh --check-only`, recovery through a fresh session plus `/clear`
+and `/compact`, and the live denial.
 
-So the lifecycle has been observed end to end, and every probe is at or above its threshold — but not
-all of it against one shipped tree. That is the single thing this status is waiting on, and the eval
-log carries the step-by-step table of what was last seen where. `tests/run.sh` now refuses an accepted status here while any probe is unstable or while the
-production surface has moved past `EVALUATED_SHA`, so this line cannot drift back on its own. One
-limit bounds all of it, stated in full in `plugins/cc-tuner/tests/eval/README.md`: the sessions are
-driven headless, so what is observed is what the skills cause, not what a human at a terminal sees. The two questions below are settled. The skill-hook measurement is no longer
-load-bearing because `/run` invokes the checked merge script directly; the question left the design
-rather than being answered. And the narrowing — **one** SHA-bound verdict
-plus CI rather than three approvals — is not a preference but a consequence of GitHub refusing
-self-approval; reversing it would mean running three separate GitHub identities or Apps, which is the
-opposite of this ADR's purpose. See **What the checked path can actually verify**.
+The lifecycle has been observed end to end, but not all of it against one current tree. Earlier
+`accepted` statuses were withdrawn when review found that the production surface had moved beyond
+the recorded eval. `tests/run.sh` now refuses `accepted` while any probe is unstable or the production
+surface differs from `EVALUATED_SHA`. The eval log is the step-by-step source for what was last seen
+where, and its evidence is bounded: the sessions are driven headless, not by a human at a terminal.
+
+Two design questions are settled. Skill-hook lifetime is no longer load-bearing because `/run`
+invokes the checked merge script directly. The checked path requires **one** SHA-bound verdict plus CI,
+not three approvals, because GitHub refuses self-approval; reversing that would require three separate
+GitHub identities or Apps, contrary to this ADR's simplification goal. See **What the checked path can
+actually verify**.
 **Supersedes:** the approach shipped through 0.10.0, in which `/cc-tuner:run` carried its own state
 machine, mutation fence and gate protocol.
 
@@ -322,12 +313,13 @@ workflow discipline against an agent's mistake and must not be described as anyt
 
 ## Complexity budget
 
-- **Runtime** Bash: four small pieces and no more — `merge.sh`, the `SessionStart` restore hook, the
-  plan linter, and the branch→path resolver. The `--auto` frontier rule is an instruction in the
-  run skill, not code, and is not counted here. An earlier revision listed only the first and the
-  last, which was not a tighter budget but an inaccurate one: the other two exist in the design and
-  a budget that omits them cannot be checked against it.
-  Setup-time checks are a separate category with a separate home, and now literally so: `scripts/setup/`
+- **Lifecycle** Bash is limited to five pieces: `merge.sh`; spec-driven `mutate.sh`; the
+  `SessionStart` restore hook; the plan linter; and the branch→path resolver. The `--auto` frontier
+  rule is an instruction in the run skill, not code, and is not counted here.
+- The opt-in smoke-verification feature is a separate runtime surface: its registered fail-open
+  `Stop` hook, shared fingerprint library, and `mark.sh`. It is inert unless the repository opts in
+  with `.claude/smoke-verify.cfg`.
+- Setup-time checks are a separate category with a separate home, and now literally so: `scripts/setup/`
   holds `doctor.sh`, `prereq-check.sh` and `plugin-here.sh`. The last exists because "which install
   of a plugin applies here" was answered in two places that had already diverged twice over — doctor
   skipped `enabled: false` and the preflight did not; doctor took the top install and the preflight

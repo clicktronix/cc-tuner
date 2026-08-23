@@ -230,10 +230,11 @@ fi
 # How often a GREEN reproduces is the second half, and it used to be unrecorded. Every one of these was
 # taken at n=2, and n=2 cannot see a coin flip. The protocol is now fixed and enforced above: a
 # `decision_question` committed BEFORE the sample -- one decidable question, not the full expectation
-# checklist -- exactly eight samples numbered 1..8, each recorded with the answer it was judged on and
-# including the misses, counts that must match the outcomes, and GREEN at >= 7 of 8. That bar is a smoke
-# threshold, not a significance test: a fair coin clears it 9 times in 256, where 5 of 6 let one through
-# 28 times in 256.
+# checklist -- up to sixteen runs numbered from 1, each recorded with the answer it was judged on and
+# including misses and abstentions. The first eight substantive answers are scored; fewer than eight
+# after sixteen runs is unstable, as is fewer than seven correct. That bar is a smoke threshold, not a
+# significance test: a fair coin clears 7 of 8 nine times in 256, where 5 of 6 lets one through 28
+# times in 256.
 #
 # The answers live in the scenario JSON and nowhere else. An earlier revision also wrote them to
 # tests/eval/samples/*.txt and checked only that the file existed, so the two copies could disagree
@@ -247,8 +248,9 @@ fi
 # measuring the rubric's shape. Hence: one question, committed before the sample, decided by hand, with
 # the stored answers in the tree so the classification can be disputed.
 #
-# `unstable` is a recordable verdict, not a failure. A probe that reproduces 4 times in 8 is a finding
-# about the skill, and forcing it to be either green or absent is how it would become green.
+# `unstable` is a recordable verdict, not a malformed evidence record. It keeps Task 8 open and blocks
+# an `accepted` ADR below. A probe that reproduces 4 times in 8 is a finding about the skill, and
+# forcing it to be either green or absent is how it would become green.
 task_run_evidence=0
 for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
   implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \

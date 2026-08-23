@@ -124,12 +124,25 @@ printf '%s' "$OUT" | grep -q '"decision":"block"' \
   && echo "PASS path-anchored-patterns" || { echo "FAIL path-anchored-patterns (out=$OUT)"; fails=1; }
 rm -rf "$T"
 
-# a path with spaces (git C-quotes it) still triggers and lists cleanly
+# a path with spaces still triggers and lists cleanly
 mkrepo; cfg
 echo x > "$T/My Comp.tsx"
 OUT="$(run_hook)"
 { printf '%s' "$OUT" | grep -q '"decision":"block"' && printf '%s' "$OUT" | grep -q 'My Comp.tsx'; } \
   && echo "PASS quoted-path-triggers" || { echo "FAIL quoted-path-triggers (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# core.quotePath must not turn a non-ASCII path into octal text. When it did, the path still matched
+# `\.tsx$` but `cat` could not open it, so editing the file left the fingerprint unchanged and a stale
+# attestation released the new delta.
+mkrepo; cfg
+UNICODE_NAME="$(printf 'Caf\303\251.tsx')"
+printf 'one\n' > "$T/$UNICODE_NAME"
+( cd "$T" && bash "$MARK" verified 'opened the unicode component' >/dev/null 2>&1 )
+printf 'two\n' > "$T/$UNICODE_NAME"
+OUT="$(run_hook)"
+printf '%s' "$OUT" | grep -q '"decision":"block"' \
+  && echo "PASS unicode-path-edit-rearms" || { echo "FAIL unicode-path-edit-rearms (out=$OUT)"; fails=1; }
 rm -rf "$T"
 
 # CRLF-saved config still matches (CR stripped from values)

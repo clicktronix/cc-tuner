@@ -33,6 +33,10 @@ with no open checkpoint while this file and the ADR both said the task was unfin
 `EVALUATED_SHA` proves only that *some* of the eval ran on the shipped surface, which is less than it
 reads like, and that gap is why the claim above could be wrong while the suite stayed green.
 
+Do not start that freeze while the post-eval remediation plan still has unresolved items that can
+change production skills or scripts. A live pass before those decisions would become stale by design,
+not by accident.
+
 Two checks do hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any probe is
 unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
@@ -576,11 +580,12 @@ The line count barely moved:
 | after | 191 | 117 | 254 |
 | `merge.sh`, for scale | 161 | 71 | 265 |
 
-So the honest summary is: the *description* got simpler, the implementation did not, and this helper
-still carries more executable code than the only sanctioned path for merging into `main`. It is also
-not a helper any more — `run/SKILL.md` makes the mutation proof a step of every slice, so it is a
-runtime dependency of the lifecycle. That is a reason to keep it small, not a licence for the next
-theoretical attack: new filesystem refusals go in when something actually crosses the stated boundary.
+So the honest summary at that revision was: the *description* got simpler, the implementation did
+not, and this helper still carried more executable code than the only sanctioned path for merging
+into `main`. It had also become a runtime dependency of every slice. That last product decision was
+later reversed: `/spec` now assigns negative proof only where the risk calls for it, and `/run`
+invokes `mutate.sh` only when the spec assigned a mutation. The reason to keep the script small
+remains; new filesystem refusals go in when something actually crosses the stated boundary.
 
 The class is also now bounded in `--help`, which is where the caller looks: `/cc-tuner:run` sends
 them there for "the verdicts, the exit codes, the refusals", and until 2026-08-23 the refusals were
@@ -708,7 +713,10 @@ way to keep the suite green is to land the edit and its re-measure together — 
 provenance a reviewer caught missing one round earlier. The `measured_targets` hash is not a substitute:
 it proves *which text* was measured, not that the text was fixed before anyone saw the numbers. So the
 rule commit lands red on those scenarios, on purpose, and the next commit restores green. A red suite
-that says "this evidence is stale" is the gate working, not the gate failing.
+that says "this evidence is stale" is the gate working, not the gate failing. The implementation plan
+now names this as the sole exception to its green-at-every-commit rule: executable and static checks
+remain green, the ADR remains `proposed`, the affected Task 8 step stays open, and fresh evidence must
+restore the suite before unrelated work or delivery.
 
 **Closed 2026-08-24 by strengthening the skill, not the threshold.** The two misses were real wrong
 decisions — one did not see pricing at all, the other saw billing and let the diff's size overrule it —

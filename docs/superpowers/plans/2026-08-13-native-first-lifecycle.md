@@ -19,9 +19,13 @@ under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → c
 - **Bash 3.2.** macOS system bash. No associative arrays, no `${var^^}`, no `mapfile`.
 - **Every checked behaviour ships a test that fails when it is reverted.** A test that stays green
   against a reverted check is not a test of that behaviour.
-- **`tests/run.sh` is green at every commit.** A deliberately failing check is proven by mutating the
-  thing it guards, never by committing it red. A red suite makes `git bisect` useless and trains
-  everyone to ignore the signal.
+- **Executable and static checks are green at every commit.** A deliberately failing behaviour check
+  is proven by mutating the thing it guards, never by committing it red. The sole exception is a
+  scenario-freshness failure caused by changing a production skill: while the ADR is `proposed` and
+  the corresponding Task 8 step is open, that commit may invalidate only the scenarios that load the
+  changed file. Related rule refinements may follow; fresh evidence must restore `tests/run.sh` before
+  unrelated work or delivery. This preserves rule-before-sample provenance without treating an
+  ordinary red product test as acceptable.
 - **One rule, one home.** No second copy of a rule, and no second parser for a question something
   already answers.
 - **`git`, `gh`, `jq` only** in the shipped runtime. No new runtime dependency and no new language.
@@ -577,8 +581,9 @@ less necessary — the branch is not done without it.
 - [x] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
-      > **Step 5 reopened 2026-08-21, closed 2026-08-22 after four measurements of one probe.** It was
-      > called closed once too early: the classification that produced 7 of 8 had softened the bar after
+      > **Step 5 reopened twice and most recently closed 2026-08-24.** Its first reopening was called
+      > closed once too early after four measurements of one probe. The classification that produced
+      > 7 of 8 had softened the bar after
       > seeing the answer, and correcting it gave 6 of 8, with both misses being refusals to decide
       > rather than splits. Naming a unit's own checks as writing removed the ambiguity that invited
       > those refusals, and the probe now runs 8 of 8. The way out taken was the only one this note
@@ -599,6 +604,13 @@ less necessary — the branch is not done without it.
       > the instability predates
       > the parallel-review fix: 3 of 6 against the earlier revision, so it is the rule's legibility
       > that is in question, not the correction to it.
+      >
+      > It reopened again on 2026-08-23 after the precommitted three-way protocol measured
+      > `sensitive-small-diff-review` at 6 of 8: one answer missed pricing and another let size
+      > overrule a billing match. The threshold stayed fixed. `deep-review` was committed first with
+      > the general rule to classify the surface before size and never downgrade a match; the four
+      > scenarios that load it were sampled only afterwards and each reached 8 of 8. The evidence and
+      > its commit ordering are recorded in `plugins/cc-tuner/tests/eval/README.md`.
 
 - [ ] **Step 7: repeat, against the tree that ships, every step last observed on an earlier one.**
       Added 2026-08-22, because eight ticked boxes and a footnote is not a readable plan: a reader saw
@@ -608,11 +620,15 @@ less necessary — the branch is not done without it.
       observations are owed**, not five: an earlier revision of this step listed five and forgot the
       two that its own premise implies.
 
+      **Before freezing:** close or explicitly defer every open item in
+      `docs/2026-08-20-post-eval-remediation-plan.md` that can change a skill, script, hook or shipped
+      contract. Freezing first would knowingly evaluate a tree that is not the one intended to ship.
+
       1. **Step 0** — the frozen SHA and the resolved plugin root, for the new freeze. Every other
          item here is a claim about *this* tree, and step 0 is what makes that checkable.
       2. **Step 1** — attended whole flow, last seen on `cd9fa2f`.
       3. **Step 2, whole** — unattended `/spec → /plan --auto → /run --auto → merge`. Last seen on
-         `f4410f2`, which `mutate.sh`, `run/SKILL.md` and `placement.md` have all moved past.
+         `f4410f2`; the production skills and `mutate.sh` have moved past it.
       4. **Step 2's `blockedBy` refusal**, on a fixture that isolates the edge — last seen on `e39419c`.
       5. **Step 2b** — `--check-only` accepts, then the same script merges. Last on `cd9fa2f`.
       6. **Step 3** — fresh session, `/clear`, `/compact`, edges intact. Last on `cd9fa2f`.
@@ -722,13 +738,18 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
 
 ## Definition of done for the branch
 
-- `tests/run.sh` green **at every commit**, and the harness demonstrably able to report a failure.
+- Executable and static checks green **at every commit**. Scenario freshness may be red only under
+  the scoped global exception above, and must be restored before unrelated work or delivery. The
+  harness is demonstrably able to report a failure.
 - `merge.sh` denies when in-scope evidence is absent or stale, passes through an out-of-scope PR with
   an exact-head pin, and refuses when scope cannot be determined — all proven by mutation.
 - The eval record shows every step PASS in a real session: `spec → plan → visible tasks with edges →
   recovery preserving those edges → a live checked merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
-- Runtime Bash: `merge.sh`, the session-start hook, the plan linter and `plan-path.sh`. The `--auto`
-  frontier rule is an instruction, not runtime code. Nothing else.
+- Lifecycle Bash: `merge.sh`, spec-driven `mutate.sh`, the session-start hook, the plan linter and
+  `plan-path.sh`. The `--auto` frontier rule is an instruction, not runtime code.
+- The existing opt-in smoke-verification feature separately owns its fail-open `Stop` hook, shared
+  fingerprint library and `mark.sh`; it is inert without repository configuration. Setup checks
+  remain separate under `scripts/setup/`.
 - README states the checked merge path's real coverage, without overclaiming.
 - One PR.

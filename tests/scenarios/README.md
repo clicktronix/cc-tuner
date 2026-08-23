@@ -22,7 +22,7 @@ production incidents, but a **fresh RED arm was also probed** (same query, guida
 verdict rests on a measured contrast rather than on the incident alone. Where the two disagree, the
 row says so.
 
-## Status (task-run probes re-measured 2026-08-23 under the protocol in `tests/eval/README.md`; older rows retain their recorded dates)
+## Status (task-run probes last re-measured 2026-08-24 under the protocol in `tests/eval/README.md`; older rows retain their recorded dates)
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
