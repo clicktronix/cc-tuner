@@ -26,7 +26,7 @@ row says so.
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
-| task-run/sensitive-small-diff-review | **2/2 historical ablation** | passes | **load-bearing** — the old ablation missed pricing sensitivity; the rewritten GREEN fans out the same five-line fee change |
+| task-run/sensitive-small-diff-review | **2/2 historical ablation** | **6/8 — unstable** | **load-bearing** — the old ablation missed pricing sensitivity; the surfaces are named in the skill now, and two of eight answers still called a `SERVICE_FEE_RATE` change a plain constant bump and chose serial review. Open; see the eval log |
 | claude-md-writer/paths-rule-placement | **2/2 reproduced** | flips | **load-bearing** — baseline confidently invents config (`scope:`/`languages:` keys, `src/api/.claude.md`) a user would paste and silently get nothing |
 | claude-md-writer/what-goes-where | inconsistent | flips | value = factual precision (mechanism names), not discipline |
 | task-run/eyes-criterion-autonomy | 0/2 | holds (cites unresolved [eyes]/auto-ready mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |

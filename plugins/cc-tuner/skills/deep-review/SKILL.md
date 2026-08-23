@@ -49,7 +49,18 @@ reviewer agents against the immutable candidate.
 - security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and
   server-side allowlists.
 
-Size is not the test: a candidate inside the thresholds still fans out when it touches any of these.
+**Classify the surface first, and only then look at size.** Deciding "this is small" before asking
+"what does it touch" is how a five-line change to a fee rate gets reviewed serially — measured, twice in
+eight samples, with the list above already in front of the reviewer.
+
+**A candidate touches a sensitive surface when it changes code, values, configuration, fixtures or
+schemas that decide behaviour on that surface.** It does not have to touch that surface's control flow.
+A constant, a default, a fixture row and a migration file are all the surface.
+
+**A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change
+is obvious, not that it is "only" a value. Thresholds decide execution shape for candidates that match
+no surface; they do not overrule a match.
+
 The list lived only in `workflow-contract.json`, which nothing loads at runtime, so the sentence above
 asked the reviewer to stay outside a boundary it had no way to see. Keep the lifecycle outside the review sequential and
 give every reviewer the same literal base, candidate, tree, spec, and read-only constraint.

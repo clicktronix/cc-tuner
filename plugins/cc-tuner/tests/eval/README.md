@@ -695,12 +695,21 @@ sensitive-surface impact"* and *"a simple rate constant bump"*. The six surfaces
 the skill's legibility, of exactly the kind the RED baseline was written to catch — and unlike the
 abstentions, it is the failure this scenario exists to detect.
 
+**A rule of this repository has to bend here, and it is worth saying which.** "`tests/run.sh` green at
+every commit" and "the rule is committed before the sample that judges it" cannot both hold across a
+skill edit: the hash gate deliberately reddens every scenario that loads a changed file, and the only
+way to keep the suite green is to land the edit and its re-measure together — which is precisely the
+provenance a reviewer caught missing one round earlier. The `measured_targets` hash is not a substitute:
+it proves *which text* was measured, not that the text was fixed before anyone saw the numbers. So the
+rule commit lands red on those scenarios, on purpose, and the next commit restores green. A red suite
+that says "this evidence is stale" is the gate working, not the gate failing.
+
 **Step 5 is open again**, on a different probe than last time, and this is the fifth number this file has
 recorded for one of these two scenarios. The history is left standing so the next clean figure is read
 with that in mind.
 
 `tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
-names the skill the scenario is about, exactly eight outcomes numbered 1..8 each
+names the skill the scenario is about, 8 to 16 runs numbered from 1 — scoring the first eight that are not abstentions — each
 carrying the stored answer it was judged on — the check establishes that something is
 there to argue with, not that it is the whole reply, and a hashed second copy is the machinery this
 contract just removed — counts that match them, a verdict that agrees with the threshold, and — since an unstable probe is step 5 left open — **a refusal to let the ADR say
