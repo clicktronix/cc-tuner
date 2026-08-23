@@ -28,74 +28,132 @@
   },
   "green_check": {
     "date": "2026-08-23",
-    "measured_against": "the skills as shipped after `run/SKILL.md` made the negative proof spec-driven rather than one per slice. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
+    "measured_against": "the skills as shipped after the negative proof became spec-driven: `/spec` assigns it and names the classes that need a mutation, `/run` executes what is assigned. Both files changed, and every one of these scenarios loads `run/SKILL.md`.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
-        "pass": true,
-        "note": "units code in parallel and run their own scoped checks, then hand back commits; one owner assembles a single candidate and owns the regression, the verdict, the one PR and the merge",
-        "answer": "**Parallel**: Both implementation units can code simultaneously in isolated worktrees—their disjoint modules have no dependencies. **Sequential, single owner**: After both units complete, one owner integrates commits into a single candidate, runs testing and acceptance, then owns the architecture review, PR creation, and merge. Testing and delivery decisions must not fan out—they read one immutable candidate, not parallel branches changing independently."
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Code the two units concurrently in isolated worktrees—no shared state needed. **Sequential:** Testing, acceptance, architecture review, PR, and merge stay together on one integrated candidate. **Integration owner:** One engineer integrates both units' commits into a single candidate branch, runs the full test suite and review against that candidate, then manages PR and merge. Each unit delivers commits, not separate PRs. *Why:* Testing decisions, review verdicts, and delivery touch a single immutable candidate. Parallelizing those reads stale state; one owner ensures one truth."
       },
       {
         "model": "haiku",
         "sample": 2,
-        "pass": true,
-        "note": "units code in parallel and run their own scoped checks, then hand back commits; one owner assembles a single candidate and owns the regression, the verdict, the one PR and the merge",
-        "answer": "The two units code in parallel—each in its own isolated git worktree, handing back commits. One owner integrates both into a single candidate branch, runs the full test suite on that unified candidate, performs architecture review once, opens one PR, obtains approval, and merges. Testing, review, and delivery are never parallelized—they read one immutable candidate and belong to one owner. No unit opens its own PR or claims approval."
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** The two implementation units, each in isolated git worktrees (disjoint modules allow safe parallelization). **Sequential owner:** One designated person assembles their commits into a single candidate, runs full testing/acceptance, and owns the PR through review and merge. **Why:** Testing and delivery decisions read a unified state—parallel review creates conflicting verdicts. Units hand back commits only, never PRs. One plan, one candidate, one verdict."
       },
       {
         "model": "haiku",
         "sample": 3,
-        "pass": true,
-        "note": "units code in parallel and run their own scoped checks, then hand back commits; one owner assembles a single candidate and owns the regression, the verdict, the one PR and the merge",
-        "answer": "**Parallel:** Both units code independently in isolated worktrees; unit tests run concurrently. **Sequential:** Integration testing, acceptance, architecture review, single PR, merge. **Integration owner:** Designate one coordinator who: - Integrates both units' commits into a single candidate - Runs full regression and acceptance tests on that candidate - Carries through one review cycle to one verdict - Opens and merges the single PR Each unit hands back commits only—never its own PR. One plan, one candidate, one merge."
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Unit A and Unit B code independently in isolated worktrees. **Sequential:** One orchestrator assembles both commits into a single candidate, then runs testing, acceptance, architecture review, PR creation, and merge. Units hand back commits only—no independent PRs. **Ownership:** The orchestrator owns all testing decisions, review verdict, and merge. One candidate, one review, one merge gate."
       },
       {
         "model": "haiku",
         "sample": 4,
-        "pass": false,
-        "note": "MISS -- declines to answer, asking for the spec, the two units and their modules, though the query says it is a self-contained simulation",
-        "answer": "I need the simulation or spec to analyze. Please share: - The two implementation units and their code changes - The modules they touch (to verify they're disjoint) - The testing requirements and acceptance criteria - Any dependency ordering constraints Once I see those details, I can decide which phases can run in parallel—typically independent code changes can write concurrently, but testing, acceptance, and review stay sequential (they read one candidate)."
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Code the two units simultaneously in isolated worktrees—no integration conflicts until merge. **Sequential barriers:** 1. **Unit commits** → **integration candidate** (one owner merges both units) 2. **Full regression test** the candidate 3. **Architecture & code review** (one verdict per candidate) 4. **Merge** (one owner, one PR, pins head) **Owner:** The integration lead assembles both units' commits into one candidate, drives it through review/testing as a single entity, and owns the PR lifecycle. Units commit independently; decision and delivery stay sequential."
       },
       {
         "model": "haiku",
         "sample": 5,
-        "pass": true,
-        "note": "units code in parallel and run their own scoped checks, then hand back commits; one owner assembles a single candidate and owns the regression, the verdict, the one PR and the merge",
-        "answer": "Two units code in parallel in isolated worktrees (disjoint modules = safe fanout). After writing, one owner integrates their commits into a **single candidate**. Then sequentially: run full tests, acceptance criteria checks, architecture review, open one PR, obtain approval, merge. Testing decisions and delivery never parallelize—they read one immutable candidate. Only parallel work is isolated code-writing; integration, review, and merge are owned by one person and stay sequential."
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Two units code independently in separate worktrees (disjoint modules, no conflicts). **Integration owner:** One owner assembles both commits into a single candidate, runs unified testing and acceptance checks, handles architecture review and merge. Units deliver commits only—no parallel PRs or verdicts. Testing, review, and delivery remain sequential; one owner decides."
       },
       {
         "model": "haiku",
         "sample": 6,
-        "pass": true,
-        "note": "units code in parallel and run their own scoped checks, then hand back commits; one owner assembles a single candidate and owns the regression, the verdict, the one PR and the merge",
-        "answer": "**Parallel:** Both units code independently in isolated worktrees (disjoint modules = safe). **Sequential:** One owner integrates their commits into a single candidate, then: - Runs testing and acceptance criteria on the integrated whole - Carries it through one review cycle to one verdict - Opens one PR and merges **No parallel testing decisions or delivery steps.** Review lenses (e.g., correctness vs. security) can fan out read-only over the candidate, but the verdict owner synthesizes one approval. **Result:** Two commits → one candidate → one PR → one merge."
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallelism:** Code the two units in separate worktrees simultaneously. Each runs its own tests while writing. **Integration owner:** One designated owner takes both units' commits into a single candidate, runs full regression, and carries it through architecture review, PR creation, and merge. **Sequential:** Testing decisions, acceptance criteria validation, architecture review, and delivery remain on the owner's single candidate. Two reviewed-apart trees ≠ one reviewed thing."
       },
       {
         "model": "haiku",
         "sample": 7,
-        "pass": false,
-        "note": "MISS -- same refusal: 'I don't see the specification or context for the simulation'",
-        "answer": "I don't see the specification or context for the simulation. To answer your question about parallel work, integration ownership, and testing strategy, I need: - **The spec or plan** (what are the two implementation units and their scope?) - **Module boundaries** (what disjoint modules do they touch?) - **Current state** (is there an existing plan file or branch?) Could you share the spec path or provide the details of the two units and their responsibilities?"
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Both units write independently in isolated git worktrees—no shared state or conflicts. **Sequential:** Testing, acceptance, architecture review, PR creation, merge. **Integration owner:** One person assembles commits from both units into a single candidate, runs all checks against that candidate, carries it through one review to one verdict, and merges once approved. Each unit hands back commits, not a PR. Testing decisions and delivery stay sequential—one candidate, one review, one merge."
       },
       {
         "model": "haiku",
         "sample": 8,
-        "pass": true,
-        "note": "units code in parallel and run their own scoped checks, then hand back commits; one owner assembles a single candidate and owns the regression, the verdict, the one PR and the merge",
-        "answer": "**Parallel:** Each unit codes independently in isolated git worktrees. No coordination needed during implementation. **Sequential:** Testing, acceptance, architecture review, PR creation, and merge remain sequential. One owner integrates both units' commits into a single candidate SHA. **Integration owner:** Whoever fanned out the work. They pull both units' commits (never PRs), run full regression, carry one candidate through one review to one verdict, then merge once. **One plan, one candidate, one merge.**"
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallelism:** Code units run independently in separate git worktrees. **Integration:** One owner merges both units' commits into a single candidate SHA. **Sequential:** Testing, acceptance, architecture review, PR creation, and merge all happen on that one candidate—never in parallel. Testing decisions and delivery steps read shared state; parallel answers to \"does this pass?\" breed inconsistency. **Rule:** One plan, one candidate, one verdict, one merge."
+      },
+      {
+        "model": "haiku",
+        "sample": 9,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Both units code independently in isolated git worktrees (separate workspaces). **Sequential:** Testing, acceptance review, and merge remain serial—one candidate, one review verdict, one owner. The unit owner merges both units' commits into a single candidate SHA, runs full regression, carries it through one authoritative review, and owns the PR merge. **Rule:** Write parallelizes; decisions centralize. No unit opens its own PR or claims approval."
+      },
+      {
+        "model": "haiku",
+        "sample": 10,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Code-writing for both units (separate worktrees); each unit runs its own dev checks. **Sequential:** Everything downstream is owned by one integrator: - Assembles both commits into a single candidate - Runs full regression once on that candidate - Carries one candidate through one review to one verdict - Opens one PR, merges once No parallel testing decisions or delivery steps—two candidates reviewed separately are two different things. One plan, one candidate, one merge."
+      },
+      {
+        "model": "haiku",
+        "sample": 11,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel: Code writing only.** The two units write in isolated git worktrees simultaneously since their modules are disjoint. **Sequential: Everything else.** One owner integrates both units' commits into a *single* candidate branch, then runs all remaining steps sequentially: testing, acceptance, architecture review, PR creation, and merge. Never parallelize testing decisions or delivery steps—they read state another unit is still changing. The decision to approve and merge belongs to one owner reviewing one candidate."
+      },
+      {
+        "model": "haiku",
+        "sample": 12,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel work:** Both implementation units can code independently—they touch disjoint modules. Each unit runs its own checks while writing. **Sequential phases:** Testing (full regression), acceptance, and architecture review happen *once* on the integrated candidate, not separately. One owner assembles both units' commits into a single candidate SHA, shepherds it through review to one verdict, opens one PR. **No parallel review or merge decisions.** A candidate reviewed apart from its partner hasn't been reviewed together."
+      },
+      {
+        "model": "haiku",
+        "sample": 13,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallelism:** Both units code concurrently in isolation—each agent gets clean scope, no inherited context. They produce commits independently. **Integration owner:** One coordinator integrates both commits into a single candidate, runs full regression suite, carries that candidate through architecture review and merge. Testing, acceptance, review, and PR creation stay sequential with one owner. **Result:** Parallel *writing*, sequential *verification*—one candidate, one verdict, one merge."
+      },
+      {
+        "model": "haiku",
+        "sample": 14,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel work:** Both units code simultaneously—they touch disjoint modules, so no conflicts. Each runs its own unit tests; verify independently. **Integration owner:** You. Combine their commits into one candidate SHA. That candidate runs regression tests once, gets reviewed once (one verdict), merges once. **Sequential:** Testing decision, acceptance criteria, architecture review, PR creation, merge. One candidate, one review, one verdict—never parallel the decision. **Result:** Wall-clock ≈ longest single unit + integration overhead, not 2× sequential."
+      },
+      {
+        "model": "haiku",
+        "sample": 15,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Code writing in isolated git worktrees per unit. **Sequential:** Testing, acceptance, review, and merge remain centralized—never parallelize testing decisions or delivery. **Integration owner:** The task owner collects both units' commits into a single candidate SHA, runs unified acceptance tests, carries it through one architecture review to one verdict, and opens one PR that merges. Units hand back commits, not PRs. One plan, one candidate, one verdict, one merge."
+      },
+      {
+        "model": "haiku",
+        "sample": 16,
+        "class": "correct",
+        "note": "code writing parallel, each unit running its own checks; one owner assembles a single candidate and owns the regression, the one verdict, the one PR and the merge; units hand back commits, not PRs",
+        "answer": "**Parallel:** Each unit codes independently with isolated tests. **Sequential:** Full regression, acceptance criteria, architecture review (single candidate), PR/merge remain. **Integration owner:** Main branch maintainer receives both units' commits as one candidate, verifies full suite green, carries through one review to one verdict, merges with strategy named in spec. Rule: Never parallelize testing decisions or delivery steps. One plan, one candidate, one verdict, one merge."
       }
     ],
-    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
+    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
-      "samples": 8,
-      "passes": 6
+      "runs": 16,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
     },
-    "verdict": "unstable"
+    "verdict": "green"
   },
   "measured_targets": {
-    "plugins/cc-tuner/skills/run/SKILL.md": "ce81840eb0a6b4d492344f5daa86139db4f5c11c6d207015a8f08a597054a437",
+    "plugins/cc-tuner/skills/run/SKILL.md": "8c9eb43d745e45f1c4732311f4bf6d8b3d5ff042b031e588d00ce860238bc4ed",
     "plugins/cc-tuner/skills/run/references/placement.md": "19037ca355fb3b26cfb9f796456d3bd44d0aa286d71d1884b86de8a98085f754"
   },
   "decision_question": "Does it parallelise only the code-writing units — a unit's own scoped checks count as writing — while keeping the authoritative testing decision, the review verdict, delivery and merge with one owner on one assembled candidate?"

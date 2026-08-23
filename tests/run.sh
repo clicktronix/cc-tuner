@@ -262,8 +262,8 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.green_check.measured_against | type == "string" and length > 0) and
     (.green_check.protocol | type == "string" and length > 0) and
     (.decision_question | type == "string" and length > 0) and
-    (.green_check.runs | type == "array" and length == 8) and
-    all(.green_check.runs[]; (.pass | type == "boolean")
+    (.green_check.runs | type == "array" and length >= 8 and length <= 16) and
+    all(.green_check.runs[]; (.class | IN("correct", "incorrect", "abstain"))
                              and (.note | type == "string" and length > 0)
                              # a stored answer, not a stub. It gives the classification something to be
                              # argued with; it does not establish that the text is the whole reply --
@@ -271,15 +271,19 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
                              # just removed.
                              and (.answer | type == "string" and length > 40)
                              and (.sample | type == "number")) and
-    ([.green_check.runs[].sample] | sort == [1,2,3,4,5,6,7,8]) and
-    (.green_check.reproduction.samples == 8) and
-    (.green_check.reproduction.passes == ([.green_check.runs[] | select(.pass)] | length)) and
-    ((.green_check.verdict == "green") == (.green_check.reproduction.passes >= 7)) and
+    (([.green_check.runs[].sample] | sort) == [range(1; (.green_check.runs | length) + 1)]) and
+    (.green_check.reproduction.runs == (.green_check.runs | length)) and
+    (.green_check.reproduction.abstentions == ([.green_check.runs[] | select(.class == "abstain")] | length)) and
+    (.green_check.reproduction.scored == ([.green_check.runs[] | select(.class != "abstain")] | length | if . > 8 then 8 else . end)) and
+    (.green_check.reproduction.correct
+       == ([.green_check.runs[] | select(.class != "abstain")][0:8] | map(select(.class == "correct")) | length)) and
+    ((.green_check.verdict == "green")
+       == (.green_check.reproduction.scored == 8 and .green_check.reproduction.correct >= 7)) and
     ((.green_check.verdict | IN("green", "unstable")))
   ' "$file" >/dev/null 2>&1; then
     task_run_evidence=$((task_run_evidence + 1))
   else
-    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, a protocol, exactly 8 outcomes numbered 1..8, each carrying the stored answer it was judged on and a note, counts that match them, and a verdict that agrees with the >= 7 of 8 threshold"
+    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, a protocol, 8..16 runs numbered from 1, each classified correct/incorrect/abstain with the answer it was judged on and a note, counts that match them, and a verdict that agrees with '>= 7 of the first 8 non-abstain'"
   fi
 
   # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever
@@ -329,9 +333,9 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
 done
 if [ "$task_run_evidence" -eq 9 ]; then
   if [ -n "${unstable_list:-}" ]; then
-    ok "task-run evidence is recorded (9 scenarios, n=8 each) — UNSTABLE, below 7 of 8: ${unstable_list}"
+    ok "task-run evidence is recorded (9 scenarios) — UNSTABLE, below 7 of the first 8 substantive answers: ${unstable_list}"
   else
-    ok "task-run evidence is recorded (9 scenarios, n=8 each, all >= 7 of 8)"
+    ok "task-run evidence is recorded (9 scenarios, all >= 7 of the first 8 substantive answers)"
   fi
 fi
 

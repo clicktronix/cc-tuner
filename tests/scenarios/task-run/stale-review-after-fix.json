@@ -29,75 +29,77 @@
   },
   "green_check": {
     "date": "2026-08-23",
-    "measured_against": "the skills as shipped after `run/SKILL.md` made the negative proof spec-driven rather than one per slice. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
+    "measured_against": "the skills as shipped after the negative proof became spec-driven: `/spec` assigns it and names the classes that need a mutation, `/run` executes what is assigned. Both files changed, and every one of these scenarios loads `run/SKILL.md`.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. A new commit invalidates the old approval. Commit B is a new candidate SHA with a different tree—it requires its own review and approval, even though it only fixes a finding from A's review. The rule is strict: every fix creates a new candidate, and every candidate must be independently reviewed and approved before merge. This prevents the scenario where a reviewer's change-request sits unfixed and gets merged anyway."
+        "answer": "No. A new commit invalidates prior approvals. Commit A's approval is bound to that SHA; commit B is a different candidate requiring fresh review. Per standard code-review practice (and `/cc-tuner:run` explicitly): \"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\" Commit B must be reviewed independently. Only after that review approves B can the PR merge."
       },
       {
         "model": "haiku",
         "sample": 2,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. Per the workflow: \"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done.\" Commit B is a new candidate with a different SHA. The approval on commit A does not carry forward. Commit B requires a fresh review at its exact SHA, must pass the test plan and all required checks, and must receive approval on that specific candidate before merge. The fix addresses a finding, but the finding doesn't disappear; it must be shown resolved in the new commit's review."
+        "answer": "No. The approval was bound to commit A's SHA. Commit B is a different commit, so it invalidates the previous approval. Per the `/cc-tuner:run` skill: *\"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\"* Commit B requires its own review and approval before merge, regardless of whether A was approved. Tests passing is necessary but not sufficient—reviewer sign-off on the actual changes is required."
       },
       {
         "model": "haiku",
         "sample": 3,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The approval for A is invalidated by commit B. Each new commit creates a new candidate SHA that requires fresh review. **The principle:** A published approval binds to an exact SHA and its tree state. Code changes → new SHA → new candidate → review required before merge. Tests passing on B is necessary but insufficient—approval is a human judgment, not an automated gate, and must be obtained on that specific commit. This prevents shipping code that reviewers never saw."
+        "answer": "No. **A new commit invalidates the prior approval.** Commit A's approval does not extend to commit B, even if B fixes an issue found during A's review. B is a new SHA requiring its own review cycle—testing, acceptance, and reviewer sign-off must be re-earned. This prevents a problematic loop: reviewer finds issue → author commits fix → old approval stands → broken code ships. Every fix requires fresh verification at the new commit."
       },
       {
         "model": "haiku",
         "sample": 4,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The approval for commit A is invalid for commit B. A new commit invalidates all downstream approvals. Every code change produces a new candidate SHA that requires independent review. The review finding prompted a fix—that fix created new code requiring fresh verification. B must be reviewed separately. It cannot inherit A's approval."
+        "answer": "No. The approval for commit A is tied to that specific SHA. Commit B introduces a new SHA, invalidating the previous approval. Per the cc-tuner contract: \"A published approval stands until the SHA changes... a finding that requires a code change needs a new commit and therefore a new candidate, at which point the script denies by construction because the head no longer matches.\" Commit B requires a fresh review on its own SHA before proceeding."
       },
       {
         "model": "haiku",
         "sample": 5,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The approval is bound to commit A's SHA. Commit B is a different commit, so it needs fresh review. A new commit invalidates all downstream verification—testing, approval, and the Definition of Done must be re-earned. This is the core rule: each candidate SHA requires its own review. Even a one-line fix creates a new SHA, and the old approval cannot transfer to it. Have the reviewer approve B before proceeding."
+        "answer": "No. A new commit invalidates all downstream work, including prior approvals. The approval was specific to commit A's SHA. Commit B is a different SHA—a new candidate that requires its own review and approval, even though it's fixing a finding from A's review. The approval doesn't carry forward: it's bound to the exact commit SHA, not to the changes or intent."
       },
       {
         "model": "haiku",
         "sample": 6,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No, the old approval is not sufficient. A new commit invalidates the approval. Commit B has a new SHA, so it requires its own review. While A's approval addressed the finding that prompted B's fix, B itself is unapproved code. The approval standing-rule specifies: \"A published approval stands until the SHA changes.\" Once you commit the fix, you've changed the SHA, and that breaks the approval's chain. B needs fresh review before merge, even if just re-running the required reviewer on the same finding to confirm the fix holds."
+        "answer": "No. **A new commit invalidates previous approvals.** The approval was bound to commit A's specific SHA and tree. Commit B is a different commit with different code—even though it's a fix—and requires its own review and approval before merge. Each code change must be independently reviewed and approved. Reusing the old approval would mean reviewing the *intent* (fix the finding) rather than the *actual code* (commit B), which defeats review's purpose."
       },
       {
         "model": "haiku",
         "sample": 7,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. The old approval is insufficient. A new commit invalidates everything downstream—including the approval. The approval was bound to commit A's specific SHA; commit B is a different tree state requiring fresh review. Tests passing for B is necessary but not sufficient; tests verify functionality, not code correctness, contract compliance, or architectural fit. A reviewer must assess B's changes independently against the same lenses they applied to A. **Bottom line:** Obtain a new approval for commit B before merging."
+        "answer": "No. A new commit invalidates the previous approval. The approval for commit A was bound to that specific SHA. Commit B, even if it fixes a finding from A's review, is a different SHA and requires its own review cycle. Passing tests alone do not substitute for review — the fix must be evaluated independently to confirm it correctly addresses the finding and introduces no new issues."
       },
       {
         "model": "haiku",
         "sample": 8,
-        "pass": true,
+        "class": "correct",
         "note": "invalidates A's approval for B; the complete review runs again against B",
-        "answer": "No. An approval is bound to a specific commit SHA. Commit B is a new SHA, so the approval for A is no longer valid. Even though B fixes a finding from A's review, it introduces new code that requires independent review. You must obtain approval for commit B before merging. A new commit invalidates everything downstream—testing, acceptance, review, and Definition of Done all restart for the new SHA."
+        "answer": "No. The old approval is not sufficient. Commit B is a different SHA. According to the delivery workflow: **\"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done.\"** Commit A's approval cannot transfer to B. Because B contains a code fix responding to a review finding, B requires a full new review and approval at its own SHA before delivery."
       }
     ],
-    "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
+    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
-      "samples": 8,
-      "passes": 8
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
     },
     "verdict": "green"
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "3668b26ec657d5c540da9b59d800d23b6bcc4e8fc813c2b083cf7e9e6e3b3189",
-    "plugins/cc-tuner/skills/run/SKILL.md": "ce81840eb0a6b4d492344f5daa86139db4f5c11c6d207015a8f08a597054a437"
+    "plugins/cc-tuner/skills/run/SKILL.md": "8c9eb43d745e45f1c4732311f4bf6d8b3d5ff042b031e588d00ce860238bc4ed"
   },
   "decision_question": "Does the approval of A become invalid for B, requiring the complete review again against B?"
 }

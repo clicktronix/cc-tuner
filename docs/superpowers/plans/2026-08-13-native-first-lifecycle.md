@@ -567,7 +567,7 @@ less necessary — the branch is not done without it.
       same. Then `/compact` and confirm **no duplication**.
 - [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [ ] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
+- [x] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
       Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
       text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
       demonstrate that a model loads a reference it was never given. Each scenario now records what it

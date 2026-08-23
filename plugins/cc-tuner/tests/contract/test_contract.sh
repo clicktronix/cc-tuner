@@ -127,7 +127,10 @@ need "run-mutation-proof"           'negative proof the spec assigned' "$RUN"
 # subsystem on the path of an ordinary one. Pin that it is spec-driven, and that the classes where a
 # spec should ask for it are named.
 need "run-mutation-proof-is-conditional" 'not one per slice'   "$RUN"
-need "run-mutation-proof-names-classes"  'fail-closed guards'  "$RUN"
+# The classes belong to /spec, which assigns the proof; /run only executes what is already committed.
+# Pinned there, not here — an earlier revision pinned them in /run, which is advice arriving after the
+# decision it is about.
+need "spec-assigns-mutation-classes"     'fail-closed guards'  "$SPEC"
 need "run-dod-before-merge"         'Definition of Done from the spec' "$RUN"
 need "run-request-changes-loop"     'On `REQUEST_CHANGES`, loop' "$RUN"
 need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"

@@ -106,7 +106,8 @@ edges; the plan is committed, and published as native tasks in two passes becaus
 takes no dependency argument.
 
 `/cc-tuner:run [--auto] <spec>` works that plan. It takes the frontier in order, proves each slice
-RED→GREEN with a mutation, ticks it off in the committed file, then commits a candidate, runs
+RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
+ticks it off in the committed file, then commits a candidate, runs
 `cc-tuner:deep-review`, the mattpocock review and Codex's required review at that exact SHA, publishes
 the verdict as a pull-request review, and merges only with green required CI on the same commit and
 `--match-head-commit` pinning it. Independent code-writing units alone may fan out into isolated

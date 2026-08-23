@@ -137,6 +137,13 @@ For a documentation-only or mechanical task, `First failing check` and `Negative
 say `not applicable` only with a concrete reason and an alternative baseline/diff check. Do not use
 `not applicable` merely because writing a regression test is inconvenient.
 
+**Assign a mutation as the negative proof where a check that does not bite cannot be told from one
+that does: fail-closed guards, validators and parsers, recovery paths, and any regression test for a
+defect that shipped once.** Elsewhere a baseline or diff check is enough. This is the spec's call and
+nowhere else's — `/run` executes the proof named here, and by then this file is committed; a rule
+written into `/run` would be advice arriving after the decision it is about. Name the file, the
+command that reverts the behaviour, and the check that must go red.
+
 `ci` names the checks the target branch **requires**: delivery reads `gh pr checks --required`, so a
 repository whose branch protection requires nothing cannot finish a run. `auto_ready: yes` is valid
 only when there is one PR, `ci`, `target_test`, and `full_test` are nonblank,
