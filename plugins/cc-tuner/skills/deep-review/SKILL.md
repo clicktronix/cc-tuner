@@ -49,9 +49,9 @@ reviewer agents against the immutable candidate.
 - security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and
   server-side allowlists.
 
-**Classify the surface first, and only then look at size.** Deciding "this is small" before asking
-"what does it touch" is how a five-line change to a fee rate gets reviewed serially — measured, twice in
-eight samples, with the list above already in front of the reviewer.
+**Classify the surface first, and only then look at size.** Asking "is this small" before asking "what
+does it touch" settles the question with the wrong fact, and the answer is then defended rather than
+revisited.
 
 **A candidate touches a sensitive surface when it changes code, values, configuration, fixtures or
 schemas that decide behaviour on that surface.** It does not have to touch that surface's control flow.

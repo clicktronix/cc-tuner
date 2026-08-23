@@ -695,6 +695,12 @@ sensitive-surface impact"* and *"a simple rate constant bump"*. The six surfaces
 the skill's legibility, of exactly the kind the RED baseline was written to catch — and unlike the
 abstentions, it is the failure this scenario exists to detect.
 
+**The first draft of that rule carried the fixture, and a sample quoted it back.** It illustrated the
+classification order with "a five-line change to a fee rate" — which is the probe's own fixture, five
+lines and a `SERVICE_FEE_RATE`. One of eight answers repeated the phrase as its reasoning. This is the
+same mistake, in the same file, that finding 8's first fix made and this journal already records: an
+example shaped like the test measures recall of the example. Rewritten without it, and re-sampled.
+
 **A rule of this repository has to bend here, and it is worth saying which.** "`tests/run.sh` green at
 every commit" and "the rule is committed before the sample that judges it" cannot both hold across a
 skill edit: the hash gate deliberately reddens every scenario that loads a changed file, and the only
