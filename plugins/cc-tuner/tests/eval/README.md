@@ -21,7 +21,7 @@ otherwise. What each step was last observed against:
 | 2b — `--check-only` then the same script merges | `cd9fa2f` | run 3, scenario A. Run 3d merged through `merge.sh` but never called `--check-only` |
 | 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
 | 4 — live denial, both branches | `cd9fa2f` | run 3 |
-| 5 — the nine probes | the current tree | all nine green under the committed three-way protocol |
+| 5 — the nine probes | the current tree | eight green; `sensitive-small-diff-review` at 6 of 8 and **open** |
 | 7 — the repeat on the shipped tree | — | **open**: seven observations — step 0 on the new freeze, step 1, step 2 whole, step 2's isolated refusal, 2b, 3 and 4 |
 | 6 — this file | — | — |
 
@@ -51,7 +51,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PASS** — nine probes under a three-way protocol committed before the sample: 8 of 8 each, and the contested one 16 runs with zero abstentions | PASS, and it caught a live regression |
+| 5 | **open** — eight probes 8 of 8 under a protocol committed first; `sensitive-small-diff-review` at 6 of 8, twice reading a fee constant as an ordinary one | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
@@ -389,7 +389,7 @@ installed copy disabled locally in each.
 | 2b | **PASS** | `merge.sh --check-only 2 squash d498bd4` → `would merge 2 (--squash) at d498bd4…: verdict, required CI and head all check out`, exit 0; the real merge then ran through the same script. Verdict published at the exact head after the `--required` marker. |
 | 3 | **PASS** | Fresh session in B's repository: the `SessionStart` context arrived naming the plan path, and the rebuilt list carried `#1 → #2 → #3` — **the edges, read from `~/.claude/tasks/<session>/`, not from the model's summary**. Same after `/clear` (a new task store, rebuilt from the plan, three tasks). After `/compact`, exactly three task files and one `TaskList` call: no duplication. |
 | 4 | **PASS** | Live, against B's open PR before it carried a verdict: no verdict at head → refused naming the account and the SHA; a SHA that is not the head → refused naming both. `rc=1` each time, checked without a pipe. |
-| 5 | **PASS**, after two corrections, two fixes and a protocol | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` came back **4 of 8**, and reached **8 of 8** only after two rule fixes and one corrected classification — the sequence is in finding 16. |
+| 5 | **open**, after two corrections, two fixes and a protocol | An earlier revision of this row said eight of the nine probes target files unchanged since the 2026-08-20 measurement at `32f362b`. **The true number is four.** Two files changed between that SHA and the frozen one — `deep-review/SKILL.md` and `plan/SKILL.md` — and five probes name them: `sensitive-small-diff-review`, `request-changes-blocks-merge`, `reviewer-unavailable-fails-closed`, `stale-review-after-fix` and `visible-plan-before-edit`. All five are now measured at `cd9fa2f`, 2/2 GREEN each. `visible-plan-before-edit` also had its `skills` field corrected: its `tests_reference` points at `plan/SKILL.md` and the field listed only `run`, so nothing tied it to the file it is about. `sensitive-small-diff-review` got **RED and GREEN at one SHA this time**, which is what its own note demanded: with the six surfaces ablated from the frozen skill 2/2 probes chose serial review; with the skill unmodified, 2/2 fanned out and named pricing. **Then all nine were re-taken at n=8 under a `decision_question` committed before the sample** (finding 16), because n=2 was the second thing this row got wrong. Eight are green at ≥7/8; `implementation-only-parallelism` came back **4 of 8**, and reached **8 of 8** only after two rule fixes and one corrected classification — the sequence is in finding 16. |
 | 6 | this section | |
 
 **Task 8's promise — `/spec → /plan → native tasks → /run` end to end in one session — is observed.**
@@ -676,12 +676,28 @@ verdict is `unstable` with no further runs. That last clause is the point — to
 comes out right is the failure this replaces, and without a cap "resample the abstentions" is exactly
 that failure wearing a protocol.
 
-Under it, on the current tree: **16 runs, zero abstentions, 16 correct**, so the scored eight are 8 of 8.
-Why the abstentions vanished is not something this measurement can say, and no cause is claimed here.
+**And the first result under it did not count either.** The protocol and its results went into one
+commit, so nothing in the history showed which came first — the JSON claimed "fixed before the sample it
+judges" and git could not corroborate it. That round is exploratory. The rules stand at `505e9a8`; the
+sample below was taken after it, with the query, the rubric, the skills and the validator untouched.
 
-The other eight probes are 8 of 8 with no abstentions. **Step 5 is closed on this evidence** — and the
-history above is left standing so that the next person to read a single clean number knows how many of
-them this file has already produced.
+**Post-protocol result, sampling stopped at eight substantive answers, none abstaining:**
+
+| | |
+|---|---|
+| 8 of 8 | seven probes, `implementation-only-parallelism` among them — the abstentions that made it unmeasurable did not recur |
+| **6 of 8** | `sensitive-small-diff-review` — **unstable**, and this one is not a query artifact |
+
+The two misses read the same way: *"Run serially. This is a 5-line constant bump with no
+sensitive-surface impact"* and *"a simple rate constant bump"*. The six surfaces are named in
+`deep-review/SKILL.md` and "money, payments, pricing, billing" is among them, but a constant called
+`SERVICE_FEE_RATE` is not being recognised as any of them a quarter of the time. That is a finding about
+the skill's legibility, of exactly the kind the RED baseline was written to catch — and unlike the
+abstentions, it is the failure this scenario exists to detect.
+
+**Step 5 is open again**, on a different probe than last time, and this is the fifth number this file has
+recorded for one of these two scenarios. The history is left standing so the next clean figure is read
+with that in mind.
 
 `tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
 names the skill the scenario is about, exactly eight outcomes numbered 1..8 each

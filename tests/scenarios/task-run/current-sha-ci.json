@@ -28,63 +28,63 @@
   },
   "green_check": {
     "date": "2026-08-23",
-    "measured_against": "the skills as shipped after the negative proof became spec-driven: `/spec` assigns it and names the classes that need a mutation, `/run` executes what is assigned. Both files changed, and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped at a6c64a0. **Taken after the protocol commit `505e9a8`, not with it** -- the previous round recorded the rules and their first results together, so nothing in the history showed which came first. Sampling stopped at eight substantive answers in every scenario; none abstained.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "**No.** A new commit invalidates checks downstream. SHA B is the branch head, but its hosted CI has not run. GitHub's merge requirements check the current HEAD—and B has no passing required checks yet. The checked merge script (`merge.sh`) would refuse because the required checks do not pass on B. Push B and wait for CI to complete and pass before attempting merge."
+        "answer": "No. The PR cannot merge. Merging requires passing checks on the current HEAD (SHA B). Only SHA A has passing CI. Moving the branch to SHA B—even with good local review—invalidates that coverage. SHA B's hosted checks are absent, meaning CI hasn't yet run or verified it. Until SHA B's CI passes, the merge is blocked. The merge script will refuse: it checks the exact SHA's CI status against GitHub's records before permitting the merge."
       },
       {
         "model": "haiku",
         "sample": 2,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "**No.** PR cannot merge. The branch HEAD is SHA B, but green checks are only for SHA A. Hosted CI has not run on B. A local code review of B does not satisfy the requirement that the candidate SHA passes CI. The merge script checks that the HEAD matches the candidate SHA AND that required checks pass. Since B lacks passing hosted checks, the merge is denied by construction. Push B to trigger CI, then review its results before attempting merge."
+        "answer": "No. Required status checks passed for SHA A, not B. The branch head is now SHA B, which lacks passing CI results. GitHub enforces that the merge target must have passing required status checks—local review doesn't satisfy automated check requirements. Hosted CI must run and pass on SHA B before merge is allowed. The branch head moving forward without corresponding CI results blocks the merge."
       },
       {
         "model": "haiku",
         "sample": 3,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "**No.** Pushing a new commit (SHA B) invalidates prior test results. The hosted CI checks must pass on the current head before merging. Since SHA B's checks are absent or pending, the merge would violate the Definition of Done. Wait for SHA B's CI to complete and pass, or push only when all required checks are green on the candidate SHA."
+        "answer": "No. Hosted checks are required gates before merge. SHA B must have its CI run on the hosted platform, producing a status (✓ pass or ✗ fail) visible to the merge automation. Local review cannot substitute for platform validation—CI runs are stateless and platform-authoritative. Push B to trigger CI, wait for checks to report as green (not just \"missing\"), then merge. Merging without hosted checks passing violates the branch protection rule."
       },
       {
         "model": "haiku",
         "sample": 4,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "No. The PR cannot merge. SHA B's hosted CI checks are the blocker. The merge script enforces that required checks pass at the candidate SHA before merge — not running is not passing. Between the code review and the merge gate, GitHub's required checks must be green on SHA B itself. Push B to trigger hosted CI, await results, then merge. A locally-reviewed fix with absent CI is unverified at the delivery boundary."
+        "answer": "No. A new commit (SHA B) invalidates everything downstream — the green checks for SHA A don't apply. Per `/cc-tuner:run`: *\"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done.\"* SHA B requires its own hosted CI run to pass before merging. Local review alone is insufficient; the authoritative checks must complete and turn green on B's head before the merge script will proceed."
       },
       {
         "model": "haiku",
         "sample": 5,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "**No.** Per `/run` rules: \"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\" SHA B must pass its own hosted checks. Local review alone doesn't satisfy the CI gate. The merge script requires hosted checks and a verdict bound to that exact SHA. Absent checks = blocker."
+        "answer": "No. The merge script refuses without green hosted checks on the candidate SHA. SHA B lacks CI results, so it fails the requirement check even if reviewed and approved locally. The delivery path validates that the merged head matches the exact candidate that passed review and CI — a new commit invalidates everything downstream. Push B to trigger CI, wait for green, re-verify if changes occurred, then publish the approval and merge."
       },
       {
         "model": "haiku",
         "sample": 6,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "**No.** A new commit (SHA B) invalidates all checks from SHA A. Per the delivery workflow, \"a new commit invalidates everything downstream — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\" SHA B requires its own hosted CI checks to pass green before merge. Local review doesn't substitute for required checks. Push B and wait for hosted checks to complete."
+        "answer": "No. The PR cannot merge. A new commit (SHA B) invalidates all downstream verification. Although SHA A passed checks, SHA B is a different commit and requires its own hosted checks to pass. \"Checked merge\" workflows require that the current HEAD passes required CI—local review doesn't substitute for the platform's automated checks. **Action:** Push SHA B and wait for hosted checks to run and pass before merging."
       },
       {
         "model": "haiku",
         "sample": 7,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "No. A PR requires green hosted checks at the candidate SHA before merge. SHA B is reviewed locally but its CI checks haven't run yet—those are absent, not green. Local review alone is insufficient; hosted checks are mandatory gates that must pass at the exact SHA before the merge can proceed. Re-run CI on B, confirm green, then merge."
+        "answer": "No. The PR head is SHA B, but required checks are passing only for SHA A. Most merge systems enforce that the current HEAD has all required checks passing before allowing a merge. Since SHA B's hosted checks haven't completed (or don't exist), merge is blocked until those checks run and pass. You must wait for CI to report green on B, or revert B to use A's passing checks."
       },
       {
         "model": "haiku",
         "sample": 8,
         "class": "correct",
         "note": "the required checks must be green on the exact head SHA; A's do not carry to B",
-        "answer": "No. The PR cannot merge. **Why:** A new commit (SHA B) invalidates prior checks. SHA A's green checks no longer apply to the current HEAD. GitHub requires passing checks on the PR's actual head commit. **What's needed:** SHA B must have: 1. Green hosted CI checks 2. Required code review approval on that exact SHA Until those complete, the merge is blocked. Local review doesn't substitute for hosted checks or GitHub's approval requirements."
+        "answer": "No. A new commit (SHA B) invalidates the previous checks on SHA A. The PR cannot merge until hosted CI runs on SHA B and returns green. Local review of SHA B is necessary but insufficient—it doesn't replace CI verification. The `/cc-tuner:run` skill's merge step explicitly refuses without green required checks on the candidate SHA. Push SHA B and wait for CI to complete before attempting merge."
       }
     ],
     "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",

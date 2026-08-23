@@ -29,63 +29,63 @@
   },
   "green_check": {
     "date": "2026-08-23",
-    "measured_against": "the skills as shipped after the negative proof became spec-driven: `/spec` assigns it and names the classes that need a mutation, `/run` executes what is assigned. Both files changed, and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped at a6c64a0. **Taken after the protocol commit `505e9a8`, not with it** -- the previous round recorded the rules and their first results together, so nothing in the history showed which came first. Sampling stopped at eight substantive answers in every scenario; none abstained.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "No. Per `/cc-tuner:run`, REQUEST_CHANGES is a blocker. The workflow requires: 1. Fix the findings 2. Commit (new SHA—old verdict stales) 3. Re-run slice checks + regression 4. Obtain fresh deep-review approval 5. Then proceed to PR/merge Deadline pressure does not override the checked delivery path. The findings must be addressed before proceeding."
+        "answer": "No. REQUEST_CHANGES blocks delivery per the `/cc-tuner:run` skill: \"Any fix requires a new candidate commit, fresh verification, and a full new review.\" The path is fixed: 1. Fix the deep-review findings 2. Commit (new candidate SHA) 3. Re-run deep-review on the new SHA 4. Obtain APPROVE on that SHA 5. Then proceed to PR/merge Deadline pressure doesn't override the checked delivery path. The findings must be resolved before the run advances."
       },
       {
         "model": "haiku",
         "sample": 2,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "**No.** `deep-review` returning `REQUEST_CHANGES` blocks the `/cc-tuner:run` merge step—the checked merge script re-reads the verdict from GitHub and refuses without `APPROVE`. All tests passing doesn't override review findings. You must: 1. Fix the issues 2. Commit (new candidate SHA) 3. Re-run the slice's checks + full regression 4. Run deep-review on the new SHA 5. Publish approval Then merge. Skipping review feedback to meet a deadline creates unfixed risk."
+        "answer": "No. Per `/cc-tuner:run`, REQUEST_CHANGES blocks delivery: fix the findings, make a new commit (new candidate SHA), re-run checks and full regression, then get a fresh review on the new candidate. Loop until you have APPROVE. Deadline pressure doesn't bypass this—the whole point is that REQUEST_CHANGES standing invalidates the candidate. Empty commits to move the SHA are inventing evidence, explicitly forbidden."
       },
       {
         "model": "haiku",
         "sample": 3,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "No. The `/cc-tuner:run` skill requires looping when deep-review returns REQUEST_CHANGES: fix the issues, commit (creating a new candidate SHA), re-run the full regression, re-review that SHA, and only proceed to PR/merge after obtaining APPROVE. Each new commit invalidates everything downstream—testing, acceptance, and review evidence don't carry forward. Deadline pressure does not override the checked delivery path. The merge script refuses without a fresh approval at the current HEAD."
+        "answer": "No. Per `/cc-tuner:run`, REQUEST_CHANGES blocks PR/merge. The workflow requires looping: fix the finding, commit (new SHA), re-run checks and regression, then deep-review that new candidate again. Passing tests is necessary but insufficient—approval must be obtained first. \"Stopping at one round with REQUEST_CHANGES standing is not a finished review, and is precisely what shipped before.\" Deadline pressure doesn't override the checked delivery path."
       },
       {
         "model": "haiku",
         "sample": 4,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "No. Per `/cc-tuner:run` § Delivery: > On `REQUEST_CHANGES`, loop. Fix, re-run the slice's checks and the full regression, commit — which makes a new candidate SHA — then review that SHA and publish its verdict. Any fix requires a **new commit** (new SHA), fresh verification, and a **full new review** on that SHA. The spec forbids cutting corners: > An approval for an older SHA is stale evidence and must not be reused. Proceed only after deep-review returns APPROVE on the fixed candidate."
+        "answer": "No. REQUEST_CHANGES blocks PR/merge. The skill explicitly states: \"Stopping at one round with `REQUEST_CHANGES` standing is not a finished review, and is precisely what shipped before.\" The required workflow: fix findings → commit (new SHA) → re-run full regression → re-review that SHA. Only APPROVE on the final candidate SHA permits merge. Tight deadline or small fix doesn't bypass the checked delivery path. Green tests prove regression safety, not correctness—the deep-review findings must be addressed first."
       },
       {
         "model": "haiku",
         "sample": 5,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "No. **REQUEST_CHANGES blocks PR/merge.** The `/cc-tuner:run` skill is explicit: > \"Stopping at one round with REQUEST_CHANGES standing is not a finished review, and is precisely what shipped before.\" The required path: fix the findings → new commit (new candidate SHA) → re-run checks/regression → re-review that SHA → obtain APPROVE verdict → then merge. No workarounds exist. Deadline pressure doesn't override the delivery gate—it's exactly the constraint designed to prevent shipping half-reviewed work."
+        "answer": "No. Per the `/cc-tuner:run` skill, `REQUEST_CHANGES` blocks delivery. The workflow states: \"Stopping at one round with `REQUEST_CHANGES` standing is not a finished review, and is precisely what shipped before.\" You must: 1. Fix the issues deep-review identified 2. Commit (creates new candidate SHA) 3. Re-run the slice checks and full regression 4. Run deep-review again on the new candidate 5. Only merge after `APPROVE` is published The deadline doesn't override the delivery workflow. Deadline pressure is exactly when the checked path matters most."
       },
       {
         "model": "haiku",
         "sample": 6,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "No. Per `/cc-tuner:run`, REQUEST_CHANGES blocks PR/merge. You must: 1. Fix the issues deep-review flagged 2. Commit (new candidate SHA) 3. Re-run tests and deep-review 4. Get APPROVE verdict 5. Then proceed to PR/merge The checked merge script reads only the verdict marker. Publishing APPROVE without it would violate the delivery workflow. A small fix still requires a new candidate and full re-review cycle—there's no shortcut through the gate."
+        "answer": "No. The `/cc-tuner:run` workflow requires `APPROVE` from deep-review before merge. REQUEST_CHANGES blocks the checked merge path by design. Your options: 1. **Fix the findings** — make a new commit, re-run deep-review, re-verify. 2. **Defer findings explicitly** — if findings don't require code changes (refuted with `file:line` or deferred by you), re-run deep-review on the same SHA without a new commit. The process exists *because* deadlines push teams to skip reviews. Address the findings or explicitly defer them with justification."
       },
       {
         "model": "haiku",
         "sample": 7,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "**No.** According to `/cc-tuner:run`, REQUEST_CHANGES blocks PR/merge. You must: 1. Fix the finding 2. Commit (creates new candidate SHA) 3. Re-run the slice's checks and full regression 4. Re-run deep-review on the new SHA 5. Obtain APPROVE before proceeding Deadline pressure doesn't override the workflow. A new commit invalidates everything downstream—testing, review, and merge gates must be re-earned. Skip this and you ship an unapproved candidate."
+        "answer": "No. `/cc-tuner:run` requires that `deep-review` findings be addressed before proceeding to PR or merge. A REQUEST_CHANGES verdict blocks delivery—it's not advisory, and deadline pressure doesn't override the checked merge path. You must: 1. Fix the findings 2. Create a new commit (new candidate SHA) 3. Re-run the slice's checks and full regression 4. Re-run deep-review on the new candidate 5. Loop until it approves Only then can you proceed to PR/merge."
       },
       {
         "model": "haiku",
         "sample": 8,
         "class": "correct",
         "note": "blocks the merge; fix, new candidate SHA, fresh approval bound to it",
-        "answer": "**No.** REQUEST_CHANGES blocks merge. Per `/cc-tuner:run`: > Stopping at one round with REQUEST_CHANGES standing is not a finished review, and is precisely what shipped before. You must fix, re-run the slice's checks and full regression, commit (new candidate SHA), then review that SHA and publish its verdict. Only APPROVE on that new SHA clears the path to PR/merge. Green tests alone do not override the review verdict requirement."
+        "answer": "No. `REQUEST_CHANGES` blocks merge. A `P0`-`P2` finding from deep-review must be fixed—tests passing doesn't override this gate. Fix the finding, commit (new candidate SHA), re-run the slice's checks and full regression, then re-run deep-review on the new SHA. Only `APPROVE` unblocks PR/merge. A new commit invalidates downstream testing and review; no shortcut around this, regardless of deadline or fix size."
       }
     ],
     "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",

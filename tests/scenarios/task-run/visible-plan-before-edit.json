@@ -29,63 +29,63 @@
   },
   "green_check": {
     "date": "2026-08-23",
-    "measured_against": "the skills as shipped after the negative proof became spec-driven: `/spec` assigns it and names the classes that need a mutation, `/run` executes what is assigned. Both files changed, and every one of these scenarios loads `run/SKILL.md`.",
+    "measured_against": "the skills as shipped at a6c64a0. **Taken after the protocol commit `505e9a8`, not with it** -- the previous round recorded the rules and their first results together, so nothing in the history showed which came first. Sampling stopped at eight substantive answers in every scenario; none abstained.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "**Before editing:** 1. **Run `/cc-tuner:plan`** — converts the spec's three tasks into sliced, committed plan file with blocking edges 2. **Publish tasks** — `TaskCreate` for each slice, then `TaskUpdate addBlockedBy` to wire dependencies 3. **Verify `TaskList`** — confirm edges match the plan Only then take the lowest-numbered `pending` task with empty `blockedBy`. The plan file is the durable store; the task list is the visible frontier."
+        "answer": "Create and publish the committed plan from the spec, then create the visible task list. The plan is the durable store; the task list with dependency edges is the frontier. Without published tasks with blocked edges, there's no way to enforce that slices run in order. Edit only after `TaskList` shows the slice dependencies correctly."
       },
       {
         "model": "haiku",
         "sample": 2,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Before editing, you must: 1. **Create the plan** – run `/cc-tuner:plan <spec-path>` to break the three tasks into tracer-bullet slices, specify blocking edges, and commit the plan file. 2. **Publish visible tasks** – use `TaskCreate` for each slice, then `TaskUpdate` with `addBlockedBy` to wire the edges. This surfaces the frontier and prevents editing from a task that is still blocked. Without this, you're working blind to what unblocks what."
+        "answer": "Before editing: **create and publish the plan.** 1. Run `/cc-tuner:plan <spec-path>` to decompose the spec into slices, write the plan file, and commit it. 2. Publish the plan as a visible task list: `TaskCreate` for each slice (in order), then `TaskUpdate addBlockedBy` for every dependency edge. 3. Verify `TaskList` shows the slices with correct blocking edges. Only then read the spec, identify the first unblocked task, and start the slice work."
       },
       {
         "model": "haiku",
         "sample": 3,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Run `/cc-tuner:plan` with the spec path. It creates and commits a plan file, validates it, then publishes slices as tasks with `TaskCreate`, adding dependency edges via `TaskUpdate`. This establishes the visible task list and blocking relationships that `/cc-tuner:run` will read before starting work on the first source file."
+        "answer": "Before editing: **publish the plan's visible task list.** The plan file exists (committed), but `TaskList` is empty. Run two passes: 1. **TaskCreate** for each slice, in order—subject = title, description = deliverable + acceptance criteria 2. **TaskUpdate addBlockedBy** for each slice to wire its blocking edges Then `TaskList` to verify edges match the plan file. The task list is the frontier: it shows what's unblocked and ready now. Work only from it, not the plan file alone."
       },
       {
         "model": "haiku",
         "sample": 4,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Before editing, you must: 1. **Create a committed plan** from the spec using `/cc-tuner:plan` — it validates the spec, slices the work, writes the plan file, lints it, and commits it. 2. **Publish the plan as visible tasks** — two passes: `TaskCreate` for each slice (in order), then `TaskUpdate addBlockedBy` for all dependency edges. 3. **Verify the task list** shows correct dependencies via `TaskList`. Only then proceed to source edits."
+        "answer": "Before editing, invoke `/cc-tuner:plan` (or `superpowers:writing-plans` if that skill applies) to convert your spec into a committed plan file and publish the task list. The spec is your input; the plan is the durable store. A visible task list with dependency edges must exist before starting work—otherwise the three tasks have no frontier enforcement and no way to track completion across sessions. This happens once per branch, before any code touches."
       },
       {
         "model": "haiku",
         "sample": 5,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Before editing the first source file: 1. **Create a plan from the spec** — run `/cc-tuner:plan <spec-path>` to slice the work into tracer bullets and produce a committed plan file. 2. **Publish visible tasks** — run `TaskCreate` for each slice, then `TaskUpdate` with blocking edges, so the task list reflects the plan's dependencies. 3. **Verify TaskList** shows the plan's slices with correct edges. Without this, editing is untracked and the spec's acceptance criteria are invisible to the workflow."
+        "answer": "Commit the spec. Run `/cc-tuner:plan` to produce and commit a plan file. Publish the plan as tasks: `TaskCreate` for each slice in order (title + acceptance criteria), then `TaskUpdate addBlockedBy` for each dependency edge. `TaskList` to verify edges match the plan. Only then edit — the visible task list enforces the dependency graph and prevents work out of order."
       },
       {
         "model": "haiku",
         "sample": 6,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Before editing, you must: 1. **Run `/cc-tuner:plan`** to decompose the spec into slices with explicit blocking edges 2. **Publish tasks** via `TaskCreate` for each slice (in order), then `TaskUpdate` with `addBlockedBy` for dependencies 3. **Verify the task list** with `TaskList` to confirm edges are correct Only then work the frontier (lowest-numbered pending task with empty `blockedBy`), ticking the plan file as each slice completes."
+        "answer": "Before editing the first source file: 1. **Create the plan** — Run `/cc-tuner:plan <spec-path>` to generate and commit the plan file, breaking the spec into slices with explicit dependencies. 2. **Publish visible tasks** — Use TaskCreate for each slice (in order), then TaskUpdate with `addBlockedBy` for every dependency edge. This makes the plan's slices visible in the task list. Only then start editing. The committed plan file and visible task list are the durable store—the work proceeds from them."
       },
       {
         "model": "haiku",
         "sample": 7,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "Before editing: **publish the plan as visible tasks**. You have the spec (input) and implicitly a plan, but no visible task list. Per `/cc-tuner:run`, two passes are required: 1. **TaskCreate** for each slice (in order) 2. **TaskUpdate addBlockedBy** for each blocking edge Then verify edges with **TaskList** before starting work. The task list is the frontier that guides which slice to work next—without it published, you're flying blind on dependencies and completion state."
+        "answer": "Run `/cc-tuner:plan` on the spec to create a committed plan file with slices and dependencies. Then publish it as visible tasks using `TaskCreate` and `TaskUpdate addBlockedBy`. The plan establishes the work frontier—which slices are unblocked—before any edits begin. Editing without this invites lost work and broken dependencies."
       },
       {
         "model": "haiku",
         "sample": 8,
         "class": "correct",
         "note": "publishes the task list -- TaskCreate per slice, addBlockedBy per edge -- before the first edit",
-        "answer": "**Create and publish the plan.** 1. Run `/cc-tuner:plan` to convert the spec into a committed plan file with slices, blockers, and acceptance criteria. 2. Run `TaskCreate` for each slice (in order), then `TaskUpdate` with `addBlockedBy` to link dependencies. 3. Verify `TaskList` shows all slices with correct edges before editing. Only then can you work the plan in frontier order — lowest-numbered pending task with empty `blockedBy`."
+        "answer": "Create and publish the plan. Run `/cc-tuner:plan` with the spec path to slice the work, validate the plan file with `plan-lint`, and commit it. Then use `TaskCreate` for each slice (in order) and `TaskUpdate addBlockedBy` to wire their dependencies. Only then does the visible task frontier exist and the first edit can proceed under task discipline. The plan file is durable across sessions; the task list disappears."
       }
     ],
     "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
