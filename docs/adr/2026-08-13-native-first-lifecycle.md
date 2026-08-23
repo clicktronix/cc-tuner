@@ -298,7 +298,10 @@ workflow discipline against an agent's mistake and must not be described as anyt
 
 ## Consequences
 
-- The runtime becomes a skill, one checked merge script and a setup check. No new language: with no state
+- The runtime becomes a skill, one checked merge script, a mutation harness the spec's negative proof
+  runs through, and a setup check. `mutate.sh` was added on 2026-08-22 and is the one piece here that
+  grew rather than shrank; it is invoked only where a spec assigns a negative proof, which is what
+  keeps it off the path of an ordinary slice. No new language: with no state
   machine there is no controller to port, and what remains reads `git`, `gh` and the plan file.
 - **The plan is advisory in attended mode.** With the mutation fence gone, nothing stops an edit before
   a plan exists except the model following its instructions and the user watching. Recorded as a

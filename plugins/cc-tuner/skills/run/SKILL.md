@@ -75,8 +75,16 @@ revision of this skill said only "work it, complete it", which is not a discipli
 
 - **RED before GREEN.** Write the failing check first and run it; record the failure. A check that
   was never seen failing has not been shown to test anything.
-- **Prove the guard by removing it, through the script.** Revert the behaviour the check guards and
-  confirm the check goes RED:
+- **Run the negative proof the spec assigned, through the script — not one per slice.** The spec's
+  `Negative/mutation proof` line says what has to be shown, and `not applicable — <reason>` with an
+  alternative baseline or diff check is a legitimate answer there. Execute what it names; do not
+  invent a mutation for a slice whose spec did not ask for one, and do not skip one it did.
+
+  Where a spec should be asking for it, because a check that does not bite is indistinguishable from
+  one that does: **fail-closed guards, validators and parsers, recovery paths, and any regression test
+  for a defect that shipped once.**
+
+  When it applies, revert the behaviour the check guards and confirm the check goes RED:
 
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" <file> "<test command>" "<command that edits \$MUTATE_FILE>"

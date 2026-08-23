@@ -28,64 +28,64 @@
     "verdict": "partial hold; exact DoR fields and the unattended no-invention rule remain useful"
   },
   "green_check": {
-    "date": "2026-08-22",
-    "measured_against": "the skills as shipped after `run/SKILL.md` was reduced to the mutate.sh invocation plus a pointer to its `--help`, and after `placement.md` said whether a unit may run its own checks. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
+    "date": "2026-08-23",
+    "measured_against": "the skills as shipped after `run/SKILL.md` made the negative proof spec-driven rather than one per slice. Every one of these scenarios loads `run/SKILL.md`, so all nine were re-measured.",
     "runs": [
       {
         "model": "haiku",
         "sample": 1,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. The spec is incomplete. `/cc-tuner:run` reads the spec and stops if it lacks required detail. A pending test command, missing expected failure, or unstated regression test violates Definition of Ready — the spec cannot proceed to `/plan` without them. `run tests` is not an executable contract. Return to `/cc-tuner:spec` and grill the problem until commands, failures, environment, and fixtures are explicit."
+        "answer": "No. `/run` cannot start implementation. The spec violates Definition of Ready: it lacks the exact regression test path, the precise test command, the expected failure, environment/fixtures, and the negative/mutation proof. Per `/cc-tuner:spec`, a pending \"run tests\" (unknown command, unstated expected failure) means the spec is not ready. **Next step:** Return to `/cc-tuner:spec` and grill until the test plan is explicit and complete. Only then can `/run` work the plan."
       },
       {
         "model": "haiku",
         "sample": 2,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. The spec is incomplete. `/run` requires Definition of Ready to include: - Exact test command - Expected failure (specific assertion/error proving the gap) - Environment, fixtures, external dependencies - Negative/mutation proof (how the test fails without the fix) \"Run tests\" is a placeholder. A pending unknown test command means the spec is not ready. Return to `/cc-tuner:spec` to grill the problem and write the executable test plan before `/run` can work it."
+        "answer": "No. `/run` refuses to start. The spec violates the Definition of Ready. It must name: - The **exact regression test** (file and assertion) - **First failing check** command and expected failure (specific error/assertion) - **Environment, fixtures, test data** - **Negative/mutation proof** — how the test dies without the fix \"Run tests\" is not an executable contract. A pending TBD or unknown command means the spec is not ready (per `/cc-tuner:spec` section 5). The spec must return to grilling before `/run` proceeds."
       },
       {
         "model": "haiku",
         "sample": 3,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. The spec violates the Definition of Ready: a pending unknown test command or unstated expected failure blocks `/run`. Per `/cc-tuner:spec`, these prevent readiness: - No named regression test - No exact command or expected failure - No environment/fixtures - No mutation proof `/run` requires a complete, committed spec. Return to `/cc-tuner:spec`, grill to resolve these gaps, then rewrite the verification section with concrete commands and baselines. Only then is implementation ready."
+        "answer": "No. The spec fails the Definition of Ready. The `/cc-tuner:spec` skill requires: - **Test plan: commands, expected first failure, environment, and data are explicit** - \"A pending `TBD`, 'as appropriate', unknown test command, or unstated expected failure means the spec is not ready.\" Missing the regression test, exact command, expected failure, environment, fixtures, and mutation proof leaves the test plan incomplete. `/run` reads the spec's test plan to verify the fix—a spec that says only \"run tests\" has no plan. **Refusal point**: Before the loop starts, `/run` checks the Definition of Ready. It stops here and asks the user to complete the spec via `/cc-tuner:spec` first."
       },
       {
         "model": "haiku",
         "sample": 4,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. The spec violates Definition of Ready. A pending test command (\"run tests\"), expected failure, environment, and fixtures must be explicit before `/run` starts. The skill says: \"Pending `TBD`, 'as appropriate', unknown test command, or unstated expected failure means the spec is not ready.\" Additionally, `/run` requires \"RED before GREEN\" — write the failing check and record its failure before implementation. Go back to `/cc-tuner:spec` to complete the test plan."
+        "answer": "No. `/run` stops before implementation. The spec is incomplete per the Definition of Ready: \"A pending `TBD`, 'as appropriate', unknown test command, or unstated expected failure means the spec is not ready.\" A test plan that says only \"run tests\" lacks: - The exact regression test path and command - The first failure evidence - Expected failure specificity - Environment and fixtures - The negative/mutation proof `/run` reads the spec to learn target, merge strategy, and acceptance criteria—it does not repair them. Hand back to `/cc-tuner:spec` to complete the test plan section before `/run` can start."
       },
       {
         "model": "haiku",
         "sample": 5,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. The spec violates `/cc-tuner:spec`'s Definition of Ready: it omits the exact regression test path, the first-failing command with expected output, environment/fixtures, and mutation proof. `/run` requires these *before* implementation — they let it prove RED before GREEN and guard the fix. A spec saying only \"run tests\" is incomplete; it must name the test, the command, the failure, and the data. `/run` will stop and refuse both `--auto` and manual modes until DoR is complete."
+        "answer": "**No.** The spec is not ready. Per the spec instructions: > A pending `TBD`, \"as appropriate\", unknown test command, or unstated expected failure means the spec is not ready. An incomplete spec lacking the exact regression test, command, expected failure, environment, fixtures, and negative/mutation proof violates the Definition of Ready. `/run` reads the committed spec and stops if verification details are missing—it cannot infer them. Return to `/cc-tuner:spec` and complete the test plan section before attempting `/run`."
       },
       {
         "model": "haiku",
         "sample": 6,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. The spec is incomplete. `/run` requires Definition of Ready items the spec omits: - **Regression test**: which test file and specific assertion - **First failing check**: the exact command (e.g., `npm test --testNamePattern=\"...\"`) - **Expected failure**: the specific assertion or error proving the gap exists *before* the fix - **Environment/fixtures**: services, test data, credentials boundary \"Run tests\" is a direction, not a decision. Without naming *which* test fails *how*, implementation has no proof the bug exists or that a fix works. The `/run` skill's \"RED before GREEN\" rule requires observing that failure first—you cannot skip to green without establishing red. Send the spec back for completion before `/run` starts."
+        "answer": "No. The spec violates the Definition of Ready. `/cc-tuner:run` reads the spec's test plan to verify commands, expected failure, environment, fixtures, and negative proof are explicit. \"Run tests\" alone does not meet that bar—it names neither the command, expected failure, nor mutation proof. The spec must return to `/cc-tuner:spec` for grilling before `/run` proceeds. A spec gap is not a `/run` blocker to work around; it is a spec problem to fix first."
       },
       {
         "model": "haiku",
         "sample": 7,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. `/run` requires a ready spec. A pending `TBD`, unknown test command, unstated expected failure, or unspecified environment means the spec is not ready — it must go back to `/cc-tuner:spec` for grilling. `/run` works committed plans; `/spec` discovers and validates them. A spec that says only \"run tests\" has not resolved first failure, command, environment, or proof—the DoR is incomplete. `/run` cannot fill gaps; it can only execute against a complete spec."
+        "answer": "No. `/run` checks that the spec's Definition of Ready is complete before starting. A spec naming only \"run tests\" without the exact command, expected first failure, environment, fixtures, or negative proof **fails the DoR check** — it violates the \"commands, expected first failure, environment, and data are explicit\" requirement. The spec would not pass `plan-lint check`, and `/run` stops before phase 0. The spec must be grilled to completion first."
       },
       {
         "model": "haiku",
         "sample": 8,
         "pass": true,
         "note": "refuses; requires the exact first failing command and the failure that proves the gap",
-        "answer": "No. `/run` explicitly requires the spec to have: - Explicit test commands and expected first failure - Environment and fixture details - Negative/mutation proof The skill states: \"A pending TBD, 'as appropriate', unknown test command, or **unstated expected failure** means the spec is not ready.\" A spec that only says \"run tests\" fails Definition of Ready. `/run` refuses specs with unfilled verification and stops before touching implementation."
+        "answer": "No. `/run` reads the spec's test plan to learn the exact command, expected failure, environment, and fixtures — it cannot work from `TBD` or \"as appropriate.\" Per `/cc-tuner:spec` DoR: *\"A pending TBD, unknown test command, or unstated expected failure means the spec is not ready.\"* The spec must name the regression test path, the exact failing command, the expected error, environment/fixtures, and negative/mutation proof before `/run` can begin. `/run` stops and refuses to start if these are missing. Return to `/cc-tuner:spec` to complete the Definition of Ready first."
       }
     ],
     "protocol": "n=8 isolated haiku probes per scenario (`claude -p --model haiku --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'`), the files in `measured_targets` supplied as --append-system-prompt, every answer kept whole in `runs[].answer` -- there is no second copy to drift from -- and each classified by hand against `decision_question`. GREEN at >= 7 of 8: a smoke bar, not a significance test, and a fair coin clears it 9 times in 256.",
@@ -96,7 +96,7 @@
     "verdict": "green"
   },
   "measured_targets": {
-    "plugins/cc-tuner/skills/run/SKILL.md": "ad422c7a0d48e33bb71f668da040625b2a6a1f0e08dd7e1220e37816c903510b",
+    "plugins/cc-tuner/skills/run/SKILL.md": "ce81840eb0a6b4d492344f5daa86139db4f5c11c6d207015a8f08a597054a437",
     "plugins/cc-tuner/skills/spec/SKILL.md": "45013f3cf441ac9ad623decfd009d9f1da57135dd4f10b82ca14160808eb4657"
   },
   "decision_question": "Does it refuse to implement, and require the exact first failing command plus the failure that proves the gap?"

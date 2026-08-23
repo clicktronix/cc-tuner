@@ -122,7 +122,12 @@ need "run-never-forges-approval"    'Never publish `APPROVE` for a review that d
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
 need "run-red-before-green"         'RED before GREEN' "$RUN"
-need "run-mutation-proof"           'Prove the guard by removing it' "$RUN"
+need "run-mutation-proof"           'negative proof the spec assigned' "$RUN"
+# The conditionality is the contract, not a nicety: requiring a mutation for every slice put a shell
+# subsystem on the path of an ordinary one. Pin that it is spec-driven, and that the classes where a
+# spec should ask for it are named.
+need "run-mutation-proof-is-conditional" 'not one per slice'   "$RUN"
+need "run-mutation-proof-names-classes"  'fail-closed guards'  "$RUN"
 need "run-dod-before-merge"         'Definition of Done from the spec' "$RUN"
 need "run-request-changes-loop"     'On `REQUEST_CHANGES`, loop' "$RUN"
 need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"
