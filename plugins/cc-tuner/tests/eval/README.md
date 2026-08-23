@@ -665,6 +665,10 @@ counts. It now classifies each run three ways rather than two:
 - **correct** — a concrete decision matching the `decision_question`;
 - **incorrect** — a decision that breaks or half-states it;
 - **abstain** — no decision offered, typically a request for the spec the query says it does not have.
+  A hedged answer is not one: "I need the spec … once I see it, typically independent code changes can
+  write concurrently but testing and review stay sequential" states a rule and is scored on it. I read
+  that one as an abstention and a reviewer corrected me — the line is *was a decision offered*, not *was
+  it offered confidently*.
 
 At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at ≥ 7 of those 8; every
 abstention is kept and its rate published; and if 16 runs do not yield eight substantive answers the
