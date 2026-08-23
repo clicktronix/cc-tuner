@@ -67,8 +67,7 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   heading_tail = $0; sub(/^##[ \t]+Slice[ \t]+[0-9]+/, "", heading_tail)
   if (heading_tail !~ /^[ \t]+[-—–:][ \t]*[^ \t]/)
     err[++e] = "slice " n " heading needs a separator and title (use \"## Slice " n " — Title\")"
-  title = $0; sub(/^##[ \t]+Slice[ \t]+[0-9]+[ \t]*/, "", title)
-  sub(/^[-—–:][ \t]*/, "", title)
+  title = heading_tail; sub(/^[ \t]*[-—–:][ \t]*/, "", title)
 
   if (n in seen) { err[++e] = "slice " n " is declared twice" }
   seen[n] = 1
@@ -98,7 +97,9 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
   # A checkbox outside a slice is the mistake that loses the graph: acceptance criteria read as
   # slices, and the restore comes back with no titles and no edges.
   if (cur == "") { err[++e] = "checkbox outside any slice: " trim($0); next }
-  ticked = ($0 ~ /\[[xX]\]/) ? 1 : 0
+  # The box decides, not the text beside it. Scanning the whole line marked `- [ ] handle the [x]
+  # flag` as done, and a slice is done when all its criteria are, so the plan finished itself.
+  ticked = ($0 ~ /^[ \t]*-[ \t]*\[[xX]\]/) ? 1 : 0
   t = $0; sub(/^[ \t]*-[ \t]*\[[ xX]\][ \t]*/, "", t)
   ci[cur, ++cn[cur]] = trim(t)
   ct[cur, cn[cur]]   = ticked
@@ -112,7 +113,6 @@ END {
 
   for (i = 1; i <= count; i++) {
     n = order[i]
-    if (titles[n] == "") err[++e] = "slice " n " has no title"
     # A fourth check, beyond the three the plan names. Progress is derived from the checkboxes, so a
     # slice with none can never be done: it stays open forever and the restore hook resurrects it in
     # every session. A plan that cannot finish is worth catching where it is written.
@@ -175,12 +175,10 @@ END {
     # Normalised, not raw. The restore hook reads this field and does not re-parse it: emitting the
     # text as written meant Blocked by: #1 validated here, because the check strips non-digits, and
     # then arrived at the hook as #1, which matched no slice, so the edge vanished silently.
-    b = (n in blocked) ? blocked[n] : ""
+    b = blocked[n]
     if (b == "none") { b = "-" } else {
       m = split(b, parts, /[ \t]*,[ \t]*/); b = ""
-      for (j = 1; j <= m; j++) { p = trim(parts[j])
-        if (p != "") b = (b == "") ? p : b "," p }
-      if (b == "") b = "-"
+      for (j = 1; j <= m; j++) b = (b == "") ? trim(parts[j]) : b "," trim(parts[j])
     }
     printf "SLICE\t%s\t%s\t%s\t%s\n", n, state, b, titles[n]
     for (k = 1; k <= cn[n]; k++) {

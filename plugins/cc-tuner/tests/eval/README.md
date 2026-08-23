@@ -33,9 +33,8 @@ with no open checkpoint while this file and the ADR both said the task was unfin
 `EVALUATED_SHA` proves only that *some* of the eval ran on the shipped surface, which is less than it
 reads like, and that gap is why the claim above could be wrong while the suite stayed green.
 
-Do not start that freeze while the post-eval remediation plan still has unresolved items that can
-change production skills or scripts. A live pass before those decisions would become stale by design,
-not by accident.
+When that freeze may start is Step 7's own precondition and is stated there, in
+`docs/superpowers/plans/2026-08-13-native-first-lifecycle.md`.
 
 Two checks do hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any probe is
 unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the

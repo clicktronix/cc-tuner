@@ -267,6 +267,8 @@ Delivers: d
 ')"
 check "blocker-token-is-exact" "not a slice number" "$(lint check "$P")"
 
+# Two heading shapes, one rule. A bare `## Slice 1` and a joined `## Slice 1Title` both fail the
+# separator check, so the linter reports one error for one defect rather than one per symptom.
 P="$(plan notitle '## Slice 1
 Blocked by: none
 Owned paths: a/
@@ -275,7 +277,9 @@ Delivers: d
 
 - [ ] a
 ')"
-check "slice-title-is-required" "has no title" "$(lint check "$P")"
+OUT="$(lint check "$P")"
+check "bare-heading-needs-a-separator" "heading needs a separator and title" "$OUT"
+equals "one-error-per-malformed-heading" "1" "$(printf '%s' "$OUT" | grep -c '^plan-lint: ')"
 
 P="$(plan joinedtitle '## Slice 1Title
 Blocked by: none
@@ -286,6 +290,19 @@ Delivers: d
 - [ ] a
 ')"
 check "slice-heading-needs-a-separator" "heading needs a separator and title" "$(lint check "$P")"
+
+# A criterion is done when its box is ticked, not when its text happens to contain one. Scanning the
+# whole line marked this slice done, and the restore hook then stops resurrecting a slice nobody did.
+P="$(plan literalbox '## Slice 1 — A
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] handle the [x] flag in the parser
+')"
+equals "criterion-text-is-not-a-tick" "open" \
+  "$(bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE" {print $3}')"
 
 P="$(plan duplicateblocked '## Slice 1 — A
 Blocked by: none
