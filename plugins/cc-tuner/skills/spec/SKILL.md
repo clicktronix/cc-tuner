@@ -44,6 +44,10 @@ earlier revision created the branch after them and wrote them wherever the sessi
 If grilling later shows the task should split, splitting a branch is recoverable — an ADR committed
 to the integration branch is not.
 
+**Commit message format, including any attribution trailers, comes from the repository's
+conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
+recent history rather than the harness default.
+
 ## 3. Grill the problem
 
 Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for vocabulary. Pull

@@ -16,6 +16,8 @@ PLAN_SKILL="$ROOT/plugins/cc-tuner/skills/plan/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
+TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
+RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 fails=0
 
@@ -65,6 +67,14 @@ need "run-asks-for-the-frontier"    'plan-lint.sh" frontier' "$RUN"
 need "run-taskless-loop-unchanged"  'nothing about the loop changes' "$RUN"
 need "plan-fallback-names-frontier" 'plan-lint.sh frontier' "$PLAN_SKILL"
 need "run-ticks-the-plan-file"      '- [x]' "$RUN"
+# Finding 3: all three commands commit, none of them said anything about attribution trailers, so
+# every one fell through to the harness default in every repository cc-tuner is enabled in. The
+# preference belongs to the repository, so the skills point at where it is written down.
+need "run-trailers-from-the-repo"  'attribution trailers, comes from' "$RUN"
+need "plan-trailers-from-the-repo" 'attribution trailers, comes from' "$PLAN_SKILL"
+need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
+need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
+need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
 need "run-auto-refuses-blocked"     'refuse a task whose `blockedBy` is not empty' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: APPROVE <candidate-sha>' "$RUN"
 need "run-never-forges-approval"    'Never publish `APPROVE` for a review that did not' "$RUN"

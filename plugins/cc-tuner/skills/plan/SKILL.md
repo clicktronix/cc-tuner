@@ -79,6 +79,10 @@ three ways.
 Commit the plan file. It is the store: an uncommitted plan survives nothing, and the restore hook
 reads only tracked files.
 
+**Commit message format, including any attribution trailers, comes from the repository's
+conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
+recent history rather than the harness default.
+
 ## Publish the visible plan
 
 Two passes, because `TaskCreate` takes no dependency argument:

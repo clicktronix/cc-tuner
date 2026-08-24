@@ -75,6 +75,9 @@ Three things this adds to the obvious:
 - **Tick the plan file and commit it.** When every acceptance criterion of a slice is met, change its
   `- [ ]` to `- [x]` in the plan file and commit. The task list does not survive the session; the file does.
   A ticked file with no matching task is recoverable, a completed task with an unticked file is lost.
+  **Commit message format, including any attribution trailers, comes from the repository's
+  conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
+  recent history rather than the harness default.
 - **Under `--auto`, refuse a task whose `blockedBy` is not empty.** The platform stores the edge and
   does not enforce it: `TaskUpdate` will move a blocked task to `in_progress` without complaint. Under
   attention that is a visible mistake; unattended nobody is watching. `frontier` cannot hand you such

@@ -114,6 +114,12 @@ invariant rather than a style preference. Two ways to consume them:
 Whichever is in use, a commit outside the Conventional format is a commit that will be missing from
 the notes; that is the actual cost of an off-format commit.
 
+**Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
+carries `Co-Authored-By:` or a session trailer is a preference — some repositories want the
+authorship visible, some want the history to read as the team's — so the answer lives in
+`.claude/rules/task-flow.md`, which the template ships a line for. Left unfilled, an agent falls back
+to whatever its harness does by default, and the repository ends up with a convention nobody chose.
+
 ## Merge strategies
 
 - Feature → `<target>`: **squash** + `--delete-branch` — linear trunk, WIP chain collapses.

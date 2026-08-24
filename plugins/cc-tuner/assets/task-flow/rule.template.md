@@ -46,6 +46,14 @@ Breaking change: `!` after type/scope plus a `BREAKING CHANGE:` footer carrying 
 
 One commit = one logical change. A WIP chain during work is fine — squash-on-merge collapses it.
 
+**Attribution trailers:** `<none | Co-Authored-By: <agent> | ...>`
+
+Fill this in. Whether a commit made by an agent carries `Co-Authored-By:` or a session trailer is a
+decision each repository makes — some want the authorship visible, some want the history to read as
+the team's. cc-tuner does not hold an opinion; it reads this line. Left unfilled, an agent falls back
+to whatever its harness does by default, which is how a repository ends up with a convention nobody
+chose.
+
 ## Pull requests
 
 - `Closes #N` / `Fixes #N` only when the PR fully completes the issue; `Refs #N` for partial or
