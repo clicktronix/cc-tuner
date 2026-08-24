@@ -16,7 +16,7 @@ Create and refactor CLAUDE.md and `.claude/rules/` files for Claude Code, follow
 | **Move task-specific or component-specific content out** | A multi-step procedure or one-area rule belongs in a skill or a path-scoped rule, not in always-on memory |
 | **`paths:` frontmatter lives on `.claude/rules/*.md` and on skills — never on CLAUDE.md** | CLAUDE.md loads by directory hierarchy only. Both rules and skills take `paths` in the same glob format; a skill with `paths` is auto-loaded only for matching files |
 | **Verify with `/context`, not by reading the file** | `/context` lists what actually loaded under **Memory files**. A file you can see on disk is not evidence it loaded |
-| **Pointers over copies** | Reference files (`@path/to/file`, route maps); don't paste content that will go stale |
+| **Pointers over copies** | Reference files (`@path/to/file`, route maps): a pointer still resolves after the target changes, a pasted copy silently goes stale |
 | **Hard enforcement → hooks/settings, not memory** | CLAUDE.md *guides*, it doesn't enforce. Conventions — incl. code style ("use 2-space indent") — are valid CLAUDE.md content per the docs; just don't re-paste what a linter/formatter config already enforces, and use a hook / `permissions.deny` for anything that must be *blocked* |
 
 ## Memory load order
@@ -44,7 +44,7 @@ Two **separate mechanisms**, not precedence layers:
 | Multi-step procedure / workflow | a skill (`.claude/skills/<name>/SKILL.md`) — custom commands are now the same mechanism, so `.claude/commands/deploy.md` and `.claude/skills/deploy/SKILL.md` both give you `/deploy` |
 | Detail needed only for one area, but as a *procedure* | a skill with `paths` — loads on demand AND only for matching files, cheaper than a rule |
 | Personal preferences, local paths | `CLAUDE.local.md` (gitignored) |
-| Code style & conventions Claude should follow | `CLAUDE.md` / `.claude/rules/` — fine to state ("2-space indent"); don't re-paste the linter/formatter config that enforces it |
+| Code style & conventions Claude should follow | `CLAUDE.md` / `.claude/rules/` — state the convention ("2-space indent") and let the linter/formatter config keep enforcing it; two copies of one rule disagree on the day one is edited |
 | Anything that must be *blocked* | a hook or `permissions.deny`, NOT memory (CLAUDE.md isn't enforced) |
 
 ## Conditional rules (`.claude/rules/`)

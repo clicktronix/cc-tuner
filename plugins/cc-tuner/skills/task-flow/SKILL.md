@@ -76,7 +76,8 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
 **Card lifecycle:** In Progress when implementation opens after recording the prior status; Done after
 the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
-the card In Progress. One deferred review finding = one issue, never a buried comment-thread list.
+the card In Progress. One deferred review finding = one issue: an issue is trackable and outlives the PR, while a
+comment-thread list closes with the thread that held it.
 
 ## After the merge
 

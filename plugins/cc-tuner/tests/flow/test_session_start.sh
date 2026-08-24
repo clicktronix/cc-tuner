@@ -209,6 +209,35 @@ C7="$(context "$R7")"
 check "legacy-and-plan-both-reported" "removed runtime"  "$C7"
 check "legacy-does-not-eat-the-plan"  "Rebuild it from"  "$C7"
 
+# The disposal advice is conditional on what the leftover state records. It used to say "delete and
+# re-plan" in every case; the live instance had a committed plan that passed the linter, and
+# re-planning would have discarded a correct one.
+#
+# R6 and R7 above carry `{"schema_version":1}` -- a run that reached nothing -- so they must get the
+# bare delete.
+check  "untouched-run-is-a-bare-delete" "nothing to re-plan" "$C6"
+absent "untouched-run-does-not-say-replan" "and re-plan —" "$C6"
+
+# A run that recorded a candidate changed the tree, so its state is not disposable on its own.
+R9="$(flow_repo)"; mkdir -p "$R9/.claude/execute-task-runs"
+printf '{"schema_version":1,"candidate":{"sha":"%s","tree_sha":null,"recorded_at":null}}\n' \
+  "0123456789012345678901234567890123456789" > "$R9/.claude/execute-task-runs/old.state.json"
+C9="$(context "$R9")"
+check  "candidate-run-says-replan"      "and re-plan —"     "$C9"
+absent "candidate-run-not-bare-delete"  "nothing to re-plan" "$C9"
+
+# So does one that got past planning, even with no candidate recorded yet.
+R10="$(flow_repo)"; mkdir -p "$R10/.claude/execute-task-runs"
+printf '{"schema_version":1,"completed_phases":["readiness","planning","implementation"]}\n' \
+  > "$R10/.claude/execute-task-runs/old.state.json"
+check "implemented-run-says-replan" "and re-plan —" "$(context "$R10")"
+
+# A file this cannot read takes the cautious branch: advising a bare delete over work that was done
+# is the costly error, and the opposite only wastes a re-plan.
+R11="$(flow_repo)"; mkdir -p "$R11/.claude/execute-task-runs"
+printf 'not json at all\n' > "$R11/.claude/execute-task-runs/old.state.json"
+check "unreadable-state-fails-toward-replan" "and re-plan —" "$(context "$R11")"
+
 # A repository with neither must stay silent. Without this, a warning that fired unconditionally
 # would pass every assertion above.
 R8="$(flow_repo)"

@@ -41,12 +41,28 @@ emit() {  # emit <context text> -- jq builds the JSON so the text cannot break o
 #
 # ADVISORY, and named that. SessionStart cannot block: the reference says "Can block? No -- shows
 # stderr to user only." The refusal lives in merge.sh, where there is something to refuse.
+#
+# The advice is conditional on what the file records, not fixed. It said "delete the directory and
+# re-plan" in every case; the live instance had a committed plan that passed the linter, and
+# re-planning would have thrown away a correct one. The agent noticed and pushed back, and was right.
+# The predicate: a run that never reached implementation and never recorded a candidate changed
+# nothing, so there is nothing to re-plan. Anything else -- including a file this cannot read --
+# takes the cautious branch, because advising a bare delete over work that was done is the costly
+# error, and the opposite only wastes a re-plan.
 LEGACY=""
 for legacy in "$ROOT"/.claude/execute-task-runs/*.state.json; do
   [ -e "$legacy" ] || continue
+  if jq -e '((.candidate.sha // null) == null)
+            and ((((.completed_phases // []) - ["readiness", "planning"]) | length) == 0)' \
+       "$legacy" >/dev/null 2>&1; then
+    disposal="delete the directory — it recorded no implementation work and no candidate, so there is
+nothing to re-plan"
+  else
+    disposal="delete the directory and re-plan — it recorded work this version cannot continue"
+  fi
   LEGACY="cc-tuner: .claude/execute-task-runs/ still holds run state from a removed runtime (${legacy##*/}).
 This version does not implement it, so nothing will advance that run. Finish it under the plugin
-version that created it, or delete the directory and re-plan. Merges are refused until it is gone.
+version that created it, or $disposal. Merges are refused until it is gone.
 "
   break
 done
