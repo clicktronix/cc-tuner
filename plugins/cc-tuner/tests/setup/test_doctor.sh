@@ -55,25 +55,33 @@ check   "baseline-version"    "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
 [ $rc -eq 0 ] || { echo "FAIL baseline-rc (rc=$rc)"; fails=1; }
 rm -rf "$T"
 
-# --- jq missing -> MISS and exit 1 ---------------------------------------------------------------
+# --- jq missing -> WARN, and it must NOT block ---------------------------------------------------
+# /cc-tuner:setup stops on a non-zero exit, so a MISS here halted setting up claude-md-writer, which
+# never calls jq. The two consumers that do need it -- statusline-setup and tests/run.sh -- refuse on
+# their own, at the point of use.
 mkenv; tool git; tool python3; ghstub "'project'"; plugins_ok
 OUT="$(run)"; rc=$?
-check "jq-missing-flagged" "MISS jq" "$OUT"
-[ $rc -eq 1 ] && echo "PASS jq-missing-rc1" || { echo "FAIL jq-missing-rc1 (rc=$rc)"; fails=1; }
+check  "jq-missing-warned"  "WARN jq" "$OUT"
+absent "jq-missing-no-miss" "MISS"    "$OUT"
+[ $rc -eq 0 ] && echo "PASS jq-missing-rc0" || { echo "FAIL jq-missing-rc0 (rc=$rc)"; fails=1; }
 rm -rf "$T"
 
-# --- gh present but token has no project scope -> MISS with the refresh hint ---------------------
+# --- gh present but token has no project scope -> WARN with the refresh hint, and no block --------
+# A spec may say `board: none`, and that repo never runs a board command. Step 4 of /cc-tuner:setup
+# owns the refusal, because it is the step that actually needs the scope.
 mkenv; tool git; tool jq; ghstub "'gist', 'repo'"; plugins_ok
-OUT="$(run)"
-check "no-project-scope-flagged" "MISS gh token lacks the 'project' scope" "$OUT"
-check "no-project-scope-hint"    "gh auth refresh -s project"              "$OUT"
+OUT="$(run)"; rc=$?
+check  "no-project-scope-flagged" "WARN gh token lacks the 'project' scope" "$OUT"
+check  "no-project-scope-hint"    "gh auth refresh -s project"              "$OUT"
+absent "no-project-scope-no-miss" "MISS"                                    "$OUT"
+[ $rc -eq 0 ] && echo "PASS no-project-scope-rc0" || { echo "FAIL no-project-scope-rc0 (rc=$rc)"; fails=1; }
 rm -rf "$T"
 
 # --- `read:project` must NOT satisfy the project scope (substring trap) --------------------------
 # `gh project item-edit` needs write. A substring match would report a working board and be wrong.
 mkenv; tool git; tool jq; ghstub "'gist', 'read:project', 'repo'"; plugins_ok
 OUT="$(run)"
-check "read-project-not-accepted" "MISS gh token lacks the 'project' scope" "$OUT"
+check "read-project-not-accepted" "WARN gh token lacks the 'project' scope" "$OUT"
 rm -rf "$T"
 
 # --- companion plugins absent -> MISS lines carrying the install hints ---------------------------

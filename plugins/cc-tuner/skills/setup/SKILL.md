@@ -38,20 +38,35 @@ In `check` mode, stop here regardless.
 
 ## 3. Install what this repo needs
 
-Each of these is judgement, not a fixed list. Decide, say why, then delegate — the installers own
+Each of these is judgement, not a fixed list. Decide, say why, then hand it over — the installers own
 their own idempotency and confirmation prompts, so never reimplement their steps here.
+
+**An installer marked `disable-model-invocation` can only be started by the user.** For those, print
+the exact command and say it is theirs to run; do not claim it was done. Reporting an install that
+could not have happened is worse than not offering it, because nothing later contradicts the claim.
 
 - **`/cc-tuner:task-flow-setup`** — run it for any repo where work happens through branches and PRs,
   which is nearly all of them. Also run it when doctor reported a legacy `git-flow.md`: that path
   migrates the deltas file, and the cached board field IDs inside it, before anything overwrites it.
-- **`/cc-tuner:smoke-verify-setup`** — only for repos with a frontend worth exercising. Check first
-  (`package.json`, an `app/` or `src/components` tree). A backend-only repo should not install this;
-  say so rather than installing a gate that will never fire.
+- **`/cc-tuner:smoke-verify-setup`** — user-run only. Decide whether the repo wants it: only one with
+  a frontend worth exercising does, so check first (`package.json`, an `app/` or `src/components`
+  tree). A backend-only repo should not have it; say so rather than offering a gate that will never
+  fire. When it does want it, print the command for the user to run:
+
+  ```
+  /cc-tuner:smoke-verify-setup install
+  ```
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer it once; if doctor already
   reported the script installed, skip silently.
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 
 The board is where setup most often stops half-done, because nothing fails loudly when it does.
+
+**This step is where the `project` scope becomes required.** Doctor only warns about it, because a
+spec may say `board: none` and that repo never runs a board command. Here it is load-bearing: without
+the scope every step below fails with an opaque GraphQL error. If doctor warned about it, stop this
+step, print `gh auth refresh -s project` for the user to run — it is an interactive browser flow you
+cannot complete for them — and say the board is not wired.
 
 1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` — the recipes are
    in the `cc-tuner:task-flow` skill. Re-fetching these every session is the friction that makes
@@ -76,4 +91,5 @@ be filed.
 - [ ] `check` mode wrote nothing — no installer ran, no file changed
 - [ ] Every `MISS` was surfaced with its fix, none softened into a suggestion
 - [ ] Any installer that was skipped has a stated reason
+- [ ] No user-run installer was reported as done — each was printed for the user to run
 - [ ] A repo that had `git-flow.md` came out with `task-flow.local.md` still holding its cached field IDs

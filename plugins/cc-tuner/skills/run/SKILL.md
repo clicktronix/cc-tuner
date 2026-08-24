@@ -42,13 +42,29 @@ target, tests, Definition of Done and merge strategy.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printed>
 ```
 
-If `TaskList` is empty, publish the plan's slices first — two passes, `TaskCreate` then
-`TaskUpdate addBlockedBy`. A fresh session's `SessionStart` context already asks for this.
+If the task tools are there and `TaskList` is empty, publish the plan's slices — two passes,
+`TaskCreate` then `TaskUpdate addBlockedBy`. A fresh session's `SessionStart` context already asks for
+this. If they are not there, skip this and say so once; the run proceeds either way.
 
 ## The loop
 
-Take the lowest-numbered task that is `pending` with an empty `blockedBy`. Work it. Complete it.
-`TaskList` again.
+**The plan file is the state. Ask it what may start:**
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" frontier <the path resolve printed>
+```
+
+It prints one `SLICE<TAB>number<TAB>open<TAB>blocked-by<TAB>title` record — the lowest-numbered open
+slice whose blockers are all done — or nothing when every slice is done, which ends the loop. Work
+that slice. Tick it. Ask again.
+
+Ask the program rather than reading the graph yourself. The rule is one line to state and easy to get
+wrong under `--auto`, and getting it wrong means starting a slice something else was supposed to
+finish first. `frontier` refuses to answer at all for a plan that does not parse.
+
+The visible task list is a projection of that state, not the state. Where the tools are present, mark
+the slice `in_progress` and then `completed` as you go, so a watcher sees it; where they are absent,
+nothing about the loop changes.
 
 Three things this adds to the obvious:
 
@@ -57,7 +73,9 @@ Three things this adds to the obvious:
   A ticked file with no matching task is recoverable, a completed task with an unticked file is lost.
 - **Under `--auto`, refuse a task whose `blockedBy` is not empty.** The platform stores the edge and
   does not enforce it: `TaskUpdate` will move a blocked task to `in_progress` without complaint. Under
-  attention that is a visible mistake; unattended nobody is watching.
+  attention that is a visible mistake; unattended nobody is watching. `frontier` cannot hand you such
+  a slice, so this is the check on a task you reached some other way — a leftover in the list, or one
+  you picked by eye.
 - **Without `--auto`, stop at each delivery boundary** — first commit, PR opened, review returned,
   before merge. Report what is done and what comes next.
 

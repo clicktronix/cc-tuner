@@ -97,11 +97,12 @@ can turn them on. `allowed-tools` in this file's frontmatter permits them; it do
 
 Report, in these words rather than as a passing remark:
 
-- the plan file is committed and is the durable store, so the work can proceed from it;
-- **not** published, and therefore unavailable for the rest of the run: the visible task list, its
-  dependency edges, the frontier `TaskList` would compute, and the refusal that depends on reading
-  `blockedBy`;
-- how to get them: restart with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, or continue Markdown-only.
+- the plan file is committed and is the durable store, and `/cc-tuner:run` drives from it either way:
+  it asks `plan-lint.sh frontier` which slice may start, so the ordering and the blocked-slice refusal
+  do not depend on these tools;
+- what is lost is the **visible** task list and its edges — nobody watching sees progress, and that is
+  the whole of the difference;
+- how to get them back: restart with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, or continue Markdown-only.
 
 Then ask which, and wait. Continuing unasked is what makes a run look like it published a plan it did
 not — measured: three sessions in a row published nothing while their operator was watching for a task

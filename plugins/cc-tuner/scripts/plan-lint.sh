@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # The plan file's format, in one place: a validator and the parser that reads it back.
 #
-#   plan-lint.sh check  <file>   exit 0 if the plan parses, otherwise print what is wrong
-#   plan-lint.sh slices <file>   emit the parsed slices for the SessionStart hook
+#   plan-lint.sh check    <file>   exit 0 if the plan parses, otherwise print what is wrong
+#   plan-lint.sh slices   <file>   emit the parsed slices for the SessionStart hook
+#   plan-lint.sh frontier <file>   emit the one slice that may start now, or nothing when all are done
 #
-# Two modes, one parser, on purpose. If the hook grew its own reader, a plan the linter accepted could
-# still restore wrongly, and nothing would say so.
+# Three modes, one parser, on purpose. If a caller grew its own reader, a plan the linter accepted
+# could still restore or run wrongly, and nothing would say so. `frontier` exists because the rule
+# "lowest-numbered open slice whose blockers are all done" was prose in two skills and arithmetic the
+# model did by hand -- and doing it by hand is how a blocked slice gets started.
 #
 # The format:
 #
@@ -37,8 +40,8 @@ FILE="${2:-}"
 
 die() { printf 'plan-lint: %s\n' "$1" >&2; exit 1; }
 
-case "$MODE" in check|slices) ;; *) die "usage: plan-lint.sh check|slices <file>" ;; esac
-[ -n "$FILE" ] || die "usage: plan-lint.sh check|slices <file>"
+case "$MODE" in check|slices|frontier) ;; *) die "usage: plan-lint.sh check|slices|frontier <file>" ;; esac
+[ -n "$FILE" ] || die "usage: plan-lint.sh check|slices|frontier <file>"
 [ -f "$FILE" ] || die "no such plan file: $FILE"
 
 # One awk pass produces both the diagnostics and the records; `check` prints the first, `slices` the
@@ -167,6 +170,35 @@ END {
   if (e > 0) {
     print "plan-lint: refusing to parse an invalid plan; run check" > "/dev/stderr"
     exit 1
+  }
+
+  # `frontier` answers one question: which slice may start now. A slice is ready when it is open and
+  # every slice it names is done. One always exists while anything is open -- if every open slice had
+  # an open blocker the graph would descend forever, which is the cycle `check` already refuses -- so
+  # "open but nothing ready" is not a case, and nothing here pretends it is.
+  if (mode == "frontier") {
+    for (i = 1; i <= count; i++) {
+      n = order[i]
+      if (total[n] > 0 && done[n] == total[n]) continue
+      ready = 1
+      if (blocked[n] != "none") {
+        m = split(blocked[n], parts, /[ \t]*,[ \t]*/)
+        for (j = 1; j <= m; j++) {
+          p = trim(parts[j])
+          if (!(total[p] > 0 && done[p] == total[p])) { ready = 0; break }
+        }
+      }
+      if (!ready) continue
+      # The same normalised field `slices` emits, so one reader parses both modes.
+      b = blocked[n]
+      if (b == "none") { b = "-" } else {
+        m = split(b, parts, /[ \t]*,[ \t]*/); b = ""
+        for (j = 1; j <= m; j++) b = (b == "") ? trim(parts[j]) : b "," trim(parts[j])
+      }
+      printf "SLICE\t%s\topen\t%s\t%s\n", n, b, titles[n]
+      exit 0
+    }
+    exit 0
   }
 
   for (i = 1; i <= count; i++) {

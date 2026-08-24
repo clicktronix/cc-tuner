@@ -24,12 +24,15 @@ warn() { say "WARN $1"; }
 bad()  { say "MISS $1"; miss=1; }
 
 # --- 1. command-line tools ----------------------------------------------------------------------
-# jq is hard-required: statusline-setup refuses to patch settings.json without it, and tests/run.sh
-# will not start. The rest degrade rather than block.
+# Only git blocks: nothing here works without it. jq blocks two named consumers, not this tool, and
+# both refuse on their own -- statusline-setup checks before it patches settings.json, and
+# tests/run.sh will not start. A global MISS made doctor exit non-zero, and /cc-tuner:setup stops on a
+# non-zero exit, so a missing jq halted setting up claude-md-writer, which never calls jq at all.
+# A blocker belongs to the capability that needs it, not to the tool that reports on all of them.
 # Plain `if`, not `a && b || c`: that chain runs `c` whenever `b` fails, so one day a reporting
 # helper returns non-zero and the script starts claiming things are missing that are not.
 if command -v git     >/dev/null 2>&1; then ok "git";     else bad "git — required for every command here"; fi
-if command -v jq      >/dev/null 2>&1; then ok "jq";      else bad "jq — statusline-setup and the test runner both refuse to run without it; brew install jq"; fi
+if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — statusline-setup refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
 if command -v gh      >/dev/null 2>&1; then ok "gh";      else warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"; fi
 if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — the statusline's usage segment degrades without it"; fi
 
@@ -60,6 +63,10 @@ esac
 # --- 2. gh auth and the project scope ------------------------------------------------------------
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
 # single most common reason an agent silently gives up on the board, so name it before it happens.
+#
+# It warns rather than blocks: a spec may say `board: none` (see skills/spec/SKILL.md), and such a
+# repo never runs a board command. The refusal belongs to step 4 of /cc-tuner:setup and to the board
+# recipes in the task-flow skill, which know whether a board is in play; this tool does not.
 if command -v gh >/dev/null 2>&1; then
   if gh auth status >/dev/null 2>&1; then
     # Match the scope exactly rather than as a substring: `read:project` contains "project" but
@@ -68,7 +75,7 @@ if command -v gh >/dev/null 2>&1; then
        | grep -qx project; then
       ok "gh token has the 'project' scope"
     else
-      bad "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; fix: gh auth refresh -s project"
+      warn "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; harmless for a repo whose spec says board: none. fix: gh auth refresh -s project"
     fi
   else
     bad "gh is not authenticated — run: gh auth login"

@@ -315,6 +315,63 @@ Delivers: d
 ')"
 check "blocked-by-is-one-record" 'more than one "Blocked by" line' "$(lint check "$P")"
 
+# --- frontier: the runner asks the file which slice may start ------------------------------------
+# /cc-tuner:run drives from this, with or without the native task tools. The rule -- lowest-numbered
+# open slice whose blockers are all done -- was prose in two skills and arithmetic done by hand, which
+# is how a blocked slice gets started under --auto.
+FRONTIER='## Slice 1 — Seed
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [x] a
+
+## Slice 2 — Wire
+Blocked by:  1 , 3
+Owned paths: b/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+
+## Slice 3 — Independent
+Blocked by: none
+Owned paths: c/
+Deciding check: t
+Delivers: d
+
+- [ ] c
+'
+P="$(plan frontier "$FRONTIER")"
+# Slice 2 is the lowest-numbered OPEN slice, and it is exactly the one that must not be handed back:
+# slice 3 blocks it and is not done. A frontier that just took the first open slice would return 2.
+equals "frontier-refuses-a-blocked-slice" "SLICE	3	open	-	Independent" "$(bash "$LINT" frontier "$P")"
+
+# With the blocker done, the blocked slice becomes the frontier -- and its edges come back normalised
+# the same way `slices` emits them, so one reader parses both modes.
+P="$(plan frontier_unblocked "$(printf '%s' "$FRONTIER" | sed 's/- \[ \] c/- [x] c/')")"
+equals "frontier-releases-when-blockers-clear" "SLICE	2	open	1,3	Wire" "$(bash "$LINT" frontier "$P")"
+
+# Nothing open means the loop is over, and that has to be distinguishable from an error.
+P="$(plan frontier_done "$(printf '%s' "$FRONTIER" | sed 's/- \[ \] /- [x] /g')")"
+OUT="$(lint frontier "$P")"
+check "frontier-empty-when-all-done" "rc=0" "$OUT"
+equals "frontier-prints-nothing-when-all-done" "" "$(bash "$LINT" frontier "$P")"
+
+# A plan that does not parse gets no answer at all: half a graph would start the wrong slice.
+P="$(plan frontier_invalid '## Slice 1 — A
+Blocked by: slice-2
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+OUT="$(lint frontier "$P")"
+check "frontier-refuses-an-invalid-plan" "refusing to parse an invalid plan" "$OUT"
+check "frontier-invalid-rc1"             "rc=1"                              "$OUT"
+
 # --- the shipped template passes the shipped linter ----------------------------------------------
 # The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan
 # is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is
