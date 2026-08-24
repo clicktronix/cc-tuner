@@ -476,6 +476,10 @@ there. Second, the skill's sentence grants a permission ("may run all lenses ser
 contract-defined thresholds") without stating the obligation on the other side of it. A rule that only
 says when you *may* do the cheap thing is one an environment constraint can quietly consume.
 
+**Closed 2026-08-24.** `workflow-contract.json` is deleted and the numbers — at most 50 lines across
+at most 5 files — are written into `deep-review/SKILL.md` itself, where a reader already is.
+`test_contract.sh` now fails if they leave it.
+
 #### Finding 13 — an acceptance clause about an artifact neither session produced
 
 Step 1 asks to "confirm the branch exists before `CONTEXT.md` is written". Neither `/spec` wrote a

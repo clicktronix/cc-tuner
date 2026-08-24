@@ -1,5 +1,5 @@
 ---
-description: Opt the current repo into (or out of) the smoke-verify Stop-hook gate that blocks unverified frontend changes. Use for "включи smoke-verify", "set up smoke verification", or checking why the gate blocks.
+description: Opt the current repo into (or out of) the smoke-verify Stop-hook gate that blocks unverified frontend changes. Modes: install, status, remove.
 argument-hint: '[install|status|remove]'
 allowed-tools: Bash, Read, Write, Edit
 disable-model-invocation: true

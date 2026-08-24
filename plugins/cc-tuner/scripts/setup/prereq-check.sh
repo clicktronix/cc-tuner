@@ -72,9 +72,10 @@ codex_contract() {
 }
 
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run
-# Phase 6 runs `/mattpocock-skills:code-review`. This replaced the old superpowers requirement, which
-# gated skills that neither command invokes any more — blocking runs that did not need it while
-# letting the dependency they DO need go unchecked until Phase 6 of an unattended run.
+# reviews the candidate SHA with `/mattpocock-skills:code-review`. This replaced the old superpowers
+# requirement, which gated skills that neither command invokes any more — blocking runs that did not
+# need it while letting the dependency they DO need go unchecked until the review step of an
+# unattended run.
 MP_INSTALL='/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
 if ! has_file 'mattpocock-skills@mattpocock' 'skills/productivity/grilling/SKILL.md'; then
   echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
@@ -87,7 +88,7 @@ if ! has_file 'mattpocock-skills@mattpocock' 'skills/engineering/domain-modeling
   missing=1
 fi
 if ! has_file 'mattpocock-skills@mattpocock' 'skills/engineering/code-review/SKILL.md'; then
-  echo "MISSING: mattpocock-skills code-review skill (run Phase 6 review layer)" >&2
+  echo "MISSING: mattpocock-skills code-review skill (the review layer /cc-tuner:run requires)" >&2
   echo "  install: $MP_INSTALL (or update it — the skill moved)" >&2
   missing=1
 fi

@@ -3,7 +3,7 @@
 # Task flow — invariants
 
 Only the rules whose violation loses work, leaks secrets, or breaks history. Everything procedural —
-board recipes, epics, worktree cleanup, post-merge sync, merge strategies, changelog, plan lifecycle —
+board recipes, epics, worktree cleanup, post-merge sync, merge strategies, changelog, spec lifecycle —
 lives in the `cc-tuner:task-flow` skill, which loads when you need it. Where `task-flow.local.md`
 conflicts with this file, the local file wins.
 

@@ -35,8 +35,8 @@ Do not infer correctness from green CI, a plan checkbox, another review, or the 
 ## Review lenses
 
 Run every applicable lens independently. Always perform the review; small-diff thresholds only decide
-execution shape. The owning reviewer may run all lenses serially for a candidate within both
-contract-defined thresholds and outside every sensitive surface. Otherwise fan them out to parallel
+execution shape. The owning reviewer may run all lenses serially for a candidate that changes **at most
+50 lines across at most 5 files** and touches no sensitive surface. Otherwise fan them out to parallel
 reviewer agents against the immutable candidate.
 
 **The sensitive surfaces, named — because "sensitive" is not self-evident and size is not the test:**
@@ -61,9 +61,10 @@ A constant, a default, a fixture row and a migration file are all the surface.
 is obvious, not that it is "only" a value. Thresholds decide execution shape for candidates that match
 no surface; they do not overrule a match.
 
-The list lived only in `workflow-contract.json`, which nothing loads at runtime, so the sentence above
-asked the reviewer to stay outside a boundary it had no way to see. Keep the lifecycle outside the review sequential and
-give every reviewer the same literal base, candidate, tree, spec, and read-only constraint.
+Both the numbers and the list above lived only in a JSON file that nothing loads at runtime, so this
+section asked the reviewer to respect a boundary it had no way to see. That is why they are written
+out here. Keep the lifecycle outside the review sequential and give every reviewer the same literal
+base, candidate, tree, spec, and read-only constraint.
 
 1. **Correctness and edge cases** — logic, state transitions, concurrency, errors, cleanup,
    compatibility, and user-visible behavior.

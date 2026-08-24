@@ -120,7 +120,10 @@ the notes; that is the actual cost of an off-format commit.
   the stack lands on `<target>`. Squashing mid-chain orphans the SHAs of every PR above it.
 - Re-check the base of each stacked PR after the one below merges.
 
-## Plan lifecycle
+## Spec lifecycle (`PLANS/`)
+
+These are design documents — the ones `/cc-tuner:spec` writes. The execution plans `/cc-tuner:plan`
+writes are a different artifact with a different path (`task-plans/`) and a different lifecycle.
 
 1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
    plugin path.

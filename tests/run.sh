@@ -48,7 +48,7 @@ done
 # --- 2. JSON validity ---------------------------------------------------------------------------
 json_count=0
 for f in "$ROOT"/.claude-plugin/marketplace.json "$PLUGIN"/.claude-plugin/plugin.json \
-         "$PLUGIN"/hooks/hooks.json "$PLUGIN"/workflow-contract.json "$ROOT"/release-please-config.json \
+         "$PLUGIN"/hooks/hooks.json "$ROOT"/release-please-config.json \
          "$PLUGIN"/schemas/*.json "$ROOT"/.release-please-manifest.json "$ROOT"/tests/scenarios/*/*.json; do
   [ -f "$f" ] || continue
   json_count=$((json_count + 1))
@@ -202,7 +202,7 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
   elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
          plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
          plugins/cc-tuner/assets plugins/cc-tuner/references \
-         plugins/cc-tuner/.claude-plugin plugins/cc-tuner/workflow-contract.json 2>/dev/null; then
+         plugins/cc-tuner/.claude-plugin 2>/dev/null; then
     ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
   elif [ "$adr_status" = "accepted" ]; then
     bad "the ADR says accepted, but the production surface has moved since the evaluated commit ${eval_sha%${eval_sha#???????}} — re-run the eval and update EVALUATED_SHA, or set the ADR back to proposed"

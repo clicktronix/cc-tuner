@@ -1,5 +1,5 @@
 ---
-description: Turn a rough task into a committed spec /cc-tuner:run can execute — grilled requirements, explicit DoR and DoD, executable test plan, task-branch ownership, and machine-checkable acceptance. Use for "напиши спеку", "spec this out", or before any --auto run.
+description: Turn a rough task into a committed spec /cc-tuner:run can execute — grilled requirements, explicit DoR and DoD, executable test plan, task-branch ownership, and machine-checkable acceptance. Run it before any --auto run.
 argument-hint: '<issue number | URL | free-text description>'
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 disable-model-invocation: true
@@ -71,7 +71,7 @@ Tag every criterion:
 
 Every `[eyes]` criterion records its human step, machine replacement (or `none`), and dated waiver (or
 `none`). An item with neither replacement nor waiver is valid only with `auto_ready: no`: HITL `/run`
-stops for the human step, while `--auto` rejects the spec in Phase 0.
+stops for the human step, while `--auto` rejects the spec before any work starts.
 
 More than one PR, more than one repo, or independently reviewed phases require an epic with native
 sub-issues and one spec per sub-issue. Otherwise use one issue and one task branch.

@@ -33,12 +33,9 @@ plugins/
   cc-tuner/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
-    workflow-contract.json          # shared thresholds, sensitive surfaces, order, invariants
     assets/
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
-    references/
-      tiering.md                    # effort-selection guidance; policy stays in the contract
     skills/
       run/SKILL.md                  # /cc-tuner:run [--auto] <spec> executor
       plan/SKILL.md                 # /cc-tuner:plan [--auto] <spec> slices and publishes the plan

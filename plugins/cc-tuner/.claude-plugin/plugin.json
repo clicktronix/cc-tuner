@@ -27,7 +27,6 @@
     "workflow",
     "playbook",
     "smoke-verify",
-    "hooks",
-    "effort-tiering"
+    "hooks"
   ]
 }
