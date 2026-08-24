@@ -14,6 +14,8 @@ SPEC="$ROOT/plugins/cc-tuner/skills/spec/SKILL.md"
 RUN="$ROOT/plugins/cc-tuner/skills/run/SKILL.md"
 PLAN_SKILL="$ROOT/plugins/cc-tuner/skills/plan/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
+PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
+SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 fails=0
 
@@ -101,6 +103,28 @@ need "deep-review-always-runs" 'Always perform the review; small-diff thresholds
 need "deep-review-names-the-thresholds" '50 lines across at most 5 files' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA> <tree SHA>' "$DEEP_REVIEW"
+# deep-review owns this policy. placement explains where independent lenses run, but copying the
+# numbers there made a future threshold change a two-file edit under a one-rule-one-home contract.
+if grep -Eq '50 (changed )?lines|5 files' "$PLACEMENT"; then
+  echo "FAIL review-thresholds-have-two-homes"
+  fails=1
+else
+  echo "PASS review-thresholds-have-one-home"
+fi
+
+# `board: none` has to be decided before project scope is mentioned. Doctor deliberately reports the
+# scope as WARN because it cannot know whether a board applies; reverting setup to the old unconditional
+# refusal must make this ordering check fail.
+board_skip_line="$(grep -nF 'skip the whole step' "$SETUP" | head -1 | cut -d: -f1)"
+project_scope_line="$(grep -nF 'Only then is the `project` scope required' "$SETUP" | head -1 | cut -d: -f1)"
+if [ -n "$board_skip_line" ] && [ -n "$project_scope_line" ] \
+   && [ "$board_skip_line" -lt "$project_scope_line" ]; then
+  echo "PASS setup-board-none-precedes-project-scope"
+else
+  echo "FAIL setup-board-none-precedes-project-scope (skip=$board_skip_line scope=$project_scope_line)"
+  fails=1
+fi
+need "setup-auth-miss-is-login" '`gh auth login` — an interactive browser flow' "$SETUP"
 need "release-pr-status" 'context=release-pr/validate' "$RELEASE_WORKFLOW"
 need "release-pr-exact-sha" 'ref: ${{ steps.release-pr.outputs.sha }}' "$RELEASE_WORKFLOW"
 need "release-pr-runs-suite" 'run: bash tests/run.sh' "$RELEASE_WORKFLOW"

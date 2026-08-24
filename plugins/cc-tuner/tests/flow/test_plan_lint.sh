@@ -423,6 +423,29 @@ Delivers: d
 equals "frontier-orders-by-number-not-by-file" "SLICE	1	open	-	Declared second
 SLICE	3	open	-	Declared first" "$(bash "$LINT" frontier "$P")"
 
+# Numeric order needs one canonical spelling. Without this check `01` and `1` are distinct awk map
+# keys but equal sort keys, so the plan can declare the same logical number twice and make ordering
+# depend on file position again.
+P="$(plan leading_zero '## Slice 01 — Leading
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 1 — Canonical
+Blocked by: none
+Owned paths: b/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+')"
+OUT="$(lint check "$P")"
+check "leading-zero-slice-is-refused" "has a leading zero; use the canonical number 1" "$OUT"
+check "leading-zero-slice-rc1"       "rc=1"                                           "$OUT"
+
 # --- the shipped template passes the shipped linter ----------------------------------------------
 # The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan
 # is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is

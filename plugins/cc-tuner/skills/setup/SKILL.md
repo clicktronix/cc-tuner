@@ -31,7 +31,7 @@ Do not paraphrase a `MISS` into "you may want to" — each one names a command t
 If doctor exits non-zero, present the `MISS` lines and their fixes and stop. Two of them the user has
 to run themselves, in their own shell:
 
-- `gh auth refresh -s project` — an interactive browser flow; you cannot complete it for them.
+- `gh auth login` — an interactive browser flow; you cannot complete it for them.
 - `/plugin install ...` — a Claude Code command, not a shell one.
 
 In `check` mode, stop here regardless.
@@ -58,6 +58,7 @@ could not have happened is worse than not offering it, because nothing later con
   ```
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer it once; if doctor already
   reported the script installed, skip silently.
+
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 
 The board is where setup most often stops half-done, because nothing fails loudly when it does.

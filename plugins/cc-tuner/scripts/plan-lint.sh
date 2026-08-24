@@ -67,6 +67,8 @@ function reaches(from, target, blk, ex, path, depth,   m, parts, j, p) {
 
 /^##[ \t]+Slice[ \t]+[0-9]+/ {
   n = $0; sub(/^##[ \t]+Slice[ \t]+/, "", n); sub(/[^0-9].*$/, "", n)
+  if (n ~ /^0[0-9]+$/)
+    err[++e] = "slice " n " has a leading zero; use the canonical number " (n + 0)
   heading_tail = $0; sub(/^##[ \t]+Slice[ \t]+[0-9]+/, "", heading_tail)
   if (heading_tail !~ /^[ \t]+[-—–:][ \t]*[^ \t]/)
     err[++e] = "slice " n " heading needs a separator and title (use \"## Slice " n " — Title\")"

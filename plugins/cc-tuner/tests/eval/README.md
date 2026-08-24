@@ -451,12 +451,12 @@ check that imports nothing, a signature change that cannot reach a grep — agre
 `Blocked by: 1` to `Blocked by: none` in the committed plan** with a five-line note recording who
 asked and what was checked, removed the edge from the task store, and delivered slice 2.
 
-Whether that is right is a design question, not a defect report, and both halves are worth stating.
+Whether that was right is a design question, not a defect report, and both halves are worth stating.
 It rewrote the dependency graph rather than working around it, left the plan true rather than
 silently divergent, and flagged the edit as beyond ticking boxes. It also means **the edge is
-advisory**: it stops the model's own reordering, not the operator's. The ADR already says the
-frontier rule is an instruction rather than runtime code, and this is what that sentence looks like
-from the outside. The one thing the eval can now say precisely: unprompted, the edge holds; asked
+advisory**: it stops the model's own reordering, not the operator's. At the time the ADR described the
+frontier rule as an instruction rather than runtime code, and this is what that design looked like
+from the outside. The one thing this run established precisely: unprompted, the edge held; asked
 with a reason, it is amended on the record, not bypassed.
 
 #### Finding 12 — the fan-out rule was known, understood, and not followed
@@ -803,7 +803,9 @@ Measured on `cc-tuner-eval-2`, a repository and session that shared nothing with
 - **The work is real.** Verified outside the session: the budget is spent exactly (`max_attempts=5` → 5 calls, `=2` → 2), `.attempts` matches, `RetryBudgetExhausted` is not a subclass of `TransientError`, no integer literal bounds the loop, and the suite is green.
 - **Unmeasured: the visible task list.** `TaskCreate`/`TaskUpdate`/`TaskList` were unavailable — two `ToolSearch` attempts, recorded. `/plan --auto` **named the step it could not complete** instead of passing over it, which is the behaviour to want; but "tasks created with their edges" and "a task with a non-empty `blockedBy` refused out of order" have no observation in this run. The first half was observed in run 1 (four `TaskCreate`, three `addBlockedBy`); the refusal has still never been observed and remains the one `--auto` rule with no evidence either way.
 
-The task tooling has now been absent in three consecutive sessions. That is an environment property, not a finding about cc-tuner — but it means the frontier rule, which the ADR already calls an instruction rather than a gate, is also the rule this eval keeps failing to reach.
+At that point the task tooling had been absent in three consecutive sessions. That was an environment
+property, not a finding about cc-tuner — but it meant the then-instructional frontier rule was also
+the rule this eval kept failing to reach. The rule moved into `plan-lint.sh` on 2026-08-24.
 
 
 #### Finding 9 — the native task tools are opt-in on current models, and I misread it four times
@@ -1041,6 +1043,6 @@ Before it could act, `/run` (the installed 0.10.0) found `TaskCreate` unavailabl
 MCP server had dropped — and stopped at its planning phase rather than proceeding without a visible
 plan. It changed nothing under `src/`, `tests/` or `README.md`; the tree stayed at `95fac98`.
 
-The refusal was right and the refusing code is deleted. The new `/run` has no equivalent, because its
-frontier rule is an instruction rather than a gate — which the ADR states plainly. Worth watching in
-run 2: what the new `/run` does when the task tools are missing.
+The refusal was right and the refusing code was deleted. The replacement `/run` at that revision had
+no equivalent because its frontier rule was an instruction rather than a gate. Run 2 therefore had
+to establish what it did when the task tools were missing; the rule later moved into `plan-lint.sh`.
