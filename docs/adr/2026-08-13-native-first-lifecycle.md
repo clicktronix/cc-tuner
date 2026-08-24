@@ -314,8 +314,11 @@ workflow discipline against an agent's mistake and must not be described as anyt
 ## Complexity budget
 
 - **Lifecycle** Bash is limited to five pieces: `merge.sh`; spec-driven `mutate.sh`; the
-  `SessionStart` restore hook; the plan linter; and the branch→path resolver. The `--auto` frontier
-  rule is an instruction in the run skill, not code, and is not counted here.
+  `SessionStart` restore hook; the plan linter; and the branch→path resolver. The frontier rule was
+  an instruction in the run skill until 2026-08-24 and is now a third mode of the plan linter, which
+  is already one of the five: `/run` asks which slices may start instead of deriving it from the
+  graph by hand. That is what made the Markdown-only fallback real rather than promised, and it adds
+  no piece to this budget.
 - The opt-in smoke-verification feature is a separate runtime surface: its registered fail-open
   `Stop` hook, shared fingerprint library, and `mark.sh`. It is inert unless the repository opts in
   with `.claude/smoke-verify.cfg`.

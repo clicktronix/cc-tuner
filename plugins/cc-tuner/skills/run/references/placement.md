@@ -11,10 +11,11 @@ parallelise a testing decision or any step of delivery: those read a state that 
 still changing, and two answers about one candidate is not twice the confidence.
 
 **Review is the exception, and only in one direction.** Independent read-only lenses over one
-*immutable* candidate may fan out, and `deep-review` requires them to above the contract's thresholds
-or on any sensitive surface — the reason above does not apply to them, because they read a tree nobody
-is changing. What must not fan out is the **decision**: one owner merges the lenses into one verdict,
-and every step of the lifecycle around the review stays sequential.
+*immutable* candidate may fan out, and `deep-review` requires them above its stated thresholds — more
+than 50 changed lines or more than 5 files — or on any sensitive surface. The reason above does not
+apply to them, because they read a tree nobody is changing. What must not fan out is the
+**decision**: one owner merges the lenses into one verdict, and every step of the lifecycle around
+the review stays sequential.
 
 Until 2026-08-21 this paragraph said "never parallelise review" flat, which contradicted
 `deep-review/SKILL.md` inside the same plugin. Run 3 caught both rules quoted in one session, and a

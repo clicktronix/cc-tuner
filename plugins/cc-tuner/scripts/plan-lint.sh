@@ -3,7 +3,7 @@
 #
 #   plan-lint.sh check    <file>   exit 0 if the plan parses, otherwise print what is wrong
 #   plan-lint.sh slices   <file>   emit the parsed slices for the SessionStart hook
-#   plan-lint.sh frontier <file>   emit the one slice that may start now, or nothing when all are done
+#   plan-lint.sh frontier <file>   emit every slice that may start now, lowest number first
 #
 # Three modes, one parser, on purpose. If a caller grew its own reader, a plan the linter accepted
 # could still restore or run wrongly, and nothing would say so. `frontier` exists because the rule
@@ -172,11 +172,17 @@ END {
     exit 1
   }
 
-  # `frontier` answers one question: which slice may start now. A slice is ready when it is open and
-  # every slice it names is done. One always exists while anything is open -- if every open slice had
-  # an open blocker the graph would descend forever, which is the cycle `check` already refuses -- so
-  # "open but nothing ready" is not a case, and nothing here pretends it is.
+  # `frontier` answers one question: which slices may start now. A slice is ready when it is open and
+  # every slice it names is done. At least one exists while anything is open -- if every open slice
+  # had an open blocker the graph would descend forever, which is the cycle `check` already refuses
+  # -- so "open but nothing ready" is not a case, and nothing here pretends it is.
+  #
+  # ALL of them, not the first: `references/placement.md` fans work out across independent slices, and
+  # a frontier that returned one made that unreachable -- the second slice could not be had without
+  # finishing the first. Which of these may run together is a question about their Owned paths, and
+  # belongs to the caller; which may start at all is what this mode answers.
   if (mode == "frontier") {
+    fc = 0
     for (i = 1; i <= count; i++) {
       n = order[i]
       if (total[n] > 0 && done[n] == total[n]) continue
@@ -188,7 +194,17 @@ END {
           if (!(total[p] > 0 && done[p] == total[p])) { ready = 0; break }
         }
       }
-      if (!ready) continue
+      if (ready) rdy[++fc] = n
+    }
+
+    # By number, not by the order the file happens to declare them in. Nothing stops a plan writing
+    # Slice 3 above Slice 1, and every caller was promised the lowest number first.
+    for (fi = 1; fi <= fc; fi++)
+      for (fj = fi + 1; fj <= fc; fj++)
+        if (rdy[fj] + 0 < rdy[fi] + 0) { ft = rdy[fi]; rdy[fi] = rdy[fj]; rdy[fj] = ft }
+
+    for (fi = 1; fi <= fc; fi++) {
+      n = rdy[fi]
       # The same normalised field `slices` emits, so one reader parses both modes.
       b = blocked[n]
       if (b == "none") { b = "-" } else {
@@ -196,7 +212,6 @@ END {
         for (j = 1; j <= m; j++) b = (b == "") ? trim(parts[j]) : b "," trim(parts[j])
       }
       printf "SLICE\t%s\topen\t%s\t%s\n", n, b, titles[n]
-      exit 0
     }
     exit 0
   }

@@ -54,9 +54,14 @@ this. If they are not there, skip this and say so once; the run proceeds either 
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" frontier <the path resolve printed>
 ```
 
-It prints one `SLICE<TAB>number<TAB>open<TAB>blocked-by<TAB>title` record — the lowest-numbered open
-slice whose blockers are all done — or nothing when every slice is done, which ends the loop. Work
-that slice. Tick it. Ask again.
+It prints a `SLICE<TAB>number<TAB>open<TAB>blocked-by<TAB>title` record for **every** slice that may
+start now, lowest number first — or nothing when every slice is done, which ends the loop.
+
+What to do with that set is the decision in
+[`references/placement.md`](references/placement.md): work the first record, or fan out across
+records whose `Owned paths` do not overlap, one isolated worktree each. Then tick what landed and ask
+again. `frontier` says what *may* start; only `Owned paths` say what may start *together*, and that
+file is the one that answers it.
 
 Ask the program rather than reading the graph yourself. The rule is one line to state and easy to get
 wrong under `--auto`, and getting it wrong means starting a slice something else was supposed to
@@ -75,7 +80,7 @@ Three things this adds to the obvious:
   does not enforce it: `TaskUpdate` will move a blocked task to `in_progress` without complaint. Under
   attention that is a visible mistake; unattended nobody is watching. `frontier` cannot hand you such
   a slice, so this is the check on a task you reached some other way — a leftover in the list, or one
-  you picked by eye.
+  you picked by eye rather than from the frontier set.
 - **Without `--auto`, stop at each delivery boundary** — first commit, PR opened, review returned,
   before merge. Report what is done and what comes next.
 

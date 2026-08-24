@@ -47,7 +47,7 @@ silently if that ever breaks. The OAuth token is read locally and only sent to
 
 Canonical git workflow — branch naming, Conventional Commits (incl. breaking
 changes), PR verification gates, GitHub Projects board recipes (create-on-board,
-field-ID caching, card lifecycle), plan lifecycle (`wiki/PLANS/` → `ARCHIVE`,
+field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 `docs/` fallback), and anti-pattern case studies with dated incidents.
 
 The always-on core installs per repo via `/cc-tuner:task-flow-setup` (plugins

@@ -372,6 +372,57 @@ OUT="$(lint frontier "$P")"
 check "frontier-refuses-an-invalid-plan" "refusing to parse an invalid plan" "$OUT"
 check "frontier-invalid-rc1"             "rc=1"                              "$OUT"
 
+# Every ready slice, not the first one. `references/placement.md` fans work out across independent
+# slices; a frontier that returned one made that unreachable, because the second could not be had
+# without finishing the first.
+P="$(plan frontier_many '## Slice 1 — Alpha
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — Beta
+Blocked by: none
+Owned paths: b/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+
+## Slice 3 — Gamma
+Blocked by: 1
+Owned paths: c/
+Deciding check: t
+Delivers: d
+
+- [ ] c
+')"
+equals "frontier-emits-every-ready-slice" "SLICE	1	open	-	Alpha
+SLICE	2	open	-	Beta" "$(bash "$LINT" frontier "$P")"
+
+# By slice number, not by the order the file declares them. Nothing stops a plan writing Slice 3
+# above Slice 1, and the loop was promised the lowest number first.
+P="$(plan frontier_order '## Slice 3 — Declared first
+Blocked by: none
+Owned paths: c/
+Deciding check: t
+Delivers: d
+
+- [ ] c
+
+## Slice 1 — Declared second
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+equals "frontier-orders-by-number-not-by-file" "SLICE	1	open	-	Declared second
+SLICE	3	open	-	Declared first" "$(bash "$LINT" frontier "$P")"
+
 # --- the shipped template passes the shipped linter ----------------------------------------------
 # The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan
 # is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is

@@ -62,11 +62,16 @@ could not have happened is worse than not offering it, because nothing later con
 
 The board is where setup most often stops half-done, because nothing fails loudly when it does.
 
-**This step is where the `project` scope becomes required.** Doctor only warns about it, because a
-spec may say `board: none` and that repo never runs a board command. Here it is load-bearing: without
-the scope every step below fails with an opaque GraphQL error. If doctor warned about it, stop this
-step, print `gh auth refresh -s project` for the user to run — it is an interactive browser flow you
-cannot complete for them — and say the board is not wired.
+**First, does this repo track work on a board at all?** A spec may say `board: none`, and such a repo
+never runs a board command. Ask if you do not know. If the answer is no, skip the whole step, say it
+was skipped and why, and do not mention the `project` scope — a repo with no board is not missing
+anything.
+
+**Only then is the `project` scope required, and here it is load-bearing.** Doctor merely warns about
+it, because doctor cannot know the answer to the question above. Without the scope every step below
+fails with an opaque GraphQL error, so if the board is in play and doctor warned, stop this step,
+print `gh auth refresh -s project` for the user to run — it is an interactive browser flow you cannot
+complete for them — and say the board is not wired.
 
 1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` — the recipes are
    in the `cc-tuner:task-flow` skill. Re-fetching these every session is the friction that makes
@@ -92,4 +97,5 @@ be filed.
 - [ ] Every `MISS` was surfaced with its fix, none softened into a suggestion
 - [ ] Any installer that was skipped has a stated reason
 - [ ] No user-run installer was reported as done — each was printed for the user to run
+- [ ] A repo with no board was not asked for a `project` scope, and heard why step 4 was skipped
 - [ ] A repo that had `git-flow.md` came out with `task-flow.local.md` still holding its cached field IDs

@@ -1,7 +1,8 @@
 # /cc-tuner:execute-task Implementation Plan
 
 > Historical implementation plan for the removed monolithic command. Current behavior is defined by
-> `/cc-tuner:spec`, `/cc-tuner:run`, and `plugins/cc-tuner/workflow-contract.json`.
+> `/cc-tuner:spec` and `/cc-tuner:run`. The `workflow-contract.json` this record cites was deleted
+> on 2026-08-24; its thresholds now live in `skills/deep-review/SKILL.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -1,8 +1,9 @@
 # `/cc-tuner:execute-task` — дизайн
 
 > Historical design record. The shipped command was replaced by `/cc-tuner:spec` +
-> `/cc-tuner:run`; current behavior is defined by those command files and
-> `plugins/cc-tuner/workflow-contract.json`.
+> `/cc-tuner:run`; current behavior is defined by those command files. The
+> `workflow-contract.json` this record cites was deleted on 2026-08-24 — nothing loaded it, and its
+> thresholds now live in `skills/deep-review/SKILL.md`.
 
 - **Дата:** 2026-06-21
 - **Статус:** реализовано (v0.4.0); синхронизировано с шагами 1.5 / 4 / 5 и полем review_passes

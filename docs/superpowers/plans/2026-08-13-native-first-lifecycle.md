@@ -747,7 +747,8 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
   recovery preserving those edges → a live checked merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
 - Lifecycle Bash: `merge.sh`, spec-driven `mutate.sh`, the session-start hook, the plan linter and
-  `plan-path.sh`. The `--auto` frontier rule is an instruction, not runtime code.
+  `plan-path.sh`. The frontier rule moved into the plan linter on 2026-08-24 — a third mode of a
+  piece already counted here, not a sixth piece.
 - The existing opt-in smoke-verification feature separately owns its fail-open `Stop` hook, shared
   fingerprint library and `mark.sh`; it is inert without repository configuration. Setup checks
   remain separate under `scripts/setup/`.
