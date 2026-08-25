@@ -260,12 +260,12 @@ Frozen at `9eb9d4f` as a detached worktree at `/tmp/cc-tuner-frozen`, two fresh 
 | 0 | **PASS.** The session's own Bash call ran `/tmp/cc-tuner-frozen/plugins/cc-tuner/scripts/setup/doctor.sh`; `plugins/cache/cc-tuner` appears **zero** times. Doctor: no blockers, exit 0 |
 | 1 — attended | **not observed**, and not observable this way: attended means a human at a terminal, which headless driving cannot supply |
 | 2 — whole `--auto` | **partial.** `/spec` grilled and committed on the task branch; `/plan --auto` asked no approval question and published `#2 blockedBy=1`; `/run --auto` delivered both slices, ticked **17 of 17** criteria, opened PR #2 and ran **five review rounds** over 106 turns before the session hit its usage limit. Suite green on the head. No verdict, no merge |
-| 2 — `blockedBy` refusal, isolated | **PASS**, second attempt — see below |
-| 2b | **blocked, and not by cc-tuner.** The run reached the required round, Codex approved the candidate twice, and both times `record` returned `NO_DECISION reason=no_approve_verdict`. The thread log holds `  APPROVE---\n`: the Codex CLI trims the trailing newline from its final message, BSD `sed` does not add one, so the `---` terminator lands on the verdict line and `strict_required_verdict` compares exactly. **Finding 10, reproducing live** — the third instance of a marker breaking at a component boundary nobody owns. `merge.sh --check-only` then denied for the right reason (`no cc-tuner verdict … on 96fda51…`), and the run refused to publish a verdict the marker did not support. `cc-codex-triage#6` fixes it and is open |
-| 3 — recovery | **PASS, all three legs.** Fresh session, then `/clear`, then `/compact`: two rows and `#2 blocked by #1` every time, no duplication. All five turns ran the frozen plugin with zero references to the installed cache |
+| 2 — `blockedBy` refusal, isolated | **PASS**, third fixture — the first two were not isolated, see below |
+| 2b | **open.** The run reached the required round, Codex approved the candidate twice, and both times `record` returned `NO_DECISION reason=no_approve_verdict`. `merge.sh --check-only` then denied at the candidate SHA naming the missing fact, and the run refused to publish a verdict the marker did not support. Everything cc-tuner owns behaved; the marker never became readable — see below |
+| 3 — recovery | **two legs of three.** Fresh session and `/compact`: two rows and `#2 blocked by #1` each time, no duplication, every turn on the frozen plugin. **`/clear` is not observed** — see below |
 | 4 — live denial | **PASS, both branches.** No verdict: `no cc-tuner verdict from clicktronix on 9a94d95… — the candidate has not been reviewed at this commit`. `REQUEST_CHANGES` at the head: `the latest cc-tuner verdict … is not an approval`. Both `exit=1`. A third refusal appeared on the way: a branch carrying no plan file is told `--check-only has no answer here` rather than guessed at |
 
-**The `blockedBy` fixture had to be built twice, and the first one was invalid in the way this
+**The `blockedBy` fixture had to be built three times, and the first two were invalid in the way this
 document already warned about.** The 2026-08-21 sharpening says the refusal must be measured on a
 slice whose own criteria are satisfiable today, blocked only by the edge, because run 3's first
 attempt used a slice that genuinely depended on its blocker. The first attempt here repeated exactly
@@ -291,20 +291,70 @@ It then worked slice 1, slice 2, and ticked both. **This is not the first observ
 that the refusal now comes through `plan-lint.sh frontier` rather than the model reading the graph by
 hand, which is what moving that rule out of prose was for.
 
-**One session read the installed 0.10.0, and it is recorded here because step 6 says every outcome
-is.** The first `blockedBy` attempt in `cc-tuner-eval-9` listed
-`~/.claude/plugins/cache/cc-tuner/cc-tuner/0.10.0` nine times while investigating its own preflight
-failure. The installed copy had been disabled in that repository and `--plugin-dir` pointed at the
-frozen tree, so the skills it executed were the frozen ones — but a session that reaches into the
-installed tree at all is the defect class step 0 exists to catch, and the run it belongs to was void
-for other reasons anyway. Every later session in both repositories shows `cache=0`.
+**And that fixture was not isolated either — it took a third.** Its Definition of Done said "both
+slices delivered **in frontier order**", and the session cited that clause alongside the edge. So the
+refusal again had two grounds, one of them written into the fixture by the person building it while
+removing the previous confound. The third fixture states the opposite in as many words — order is not
+a Definition-of-Done requirement, the plan graph is the only thing constraining which slice starts —
+and the refusal then rests on the edge alone:
 
-**Step 2b is blocked on a companion plugin, and that is worth separating from the rest.** The
-positive path is unobservable here not because the checked path is wrong but because the producer
-cannot get a readable marker past its own logging. Everything cc-tuner owns behaved: the run declined
-to publish a verdict it had not earned, and `--check-only` denied at the candidate SHA and said which
-fact was missing. The path stays unproven end to end until `cc-codex-triage#6` is merged and released,
-and that is the same seam finding 10 named — a marker crossing a boundary where no test owns both
+> The spec's Definition of Done says order isn't a DoD requirement … So "order is not a DoD
+> requirement" means order won't be *graded at the end* — not that the edge is advisory. The plan
+> records `Blocked by: 1` on Slice 2, and `frontier` offers only Slice 1. Under `--auto` I'm required
+> to refuse a slice with a non-empty `blockedBy`. You're right that Slice 2 needs nothing from Slice 1
+> — that's true, and it's the point of the fixture. But that's an argument for removing the edge in
+> the plan, not for stepping over it in the runner.
+
+Three fixtures to isolate one mechanism, each failing for a different reason, is the honest cost of
+this assertion — and worth writing down, because the first two both looked like evidence.
+
+**One session ran the installed 0.10.0 outright, and an earlier draft of this entry described it too
+kindly.** The first `blockedBy` attempt in `cc-tuner-eval-9` made **no `Skill` call at all** and
+executed nothing from the frozen tree. It read
+`~/.claude/plugins/cache/cc-tuner/cc-tuner/0.10.0/commands/run.md`, exported
+`CLAUDE_PLUGIN_ROOT=…/0.10.0`, and ran that tree's `scripts/execute-task/preflight.sh` — the deleted
+runtime, on a repository where the installed copy had been disabled and `--plugin-dir` pointed at the
+frozen one. The draft said "the skills it executed were the frozen ones"; they were not. This is the
+step-0 defect fully realised rather than approached, and it is the reason step 0 is a step. Every
+other session in both repositories shows `cache=0`.
+
+**`/clear` fires the hook and headless gives it nowhere to land.** The `clear` matcher works — the
+restore context appears in the `/clear` turn's own output. But that turn carries **no model turn**:
+`claude -p "/clear"` forks a new session id and returns. Resuming that new session does not re-fire a
+`startup|clear` hook, and the model there reported receiving no cc-tuner SessionStart context and an
+empty `TaskList`. An earlier draft called this leg PASS by resuming the **pre-clear** session, where
+the tasks were still present and the rebuild was correctly reported as a no-op — which measures
+nothing. The leg needs the same thing step 1 does: a human at a terminal, whose next message gives the
+cleared session a turn.
+
+**Step 2b is open because of a companion plugin, and one attempt to route around it did not work.**
+The producer cannot get a readable marker past its own logging. Reproduced here at the byte level,
+without any session involved:
+
+```
+$ { printf 'APPROVE' | sed 's/^/  /'; echo "---"; } | od -c     # 0.10.0, installed
+0000000       A   P   P   R   O   V   E   -   -   -  \n
+$ { printf 'APPROVE' | awk '{ print "  " $0 }'; echo "---"; } | od -c   # the fix in #6
+0000000       A   P   P   R   O   V   E  \n   -   -   -  \n
+```
+
+Codex trims the trailing newline from its final message, BSD `sed` does not add one, the `---`
+terminator lands on the verdict line, and `strict_required_verdict` compares exactly. `REQUEST_CHANGES`
+is mangled identically, so **no** verdict of any kind can be recorded and every round runs to
+`CAP_REACHED`.
+
+`--plugin-dir` is repeatable, so the obvious remedy is to freeze `cc-codex-triage#6` beside the
+cc-tuner freeze rather than merge and release it for an eval. That was tried — `ea07a55` frozen at
+`/tmp/cc-codex-triage-pr6`, the installed copy disabled in the repository, both directories passed. It
+did not settle anything: the session made **zero** calls into the frozen copy, resolved
+`cc-codex-triage@0.10.0` as "the one `review-state.sh check` resolves", and declined to spend a paid
+round on a gate it had already proved could not record a verdict. So the remedy is untested rather
+than refuted — what it needs is a dispatch driven through the frozen script by path, not a session
+left to resolve the plugin itself.
+
+Everything cc-tuner owns behaved: the run declined to publish a verdict it had not earned, and
+`--check-only` denied at the candidate SHA and named the missing fact. The path stays unproven end to
+end, and that is the same seam finding 10 named — a marker crossing a boundary where no test owns both
 sides.
 
 **What this run does not license.** Step 7 is not closed: step 1 (attended), step 2's whole flow and
