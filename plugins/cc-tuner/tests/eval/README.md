@@ -21,7 +21,7 @@ otherwise. What each step was last observed against:
 | 2b — `--check-only` then the same script merges | `cd9fa2f` | run 3, scenario A. Run 3d merged through `merge.sh` but never called `--check-only` |
 | 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
 | 4 — live denial, both branches | `cd9fa2f` | run 3 |
-| 5 — the nine probes | the current tree | all nine at 8 of 8 under the committed protocol |
+| 5 — the nine probes | the current tree | re-measured 2026-08-25 under protocol version 2, isolated; the 2026-08-24 round was voided as non-isolated |
 | 7 — the repeat on the shipped tree | — | **open**: seven observations — step 0 on the new freeze, step 1, step 2 whole, step 2's isolated refusal, 2b, 3 and 4 |
 | 6 — this file | — | — |
 
@@ -54,7 +54,7 @@ would leave only the flattering half.
 | 2b | **PASS** — `--check-only` accepted, then the same script merged | PASS |
 | 3 | **PASS** — same edges after a fresh session and after `/clear`; no duplication after `/compact` | not run |
 | 4 | **PASS** — both denials live, `rc=1` | PASS |
-| 5 | **PASS** — all nine at 8 of 8, no abstentions, under a protocol committed before the sample; the probe that came back 6 of 8 was fixed in `deep-review` and re-measured | PASS, and it caught a live regression |
+| 5 | **PASS**, on the third telling. The 2026-08-24 round claimed all nine at 8 of 8 with no abstentions; it had one abstention, ran a tenth sample it did not need, judged three answers against the skill rather than against the committed question, and ran without `--safe-mode` so five answers on one probe reached the operator's own installed skills. It was voided at `3229c57` and re-measured under protocol version 2. | PASS, and it caught a live regression |
 | 6 | this file | this file |
 
 **The promised flow was observed end to end, in one session, twice** — attended in
