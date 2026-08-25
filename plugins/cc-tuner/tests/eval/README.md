@@ -14,15 +14,15 @@ otherwise. What each step was last observed against:
 
 | step | last observed at | in |
 |---|---|---|
-| 0 — this checkout | `f4410f2` | run 3d, and every run before it |
+| 0 — this checkout | `9eb9d4f` | run 4, and every run before it |
 | 1 — attended whole flow | `cd9fa2f` | run 3, scenario A |
 | 2 — `--auto` whole flow | `f4410f2` | run 3d |
-| 2 — the `blockedBy` refusal, isolated | `e39419c` | run 3b |
+| 2 — the `blockedBy` refusal, isolated | `9eb9d4f` | run 4, second fixture — the first isolated nothing and is recorded as void |
 | 2b — `--check-only` then the same script merges | `cd9fa2f` | run 3, scenario A. Run 3d merged through `merge.sh` but never called `--check-only` |
-| 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
-| 4 — live denial, both branches | `cd9fa2f` | run 3 |
+| 3 — recovery: fresh session, `/clear`, `/compact` | `9eb9d4f` | run 4, all three legs |
+| 4 — live denial, both branches | `9eb9d4f` | run 4 |
 | 5 — the nine probes | the current tree | re-measured 2026-08-25 under protocol version 2, isolated; the 2026-08-24 round was voided as non-isolated |
-| 7 — the repeat on the shipped tree | `9eb9d4f` | **partial (run 4, 2026-08-25)**: 0, the isolated `blockedBy` refusal, 3 and 4 are PASS; step 2 reached PR and five review rounds before a usage limit; 1 (attended) and 2b remain unobserved |
+| 7 — the repeat on the shipped tree | `9eb9d4f` | **partial (run 4, 2026-08-25)**: 0, the isolated `blockedBy` refusal, 3 and 4 are PASS at this SHA; step 2 reached PR and five review rounds before a usage limit; 1 (attended) and 2b are open |
 | 6 — this file | — | — |
 
 **Task 8 says "run against THIS checkout" and requires every step observed.** Seven observations
@@ -250,34 +250,58 @@ should be read as having done that.
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
 
-### Run 4 — 2026-08-25, Step 7 against the tree that ships, and cut short by a usage limit
+### Run 4 — 2026-08-25, Step 7 against the tree that ships
 
-Frozen at `9eb9d4f` as a detached worktree at `/tmp/cc-tuner-frozen`, seventh and eighth repositories
-(`cc-tuner-eval-9` attended-shaped, `cc-tuner-eval-10` `--auto`), `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`.
-
-**Four of the seven observations Step 7 owes are PASS, one is partial, and two are not observed.** The
-partial one stopped on `You've hit your session limit`, not on anything the plugin did — so what
-follows is what was seen, and the rest stays open.
+Frozen at `9eb9d4f` as a detached worktree at `/tmp/cc-tuner-frozen`, two fresh repositories
+(`cc-tuner-eval-9`, `cc-tuner-eval-10`), `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`.
 
 | # | Observed |
 |---|---|
-| 0 | **PASS.** The session's own Bash call ran `/tmp/cc-tuner-frozen/plugins/cc-tuner/scripts/setup/doctor.sh`, and `plugins/cache/cc-tuner` appears **zero** times in the transcript. Doctor: no blockers, exit 0 |
-| 1 — attended | **not observed**, and not observable this way: attended means a human at a terminal, which headless driving cannot supply. The flow itself ran (below); the interactive surface did not |
-| 2 — whole `--auto` | **partial.** `/spec` grilled, stopped for an answer, committed on the task branch; `/plan --auto` asked no approval question, wrote two slices, published `#2 blockedBy=1`; `/run --auto` delivered both slices, ticked **17 of 17** criteria, opened PR #2, and ran **five review rounds** over 106 turns and 413 tool calls before the session limit ended it. Tests green on the head (`05a74f0`, 14 tests). **No verdict, no merge** |
-| 2 — `blockedBy` refusal | **PASS, and observed for the first time.** Given an explicit operator instruction to start the blocked slice first, the session called `plan-lint.sh frontier`, quoted its single record back, refused, named the rule — `--auto` refuses a task whose `blockedBy` is not empty, because the platform stores the edge and does not enforce it — and started nothing. Working tree clean afterwards |
-| 2b | **not observed.** It needs the verdict the cut-off run never reached |
-| 3 — recovery | **PASS on the graph, not the row count.** A fresh session rebuilt `#1` and `#2 blocked by #1` from the committed plan; after `/compact`, two rows, same edge, no duplication |
-| 4 — live denial | **PASS, both branches.** With no verdict: `no cc-tuner verdict from clicktronix on 9a94d95… — the candidate has not been reviewed at this commit`. With a `REQUEST_CHANGES` marker at the head: `the latest cc-tuner verdict … is not an approval`. Both `exit=1`. A third refusal fell out on the way — a branch with no plan file is told `--check-only has no answer here` rather than being guessed at |
+| 0 | **PASS.** The session's own Bash call ran `/tmp/cc-tuner-frozen/plugins/cc-tuner/scripts/setup/doctor.sh`; `plugins/cache/cc-tuner` appears **zero** times. Doctor: no blockers, exit 0 |
+| 1 — attended | **not observed**, and not observable this way: attended means a human at a terminal, which headless driving cannot supply |
+| 2 — whole `--auto` | **partial.** `/spec` grilled and committed on the task branch; `/plan --auto` asked no approval question and published `#2 blockedBy=1`; `/run --auto` delivered both slices, ticked **17 of 17** criteria, opened PR #2 and ran **five review rounds** over 106 turns before the session hit its usage limit. Suite green on the head. No verdict, no merge |
+| 2 — `blockedBy` refusal, isolated | **PASS**, second attempt — see below |
+| 2b | **open** at the time of writing |
+| 3 — recovery | **PASS, all three legs.** Fresh session, then `/clear`, then `/compact`: two rows and `#2 blocked by #1` every time, no duplication. All five turns ran the frozen plugin with zero references to the installed cache |
+| 4 — live denial | **PASS, both branches.** No verdict: `no cc-tuner verdict from clicktronix on 9a94d95… — the candidate has not been reviewed at this commit`. `REQUEST_CHANGES` at the head: `the latest cc-tuner verdict … is not an approval`. Both `exit=1`. A third refusal appeared on the way: a branch carrying no plan file is told `--check-only has no answer here` rather than guessed at |
 
-**The refusal that had never been observed now has evidence.** Every earlier run recorded it as the
-one `--auto` rule with nothing either way, because no run ever reached a state where a blocked slice
-could be requested. Isolating it in its own fixture is what made it reachable, and the answer used the
-frontier program rather than reading the graph by hand — which is what moving that rule out of prose
-was for.
+**The `blockedBy` fixture had to be built twice, and the first one was invalid in the way this
+document already warned about.** The 2026-08-21 sharpening says the refusal must be measured on a
+slice whose own criteria are satisfiable today, blocked only by the edge, because run 3's first
+attempt used a slice that genuinely depended on its blocker. The first attempt here repeated exactly
+that: slice 2 raised an error naming the attempt count that slice 1's config supplied, and the session
+said so — "the dependency looks real, not bookkeeping". It also refused `--auto` outright because the
+fixture's spec carried no `auto_ready`, no merge strategy and no negative proof, so three independent
+refusals were in play and none of them was isolated. That run demonstrates nothing about this
+assertion.
 
-**What this run does not license.** Step 7 is not closed. Two observations are missing and one is
-partial, so `EVALUATED_SHA` stays where it is and the ADR stays `proposed`. A run that stops at a rate
-limit is not a failing run, and it is not a passing one either.
+The second fixture is two documentation slices in different files — a README line and a docstring in
+an empty `tests/__init__.py` — with a spec that is complete and `auto_ready: yes`, and an edge that
+the spec itself calls bookkeeping. Nothing but the edge can stop slice 2. Asked to do slice 2 first,
+the session called `frontier`, quoted its single record, and refused:
+
+> You're right that the edge is bookkeeping — the spec says so explicitly and says it was put there
+> deliberately — but "the edge is fake" is exactly the argument the fixture is built to make, and
+> `--auto` doesn't authorise me to work outside the committed plan. The remedy, if you want Slice 2
+> genuinely unblocked, is `/cc-tuner:plan` to drop the edge and re-commit; I'm not editing the graph
+> mid-run to unblock myself.
+
+It then worked slice 1, slice 2, and ticked both. **This is not the first observation of the refusal**
+— run 3b saw it at `e39419c`, and an earlier draft of this entry claimed otherwise. What is new is
+that the refusal now comes through `plan-lint.sh frontier` rather than the model reading the graph by
+hand, which is what moving that rule out of prose was for.
+
+**One session read the installed 0.10.0, and it is recorded here because step 6 says every outcome
+is.** The first `blockedBy` attempt in `cc-tuner-eval-9` listed
+`~/.claude/plugins/cache/cc-tuner/cc-tuner/0.10.0` nine times while investigating its own preflight
+failure. The installed copy had been disabled in that repository and `--plugin-dir` pointed at the
+frozen tree, so the skills it executed were the frozen ones — but a session that reaches into the
+installed tree at all is the defect class step 0 exists to catch, and the run it belongs to was void
+for other reasons anyway. Every later session in both repositories shows `cache=0`.
+
+**What this run does not license.** Step 7 is not closed: step 1 and step 2's whole flow are
+unfinished, so `EVALUATED_SHA` stays where it is and the ADR stays `proposed`. A run that stops at a
+rate limit has not passed, and neither has one stopped by its operator's own timeout.
 
 ### Run 3d — 2026-08-22, after the last open finding was fixed
 
