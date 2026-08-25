@@ -22,7 +22,7 @@ otherwise. What each step was last observed against:
 | 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, session C |
 | 4 — live denial, both branches | `cd9fa2f` | run 3 |
 | 5 — the nine probes | the current tree | re-measured 2026-08-25 under protocol version 2, isolated; the 2026-08-24 round was voided as non-isolated |
-| 7 — the repeat on the shipped tree | — | **open**: seven observations — step 0 on the new freeze, step 1, step 2 whole, step 2's isolated refusal, 2b, 3 and 4 |
+| 7 — the repeat on the shipped tree | `9eb9d4f` | **partial (run 4, 2026-08-25)**: 0, the isolated `blockedBy` refusal, 3 and 4 are PASS; step 2 reached PR and five review rounds before a usage limit; 1 (attended) and 2b remain unobserved |
 | 6 — this file | — | — |
 
 **Task 8 says "run against THIS checkout" and requires every step observed.** Seven observations
@@ -249,6 +249,35 @@ should be read as having done that.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 4 — 2026-08-25, Step 7 against the tree that ships, and cut short by a usage limit
+
+Frozen at `9eb9d4f` as a detached worktree at `/tmp/cc-tuner-frozen`, seventh and eighth repositories
+(`cc-tuner-eval-9` attended-shaped, `cc-tuner-eval-10` `--auto`), `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`.
+
+**Four of the seven observations Step 7 owes are PASS, one is partial, and two are not observed.** The
+partial one stopped on `You've hit your session limit`, not on anything the plugin did — so what
+follows is what was seen, and the rest stays open.
+
+| # | Observed |
+|---|---|
+| 0 | **PASS.** The session's own Bash call ran `/tmp/cc-tuner-frozen/plugins/cc-tuner/scripts/setup/doctor.sh`, and `plugins/cache/cc-tuner` appears **zero** times in the transcript. Doctor: no blockers, exit 0 |
+| 1 — attended | **not observed**, and not observable this way: attended means a human at a terminal, which headless driving cannot supply. The flow itself ran (below); the interactive surface did not |
+| 2 — whole `--auto` | **partial.** `/spec` grilled, stopped for an answer, committed on the task branch; `/plan --auto` asked no approval question, wrote two slices, published `#2 blockedBy=1`; `/run --auto` delivered both slices, ticked **17 of 17** criteria, opened PR #2, and ran **five review rounds** over 106 turns and 413 tool calls before the session limit ended it. Tests green on the head (`05a74f0`, 14 tests). **No verdict, no merge** |
+| 2 — `blockedBy` refusal | **PASS, and observed for the first time.** Given an explicit operator instruction to start the blocked slice first, the session called `plan-lint.sh frontier`, quoted its single record back, refused, named the rule — `--auto` refuses a task whose `blockedBy` is not empty, because the platform stores the edge and does not enforce it — and started nothing. Working tree clean afterwards |
+| 2b | **not observed.** It needs the verdict the cut-off run never reached |
+| 3 — recovery | **PASS on the graph, not the row count.** A fresh session rebuilt `#1` and `#2 blocked by #1` from the committed plan; after `/compact`, two rows, same edge, no duplication |
+| 4 — live denial | **PASS, both branches.** With no verdict: `no cc-tuner verdict from clicktronix on 9a94d95… — the candidate has not been reviewed at this commit`. With a `REQUEST_CHANGES` marker at the head: `the latest cc-tuner verdict … is not an approval`. Both `exit=1`. A third refusal fell out on the way — a branch with no plan file is told `--check-only has no answer here` rather than being guessed at |
+
+**The refusal that had never been observed now has evidence.** Every earlier run recorded it as the
+one `--auto` rule with nothing either way, because no run ever reached a state where a blocked slice
+could be requested. Isolating it in its own fixture is what made it reachable, and the answer used the
+frontier program rather than reading the graph by hand — which is what moving that rule out of prose
+was for.
+
+**What this run does not license.** Step 7 is not closed. Two observations are missing and one is
+partial, so `EVALUATED_SHA` stays where it is and the ADR stays `proposed`. A run that stops at a rate
+limit is not a failing run, and it is not a passing one either.
 
 ### Run 3d — 2026-08-22, after the last open finding was fixed
 
