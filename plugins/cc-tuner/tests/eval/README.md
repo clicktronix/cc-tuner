@@ -261,7 +261,7 @@ Frozen at `9eb9d4f` as a detached worktree at `/tmp/cc-tuner-frozen`, two fresh 
 | 1 — attended | **not observed**, and not observable this way: attended means a human at a terminal, which headless driving cannot supply |
 | 2 — whole `--auto` | **partial.** `/spec` grilled and committed on the task branch; `/plan --auto` asked no approval question and published `#2 blockedBy=1`; `/run --auto` delivered both slices, ticked **17 of 17** criteria, opened PR #2 and ran **five review rounds** over 106 turns before the session hit its usage limit. Suite green on the head. No verdict, no merge |
 | 2 — `blockedBy` refusal, isolated | **PASS**, second attempt — see below |
-| 2b | **open** at the time of writing |
+| 2b | **blocked, and not by cc-tuner.** The run reached the required round, Codex approved the candidate twice, and both times `record` returned `NO_DECISION reason=no_approve_verdict`. The thread log holds `  APPROVE---\n`: the Codex CLI trims the trailing newline from its final message, BSD `sed` does not add one, so the `---` terminator lands on the verdict line and `strict_required_verdict` compares exactly. **Finding 10, reproducing live** — the third instance of a marker breaking at a component boundary nobody owns. `merge.sh --check-only` then denied for the right reason (`no cc-tuner verdict … on 96fda51…`), and the run refused to publish a verdict the marker did not support. `cc-codex-triage#6` fixes it and is open |
 | 3 — recovery | **PASS, all three legs.** Fresh session, then `/clear`, then `/compact`: two rows and `#2 blocked by #1` every time, no duplication. All five turns ran the frozen plugin with zero references to the installed cache |
 | 4 — live denial | **PASS, both branches.** No verdict: `no cc-tuner verdict from clicktronix on 9a94d95… — the candidate has not been reviewed at this commit`. `REQUEST_CHANGES` at the head: `the latest cc-tuner verdict … is not an approval`. Both `exit=1`. A third refusal appeared on the way: a branch carrying no plan file is told `--check-only has no answer here` rather than guessed at |
 
@@ -299,9 +299,17 @@ frozen tree, so the skills it executed were the frozen ones — but a session th
 installed tree at all is the defect class step 0 exists to catch, and the run it belongs to was void
 for other reasons anyway. Every later session in both repositories shows `cache=0`.
 
-**What this run does not license.** Step 7 is not closed: step 1 and step 2's whole flow are
-unfinished, so `EVALUATED_SHA` stays where it is and the ADR stays `proposed`. A run that stops at a
-rate limit has not passed, and neither has one stopped by its operator's own timeout.
+**Step 2b is blocked on a companion plugin, and that is worth separating from the rest.** The
+positive path is unobservable here not because the checked path is wrong but because the producer
+cannot get a readable marker past its own logging. Everything cc-tuner owns behaved: the run declined
+to publish a verdict it had not earned, and `--check-only` denied at the candidate SHA and said which
+fact was missing. The path stays unproven end to end until `cc-codex-triage#6` is merged and released,
+and that is the same seam finding 10 named — a marker crossing a boundary where no test owns both
+sides.
+
+**What this run does not license.** Step 7 is not closed: step 1 (attended), step 2's whole flow and
+step 2b are unfinished, so `EVALUATED_SHA` stays where it is and the ADR stays `proposed`. A run that
+stops at a rate limit has not passed, and neither has one stopped by its operator's own timeout.
 
 ### Run 3d — 2026-08-22, after the last open finding was fixed
 
