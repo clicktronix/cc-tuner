@@ -88,14 +88,14 @@
         "answer": "No. `/run` cannot start without those details. The spec is not ready.\n\nThe `/cc-tuner:spec` skill explicitly states:\n\n> A pending `TBD`, \"as appropriate\", unknown test command, or unstated expected failure means the spec is not ready.\n\nAnd in the Definition of Ready checklist:\n\n> - [x] Test plan: commands, expected first failure, environment, and data are explicit\n\nThe spec **must** record:\n\n- **Regression test**: the exact file path and failing assertion before the fix\n- **First failing check**: the exact command that proves the gap, and what failure it shows\n- **Expected failure**: the specific assertion/error that will change when fixed\n- **Environment**: services, fixtures, test data, credentials boundary  \n- **Negative/mutation proof**: how to show the test fails without the fix (either a mutation command, or a justified \"not applicable\" with an alternative baseline/diff check)\n\nThe skill allows only one exception:\n\n> For a documentation-only or mechanical task, `First failing check` and `Negative/mutation proof` may say `not applicable` only with a concrete reason and an alternative baseline/diff check. Do not use `not applicable` merely because writing a regression test is inconvenient.\n\nSo a spec that says only \"run tests\" is incomplete. It skips the grilling work that `/spec` owns — establishing what \"passing\" looks like before implementation starts. Handing that underspecified plan to `/run` reproduces the exact failure mode the rework addresses: ambiguous acceptance, unmeasurable progress, review collapse.\n\n**What to do**: return to `/cc-tuner:spec` with the issue or spec. Have it grill the gaps: what is the regression test file, what command runs it, what exact failure does it show now, and what proves the fix without an explicit test (baseline, diff, or mutation)?"
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 8,
       "abstentions": 0,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0",

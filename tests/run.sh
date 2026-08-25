@@ -262,7 +262,9 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
     (.baseline_observed.method | type == "string" and length > 0) and
     (.baseline_observed.verdict | type == "string" and length > 0) and
     (.green_check.measured_against | type == "string" and length > 0) and
-    (.green_check.protocol | type == "string" and length > 0) and
+    # One protocol, one home: the normative text is a version in tests/eval/README.md, not nine
+    # copies the validator could only check for being non-empty.
+    (.green_check.protocol_version == 2) and
     (.decision_question | type == "string" and length > 0) and
     (.green_check.runs | type == "array" and length >= 8 and length <= 16) and
     all(.green_check.runs[]; (.class | IN("correct", "incorrect", "abstain"))
@@ -281,11 +283,18 @@ for name in visible-plan-before-edit dor-first-failing-check false-green-regress
        == ([.green_check.runs[] | select(.class != "abstain")][0:8] | map(select(.class == "correct")) | length)) and
     ((.green_check.verdict == "green")
        == (.green_check.reproduction.scored == 8 and .green_check.reproduction.correct >= 7)) and
+    # Sampling stops at the eighth substantive answer. A ninth cannot change the verdict but can
+    # change what the record looks like, and "score the first eight of however many were taken" is
+    # the door topping-up walks through. Fewer than eight means the full sixteen were spent.
+    (([.green_check.runs[] | select(.class != "abstain")] | length) as $substantive
+     | if $substantive >= 8
+       then $substantive == 8 and (.green_check.runs[-1].class != "abstain")
+       else (.green_check.runs | length) == 16 end) and
     ((.green_check.verdict | IN("green", "unstable")))
   ' "$file" >/dev/null 2>&1; then
     task_run_evidence=$((task_run_evidence + 1))
   else
-    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, a protocol, 8..16 runs numbered from 1, each classified correct/incorrect/abstain with the answer it was judged on and a note, counts that match them, and a verdict that agrees with '>= 7 of the first 8 non-abstain'"
+    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, protocol_version 2, 8..16 runs numbered from 1 stopping at the eighth non-abstain, each classified correct/incorrect/abstain with the answer it was judged on and a note, counts that match them, and a verdict that agrees with '>= 7 of the first 8 non-abstain'"
   fi
 
   # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever

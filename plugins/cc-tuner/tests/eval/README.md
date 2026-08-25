@@ -684,6 +684,28 @@ verdict is `unstable` with no further runs. That last clause is the point — to
 comes out right is the failure this replaces, and without a cap "resample the abstentions" is exactly
 that failure wearing a protocol.
 
+**Sampling stops at the eighth substantive answer.** Not "score the first eight of however many were
+taken": the run that comes after the bar is already met is one whose result cannot change the verdict
+but can change what the record looks like. `tests/run.sh` enforces it — more than eight non-abstain
+runs, or an abstention trailing the eighth, fails the evidence contract. Two runs were once launched
+together as a buffer against a second abstention; the buffer was unnecessary and the second run had
+nowhere to go but the record.
+
+**Isolation means `--safe-mode`, not `--strict-mcp-config`.** The latter only excludes foreign MCP
+servers. On 2026-08-24 a full re-measurement ran without it and five of ten answers on one probe named
+the operator's own installed skills — `superpowers:brainstorming`, `writing-plans`,
+`dispatching-parallel-agents`, `using-git-worktrees` — two of them invoking one instead of answering.
+Those files are in nobody's `measured_targets`, so upgrading an unrelated plugin could have moved a
+GREEN with every hash still matching. `--safe-mode` disables CLAUDE.md, skills, plugins, hooks, MCP
+servers, custom commands and agents; `--append-system-prompt` still delivers the measured files.
+
+### Protocol version 2
+
+Everything above is version **2**, and each scenario records `green_check.protocol_version` rather than
+a copy of the text. Nine copies of one normative paragraph is nine things to keep in step, and the
+validator could only ever check that the string was non-empty. Version 2 adds the two clauses above to
+version 1; a scenario measured under version 1 is not comparable and must be re-measured.
+
 **And the first result under it did not count either.** The protocol and its results went into one
 commit, so nothing in the history showed which came first — the JSON claimed "fixed before the sample it
 judges" and git could not corroborate it. That round is exploratory. The rules stand at `505e9a8`; the

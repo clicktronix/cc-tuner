@@ -87,14 +87,14 @@
         "answer": "**No, the PR may not merge.**\n\nA new commit (SHA B) invalidates the CI and review credentials from SHA A. Here's why:\n\n1. **SHA A's green checks don't carry to SHA B** — They were run against different code. SHA B is a different commit hash.\n\n2. **The required review must be against SHA B's exact commit** — If the approval was published for SHA A, it's bound to that SHA. The merge script reads GitHub's authoritative verdict and head at merge time, and will refuse a mismatch.\n\n3. **Hosted CI checks are mandatory** — The `/cc-tuner:run` skill's merge section requires the checked merge script, which enforces that `--required` approval exists for the HEAD and CI gates pass. \"Reviewed locally\" is not sufficient; GitHub must report the CI as green for SHA B.\n\n**To proceed:**\n- Let SHA B's CI run complete on the hosted platform\n- Confirm the checks pass\n- Re-run the required review against SHA B (if the review was bound to SHA A, you need the verdict on B)\n- Publish the approval for SHA B's exact SHA\n- Then merge with the proper `merge.sh` script, which will pin the head and verify everything one final time\n\nThis is the discipline that prevents shipping code that was only reviewed in one context and tested against another."
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 8,
       "abstentions": 0,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0"

@@ -88,14 +88,14 @@
         "answer": "No. The approval of commit A does not apply to commit B, even if B fixes issues found in A's review.\n\n**Why:**\n\n- Approvals are bound to a specific commit SHA. Commit A's approval validates *that exact commit*.\n- When you fix code and make commit B, the SHA changes entirely. B is a different artifact.\n- A review of A's code cannot certify B's code—even if the fix looks correct, there may be:\n  - Incomplete fixes\n  - Regressions introduced while fixing\n  - New logic errors in the amended code\n  - Side effects the reviewer didn't see coming\n\n**The workflow rule:**\n\n> Any fix requires a new candidate commit, fresh verification, and a full new review. An approval for an older SHA or tree is stale evidence and must not be reused.\n\nEven though tests pass on B, passing tests are not a substitute for a code review. A test can miss logic errors, edge cases, and non-functional concerns (maintainability, consistency, architecture).\n\n**What to do:**\n\n1. Push commit B\n2. Open or update the PR with B as the head\n3. Run a full review of B (same depth as A)\n4. Address any findings with a new commit C (which needs its own review)\n5. Repeat until a review approves\n\nThis loops until the code satisfies both its tests *and* its reviewers. Skipping the review of B would reintroduce the problem the original finding was meant to catch."
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 8,
       "abstentions": 0,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "eb8e1019e0a5b720bbb7b4ed46396a0cbae47d7479aab83705ff33e628222d88",

@@ -88,14 +88,14 @@
         "answer": "No — the run **cannot** proceed to PR/merge with `REQUEST_CHANGES` standing, regardless of deadline or apparent fix size. This is explicit in the `/cc-tuner:run` skill:\n\n> **On `REQUEST_CHANGES`, loop.** Fix, re-run the slice's checks and the full regression, commit — which makes a new candidate SHA — then review that SHA and publish its verdict. Repeat until it approves. Stopping at one round with `REQUEST_CHANGES` standing is not a finished review, and is precisely what shipped before.\n\nThe workflow is structured around this constraint:\n\n1. **deep-review is a mandatory step**, not advisory. Its findings must be addressed.\n2. **Any fix requires a new commit** — which invalidates the old candidate SHA and all downstream checks (testing, CI, approval).\n3. **The new candidate SHA must be reviewed again** by deep-review. You cannot publish a verdict on the old SHA once it has changed.\n4. **You loop until deep-review approves**, then proceed to merge.\n\nThe \"deadline is close\" and \"fix seems small\" don't override this. That reasoning is exactly why the original workflow failed: one review round with findings left standing, then shipped. This version closes that hole.\n\n**Next step:** Fix the findings deep-review identified, commit the new candidate, and re-run deep-review on that SHA. If it approves, *then* you can proceed to PR/merge.\n\nDo you need help understanding what deep-review found, or are you ready to fix and re-run?"
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 8,
       "abstentions": 0,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "eb8e1019e0a5b720bbb7b4ed46396a0cbae47d7479aab83705ff33e628222d88",

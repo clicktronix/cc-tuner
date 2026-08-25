@@ -101,14 +101,14 @@
         "answer": "I can see this is about orchestrating parallel work with clear ownership boundaries. Before I give you a decision framework, let me check: **are you asking me to formally plan this work, or to analyze the strategy and make a recommendation?**\n\nBased on the context you've provided, I can see the rules clearly in `placement.md`:\n\n**What may run in parallel:**\n- **The two implementation units** — only if their `Owned paths` don't overlap. Each runs in its own isolated git worktree.\n- **Code-writing only** — reading, probing, experimenting. Each unit tests while it writes; those are part of writing, not a second opinion.\n\n**What cannot fan out:**\n- Testing decisions, acceptance criteria, or any step of delivery\n- Review (except that independent read-only lenses over *one immutable candidate* can run in parallel under `deep-review`'s rules)\n- The decision itself: one owner assembles both units' commits into a single candidate\n\n**Who owns integration:**\nThe owner of the fanned-out units is whoever initiated the fan-out. They:\n1. Collect both units' commits into a **single candidate** (one branch head, not a merge of two)\n2. Run the authoritative tests on that candidate  \n3. Carry it through one review to one verdict\n4. Open one PR and merge it\n\nEach unit hands back commits, not a PR.\n\n**Do you have a spec and plan already?** If you share those, I can apply these rules to your specific case and name which slices can run in parallel, or I can invoke `/superpowers:writing-plans` to help structure the parallelization formally."
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 10,
       "abstentions": 1,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0",

@@ -81,14 +81,14 @@
         "answer": "**Decision: FAN OUT to parallel reviewer agents.**\n\n**Reasoning:**\n\nPer the deep-review skill, the decision hinges on **surface classification first, then size**:\n\n1. **Surface match check:** This change modifies `SERVICE_FEE_RATE` from 0.02 to 0.025. That is a pricing/billing value — explicitly listed as a sensitive surface (\"money, payments, pricing, billing, and entitlements\").\n\n2. **Size threshold doesn't override surface match:** The skill is explicit:\n   > \"A match requires fan-out, and nothing downgrades it. Not size, not simplicity, not that the change is obvious, not that it is 'only' a value. Thresholds decide execution shape for candidates that match no surface; they do not overrule a match.\"\n\n3. **Why it matters:** A fee rate change has systemic impact across billing calculations, contract terms, customer statements, and compliance — even though the diff is tiny. The size thresholds exist only for candidates that touch *no* sensitive surfaces.\n\n**Action:** Invoke deep-review to fan the review to parallel agents across all applicable lenses (correctness, spec, standards, architecture, security/data, testing/operability), since each dimension needs independent scrutiny on pricing-sensitive changes."
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 8,
       "abstentions": 0,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "baseline_reobserved": {
     "date": "2026-08-21",

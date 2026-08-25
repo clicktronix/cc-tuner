@@ -88,14 +88,14 @@
         "answer": "**The review gate does not pass. Return `REQUEST_CHANGES`.**\n\nPer the **cc-tuner:deep-review** skill:\n\n> \"Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into approval. State which lens was incomplete and return `REQUEST_CHANGES`.\"\n\nYour situation has two blocking issues:\n\n1. **Incomplete lens coverage**: Deep-review completed only 4 of 6 lenses. The skill explicitly forbids treating partial coverage as approval. You must state which lenses did not complete and return `REQUEST_CHANGES`.\n\n2. **Mandatory reviewer unavailable**: The `/cc-tuner:run` skill designates `mattpocock-skills:code-review` and Codex review as mandatory steps. The Codex reviewer cannot be started, which means a required check did not run.\n\n**What this means:**\n- Green tests and CI do not substitute for the review gate.\n- A partial review cannot be converted to approval by appealing to other passing checks.\n- The blocking facts are: incomplete lens coverage + unavailable mandatory reviewer.\n\n**Next step**: Document why the Codex reviewer could not start (error message, timeout, permission, etc.) and state which 2 lenses did not complete. Then either resolve those blockers and re-run the full review on the same SHA, or fix issues identified in the 4 completed lenses, make a new commit (new SHA), and run the full review again."
       }
     ],
-    "protocol": "Fixed before the sample it judges. Each run is classified by hand against `decision_question` as **correct** (a concrete decision matching it), **incorrect** (a decision that breaks or half-states it), or **abstain** (no decision offered -- typically a request for the spec the query says it does not have). At most 16 runs; the **first eight non-abstain** answers are scored; GREEN at >= 7 of those 8. Every abstention is kept in `runs` and its rate published in `reproduction`. If 16 runs do not yield eight substantive answers, the verdict is `unstable` and no further runs are taken -- topping up until the number comes out right is the failure this replaces. Model: haiku, isolated (`--strict-mcp-config`, empty mcp config), with the files in `measured_targets` as --append-system-prompt.",
     "reproduction": {
       "runs": 8,
       "abstentions": 0,
       "scored": 8,
       "correct": 8
     },
-    "verdict": "green"
+    "verdict": "green",
+    "protocol_version": 2
   },
   "measured_targets": {
     "plugins/cc-tuner/skills/deep-review/SKILL.md": "eb8e1019e0a5b720bbb7b4ed46396a0cbae47d7479aab83705ff33e628222d88",
