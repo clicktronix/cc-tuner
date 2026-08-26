@@ -30,8 +30,8 @@ next tool call, so every command below names the file literally:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve
 ```
 
-`resolve` fails when the branch has no committed plan, or more than one. Either way, stop: run
-`/cc-tuner:plan` first. Never work from a plan that exists only in the conversation.
+`resolve` fails when the branch has no committed plan, or more than one. Either way, stop: finish
+`/cc-tuner:spec` first. Never work from a plan that exists only in the conversation.
 
 **Check that the plan is this spec's plan.** Its header carries `**Spec:**` and `**Branch:**`. If the
 spec path you were given is not the one the plan names, stop and say so: `/run` takes a spec argument

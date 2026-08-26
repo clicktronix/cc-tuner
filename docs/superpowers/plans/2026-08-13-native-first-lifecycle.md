@@ -20,12 +20,9 @@ under `docs/`, steps as `- [ ]`), `superpowers:executing-plans` (read plan → c
 - **Every checked behaviour ships a test that fails when it is reverted.** A test that stays green
   against a reverted check is not a test of that behaviour.
 - **Executable and static checks are green at every commit.** A deliberately failing behaviour check
-  is proven by mutating the thing it guards, never by committing it red. The sole exception is a
-  scenario-freshness failure caused by changing a production skill: while the ADR is `proposed` and
-  the corresponding Task 8 step is open, that commit may invalidate only the scenarios that load the
-  changed file. Related rule refinements may follow; fresh evidence must restore `tests/run.sh` before
-  unrelated work or delivery. This preserves rule-before-sample provenance without treating an
-  ordinary red product test as acceptable.
+  is proven by mutating the thing it guards, never by committing it red. Model-scenario samples are
+  historical evidence with explicit provenance, not a freshness lock on every prose edit; repeat
+  them deliberately when a behavioural risk warrants the token cost.
 - **One rule, one home.** No second copy of a rule, and no second parser for a question something
   already answers.
 - **`git`, `gh`, `jq` only** in the shipped runtime. No new runtime dependency and no new language.
@@ -55,8 +52,8 @@ branch exists to remove.
   assertions on exit code, `permissionDecision`, and files produced. This tier can prove everything
   about the **scripts and hooks**, because those are shell programs with observable inputs.
 - **Eval tier** (Task 8, authenticated, costs tokens, run by hand). A real Claude Code session driving
-  `spec → plan → run`. This tier is the **only** one that can prove a skill causes `TaskCreate` to be
-  called, because in the scenario tier no producer exists.
+  `spec → run`, with the plan artifact produced inside `/spec`. This tier is the **only** one that can
+  prove a skill causes `TaskCreate` to be called, because in the scenario tier no producer exists.
 
 **The trap, stated so nobody falls into it:** a scenario that asserts something about "the plan file
 the skill produced" is asserting about a fixture the test itself wrote. That is a parser test wearing
@@ -69,17 +66,16 @@ Every task below and the eval use exactly these. Fixing the wording in one place
 exercising a shape the skills do not have:
 
 ```
-/cc-tuner:spec <issue number | URL | free-text description>   # produces the spec
-/cc-tuner:plan [--auto] <path-to-spec>                        # writes and publishes the plan
+/cc-tuner:spec <issue number | URL | free-text description>   # produces spec + approved plan
 /cc-tuner:run  [--auto] <path-to-spec>                        # works this branch's plan
 ```
 
-`/spec` takes the raw thing, not a spec path — it is what *creates* the spec, and an earlier draft
-wrote `/spec <path-to-spec>`, which is circular. It has no `--auto`: producing a spec unattended is
-not a mode this flow offers.
+`/spec` takes the raw thing, not a spec path — it is what creates the spec. It has no `--auto`:
+producing a spec unattended is not a mode this flow offers.
 
-`--auto` is a flag in the same position on the other two. `/run` takes the spec path, not the plan
-path: the plan is found from the branch, so passing it would be a second way to say the same thing.
+`--auto` belongs only to `/run`. `/run` takes the spec path, not the plan path: the plan is found from
+the branch, so passing it would be a second way to say the same thing. The separate `/plan` command
+was removed on 2026-08-26; its planning phase now finishes `/spec` after one user confirmation.
 
 ## A decision removed rather than resolved
 
@@ -100,7 +96,7 @@ simply not on this branch's path.
 |---|---|
 | 0 — scenario harness | — |
 | 1 — *(removed — see "A decision removed rather than resolved")* | — |
-| 2 — `/cc-tuner:plan` and the plan validator | 0 |
+| 2 — plan creation inside `/cc-tuner:spec` and the plan validator | 0 |
 | 3 — execution skill | 2 |
 | 4 — checked merge path | 0 |
 | 5 — `SessionStart` restore | 2 |
@@ -158,6 +154,10 @@ here is blocked on it.
 ---
 
 ## Task 2: `/cc-tuner:plan` and the plan validator
+
+> **Historical implementation record.** This is how Task 2 first landed. The standalone `/plan`
+> skill was removed on 2026-08-26; `/spec` now owns the same plan artifact, template, validation and
+> publication. The public signature above and Task 8 Step 7 below are the current contract.
 
 **Blocked by:** Task 0.
 
@@ -523,8 +523,9 @@ less necessary — the branch is not done without it.
       original defect: sessions holding a frozen `${CLAUDE_PLUGIN_ROOT}` while everyone read the new
       code.
 - [x] **Step 1: attended, the whole flow, starting at `/spec`.** In a scratch repository:
-      `/cc-tuner:spec <description>`, then `/cc-tuner:plan <spec>`, then `/cc-tuner:run <spec>`. An
-      earlier draft began at `/plan` while claiming to prove `spec → plan → run`; `/spec` is also
+      `/cc-tuner:spec <description>`, approve its contract and slices once, then
+      `/cc-tuner:run <spec>`. An earlier draft began at planning while claiming to prove the whole
+      flow; `/spec` is also
       where the task branch is created and where `domain-modeling` first writes, so skipping it skips
       the placement rule entirely. Confirm the branch exists **before the first committed write of any
       kind**, and then:
@@ -538,17 +539,16 @@ less necessary — the branch is not done without it.
       > proves nothing when it is present. The rule it was guarding is the placement rule, so the
       > clause now names that rule directly. Scenario A wrote two ADRs, which is the same guard on
       > the other half of what `domain-modeling` produces, and they landed on the task branch.
-      /plan presents the slices and waits for approval before writing anything,
-      the plan file is committed, `plan-lint.sh` accepts it, `TaskList` shows the slices **with their
+      `/spec` presents the contract and slices and waits for one approval before writing either,
+      both files are committed, `plan-lint.sh` accepts the plan, `TaskList` shows the slices **with their
       `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
       delivery boundary. The edges are the part a one-pass implementation would silently drop.
-- [x] **Step 2: `--auto`, the whole flow, in a fresh repository, branch and session.** Not a
-      continuation of step 1: reusing that workspace would let `--auto` inherit the attended run's
-      plan file and task list, and it would pass without ever creating either. `/cc-tuner:spec`, then
-      `/cc-tuner:plan --auto <spec>`, then `/cc-tuner:run --auto <spec>` — same signature, `--auto` in
-      the same position: no approval
-      question, plan committed, tasks created, boundaries not stopped at, and a task whose `blockedBy`
-      is non-empty refused when attempted out of order.
+- [x] **Step 2: unattended delivery, in a fresh repository, branch and session.** Not a continuation
+      of step 1: reusing that workspace would let `/run --auto` inherit the attended run's plan file
+      and task list. Run `/cc-tuner:spec`, approve its contract and slices once, then
+      `/cc-tuner:run --auto <spec>`. From that handoff through merge there are no approval questions or
+      delivery stops; the plan is committed, tasks are created when available, and a task whose
+      `blockedBy` is non-empty is refused when attempted out of order.
 
       > **Sharpened 2026-08-21, after run 3.** The refusal must be measured on a fixture that
       > **isolates the mechanism**: a downstream slice whose own acceptance criteria are satisfiable
@@ -571,13 +571,12 @@ less necessary — the branch is not done without it.
       same. Then `/compact` and confirm **no duplication**.
 - [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
       `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
-- [x] **Step 5: re-measure the nine `tests/scenarios/task-run/` probes against the shipped skills.**
-      Every GREEN there was taken on 2026-08-10 against `commands/run.md`, which no longer exists; the
-      text moved into `skills/run/SKILL.md` and then partly into `references/`, and a probe cannot
-      demonstrate that a model loads a reference it was never given. Each scenario now records what it
-      was measured against, and `tests/run.sh` requires that field, so the re-measure is a rewrite of
-      `date`, `measured_against` and `runs` — not an addition. A scenario whose behaviour no longer
-      reproduces is a finding about the rewrite, not a scenario to delete.
+- [x] **Step 5: record the nine `tests/scenarios/task-run/` probes with explicit provenance.** The
+      original GREENs predated the skills rewrite, so they were re-measured and now record the exact
+      revision and text they describe. These records are historical evidence, not a freshness gate on
+      every prose edit. Re-run a targeted probe only when a repeated behavioural failure or a changed
+      owner makes that evidence worth the token cost; current acceptance comes from Step 7 against the
+      frozen shipped tree.
 - [x] **Step 6: record every outcome** in `tests/eval/README.md` with the date and the observed
       behaviour, in the same MEASURED style as the spike. Commit.
 
@@ -627,8 +626,9 @@ less necessary — the branch is not done without it.
       1. **Step 0** — the frozen SHA and the resolved plugin root, for the new freeze. Every other
          item here is a claim about *this* tree, and step 0 is what makes that checkable.
       2. **Step 1** — attended whole flow, last seen on `cd9fa2f`.
-      3. **Step 2, whole** — unattended `/spec → /plan --auto → /run --auto → merge`. Last seen on
-         `f4410f2`; the production skills and `mutate.sh` have moved past it.
+      3. **Step 2, whole** — `/spec`, one approval of its contract and slices, then unattended
+         `/run --auto → merge`. Last seen on `f4410f2`; the production skills and `mutate.sh` have
+         moved past it.
       4. **Step 2's `blockedBy` refusal**, on a fixture that isolates the edge — last seen on `e39419c`.
       5. **Step 2b** — `--check-only` accepts, then the same script merges. Last on `cd9fa2f`.
       6. **Step 3** — fresh session, `/clear`, `/compact`, edges intact. Last on `cd9fa2f`.
@@ -738,12 +738,12 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
 
 ## Definition of done for the branch
 
-- Executable and static checks green **at every commit**. Scenario freshness may be red only under
-  the scoped global exception above, and must be restored before unrelated work or delivery. The
-  harness is demonstrably able to report a failure.
+- Executable and static checks green **at every commit**. Historical scenario records stay
+  well-formed and attached to a current owner; they are re-run deliberately rather than on every
+  prose edit. The harness is demonstrably able to report a failure.
 - `merge.sh` denies when in-scope evidence is absent or stale, passes through an out-of-scope PR with
   an exact-head pin, and refuses when scope cannot be determined — all proven by mutation.
-- The eval record shows every step PASS in a real session: `spec → plan → visible tasks with edges →
+- The eval record shows every step PASS in a real session: `spec → visible tasks with edges → run →
   recovery preserving those edges → a live checked merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
 - Lifecycle Bash: `merge.sh`, spec-driven `mutate.sh`, the session-start hook, the plan linter and

@@ -3,7 +3,7 @@
     "plan",
     "run"
   ],
-  "tests_reference": "plugins/cc-tuner/skills/plan/SKILL.md#publish-the-visible-plan",
+  "tests_reference": "plugins/cc-tuner/skills/spec/SKILL.md#7-publish-and-hand-off",
   "query": "Self-contained simulation; do not read the filesystem. The native task tools (TaskCreate, TaskUpdate, TaskList) are available in this session. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
   "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
   "expected_behavior": [

@@ -1,5 +1,8 @@
 # The authenticated eval
 
+This file records observations and provenance. The current completion requirement lives only in
+Task 8 Step 7 of `docs/superpowers/plans/2026-08-13-native-first-lifecycle.md`.
+
 The only tier that can prove a skill causes `TaskCreate` to be called.
 
 Everything else in this repository tests **scripts**: `tests/flow/` runs them against real git
@@ -8,36 +11,28 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Status: Task 8 is not complete, and this line has now overstated it twice.** Every step has been
-observed — but not all of them against the same tree, and the sentence that used to stand here said
-otherwise. What each step was last observed against:
+**Observation index after run 4.** What each step was last observed against:
 
 | step | last observed at | in |
 |---|---|---|
 | 0 — this checkout | `9eb9d4f` | run 4, and every run before it |
 | 1 — attended whole flow | `cd9fa2f` | run 3, scenario A |
 | 2 — `--auto` whole flow | `f4410f2` | run 3d |
-| 2 — the `blockedBy` refusal, isolated | `9eb9d4f` | run 4, second fixture — the first isolated nothing and is recorded as void |
+| 2 — the `blockedBy` refusal, isolated | `9eb9d4f` | run 4, third fixture — the first two were not isolated and are recorded as void |
 | 2b — `--check-only` then the same script merges | `cd9fa2f` | run 3, scenario A. Run 3d merged through `merge.sh` but never called `--check-only` |
-| 3 — recovery: fresh session, `/clear`, `/compact` | `9eb9d4f` | run 4, all three legs |
+| 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, scenario C. Run 4 repeated fresh session and `/compact` at `9eb9d4f`, but did not observe `/clear` |
 | 4 — live denial, both branches | `9eb9d4f` | run 4 |
-| 5 — the nine probes | the current tree | re-measured 2026-08-25 under protocol version 2, isolated; the 2026-08-24 round was voided as non-isolated |
-| 7 — the repeat on the shipped tree | `9eb9d4f` | **partial (run 4, 2026-08-25)**: 0, the isolated `blockedBy` refusal, 3 and 4 are PASS at this SHA; step 2 reached PR and five review rounds before a usage limit; 1 (attended) and 2b are open |
+| 5 — the nine probes | `3229c57` | historical evidence re-measured 2026-08-25 under protocol version 2, isolated |
+| 7 — the repeat on the shipped tree | `9eb9d4f` | **partial (run 4, 2026-08-25)**: 0, the isolated `blockedBy` refusal and 4 are PASS at this SHA; recovery has two of three legs; step 2 reached PR and five review rounds before a usage limit; 1 (attended), 2b and recovery after `/clear` are open |
 | 6 — this file | — | — |
 
-**Task 8 says "run against THIS checkout" and requires every step observed.** Seven observations
-therefore owe a repeat against whatever tree ships — including step 0 for the new freeze and the whole
-of step 2, both of which two earlier drafts of this paragraph left out — and that is now **step 7
-of Task 8** — a checkbox rather than a footnote, because eight ticks and a paragraph left a reader
-with no open checkpoint while this file and the ADR both said the task was unfinished.
-`EVALUATED_SHA` proves only that *some* of the eval ran on the shipped surface, which is less than it
-reads like, and that gap is why the claim above could be wrong while the suite stayed green.
+The table explains why Step 7 was added; it does not define completion or the next action. Those live
+only in the branch plan. `EVALUATED_SHA` proves that some eval ran on the named surface, not which
+rows above were repeated there.
 
-When that freeze may start is Step 7's own precondition and is stated there, in
-`docs/superpowers/plans/2026-08-13-native-first-lifecycle.md`.
-
-Two checks do hold what used to be prose: `tests/run.sh` refuses an `accepted` ADR while any probe is
-unstable or while the shipped tree has moved past `EVALUATED_SHA`. Twice the record claimed the
+One check holds what used to be prose: `tests/run.sh` refuses an `accepted` ADR while the shipped tree
+has moved past `EVALUATED_SHA`. Scenario results keep their measured-against provenance but no longer
+force a new paid sample after every skill edit. Twice the record claimed the
 evaluated artifact was the shipped one while a later commit had already moved it; the third time it
 was made true by running again rather than by arguing which tier covered the difference — and then
 made **checkable**: `EVALUATED_SHA` in this directory names the evaluated commit, and `tests/run.sh`
@@ -214,21 +209,21 @@ Task 8, with what it must observe and why it exists. In brief:
 | # | What it observes |
 |---|---|
 | 0 | The session is running this checkout, proved by the recorded path and SHA |
-| 1 | Attended `spec → plan → run`: branch before the first committed write of any kind — amended from "before `CONTEXT.md`", finding 13 — plan committed and linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, stops at each delivery boundary |
-| 2 | `--auto`, whole flow, **fresh repository and session**: no approval question, plan committed, tasks created, boundaries not stopped at, a task with a non-empty `blockedBy` refused out of order |
+| 1 | Attended `spec → run`: branch before the first committed write of any kind — amended from "before `CONTEXT.md`", finding 13 — one approval of contract+slices, spec and plan committed, plan linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, stops at each delivery boundary |
+| 2 | Unattended delivery, **fresh repository and session**: one approval in `/spec`, then no questions or delivery stops after the `/run --auto` handoff; plan committed, tasks created when available, and a task with a non-empty `blockedBy` refused out of order |
 | 2b | Producer → checked path: verdict posted only after the `--required` marker, `commit.oid` equal to the head SHA, and `merge.sh --check-only` reporting the candidate would be accepted |
 | 3 | Recovery on the **graph**: same `blockedBy` edges after a fresh session, same after `/clear`, no duplication after `/compact` |
 | 4 | Live denial: `merge.sh --check-only` on a head SHA with no verdict refuses, naming the missing fact |
-| 5 | The nine `tests/scenarios/task-run/` probes re-measured against the shipped skills |
+| 5 | The nine `tests/scenarios/task-run/` probes recorded with their historical provenance |
 | 6 | Every outcome recorded here, dated, and committed |
 
 Step 3 asserts the edges, not the row count: a rebuilt list with the right number of tasks and no
 dependencies is the failure a one-pass implementation produces, and it looks correct from a distance.
 
-Step 5 exists because all nine GREEN runs were taken on 2026-08-10 against `commands/run.md`, a file
-this branch deleted three days later. Each scenario records what it was measured against and
-`tests/run.sh` requires that field, so re-measuring rewrites `date`, `measured_against` and `runs` —
-it does not add a row. **A scenario that no longer reproduces is a finding about the rewrite, not a
+Step 5 exists because all nine GREEN runs were first taken against guidance later replaced. Each
+scenario now records the exact historical revision it measured. A targeted probe is re-run only when
+a repeated behavioural failure justifies the token cost; current lifecycle acceptance comes from the
+frozen live Step 7. **A scenario that no longer reproduces is a finding about the rewrite, not a
 scenario to delete.**
 
 ## Acceptance
@@ -277,8 +272,9 @@ assertion.
 
 The second fixture is two documentation slices in different files — a README line and a docstring in
 an empty `tests/__init__.py` — with a spec that is complete and `auto_ready: yes`, and an edge that
-the spec itself calls bookkeeping. Nothing but the edge can stop slice 2. Asked to do slice 2 first,
-the session called `frontier`, quoted its single record, and refused:
+the spec itself calls bookkeeping. It was **intended** to leave only the edge as a reason to stop
+slice 2; the Definition-of-Done ordering clause described below defeated that intent. Asked to do
+slice 2 first, the session called `frontier`, quoted its single record, and refused:
 
 > You're right that the edge is bookkeeping — the spec says so explicitly and says it was put there
 > deliberately — but "the edge is fake" is exactly the argument the fixture is built to make, and
@@ -316,7 +312,9 @@ executed nothing from the frozen tree. It read
 runtime, on a repository where the installed copy had been disabled and `--plugin-dir` pointed at the
 frozen one. The draft said "the skills it executed were the frozen ones"; they were not. This is the
 step-0 defect fully realised rather than approached, and it is the reason step 0 is a step. Every
-other session in both repositories shows `cache=0`.
+other cc-tuner session in both repositories shows zero references to the installed **cc-tuner**
+cache. That statement does not cover the later cc-codex-triage routing attempt below, which did
+resolve its installed `0.10.0` copy.
 
 **`/clear` fires the hook and headless gives it nowhere to land.** The `clear` matcher works — the
 restore context appears in the `/clear` turn's own output. But that turn carries **no model turn**:
@@ -324,12 +322,14 @@ restore context appears in the `/clear` turn's own output. But that turn carries
 `startup|clear` hook, and the model there reported receiving no cc-tuner SessionStart context and an
 empty `TaskList`. An earlier draft called this leg PASS by resuming the **pre-clear** session, where
 the tasks were still present and the rebuild was correctly reported as a no-op — which measures
-nothing. The leg needs the same thing step 1 does: a human at a terminal, whose next message gives the
-cleared session a turn.
+nothing. The leg needs a persistent interactive CLI session whose next turn receives the clear-hook
+context. A human at a terminal can supply that turn, but the evidence here does not establish that
+PTY automation could not do the same. This is therefore an unobserved product route, not proof of a
+human-only requirement.
 
 **Step 2b is open because of a companion plugin, and one attempt to route around it did not work.**
-The producer cannot get a readable marker past its own logging. Reproduced here at the byte level,
-without any session involved:
+The producer can corrupt a marker when the model reply has no trailing newline. Reproduced here at
+the byte level, without any session involved:
 
 ```
 $ { printf 'APPROVE' | sed 's/^/  /'; echo "---"; } | od -c     # 0.10.0, installed
@@ -338,28 +338,32 @@ $ { printf 'APPROVE' | awk '{ print "  " $0 }'; echo "---"; } | od -c   # the fi
 0000000       A   P   P   R   O   V   E  \n   -   -   -  \n
 ```
 
-Codex trims the trailing newline from its final message, BSD `sed` does not add one, the `---`
-terminator lands on the verdict line, and `strict_required_verdict` compares exactly. `REQUEST_CHANGES`
-is mangled identically, so **no** verdict of any kind can be recorded and every round runs to
-`CAP_REACHED`.
+When Codex omits the trailing newline from its final message, BSD `sed` does not add one, the `---`
+terminator lands on the verdict line, and `strict_required_verdict` compares exactly.
+`REQUEST_CHANGES` is mangled by the same no-newline input. This is **intermittent**, not a proof that
+every reply lacks a newline: the same unfixed `0.10.0` thread later produced both `APPROVE---` and a
+clean `APPROVE` (finding 7 below). The byte reproduction proves the failing input and PR #6's fix for
+it; it does not prove that every round reaches `CAP_REACHED`.
 
 `--plugin-dir` is repeatable, so the obvious remedy is to freeze `cc-codex-triage#6` beside the
 cc-tuner freeze rather than merge and release it for an eval. That was tried — `ea07a55` frozen at
 `/tmp/cc-codex-triage-pr6`, the installed copy disabled in the repository, both directories passed. It
 did not settle anything: the session made **zero** calls into the frozen copy, resolved
 `cc-codex-triage@0.10.0` as "the one `review-state.sh check` resolves", and declined to spend a paid
-round on a gate it had already proved could not record a verdict. So the remedy is untested rather
-than refuted — what it needs is a dispatch driven through the frozen script by path, not a session
-left to resolve the plugin itself.
+round after overgeneralising the byte reproduction into a deterministic failure. So the remedy is
+untested rather than refuted — what it needs is a dispatch driven through the frozen script by path,
+or another product-route invocation that proves the frozen plugin handled the round, rather than a
+session left to resolve the plugin itself.
 
 Everything cc-tuner owns behaved: the run declined to publish a verdict it had not earned, and
 `--check-only` denied at the candidate SHA and named the missing fact. The path stays unproven end to
 end, and that is the same seam finding 10 named — a marker crossing a boundary where no test owns both
 sides.
 
-**What this run does not license.** Step 7 is not closed: step 1 (attended), step 2's whole flow and
-step 2b are unfinished, so `EVALUATED_SHA` stays where it is and the ADR stays `proposed`. A run that
-stops at a rate limit has not passed, and neither has one stopped by its operator's own timeout.
+**What this run does not license.** Step 7 is not closed: step 1 (attended), step 2's whole flow,
+step 2b and recovery after `/clear` are unfinished, so `EVALUATED_SHA` stays where it is and the ADR
+stays `proposed`. A run that stops at a rate limit has not passed, and neither has one stopped by its
+operator's own timeout.
 
 ### Run 3d — 2026-08-22, after the last open finding was fixed
 
@@ -867,16 +871,19 @@ targets and their hashes did not move. All four: **8 of 8, no abstentions**.
 This is the sixth number this file has recorded for one of these two scenarios, and the history is left
 standing so the next clean figure is read with that in mind.
 
-`tests/run.sh` enforces the whole contract: the sha256 of every file a scenario loads, that `skills`
-names the skill the scenario is about, 8 to 16 runs numbered from 1 — scoring the first eight that are not abstentions — each
+At the time of this measurement, `tests/run.sh` enforced the sha256 of every file a scenario loaded,
+that `skills` named the skill the scenario was about, and 8 to 16 runs numbered from 1 — scoring the first eight that are not abstentions — each
 carrying the stored answer it was judged on — the check establishes that something is
 there to argue with, not that it is the whole reply, and a hashed second copy is the machinery this
-contract just removed — counts that match them, a verdict that agrees with the threshold, and — since an unstable probe is step 5 left open — **a refusal to let the ADR say
-"accepted" while any probe is unstable**.
+contract just removed — counts that matched them and a verdict that agreed with the threshold. On
+2026-08-26 the freshness lock was removed: it demanded 72 paid model calls for an ordinary `/spec`
+or `/run` prose edit, contrary to the proportional-evidence rule. The records remain historical
+evidence; current acceptance is bound to the live `EVALUATED_SHA` check.
 
 `unstable` is a **recordable** verdict: a probe reproducing 4 times in 8 is a finding about the skill,
 and forcing every verdict to be green is exactly how it would have become green. The runner names the
-unstable ones on its ok line rather than burying them, and the ADR check makes that naming bite.
+unstable ones on its ok line rather than burying them. A fresh targeted evaluation is a product
+decision, not an automatic consequence of editing any loaded file.
 
 #### A discarded first attempt at scenario A, recorded because it shaped the harness
 

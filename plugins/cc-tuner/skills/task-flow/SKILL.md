@@ -129,14 +129,15 @@ to whatever its harness does by default, and the repository ends up with a conve
 
 ## Spec lifecycle (`PLANS/`)
 
-These are design documents — the ones `/cc-tuner:spec` writes. The execution plans `/cc-tuner:plan`
-writes are a different artifact with a different path (`task-plans/`) and a different lifecycle.
+These are design documents — `/cc-tuner:spec` writes them and their execution plans. Execution plans
+are a different artifact with a different path (`task-plans/`) and a different lifecycle.
 
 1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
    plugin path.
 2. Worth keeping → promote to `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`. The plans root is `wiki/`
    when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
-   Minimum header: `Goal:`, `Architecture:`, then tasks with file paths.
+   Minimum header: `Goal:`, `Issue:`, and `Architecture:`. Slices, owned paths, and blockers live in
+   the separate execution plan that links back to this spec.
 3. First paragraph links the tracking issue; the issue body links the plan back.
 4. Completed → move to `<plans-root>/ARCHIVE/PLANS/` **in the same PR that completes the work** —
    never as a standalone doc PR.

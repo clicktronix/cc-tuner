@@ -1,17 +1,14 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. Step 5 is closed: all nine task-run probes meet the precommitted threshold, and
-the four affected by the latest `deep-review` rule were measured only after that rule was committed,
-at 8 of 8 each. The sole open checkpoint is Task 8 Step 7: repeat seven live observations against one
-frozen tree that can ship — the new freeze and plugin root, attended flow, whole `--auto` flow, the
-isolated `blockedBy` refusal, `merge.sh --check-only`, recovery through a fresh session plus `/clear`
-and `/compact`, and the live denial.
+**Status:** proposed. The current completion checkpoint lives in Task 8 Step 7 of the branch plan;
+the eval README owns its observations and provenance.
 
 The lifecycle has been observed end to end, but not all of it against one current tree. Earlier
 `accepted` statuses were withdrawn when review found that the production surface had moved beyond
-the recorded eval. `tests/run.sh` now refuses `accepted` while any probe is unstable or the production
-surface differs from `EVALUATED_SHA`. The eval log is the step-by-step source for what was last seen
+the recorded eval. `tests/run.sh` refuses `accepted` while the production surface differs from
+`EVALUATED_SHA`; scenario samples retain their own historical provenance but no longer force eight
+paid model calls after every prose edit. The eval log is the step-by-step source for what was last seen
 where, and its evidence is bounded: the sessions are driven headless, not by a human at a terminal.
 
 Two design questions are settled. Skill-hook lifetime is no longer load-bearing because `/run`
@@ -175,18 +172,20 @@ current model, by default, there is no visible plan at all.
 The design survives because the committed Markdown plan was always the durable store and a run drives
 from it — three eval sessions produced commits, PRs and a merge with no task list in existence. What
 this amendment corrects is the promise: **the committed plan is required, the native task list is an
-optional projection of it.** `/cc-tuner:plan` names what is lost when the tools are absent and stops
-for a decision; it cannot turn them on.
+optional projection of it.** `/cc-tuner:spec` names what is lost when the tools are absent, then
+continues to the handoff after the single contract-and-slices approval; it cannot turn them on.
 
 Plan mode is deliberately NOT used. `ExitPlanMode` reads `~/.claude/plans/<name>.md`, a different
 document from the plan this flow commits, so wrapping the proposal in it would mean two plan
-documents for one plan. `/cc-tuner:plan` asks for approval in conversation instead; the cost — plan
+documents for one plan. `/cc-tuner:spec` asks for approval in conversation before committing both
+artifacts instead; the cost — plan
 mode physically prevents a write before approval and a conversation does not — is the same one already
 recorded under **Consequences**.
 
 ### cc-tuner owns
 
-- The `spec → plan → run` split and a Definition of Ready in the spec.
+- The `spec → run` flow: `/spec` owns discovery plus the one approved planning decision, and `/run`
+  owns delivery. The plan remains an artifact, not a separate command.
 - **The committed Markdown plan as the single readable store** — owned paths, acceptance, deciding
   checks, `Blocked by`, and `- [ ]` progress. Two independent measurements force this: `metadata`
   written through `TaskCreate` cannot be read back, and nothing survives a new session.
@@ -236,7 +235,7 @@ scenarios so it cannot be forgotten. Three properties follow:
 - Outside a run cc-tuner does not touch the user's ordinary merge commands. Calling `merge.sh`
   explicitly for an out-of-scope PR still gives a head-pinned pass-through path.
 - Inside a run the checked path does not go inert the way 0.10.0's did *by accident*. Its scope is
-  its evidence: a run exists only if the plan file was committed, and `/plan` commits it before `/run`
+  its evidence: a run exists only if the plan file was committed, and `/spec` commits it before `/run`
   will start. The old failure — run in progress, state file absent, every gate silently allowing —
   has no equivalent, because nothing has to be separately initialised.
 
@@ -334,8 +333,9 @@ workflow discipline against an agent's mistake and must not be described as anyt
   merely states it, and none may claim a gate it does not have. The earlier wording — "each with
   something that reads it at runtime" — was itself an overclaim: two of the seven are instructions,
   and pretending otherwise is the failure mode this ADR was written against.
-- **End-to-end scenarios are the primary test.** Phrase-matching assertions may support them, never
-  replace them.
+- **Use proportional evidence.** Deterministic scripts have product-route tests; skill text has small
+  contract checks for load-bearing output and targeted model scenarios only when a repeated
+  behavioural failure justifies them. Live eval covers the external lifecycle boundary.
 
 ## Open
 

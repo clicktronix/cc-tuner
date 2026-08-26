@@ -1,11 +1,10 @@
 # Skill evaluation scenarios
 
-Eval scenarios for `/run` (pressure/discipline probes; the rows are still labelled
+Historical scenarios for `/run` (pressure/discipline probes; the rows are still labelled
 `execute-task` where that is the version the baseline was measured on), `claude-md-writer`
 (retrieval/application probes), and `task-flow` (whose REDs are documented production
-incidents from the pre-plugin era rather than fresh probe runs — the failures already
-happened for real), following Anthropic's evaluation-driven development and
-the superpowers `writing-skills` RED-GREEN loop. Format mirrors
+incidents from the pre-plugin era rather than fresh probe runs — the failures already happened for
+real). Format mirrors
 `clicktronix/nextjs-clean-skills` `tests/scenarios/` (`query`, `baseline_failure`,
 `expected_behavior`, `anti_expectation`, plus `baseline_observed` / `green_check`
 once runs happen).
@@ -15,14 +14,15 @@ isolated haiku subagents — the weak-model audience is where guidance earns its
 RED = no skill/playbook text in context, with one deliberate exception:
 `sensitive-small-diff-review`'s RED is an **ablation** baseline (the probe includes the
 small-diff execution policy but WITHOUT the sensitive-surface list — the question is whether the list
-changes review depth). GREEN = the relevant guidance verbatim, as it appears in production.
+changes review depth). GREEN supplied the guidance named by that record at the recorded revision; it
+is not a claim about current prose.
 
 The four 2026-07-26/28 `task-flow` rows were measured differently: their REDs are documented
 production incidents, but a **fresh RED arm was also probed** (same query, guidance withheld) so the
 verdict rests on a measured contrast rather than on the incident alone. Where the two disagree, the
 row says so.
 
-## Status (task-run probes last re-measured 2026-08-24 under the protocol in `tests/eval/README.md`; older rows retain their recorded dates)
+## Status (historical task-run probes last re-measured under the protocol in `tests/eval/README.md`; older rows retain their recorded dates)
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
@@ -65,10 +65,14 @@ so the RED arm is a stronger-than-neutral control. That corpus supplies none of 
 under test, so the measured effects are lower bounds — but a clean-room harness would make the next
 batch trustworthy without the asterisk.
 
-Per the Iron Law, a future behavior-changing edit to a guarded section needs its own RED→GREEN (or
-an honest unaided-hold result plus GREEN regression) before shipping. The repository validator now
-requires recorded baseline and GREEN evidence for this task-run batch; it does not infer model
-quality merely from a scenario file existing.
+Use proportional evidence for future behavior changes: re-run a targeted scenario when a repeated
+failure justifies the token cost, and use the live Task 8 boundary for lifecycle acceptance. The
+repository validator checks that scenario references resolve; it does not infer current model
+behavior or freshness from a JSON record.
+
+In a task-run JSON, `skills` and `measured_targets` preserve what the historical probe loaded.
+`tests_reference` names the current owner of the behavior, so it may differ after an ownership
+migration such as the removal of `/plan`.
 
 The 2026-08-09 task-run rows were added from the cross-repository production audit that motivated the
 structured-state rewrite. On 2026-08-10 each new row received one isolated RED and GREEN Haiku arm;

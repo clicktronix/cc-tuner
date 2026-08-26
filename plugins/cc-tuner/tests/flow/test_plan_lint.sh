@@ -447,11 +447,11 @@ check "leading-zero-slice-is-refused" "has a leading zero; use the canonical num
 check "leading-zero-slice-rc1"       "rc=1"                                           "$OUT"
 
 # --- the shipped template passes the shipped linter ----------------------------------------------
-# The one claim about /cc-tuner:plan this tier can settle. That the SKILL produces a conforming plan
+# The one claim about planning inside /cc-tuner:spec this tier can settle. That the SKILL produces a conforming plan
 # is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is
 # itself valid is checkable here, and a template that fails the linter would send every user into a
 # fix-it loop on their first run.
-TPL="$FLOW_PLUGIN/skills/plan/plan-template.md"
+TPL="$FLOW_PLUGIN/skills/spec/plan-template.md"
 OUT="$(lint check "$TPL")"
 check "template-passes-lint" "rc=0" "$OUT"
 # It has to parse into slices with an edge, or it is not demonstrating the format it teaches.

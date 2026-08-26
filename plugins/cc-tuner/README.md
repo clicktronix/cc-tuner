@@ -88,21 +88,19 @@ routes the agent to do it.
 
 ## /spec and /run
 
-The task loop is split in three. `/cc-tuner:spec` does the asking, creates the task branch, and
-commits machine-checkable acceptance criteria. `/cc-tuner:plan` breaks the spec into vertical slices
-with explicit blocking edges, commits the plan file, and — when the Task tools are available — publishes the slices as native tasks.
-`/cc-tuner:run` works that plan to a merged pull request. Each takes `--auto` except `/spec`; without
-it they stop at delivery boundaries.
+The task loop has two commands. `/cc-tuner:spec` does the discovery, creates the task branch, confirms
+the contract and vertical slices once, then commits the spec and plan and — when the Task tools are
+available — publishes the slices as native tasks. `/cc-tuner:run` works that plan to a merged pull
+request; `--auto` removes its delivery stops when the spec is auto-ready.
 
-`/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, issue, architecture,
+`/cc-tuner:spec <issue | description>` does all the discovery and planning. It reads the repo, issue, architecture,
 code, tests, and consumers, grills requirements via `mattpocock-skills:grilling` plus
-`mattpocock-skills:domain-modeling`, and commits an executable contract. Its DoR names the observed
+`mattpocock-skills:domain-modeling`, and drafts an executable contract. Its DoR names the observed
 baseline, first failing check and expected failure, targeted/full checks, environment and data. Every
 acceptance criterion names its deciding machine or human step; every `[eyes]` item records a machine
 replacement or waiver. Its DoD binds verification, reviews, PR head, and CI to the same candidate.
-
-`/cc-tuner:plan [--auto] <spec>` slices it. Each slice is a tracer bullet with explicit `Blocked by`
-edges; the plan is committed, and published as native tasks in two passes because `TaskCreate`
+It presents that contract and its tracer-bullet slices for one approval, writes both artifacts,
+validates the plan, commits the reviewed artifacts together, then publishes native tasks in two passes because `TaskCreate`
 takes no dependency argument.
 
 `/cc-tuner:run [--auto] <spec>` works that plan. It takes the frontier in order, proves each slice
@@ -159,7 +157,7 @@ match; `deep-review` is also available directly as `/cc-tuner:deep-review`. The 
 lifecycle playbooks remain explicit user commands: `/cc-tuner:statusline-setup`,
 `/cc-tuner:task-flow-setup` (the rule is installed only by this command),
 `/cc-tuner:smoke-verify-setup` (the hook stays inert until this command writes repo config),
-`/cc-tuner:spec`, `/cc-tuner:plan`, and `/cc-tuner:run`.
+`/cc-tuner:spec` and `/cc-tuner:run`.
 
 ## Scope
 

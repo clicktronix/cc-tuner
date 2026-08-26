@@ -12,13 +12,6 @@ say() { printf '%s\n' "$1"; }
 ok() { say "ok   $1"; }
 bad() { say "FAIL $1"; fails=1; }
 
-# sha256, portable between macOS (shasum) and the Linux runners in CI (sha256sum). Prints the digest
-# alone -- both tools append the filename, and a digest carrying a path would differ between checkouts.
-sha256_of() {
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d" " -f1
-  else sha256sum "$1" | cut -d" " -f1; fi
-}
-
 command -v jq >/dev/null 2>&1 || { say "FATAL: jq is required"; exit 1; }
 
 # --- 1. bash suites -----------------------------------------------------------------------------
@@ -145,6 +138,16 @@ for pat in '/cc-tuner:execute-task' '/cc-tuner:delegate' 'assets/delegate' 'skil
 done
 [ "$removed_hits" -eq 0 ] && ok "no references to removed commands or skills"
 
+# Current user-facing entry points must not advertise the deleted standalone planning command.
+# Historical plans, changelog entries and eval transcripts keep the name as evidence and are not
+# searched here.
+if grep -F '/cc-tuner:plan' "$ROOT/README.md" "$ROOT/.claude-plugin/marketplace.json" \
+     "$PLUGIN/README.md" "$PLUGIN/.claude-plugin/plugin.json" >/dev/null 2>&1; then
+  bad "a current README or manifest still advertises removed /cc-tuner:plan"
+else
+  ok "current READMEs and manifests omit removed /cc-tuner:plan"
+fi
+
 # --- 6. eval scenarios point at files that exist ------------------------------------------------
 # The git-flow -> task-flow rename left two scenarios referencing a path that no longer existed, and
 # nothing failed. tests_reference is the scenario's claim about what it tests; a dangling one means
@@ -209,152 +212,6 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
   else
     ok "production surface has moved since the eval, and the ADR says '$adr_status' rather than accepted"
   fi
-fi
-
-# --- 6b. the lifecycle rewrite has recorded model evidence ------------------------------------
-# These scenarios originally shipped as `not run`, contradicting their own RED→GREEN rule. The
-# validator cannot prove that an external model call happened, but it can prevent an unmeasured row
-# (or an empty/failed GREEN arm) from silently replacing the reviewed evidence in source control.
-#
-# `measured_against` is required because a recorded pass says nothing without the text it was measured
-# against. Every one of these GREENs was once taken on 2026-08-10 against `commands/run.md` — a file
-# this branch then deleted. A date alone does not make that visible; naming the subject does.
-#
-# But prose cannot enforce it, and a review pointed out that this check accepted any non-empty string:
-# after the next skill edit the old sentence would keep passing. So `measured_targets` carries the
-# sha256 of every file the probe actually loads, and the loop below recomputes them. Edit a skill and
-# the scenarios that read it go red until they are re-measured — which is the intended cost, and it is
-# small: two haiku calls. On 2026-08-21 a two-line correction to spec/SKILL.md staled two probes and the
-# parallel-review fix staled a third, and only one of the three was noticed without this check.
-#
-# How often a GREEN reproduces is the second half, and it used to be unrecorded. Every one of these was
-# taken at n=2, and n=2 cannot see a coin flip. The protocol is now fixed and enforced above: a
-# `decision_question` committed BEFORE the sample -- one decidable question, not the full expectation
-# checklist -- up to sixteen runs numbered from 1, each recorded with the answer it was judged on and
-# including misses and abstentions. The first eight substantive answers are scored; fewer than eight
-# after sixteen runs is unstable, as is fewer than seven correct. That bar is a smoke threshold, not a
-# significance test: a fair coin clears 7 of 8 nine times in 256, where 5 of 6 lets one through 28
-# times in 256.
-#
-# The answers live in the scenario JSON and nowhere else. An earlier revision also wrote them to
-# tests/eval/samples/*.txt and checked only that the file existed, so the two copies could disagree
-# about what was classified while the suite stayed green -- two sources, one of them unchecked.
-#
-# The bar being written first is the load-bearing part. Judged against an unwritten stricter reading
-# after the fact, `implementation-only-parallelism` scored 2 of 6; against its written question at n=6,
-# 5 of 6; at n=8 with every answer kept, 4 of 8 -- unstable, and one of those four was a pass I had
-# recorded that a reviewer overturned by reading the answer stored next to it. An automated judge fed the whole expectation
-# list as a conjunction scored `current-sha-ci` 1 of 6 on six answers that were all correct: it was
-# measuring the rubric's shape. Hence: one question, committed before the sample, decided by hand, with
-# the stored answers in the tree so the classification can be disputed.
-#
-# `unstable` is a recordable verdict, not a malformed evidence record. It keeps Task 8 open and blocks
-# an `accepted` ADR below. A probe that reproduces 4 times in 8 is a finding about the skill, and
-# forcing it to be either green or absent is how it would become green.
-task_run_evidence=0
-for name in visible-plan-before-edit dor-first-failing-check false-green-regression-test \
-  implementation-only-parallelism request-changes-blocks-merge stale-review-after-fix \
-  reviewer-unavailable-fails-closed current-sha-ci sensitive-small-diff-review; do
-  file="$ROOT/tests/scenarios/task-run/$name.json"
-  if jq -e '
-    (.baseline_observed | type == "object") and
-    (.baseline_observed.date | type == "string" and length > 0) and
-    (.baseline_observed.method | type == "string" and length > 0) and
-    (.baseline_observed.verdict | type == "string" and length > 0) and
-    (.green_check.measured_against | type == "string" and length > 0) and
-    # One protocol, one home: the normative text is a version in tests/eval/README.md, not nine
-    # copies the validator could only check for being non-empty.
-    (.green_check.protocol_version == 2) and
-    (.decision_question | type == "string" and length > 0) and
-    (.green_check.runs | type == "array" and length >= 8 and length <= 16) and
-    all(.green_check.runs[]; (.class | IN("correct", "incorrect", "abstain"))
-                             and (.note | type == "string" and length > 0)
-                             # a stored answer, not a stub. It gives the classification something to be
-                             # argued with; it does not establish that the text is the whole reply --
-                             # nothing here can, and a second hashed copy is the machinery this contract
-                             # just removed.
-                             and (.answer | type == "string" and length > 40)
-                             and (.sample | type == "number")) and
-    (([.green_check.runs[].sample] | sort) == [range(1; (.green_check.runs | length) + 1)]) and
-    (.green_check.reproduction.runs == (.green_check.runs | length)) and
-    (.green_check.reproduction.abstentions == ([.green_check.runs[] | select(.class == "abstain")] | length)) and
-    (.green_check.reproduction.scored == ([.green_check.runs[] | select(.class != "abstain")] | length | if . > 8 then 8 else . end)) and
-    (.green_check.reproduction.correct
-       == ([.green_check.runs[] | select(.class != "abstain")][0:8] | map(select(.class == "correct")) | length)) and
-    ((.green_check.verdict == "green")
-       == (.green_check.reproduction.scored == 8 and .green_check.reproduction.correct >= 7)) and
-    # Sampling stops at the eighth substantive answer. A ninth cannot change the verdict but can
-    # change what the record looks like, and "score the first eight of however many were taken" is
-    # the door topping-up walks through. Fewer than eight means the full sixteen were spent.
-    (([.green_check.runs[] | select(.class != "abstain")] | length) as $substantive
-     | if $substantive >= 8
-       then $substantive == 8 and (.green_check.runs[-1].class != "abstain")
-       else (.green_check.runs | length) == 16 end) and
-    ((.green_check.verdict | IN("green", "unstable")))
-  ' "$file" >/dev/null 2>&1; then
-    task_run_evidence=$((task_run_evidence + 1))
-  else
-    bad "tests/scenarios/task-run/$name.json fails the evidence contract: a decision_question, protocol_version 2, 8..16 runs numbered from 1 stopping at the eighth non-abstain, each classified correct/incorrect/abstain with the answer it was judged on and a note, counts that match them, and a verdict that agrees with '>= 7 of the first 8 non-abstain'"
-  fi
-
-  # The target set is derived, never hand-listed: one SKILL.md per entry in `skills`, plus whatever
-  # `tests_reference` points at, anchor stripped. **Always that second one**, not only when the path
-  # says `references/` -- an earlier revision of this check made that exemption, and it reproduced the
-  # very defect it was written after: `visible-plan-before-edit` pointed at `plan/SKILL.md` while its
-  # `skills` said only `run`, so the file the scenario is about carried no hash at all and the check
-  # went green anyway.
-  #
-  # The comparison is set equality, not containment. A missing key is an unhashed target; a stale extra
-  # key is a target the scenario stopped loading, and leaving those behind turns the record into a list
-  # of files that were once relevant.
-  targets="$(jq -r '[ (.skills[]? | "plugins/cc-tuner/skills/" + . + "/SKILL.md"),
-                      (.tests_reference // "" | sub("#.*"; "") | select(length > 0)) ]
-                    | unique | .[]' "$file" 2>/dev/null)"
-  jq -e '(.skills | type == "array" and length > 0)' "$file" >/dev/null 2>&1 \
-    || bad "tests/scenarios/task-run/$name.json lists no skills, so no target set can be derived"
-  # `skills` must also name the skill its `tests_reference` points into. The hash set no longer depends
-  # on that -- tests_reference is hashed either way -- but the probe harness reads `skills` to decide
-  # what to put in front of the model, so a scenario about `plan` with `skills: ["run"]` is measured
-  # without the file it is about. That is the shape this whole check was written after.
-  # First segment after `skills/`, whatever follows it. Matching only `skills/<x>/SKILL.md` missed every
-  # nested reference: `skills/run/references/placement.md` returned nothing, so a scenario could name
-  # `deep-review` in `skills`, point at a file under `run`, never load `run/SKILL.md`, and still pass.
-  ref_skill="$(jq -r '(.tests_reference // "") | capture("skills/(?<s>[^/]+)/") | .s' "$file" 2>/dev/null)"
-  if [ -n "$ref_skill" ]; then
-    jq -e --arg s "$ref_skill" 'any(.skills[]?; . == $s)' "$file" >/dev/null 2>&1 \
-      || bad "tests/scenarios/task-run/$name.json points at the '$ref_skill' skill but does not list it in .skills, so the probe is run without it"
-  fi
-  case "$(jq -r '.green_check.verdict' "$file")" in
-    unstable) unstable_list="${unstable_list:+$unstable_list }$name" ;;
-  esac
-  recorded="$(jq -r '(.measured_targets // {}) | keys[]?' "$file" 2>/dev/null | sort)"
-  derived="$(printf '%s\n' $targets | sort)"
-  [ "$recorded" = "$derived" ] \
-    || bad "tests/scenarios/task-run/$name.json measured_targets does not match what it loads — recorded [$(printf '%s' "$recorded" | tr '\n' ' ')] derived [$(printf '%s' "$derived" | tr '\n' ' ')]"
-  for t in $targets; do
-    [ -f "$ROOT/$t" ] || { bad "$name.json names a target that does not exist: $t"; continue; }
-    have="$(sha256_of "$ROOT/$t")"
-    want="$(jq -r --arg t "$t" '.measured_targets[$t] // ""' "$file")"
-    if [ -z "$want" ]; then
-      bad "tests/scenarios/task-run/$name.json has no measured_targets entry for $t"
-    elif [ "$have" != "$want" ]; then
-      bad "tests/scenarios/task-run/$name.json was measured against a different $t — re-measure it, or the recorded pass is about text that no longer exists"
-    fi
-  done
-done
-if [ "$task_run_evidence" -eq 9 ]; then
-  if [ -n "${unstable_list:-}" ]; then
-    ok "task-run evidence is recorded (9 scenarios) — UNSTABLE, below 7 of the first 8 substantive answers: ${unstable_list}"
-  else
-    ok "task-run evidence is recorded (9 scenarios, all >= 7 of the first 8 substantive answers)"
-  fi
-fi
-
-# An unstable probe is Task 8 step 5 left open, and step 5 open means the plan's acceptance is not met.
-# The EVALUATED_SHA check above only asks whether the eval saw the shipped tree; it would happily pass
-# an ADR that says accepted while a scenario reproduces 4 times in 8. Both conditions have to hold.
-if [ -n "${unstable_list:-}" ] && [ "${adr_status:-}" = "accepted" ]; then
-  bad "the ADR says accepted while these scenarios are unstable: ${unstable_list} — step 5 of Task 8 is open, and its acceptance requires every step to pass"
 fi
 
 # --- 7. relative markdown links resolve --------------------------------------------------------

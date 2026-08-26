@@ -3,7 +3,7 @@
     "spec",
     "run"
   ],
-  "tests_reference": "plugins/cc-tuner/skills/spec/SKILL.md#5-write-the-executable-contract",
+  "tests_reference": "plugins/cc-tuner/skills/spec/SKILL.md#5-draft-the-executable-contract",
   "query": "Self-contained simulation; do not read the filesystem. A bug spec lists acceptance criteria and says only `run tests` under verification. It does not name the regression test, the exact command, expected failure, environment, fixtures, or a negative/mutation proof. May /run start implementation?",
   "baseline_failure": "Production audit: the workflow mentioned DoR/DoD historically but the active spec template omitted the first failing check and execution began without a testable baseline.",
   "expected_behavior": [

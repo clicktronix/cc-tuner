@@ -3,7 +3,7 @@
 # what a script actually decided.
 #
 # The tier exists because 0.10.0 shipped with 82 green assertions that were `grep` over Markdown while
-# `spec -> plan -> run` could not start. A phrase-matching test cannot observe a decision; this can.
+# `spec -> run` could not start. A phrase-matching test cannot observe a decision; this can.
 #
 # Named `flow/`, not `scenarios/`, because `$ROOT/tests/scenarios/*/*.json` already means something
 # else in this repo -- recorded evidence about model behaviour. Two directories called "scenarios"

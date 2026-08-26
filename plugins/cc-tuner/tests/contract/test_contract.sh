@@ -11,14 +11,15 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 SPEC="$ROOT/plugins/cc-tuner/skills/spec/SKILL.md"
+SPEC_TEMPLATE="$ROOT/plugins/cc-tuner/skills/spec/spec-template.md"
 RUN="$ROOT/plugins/cc-tuner/skills/run/SKILL.md"
-PLAN_SKILL="$ROOT/plugins/cc-tuner/skills/plan/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
+BRANCH_PLAN="$ROOT/docs/superpowers/plans/2026-08-13-native-first-lifecycle.md"
 fails=0
 
 need() {
@@ -32,13 +33,14 @@ need() {
 }
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
-need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC"
-need "spec-dor" '## Definition of Ready' "$SPEC"
-need "spec-first-failing-check" 'First failing check: <exact command>; expected failure:' "$SPEC"
-need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC"
-need "spec-full-regression" 'Full regression: <exact command>' "$SPEC"
-need "spec-dod" '## Definition of Done' "$SPEC"
-need "spec-github-tracker" 'tracker: gh' "$SPEC"
+need "spec-loads-template" 'spec-template.md' "$SPEC"
+need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC_TEMPLATE"
+need "spec-dor" '## Definition of Ready' "$SPEC_TEMPLATE"
+need "spec-first-failing-check" 'First failing check: <exact command>; expected failure:' "$SPEC_TEMPLATE"
+need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC_TEMPLATE"
+need "spec-full-regression" 'Full regression: <exact command>' "$SPEC_TEMPLATE"
+need "spec-dod" '## Definition of Done' "$SPEC_TEMPLATE"
+need "spec-github-tracker" 'tracker: gh' "$SPEC_TEMPLATE"
 
 # The branch must exist before grilling, because grilling invokes domain-modeling and that writes
 # CONTEXT.md and ADRs -- committed artifacts, which must not land on the integration branch. Ordering
@@ -51,13 +53,8 @@ else
   echo "FAIL spec-branch-before-grilling (branch=$branch_line grill=$grill_line)"
   fails=1
 fi
-# The old run.md was 434 lines describing a state machine, and the assertions below used to pin
-# thirty of its phrases. That machine is gone, so those assertions went with it -- a phrase test whose
-# subject no longer exists is not a weakened test, it is a test of nothing.
-#
-# What is left pins only what merge.sh reads. Its behaviour is covered by tests/flow/test_merge.sh;
-# these assert that the skill still tells the agent to produce what the script requires. Supporting
-# the scenario tier, never replacing it.
+# These are static producer/consumer seams: scripts own executable decisions; the checks below only
+# keep the skills and their output templates wired to those scripts. They do not prove model behaviour.
 need "run-resolves-the-plan"        'plan-path.sh" resolve' "$RUN"
 need "run-validates-the-plan"       'plan-lint.sh" check' "$RUN"
 # The frontier is a program, not arithmetic the model does from the graph. Doing it by hand is how a
@@ -65,13 +62,11 @@ need "run-validates-the-plan"       'plan-lint.sh" check' "$RUN"
 # promise with no implementation: /run defined its whole loop through TaskList.
 need "run-asks-for-the-frontier"    'plan-lint.sh" frontier' "$RUN"
 need "run-taskless-loop-unchanged"  'nothing about the loop changes' "$RUN"
-need "plan-fallback-names-frontier" 'plan-lint.sh frontier' "$PLAN_SKILL"
 need "run-ticks-the-plan-file"      '- [x]' "$RUN"
-# Finding 3: all three commands commit, none of them said anything about attribution trailers, so
-# every one fell through to the harness default in every repository cc-tuner is enabled in. The
+# Finding 3: both commands commit, and neither used to say anything about attribution trailers, so
+# each fell through to the harness default in every repository cc-tuner is enabled in. The
 # preference belongs to the repository, so the skills point at where it is written down.
 need "run-trailers-from-the-repo"  'attribution trailers, comes from' "$RUN"
-need "plan-trailers-from-the-repo" 'attribution trailers, comes from' "$PLAN_SKILL"
 need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
@@ -94,15 +89,40 @@ need "run-dod-before-merge"         'Definition of Done from the spec' "$RUN"
 need "run-request-changes-loop"     'On `REQUEST_CHANGES`, loop' "$RUN"
 need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"
 need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
-need "spec-hands-off-to-plan"       '/cc-tuner:plan docs/PLANS' "$SPEC"
-need "plan-two-pass-publication"    'addBlockedBy' "$PLAN_SKILL"
+need "spec-writes-the-plan"         'plan-path.sh" create' "$SPEC"
+need "spec-validates-the-plan"      'plan-lint.sh" check' "$SPEC"
+need "spec-hands-off-to-run"        '/cc-tuner:run docs/PLANS' "$SPEC"
+
+# This checks the published instruction's order, not whether a model followed it. A lone
+# `addBlockedBy` phrase used to report the whole two-pass contract as PASS.
+task_create_line="$(grep -nF '`TaskCreate` once per slice' "$SPEC" | head -1 | cut -d: -f1)"
+task_edges_line="$(grep -nF '`TaskUpdate` with `addBlockedBy`' "$SPEC" | head -1 | cut -d: -f1)"
+task_list_line="$(grep -nF '`TaskList` and verify' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$task_create_line" ] && [ -n "$task_edges_line" ] && [ -n "$task_list_line" ] \
+   && [ "$task_create_line" -lt "$task_edges_line" ] && [ "$task_edges_line" -lt "$task_list_line" ]; then
+  echo "PASS spec-instructs-two-pass-publication"
+else
+  echo "FAIL spec-instructs-two-pass-publication (create=$task_create_line edges=$task_edges_line list=$task_list_line)"
+  fails=1
+fi
 # The task tools are opt-in from Claude Code 2.1.233 on current models, and nothing the plugin ships
 # can turn them on. Three eval sessions published no visible plan while their operator watched for
 # one, so the skill has to name what is lost rather than mention it in passing.
-need "plan-names-the-optin"        'CLAUDE_CODE_ENABLE_TODO_TOOLS' "$PLAN_SKILL"
-need "plan-stops-for-an-answer"    'Then ask which, and wait' "$PLAN_SKILL"
-need "plan-auto-still-reports"     "points in the run's first report" "$PLAN_SKILL"
-need "plan-commits-the-plan"        'Commit the plan file' "$PLAN_SKILL"
+need "spec-names-the-optin"        'CLAUDE_CODE_ENABLE_TODO_TOOLS' "$SPEC"
+need "spec-commits-reviewed-set"   'Commit the reviewed set together' "$SPEC"
+[ ! -e "$ROOT/plugins/cc-tuner/skills/plan/SKILL.md" ] \
+  && echo "PASS standalone-plan-skill-removed" \
+  || { echo "FAIL standalone-plan-skill-removed"; fails=1; }
+
+# Historical sections keep the old command name as evidence. The only still-executable migration
+# checkpoint is Task 8 Step 7, and it must describe the current two-command lifecycle.
+step7="$(sed -n '/^- \[[ x]\] \*\*Step 7:/,/^\*\*Acceptance:/p' "$BRANCH_PLAN")"
+if [ -n "$step7" ] && ! printf '%s\n' "$step7" | grep -Eq '/cc-tuner:plan|/plan --auto'; then
+  echo "PASS active-step7-omits-removed-plan"
+else
+  echo "FAIL active-step7-omits-removed-plan"
+  fails=1
+fi
 # The pin is no longer the skill's to remember: merge.sh always adds it. What the skill must still
 # say is that merges go through that script rather than a raw gh call.
 need "run-no-raw-gh-merge" 'Do not replace it with a raw `gh pr merge`' "$RUN"

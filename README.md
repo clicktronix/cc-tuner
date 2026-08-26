@@ -11,7 +11,7 @@ Skills:
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
 
-The task loop is three commands, deliberately split: **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria; **`/cc-tuner:plan [--auto] <spec>`** breaks it into vertical slices and commits the plan file, then publishes them as native tasks with their blocking edges when the Task tools are available — the committed file is the plan, the task list is a projection of it; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto` each stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
+The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
 
 ## Why this exists
@@ -38,8 +38,9 @@ plugins/
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     skills/
       run/SKILL.md                  # /cc-tuner:run [--auto] <spec> executor
-      plan/SKILL.md                 # /cc-tuner:plan [--auto] <spec> slices and publishes the plan
-      spec/SKILL.md                 # /cc-tuner:spec interactive spec writer
+      spec/SKILL.md                 # /cc-tuner:spec writes the contract and sliced execution plan
+      spec/spec-template.md         # executable spec contract filled by /cc-tuner:spec
+      spec/plan-template.md         # plan grammar filled by /cc-tuner:spec
       setup/SKILL.md                # /cc-tuner:setup env check + installer orchestration
     hooks/
       hooks.json                    # SessionStart + Stop registrations

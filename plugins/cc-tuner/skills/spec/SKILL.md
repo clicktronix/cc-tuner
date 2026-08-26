@@ -1,14 +1,15 @@
 ---
-description: Turn a rough task into a committed spec /cc-tuner:run can execute — grilled requirements, explicit DoR and DoD, executable test plan, task-branch ownership, and machine-checkable acceptance. Run it before any --auto run.
+description: Turn an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run.
 argument-hint: '<issue number | URL | free-text description>'
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, AskUserQuestion, WebFetch, WebSearch, mcp__context7
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 disable-model-invocation: true
 ---
 
 # /cc-tuner:spec
 
-Produce a committed spec that `/cc-tuner:run` can execute without reopening product or verification
-decisions. This command owns discovery and readiness; `/run` owns delivery.
+Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening product,
+verification, or sequencing decisions. This command owns discovery and readiness; `/run` owns
+delivery.
 
 ## 1. Anchor and read
 
@@ -33,16 +34,9 @@ Fetch it and verify the starting point. If currently on the target branch, creat
 using the task-flow naming rule. If already on a feature branch, confirm it belongs to this task and
 its PR is not already merged. Never commit the spec directly to the integration branch.
 
-The task branch created here is the branch `/run` continues; `/run` must not create a second branch for
-the same spec.
-
-**Before grilling, not after.** Section 3 invokes `domain-modeling`, which **may** write `CONTEXT.md`
-and ADRs into the repository — it creates those files lazily, only when there is something to write,
-so a task with no project-specific vocabulary produces neither and that is the skill working as
-designed. Those are committed artifacts, so they must land on the task branch; an
-earlier revision created the branch after them and wrote them wherever the session happened to be.
-If grilling later shows the task should split, splitting a branch is recoverable — an ADR committed
-to the integration branch is not.
+The task branch created here is the branch `/run` continues. Create it before grilling because
+`domain-modeling` may write `CONTEXT.md` or ADRs; `/run` must not create a second branch for the same
+spec.
 
 **Commit message format, including any attribution trailers, comes from the repository's
 conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
@@ -74,113 +68,82 @@ Tag every criterion:
 - `[eyes]` — human judgement is irreducible; name the concrete human verification step.
 
 Every `[eyes]` criterion records its human step, machine replacement (or `none`), and dated waiver (or
-`none`). An item with neither replacement nor waiver is valid only with `auto_ready: no`: HITL `/run`
-stops for the human step, while `--auto` rejects the spec before any work starts.
+`none`). Without a replacement or waiver, set `auto_ready: no`; `/run --auto` must refuse it.
 
 More than one PR, more than one repo, or independently reviewed phases require an epic with native
 sub-issues and one spec per sub-issue. Otherwise use one issue and one task branch.
 
-## 5. Write the executable contract
+## 5. Draft the executable contract
 
-Write `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise:
+Read `${CLAUDE_SKILL_DIR}/spec-template.md` and fill every field. Draft the result in the conversation;
+do not write it before the approval in section 6. Its final path is
+`<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise.
 
-```markdown
-# <title>
+For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
+may replace the failing check or mutation.
 
-**Goal:** <what becomes true>
-**Issue:** #N | none
-**Architecture:** <ownership, data/control flow, and rejected alternatives>
+Assign a mutation where a false green is otherwise indistinguishable: fail-closed guards, validators
+and parsers, recovery paths, and regressions for shipped defects. Elsewhere a baseline or diff check
+is enough. `/run` executes the proof named here; it does not invent another.
 
-## Definition of Ready
-- [x] Problem/baseline: <current failure or missing behavior with evidence>
-- [x] Scope: <owned modules and consumers>; out of scope: <boundaries>
-- [x] Acceptance: every criterion below has a deciding check
-- [x] Test plan: commands, expected first failure, environment, and data are explicit
-- [x] Delivery: one branch, one PR, target, tracker, and CI source are explicit
+`ci` names checks the target branch requires. `auto_ready: yes` requires one PR, complete DoR,
+nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
+Only `/run --auto` requests unattended execution.
 
-## Acceptance criteria
-- [ ] [machine] <criterion> — checked by: <exact command or MCP step>
-- [ ] [eyes] <criterion> — checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>
+Set `tracker: gh` in the draft. Do not create or update the issue before the approval in section 6.
 
-## Test plan
-- Regression test: <path and test/assertion to add or existing failing check>
-- First failing check: <exact command>; expected failure: <specific assertion/error proving the gap>
-- Targeted checks: <exact commands>
-- Full regression: <exact command>
-- Static/build checks: <typecheck/lint/build commands or `not applicable — reason`>
-- Runtime/acceptance environment: <services, browser/device, fixtures, test data, credentials boundary>
-- Negative/mutation proof: <how the test is shown to fail without the fix>
+## 6. Plan and confirm
 
-## Implementation tasks
-1. <owned file paths> — <independently verifiable change and reason>
+Turn the contract into **tracer-bullet slices**: each slice is a narrow, independently verifiable path
+through every layer it touches, sized for one fresh context window. Name its owned paths, deciding
+check, observable delivery, and the other slices that must finish before it can start. A schema layer
+or a list of files is not a slice.
 
-## Definition of Done
-- [ ] Regression check was observed failing for the expected reason before the fix
-- [ ] Targeted, full, static/build, runtime, and acceptance checks passed as specified
-- [ ] Complete diff and formatter/autofix output were read; no unexplained files remain
-- [ ] Candidate commit passed deep review, mattpocock review, and Codex review on its exact SHA/tree
-- [ ] PR head equals the reviewed SHA and required CI is green on that SHA
+For a wide mechanical change that cannot stay green slice by slice, use **expand → migrate →
+contract**: introduce the new form beside the old, migrate consumers in independently checked batches,
+then remove the old form only after every batch.
 
-## Completion and reconciliation
-- [ ] PR is merged with the configured method
-- [ ] Spec/archive, issue/board, target sync, branches, and worktrees are reconciled
+Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
+and blockers. Ask once whether the contract, granularity, and edges are right; revise until approved.
+This is the only approval before implementation.
 
-## Run config
-branch: <current task branch>
-target: <integration branch>
-merge: squash|merge
-auto_ready: yes|no — <reason when no>
-ci: <required GitHub checks on the target branch, and how to observe them>
-target_test: <exact command>
-full_test: <exact command>
-tracker: gh
-board: <project title + owner | none>
+After approval, create or update the issue so it and the spec link to each other, write the approved
+spec to its final path, then ask the repository for the plan path:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 ```
 
-For a documentation-only or mechanical task, `First failing check` and `Negative/mutation proof` may
-say `not applicable` only with a concrete reason and an alternative baseline/diff check. Do not use
-`not applicable` merely because writing a regression test is inconvenient.
+Use the printed path literally. Fill `${CLAUDE_SKILL_DIR}/plan-template.md`, then run:
 
-**Assign a mutation as the negative proof where a check that does not bite cannot be told from one
-that does: fail-closed guards, validators and parsers, recovery paths, and any regression test for a
-defect that shipped once.** Elsewhere a baseline or diff check is enough. This is the spec's call and
-nowhere else's — `/run` executes the proof named here, and by then this file is committed; a rule
-written into `/run` would be advice arriving after the decision it is about. Name the file, the
-command that reverts the behaviour, and the check that must go red.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path>
+```
 
-`ci` names the checks the target branch **requires**: delivery reads `gh pr checks --required`, so a
-repository whose branch protection requires nothing cannot finish a run. `auto_ready: yes` is valid
-only when there is one PR, `ci`, `target_test`, and `full_test` are nonblank,
-the DoR is complete, and every `[eyes]` criterion has a machine replacement or waiver. It records
-capability, not execution mode; only `/run --auto` requests an unattended run.
+Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
+the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
+the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intentionally created; stop
+and explain any other unexplained file. Commit the reviewed set together using the repository's
+convention.
 
-Inspect the diff, stage the spec path explicitly, and commit it on the task branch with a Conventional
-Commit. `tracker` is always `gh`: create or update the issue so it and the spec link to each other.
-The run state starts in `/run`.
+## 7. Publish and hand off
 
-## 6. Hand off
+When the native task tools are available, publish the visible plan before any implementation edit:
 
-Print the spec path and the next command. **It is `/cc-tuner:plan`, never `/cc-tuner:run`.** `/run`
-works a committed plan and stops when there is none, so handing the user straight to it reproduces the
-exact complaint this rework began with — "why do I still not see a plan".
+1. `TaskCreate` once per slice, in number order; include delivery and acceptance criteria.
+2. `TaskUpdate` with `addBlockedBy` once per dependency edge.
+3. `TaskList` and verify that every edge matches the committed plan.
+
+The task list is only a projection; the committed plan remains the source of truth. If the tools are
+absent, say once that only the visible list and its edges are lost, mention
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` or `--allowedTools TaskCreate` for a future session, and continue to
+the handoff. Do not add a second confirmation after the approved contract and slices.
+
+Print the spec and plan paths, branch, target, and the next command:
 
 ```text
-/cc-tuner:plan docs/PLANS/2026-07-31-thing.md
-/cc-tuner:plan --auto docs/PLANS/2026-07-31-thing.md
+/cc-tuner:run docs/PLANS/2026-07-31-thing.md
+/cc-tuner:run --auto docs/PLANS/2026-07-31-thing.md
 ```
 
-`/plan` publishes the visible task list and then names `/cc-tuner:run` itself.
-
-Offer `--auto` only when `auto_ready: yes`. State the current branch and target so a later session can
-verify both before editing.
-
-## Verification
-
-- [ ] Repository, issue, instructions, architecture, code, tests, and current docs were read
-- [ ] DoR records the baseline, exact first failure, verification commands, environment, and data
-- [ ] Every criterion names its deciding command or human step
-- [ ] Every `[eyes]` item names replacement/`none` and waiver/`none`
-- [ ] Implementation tasks own explicit, independently verifiable paths
-- [ ] DoD binds review, PR, and CI evidence to one candidate SHA/tree
-- [ ] One spec maps to one task branch and one PR
-- [ ] Spec was committed on the task branch and linked to its issue
+Offer `--auto` only when `auto_ready: yes`.

@@ -173,7 +173,7 @@ absent "quick-skips-mcp" "MCP 'context7'" "$OUT"
 rm -rf "$T"
 
 # --- the native task tools are opt-in on current models -------------------------------------------
-# /cc-tuner:plan publishes the visible plan through TaskCreate. From Claude Code 2.1.233 those tools
+# /cc-tuner:spec publishes the visible plan through TaskCreate. From Claude Code 2.1.233 those tools
 # are off by default on Opus 4.8 / Sonnet 5 and later. Four eval sessions published no task list
 # because of it and the cause was misread as an MCP outage each time, which is why doctor now says it.
 mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok

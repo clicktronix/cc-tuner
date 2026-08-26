@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The one place a branch turns into a plan path.
 #
-# `/cc-tuner:plan` writes the plan, `/cc-tuner:run` reads it, and the SessionStart hook restores from
+# `/cc-tuner:spec` writes the plan, `/cc-tuner:run` reads it, and the SessionStart hook restores from
 # it. Three callers deriving the same slug independently is a second parser for one question, and they
 # would part company on the first branch name carrying a slash or a capital.
 #
