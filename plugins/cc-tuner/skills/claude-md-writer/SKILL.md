@@ -107,12 +107,32 @@ Use plan mode for changes under `src/billing/`.
 
 A symlink (`ln -s AGENTS.md CLAUDE.md`) works when there is nothing Claude-specific to add — but not on Windows without Administrator or Developer Mode, where the import is the portable choice. Either way, confirm with `/context` that `CLAUDE.md` shows under **Memory files**.
 
-**`.claude/rules/` is Claude-only.** Codex does not read it; it reads nested `AGENTS.md`. So moving rules out of `AGENTS.md` into `.claude/rules/` makes them invisible to every other agent on the repo. Pick the lever by who works there:
+**`.claude/rules/` is Claude-only.** Codex does not read it. So moving rules out of `AGENTS.md` into `.claude/rules/` makes them invisible to every other agent on the repo — bridge it with a pointer section plus a skill under `.agents/skills/` (see below).
 
-| Repo driven by | Lazy-loading lever |
+**Codex has no lazy loading at all, and nested `AGENTS.md` is not a substitute for `paths:`.** Codex builds its instruction chain **once per run, at startup**, walking from the project root down to `cwd` and appending each `AGENTS.md` it passes. Reading or editing a file in a subdirectory does **not** pull in that subdirectory's file. "Nearest wins" describes precedence — the closer file lands later in the combined prompt — not deferred loading. A nested file *below* `cwd` is never read. So nested `AGENTS.md` only works under an operational contract: every Codex session starts inside the package it is working on.
+
+| Repo driven by | Lever |
 |---|---|
-| Claude Code only | `.claude/rules/*.md` with `paths:` — a glob is more precise than a directory |
-| Claude Code **and** Codex/others | nested `AGENTS.md` per package, plus a one-line `CLAUDE.md` (`@AGENTS.md`) beside it — both tools read it, and both load it lazily |
+| Claude Code only | `.claude/rules/*.md` with `paths:` — genuinely lazy, fires on a matching read |
+| Claude Code **and** Codex | keep `.claude/rules/` for Claude, and bridge Codex: a pointer table in `AGENTS.md` naming rule → glob → purpose, plus a skill in `.agents/skills/` mapping work area → files to read. Advisory, not automatic — see the reliability note below |
+| A package with a hard ownership boundary, and a launcher that controls `cwd` | nested `AGENTS.md` + one-line `CLAUDE.md` beside it |
+
+**The bridge is one reliability class weaker than the loader, and that is not a rounding error.** Claude's path rule fires deterministically on a matching read. Codex must first judge the skill relevant, then invoke it, then classify every area the task touches, then read every matching file — four gates instead of zero. Measured failure modes: a task that looks self-evident ("rename this field"), a review-only prompt that pulls attention to the diff, scope widening mid-session after the skill already "ran", a task spanning several router rows where only the dominant one gets picked, a session started above the repo root (Codex scans skills from `cwd` upward only), and the skill simply not being present in that checkout. Put critical prohibitions as short invariants in the root file or behind a static check — do not rely on the bridge to deliver them.
+
+**Keep the pointer table generated or parity-checked, not hand-maintained.** Three hand-written copies of one mapping — the rule's `paths:` frontmatter, the pointer table, the skill's routing table — drift. Measured on a live repo carrying exactly this pattern: one rule's frontmatter listed a glob the pointer omitted, the pointer listed a path the frontmatter did not have, and the skill routed that work area to a different file entirely. Three mismatches on one of eight rules.
+
+### Codex's byte budget is a harder limit than the line target
+
+Codex stops adding instruction files once their **combined** size reaches `project_doc_max_bytes` — **32 KiB by default**. The global `~/.codex/AGENTS.md` counts against the same budget. Past the cap, content is not summarised or warned about: it is simply never in the prompt.
+
+This makes an oversized `AGENTS.md` a correctness bug, not a cost problem. Measured 2026-08-28: a 55,103-byte `AGENTS.md` against a 31,424-byte effective budget cut at line 252 of 536 — ten sections past the cut, including database-migration rules, PR conventions and the CI policy. They had been written, believed in force, and never once read by Codex.
+
+Check it before anything else when Codex "ignores" an instruction:
+
+```bash
+G=$(wc -c < ~/.codex/AGENTS.md 2>/dev/null || echo 0)
+head -c $((32768-G)) AGENTS.md | grep -c ''      # last line Codex sees
+```
 
 ## Auto memory
 
