@@ -194,14 +194,17 @@ done
 
 An identifier in both columns is duplicated: the rule fires exactly when it is needed, the copy costs context in every session including the ones with no matching file open.
 
-**4. Find copied lists by diffing them against their owner.**
+**4. Find copied lists by diffing them against their owner.** First establish the copy exists — locate the section that enumerates keys (`grep -n "^#\+ .*Environment" AGENTS.md`). No section, step passed. If there is one, extract from **that line range only**:
 
 ```bash
-diff <(grep -oE '^[A-Z][A-Z0-9_]+' .env.example | sort -u) \
-     <(grep -oE '`[A-Z][A-Z0-9_]+`' AGENTS.md | tr -d '`' | sort -u)
+sed -n '<from>,<to>p' AGENTS.md | grep -oE '`[A-Z][A-Z0-9_]+`' | tr -d '`' | sort -u > /tmp/doc
+grep -oE '^[A-Z][A-Z0-9_]+' .env.example | sort -u > /tmp/own
+diff /tmp/own /tmp/doc
 ```
 
-Any drift is an argument for deleting the copy and pointing at the owner, not for fixing the copy.
+**Bound the range by hand.** Run over the whole file, this grep reports drift that isn't there: in a Python repo it collects module constants (`WIRE_URL`, `BATCH_ID_KEY`) and calls them missing env vars — measured 2026-08-28 on a file that had no env table at all and already pointed at its owner. A nonzero diff is a reason to look, not a verdict.
+
+Real drift is an argument for deleting the copy and pointing at the owner, not for fixing the copy.
 
 **5. Check what the tooling already catches.** For each constraint the file states, look for the lint/format/type rule that enforces it. Enforced → delete the line. **Not** enforced → that line is the file's highest-value content, and it is also the shortlist for a future hook.
 
