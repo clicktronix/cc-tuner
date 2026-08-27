@@ -16,6 +16,9 @@ RUN="$ROOT/plugins/cc-tuner/skills/run/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
+TASK_FLOW_SETUP="$ROOT/plugins/cc-tuner/skills/task-flow-setup/SKILL.md"
+STATUSLINE_SETUP="$ROOT/plugins/cc-tuner/skills/statusline-setup/SKILL.md"
+SMOKE_SETUP="$ROOT/plugins/cc-tuner/skills/smoke-verify-setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
@@ -60,7 +63,7 @@ need "run-validates-the-plan"       'plan-lint.sh" check' "$RUN"
 # The frontier is a program, not arithmetic the model does from the graph. Doing it by hand is how a
 # blocked slice gets started under --auto, and it is also what made the Markdown-only fallback a
 # promise with no implementation: /run defined its whole loop through TaskList.
-need "run-asks-for-the-frontier"    'plan-lint.sh" frontier' "$RUN"
+need "run-asks-for-safe-batches"    'plan-lint.sh" ready-batches' "$RUN"
 need "run-taskless-loop-unchanged"  'nothing about the loop changes' "$RUN"
 need "run-ticks-the-plan-file"      '- [x]' "$RUN"
 # Finding 3: both commands commit, and neither used to say anything about attribution trailers, so
@@ -132,7 +135,13 @@ need "deep-review-always-runs" 'Always perform the review; small-diff thresholds
 # the skill deferred to a boundary its reader could not see.
 need "deep-review-names-the-thresholds" '50 lines across at most 5 files' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
-need "deep-review-exact-verdict" 'APPROVE <candidate SHA> <tree SHA>' "$DEEP_REVIEW"
+need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
+if grep -q '<tree SHA>' "$DEEP_REVIEW"; then
+  echo "FAIL deep-review-still-requires-derived-tree-sha"
+  fails=1
+else
+  echo "PASS deep-review-uses-one-candidate-identity"
+fi
 # deep-review owns this policy. placement explains where independent lenses run, but copying the
 # numbers there made a future threshold change a two-file edit under a one-rule-one-home contract.
 if grep -Eq '50 (changed )?lines|5 files' "$PLACEMENT"; then
@@ -155,6 +164,9 @@ else
   fails=1
 fi
 need "setup-auth-miss-is-login" '`gh auth login` — an interactive browser flow' "$SETUP"
+for setup_skill in "$SETUP" "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP" "$SMOKE_SETUP"; do
+  need "$(basename "$(dirname "$setup_skill")")-is-user-invoked" 'disable-model-invocation: true' "$setup_skill"
+done
 need "release-pr-status" 'context=release-pr/validate' "$RELEASE_WORKFLOW"
 need "release-pr-exact-sha" 'ref: ${{ steps.release-pr.outputs.sha }}' "$RELEASE_WORKFLOW"
 need "release-pr-runs-suite" 'run: bash tests/run.sh' "$RELEASE_WORKFLOW"

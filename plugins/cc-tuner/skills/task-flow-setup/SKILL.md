@@ -1,5 +1,6 @@
 ---
 description: Install or update the canonical .claude/rules/task-flow.md in the current repo from the cc-tuner template (migrates repos off the old git-flow name preserving their cached board field IDs, keeps task-flow.local.md deltas untouched, offers legacy cleanup).
+disable-model-invocation: true
 ---
 
 # /cc-tuner:task-flow-setup

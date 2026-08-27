@@ -1,6 +1,6 @@
 ---
 name: run
-description: Work this branch's committed plan to a merged PR — frontier order, ticked checkboxes, a candidate SHA, a verdict review bound to it, green CI, and a merge that pins the head.
+description: Work this branch's committed plan to a merged PR — safe ready batches, ticked checkboxes, exact-candidate reviews, green CI, and a merge that pins the head.
 argument-hint: '[--auto] <path-to-spec>'
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
@@ -39,7 +39,8 @@ while the plan is found from the branch, so nothing else stops plan A being work
 target, tests, Definition of Done and merge strategy.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printed>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printed> \
+  --spec <the spec path from arguments> --branch "$(git branch --show-current)"
 ```
 
 If the task tools are there and `TaskList` is empty, publish the plan's slices — two passes,
@@ -51,20 +52,18 @@ this. If they are not there, skip this and say so once; the run proceeds either 
 **The plan file is the state. Ask it what may start:**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" frontier <the path resolve printed>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" ready-batches <the path resolve printed>
 ```
 
-It prints a `SLICE<TAB>number<TAB>open<TAB>blocked-by<TAB>title` record for **every** slice that may
-start now, lowest number first — or nothing when every slice is done, which ends the loop.
-
-What to do with that set is the decision in
-[`references/placement.md`](references/placement.md): work the first record, or hand the ready set to
-that policy for safe fan-out. Then tick what landed and ask again. `frontier` says what *may* start;
-the placement reference alone says what may start *together*.
+It prints one `BATCH` record followed by the `SLICE` records in the first safe batch, or nothing when
+every slice is done. A parallel batch contains only ready slices whose literal Owned paths the
+validator proved pairwise disjoint; otherwise it returns the lowest ready slice alone. Work that
+batch, tick what landed, and ask again. The placement reference owns how a parallel batch is handed
+out, not whether its paths overlap.
 
 Ask the program rather than reading the graph yourself. The rule is one line to state and easy to get
 wrong under `--auto`, and getting it wrong means starting a slice something else was supposed to
-finish first. `frontier` refuses to answer at all for a plan that does not parse.
+finish first. `ready-batches` refuses to answer at all for a plan that does not parse.
 
 The visible task list is a projection of that state, not the state. Where the tools are present, mark
 the slice `in_progress` and then `completed` as you go, so a watcher sees it; where they are absent,
@@ -80,9 +79,9 @@ Three things this adds to the obvious:
   recent history rather than the harness default.
 - **Under `--auto`, refuse a task whose `blockedBy` is not empty.** The platform stores the edge and
   does not enforce it: `TaskUpdate` will move a blocked task to `in_progress` without complaint. Under
-  attention that is a visible mistake; unattended nobody is watching. `frontier` cannot hand you such
+  attention that is a visible mistake; unattended nobody is watching. `ready-batches` cannot hand you such
   a slice, so this is the check on a task you reached some other way — a leftover in the list, or one
-  you picked by eye rather than from the frontier set.
+  you picked by eye rather than from the emitted batch.
 - **Without `--auto`, stop at each delivery boundary** — first commit, PR opened, review returned,
   before merge. Report what is done and what comes next.
 
@@ -123,8 +122,9 @@ revision of this skill said only "work it, complete it", which is not a discipli
   about a claim.
 - **Run what the spec's test plan names** — its targeted checks during the slice, its full regression
   once before the candidate.
-- **A human-only acceptance criterion (`[eyes]`) is not self-servable.** Under `--auto`, stop and ask.
-  A waiver is the user's to give, recorded with who and when.
+- **Re-check `[eyes]` as a second fail-safe.** A conforming spec already makes unresolved human-only
+  acceptance set `auto_ready: no`; if a stale or hand-edited plan still reaches this point under
+  `--auto`, stop and ask. A waiver is the user's to give, recorded with who and when.
 
 ## Delivery
 
@@ -139,6 +139,8 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    They are mandatory steps, not gates — they have no durable, unforgeable home, and counting the
    author's own word twice would not make it evidence.
 3. **Obtain the authoritative `--required` approval** from `cc-codex-triage` at that exact SHA.
+   Choose one task-specific `--thread <name>` and keep that name for every round and for `merge.sh`;
+   the merge boundary re-runs the companion's checker against that thread in this worktree.
 4. **Publish the verdict**, and only what the marker actually says:
 
    Substitute the real PR number and the real candidate SHA — these are values you read from `gh` and
@@ -149,7 +151,8 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    ```
 
    On `REQUEST_CHANGES`, publish that instead. Never publish `APPROVE` for a review that did not
-   approve — the checked merge script reads this and nothing else.
+   approve. The checked merge script reads both this public record and the companion's required-review
+   state; neither substitutes for the other.
 5. **A published approval stands until the SHA changes.** GitHub does not overwrite reviews, so a
    finding that requires a code change needs a new commit and therefore a new candidate, at which
    point the script denies by construction because the head no longer matches. A finding that does
@@ -173,11 +176,11 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    Pass the strategy the spec names:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" <pr> <squash|merge> <candidate-sha>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" <pr> <squash|merge> <candidate-sha> <review-thread>
    ```
 
-   It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so
-   nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:
+   It re-runs the companion's exact-candidate check, re-reads the public verdict, required checks and
+   head, and pins the head, so nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:
    arbitrary shell and web/API merges are outside the boundary this local workflow can enforce.
 
    The script refuses a merge without the pin: the head can move between the check and the merge,

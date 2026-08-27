@@ -1,15 +1,16 @@
 ---
-description: One entry point for setting cc-tuner up in a repo — checks CLI tools, gh scopes, companion plugins and MCP servers, then runs the installers that this repo actually needs. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
+description: One user-run entry point for checking cc-tuner prerequisites and routing to the installers a repo needs. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
 argument-hint: '[check|install]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion
+disable-model-invocation: true
 ---
 
 # /cc-tuner:setup
 
 The three `*-setup` commands each install one thing and assume the environment around them is fine.
 This command is the layer above: it finds out what is missing **before** anything is installed, then
-runs only the installers this repo needs. `check` (default) reports and changes nothing; `install`
-reports and then acts.
+prints only the installer commands this repo needs. `check` (default) reports and changes nothing;
+`install` may wire the board after the user runs the suggested installers.
 
 ## 1. Diagnose
 
@@ -38,16 +39,15 @@ In `check` mode, stop here regardless.
 
 ## 3. Install what this repo needs
 
-Each of these is judgement, not a fixed list. Decide, say why, then hand it over — the installers own
-their own idempotency and confirmation prompts, so never reimplement their steps here.
+Each of these is judgement, not a fixed list. Decide, say why, then print the exact command for the
+user. Every installer is user-invoked and owns its own idempotency and confirmation prompts; never
+invoke it from this skill or reimplement its steps. Reporting an install that could not have happened
+is worse than not offering it, because nothing later contradicts the claim.
 
-**An installer marked `disable-model-invocation` can only be started by the user.** For those, print
-the exact command and say it is theirs to run; do not claim it was done. Reporting an install that
-could not have happened is worse than not offering it, because nothing later contradicts the claim.
-
-- **`/cc-tuner:task-flow-setup`** — run it for any repo where work happens through branches and PRs,
-  which is nearly all of them. Also run it when doctor reported a legacy `git-flow.md`: that path
+- **`/cc-tuner:task-flow-setup`** — offer it for any repo where work happens through branches and PRs,
+  which is nearly all of them. Also offer it when doctor reported a legacy `git-flow.md`: that path
   migrates the deltas file, and the cached board field IDs inside it, before anything overwrites it.
+  Print `/cc-tuner:task-flow-setup install`.
 - **`/cc-tuner:smoke-verify-setup`** — user-run only. Decide whether the repo wants it: only one with
   a frontend worth exercising does, so check first (`package.json`, an `app/` or `src/components`
   tree). A backend-only repo should not have it; say so rather than offering a gate that will never
@@ -56,8 +56,8 @@ could not have happened is worse than not offering it, because nothing later con
   ```
   /cc-tuner:smoke-verify-setup install
   ```
-- **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer it once; if doctor already
-  reported the script installed, skip silently.
+- **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer its command once; if doctor
+  already reported the script installed, skip silently. Print `/cc-tuner:statusline-setup install`.
 
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 

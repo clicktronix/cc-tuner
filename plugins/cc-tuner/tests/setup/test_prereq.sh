@@ -39,7 +39,7 @@ codex_root() {  # codex_root <dir> [broken: review|state]
   if [ "$broken" = "review" ]; then printf 'legacy review command\n' > "$r/commands/review.md"
   else printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/commands/review.md"; fi
   if [ "$broken" = "state" ]; then printf 'legacy review state\n' > "$r/scripts/review-state.sh"
-  else printf 'CC_CODEX_REQUIRED_REVIEW APPROVE\n' > "$r/scripts/review-state.sh"; fi
+  else printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/scripts/review-state.sh"; fi
   printf '%s' "$r"
 }
 

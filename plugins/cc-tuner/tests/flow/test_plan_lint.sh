@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 # plan-lint.sh: the plan format's validator and the parser the restore hook reads it back with.
 #
-# One parser, two modes. If the hook grew its own reader, a plan the linter accepted could still
-# restore wrongly and nothing would say so -- which is why `slices` is asserted here beside `check`.
+# One parser, four modes. If a caller grew its own reader, a plan the linter accepted could still
+# restore or execute wrongly and nothing would say so.
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 LINT="$FLOW_PLUGIN/scripts/plan-lint.sh"
 W="$(flow_workdir)"
 
-# plan <name> <body> -> path to a plan file
-plan() { printf '%s' "$2" > "$W/$1.md"; printf '%s' "$W/$1.md"; }
+check "help-owns-owned-path-grammar" "Owned paths: comma-separated repo-relative literal paths" \
+  "$(bash "$LINT" --help)"
 
-# lint <mode> <file> -> stdout+stderr then rc=<code>
-lint() { out="$(bash "$LINT" "$1" "$2" 2>&1)"; printf '%s\nrc=%s\n' "$out" "$?"; }
+# plan <name> <body> -> path to a plan file with the canonical headers
+plan() {
+  printf '**Spec:** docs/PLANS/example.md\n**Branch:** feat/example\n\n%s' "$2" > "$W/$1.md"
+  printf '%s' "$W/$1.md"
+}
+raw_plan() { printf '%s' "$2" > "$W/$1.md"; printf '%s' "$W/$1.md"; }
+
+# lint <mode> <file> [args...] -> stdout+stderr then rc=<code>
+lint() { local mode="$1" file="$2"; shift 2; out="$(bash "$LINT" "$mode" "$file" "$@" 2>&1)"; printf '%s\nrc=%s\n' "$out" "$?"; }
 
 VALID='# Retry budget
 
@@ -423,6 +430,104 @@ Delivers: d
 equals "frontier-orders-by-number-not-by-file" "SLICE	1	open	-	Declared second
 SLICE	3	open	-	Declared first" "$(bash "$LINT" frontier "$P")"
 
+# --- ready batches: parallelism is an executable decision ---------------------------------------
+P="$(plan ready_batches '## Slice 1 — Retry
+Blocked by: none
+Owned paths: src/retry/, tests/retry/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — Logging
+Blocked by: none
+Owned paths: src/logging/, tests/logging/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+
+## Slice 3 — Retry telemetry
+Blocked by: none
+Owned paths: src/retry/telemetry.ts
+Deciding check: t
+Delivers: d
+
+- [ ] c
+')"
+equals "ready-batch-groups-only-proven-disjoint-slices" "BATCH	1,2	parallel	owned paths proven disjoint
+SLICE	1	open	-	Retry
+SLICE	2	open	-	Logging" "$(bash "$LINT" ready-batches "$P")"
+
+P="$(plan component_boundary '## Slice 1 — Retry
+Blocked by: none
+Owned paths: src/retry/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — Retrying
+Blocked by: none
+Owned paths: src/retrying/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+')"
+check "component-boundary-is-not-a-prefix-overlap" "BATCH	1,2	parallel" \
+  "$(bash "$LINT" ready-batches "$P")"
+
+for owned_path in 'src/**/*.ts' '/abs/path/' '.' './src/' '../other/' 'src/{a,b}/' 'src//double/'; do
+  P="$(plan bad_owned "## Slice 1 — A
+Blocked by: none
+Owned paths: $owned_path
+Deciding check: t
+Delivers: d
+
+- [ ] a
+")"
+  OUT="$(lint check "$P")"
+  check "non-literal-owned-path-$owned_path" "non-literal Owned path" "$OUT"
+  check "non-literal-owned-path-rc1-$owned_path" "rc=1" "$OUT"
+done
+
+# The header comparison is the only guard against running plan A with spec B's DoD and merge shape.
+BRANCH="$(git branch --show-current)"
+P="$(raw_plan expected_headers "**Spec:** README.md
+**Branch:** $BRANCH
+
+## Slice 1 — A
+Blocked by: none
+Owned paths: src/a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+")"
+check "matching-spec-and-branch-pass" "rc=0" \
+  "$(lint check "$P" --spec README.md --branch "$BRANCH")"
+check "mismatched-spec-is-refused" "expected \"CHANGELOG.md\"" \
+  "$(lint check "$P" --spec CHANGELOG.md --branch "$BRANCH")"
+check "mismatched-branch-is-refused" "expected \"not-this-branch\"" \
+  "$(lint check "$P" --spec README.md --branch not-this-branch)"
+check "empty-expected-spec-is-refused" "--spec requires a non-empty path" \
+  "$(lint check "$P" --spec '' --branch "$BRANCH")"
+check "empty-expected-branch-is-refused" "--branch requires a non-empty name" \
+  "$(lint check "$P" --spec README.md --branch '')"
+
+P="$(raw_plan missing_headers '## Slice 1 — A
+Blocked by: none
+Owned paths: src/a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check "missing-spec-header-is-refused" "needs one non-empty **Spec:**" "$OUT"
+check "missing-branch-header-is-refused" "needs one non-empty **Branch:**" "$OUT"
+
 # Numeric order needs one canonical spelling. Without this check `01` and `1` are distinct awk map
 # keys but equal sort keys, so the plan can declare the same logical number twice and make ordering
 # depend on file position again.
@@ -446,17 +551,17 @@ OUT="$(lint check "$P")"
 check "leading-zero-slice-is-refused" "has a leading zero; use the canonical number 1" "$OUT"
 check "leading-zero-slice-rc1"       "rc=1"                                           "$OUT"
 
-# --- the shipped template passes the shipped linter ----------------------------------------------
-# The one claim about planning inside /cc-tuner:spec this tier can settle. That the SKILL produces a conforming plan
-# is a claim about a model and belongs to the eval; that the thing it hands the model to fill in is
-# itself valid is checkable here, and a template that fails the linter would send every user into a
-# fix-it loop on their first run.
+# --- the shipped template makes required replacement executable ----------------------------------
+# An unfilled Owned-path slot must fail. Once it is filled, the template itself demonstrates the edge
+# grammar it teaches.
 TPL="$FLOW_PLUGIN/skills/spec/plan-template.md"
 OUT="$(lint check "$TPL")"
-check "template-passes-lint" "rc=0" "$OUT"
-# It has to parse into slices with an edge, or it is not demonstrating the format it teaches.
+check "template-requires-owned-path-replacement" "non-literal Owned path" "$OUT"
+FILLED_TPL="$W/filled-template.md"
+sed 's/<REPLACE_ME>/src\/example/g' "$TPL" > "$FILLED_TPL"
+check "filled-template-passes-lint" "rc=0" "$(lint check "$FILLED_TPL")"
 equals "template-has-an-edge" "1" \
-  "$(bash "$LINT" slices "$TPL" | awk -F'\t' '$1=="SLICE" && $2==2 {print $4}')"
+  "$(bash "$LINT" slices "$FILLED_TPL" | awk -F'\t' '$1=="SLICE" && $2==2 {print $4}')"
 
 # --- refusals that are not about the format ------------------------------------------------------
 OUT="$(lint check "$W/does-not-exist.md")"

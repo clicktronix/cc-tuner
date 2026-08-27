@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Review a clean, committed candidate before delivery using independent correctness, specification, standards, architecture, systemic, security/data, and testing/operability lenses. Use when a task needs exhaustive code review bound to an exact candidate SHA, especially before a cc-tuner run can proceed to PR or merge.
+description: Review a clean, committed candidate before delivery using six independent lenses: correctness, specification, standards, architecture/systemic effects, security/data, and testing/operability. Use when a task needs exhaustive code review bound to an exact candidate SHA, especially before a cc-tuner run can proceed to PR or merge.
 ---
 
 # Deep Review
@@ -17,8 +17,7 @@ Require literal values for:
 - committed spec path, when the task has one.
 
 Refuse to review when `HEAD` is not the candidate SHA, the worktree is dirty, the base cannot be
-resolved, or the candidate is not a descendant of the base. Record the candidate tree with
-`git rev-parse <candidate>^{tree}`. A later commit or tree invalidates this result.
+resolved, or the candidate is not a descendant of the base. A later commit invalidates this result.
 
 ## Build the review packet
 
@@ -64,7 +63,7 @@ no surface; they do not overrule a match.
 Both the numbers and the list above lived only in a JSON file that nothing loads at runtime, so this
 section asked the reviewer to respect a boundary it had no way to see. That is why they are written
 out here. Keep the lifecycle outside the review sequential and give every reviewer the same literal
-base, candidate, tree, spec, and read-only constraint.
+base, candidate, spec, and read-only constraint.
 
 1. **Correctness and edge cases** — logic, state transitions, concurrency, errors, cleanup,
    compatibility, and user-visible behavior.
@@ -115,12 +114,12 @@ Priority meanings:
 
 Return exactly one verdict after the complete finding list:
 
-- `REQUEST_CHANGES <candidate SHA> <tree SHA>` when any validated `P0`-`P2` finding remains;
-- `APPROVE <candidate SHA> <tree SHA>` only when no validated blocking finding remains.
+- `REQUEST_CHANGES <candidate SHA>` when any validated `P0`-`P2` finding remains;
+- `APPROVE <candidate SHA>` only when no validated blocking finding remains.
 
 List `P3` findings even with `APPROVE`; `/cc-tuner:run` must record each as fixed, refuted, or
 explicitly deferred. Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into
 approval. State which lens was incomplete and return `REQUEST_CHANGES`.
 
 Any fix requires a new candidate commit, fresh verification, and a full new review. An approval for an
-older SHA or tree is stale evidence and must not be reused.
+older SHA is stale evidence and must not be reused.

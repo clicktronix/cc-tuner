@@ -322,16 +322,17 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
 - Modify: `plugins/cc-tuner/scripts/plan-path.sh` — expose the shared plan-path pattern
 - Create: `plugins/cc-tuner/tests/flow/test_merge.sh`
 
-**The checking is a script, not a parser.** `merge.sh <pr> <squash|merge> <candidate-sha>` re-reads the
-verdict review, the required CI checks and the head SHA from GitHub, refuses unless all three agree at
-that exact commit, and always adds `--match-head-commit` itself.
+**The checking is a script, not a parser.** `merge.sh <pr> <squash|merge> <candidate-sha>
+[review-thread]` re-runs the companion's exact-candidate check for an in-scope run, re-reads the
+public verdict, required CI and head SHA, refuses unless they agree at that commit, and always adds
+`--match-head-commit` itself.
 
 Four earlier revisions put this in the hook, judging the merge inside the agent's Bash command string.
 Each round of better parsing produced another form that ran a merge the hook never inspected:
 `bash -c`, `eval`, `/usr/local/bin/gh`, a line continuation between `pr` and `merge`, `G=gh; "$G"`,
 `$(printf gh)`, and a whitelist for the wrapper's own path that let `echo scripts/merge.sh; gh pr
 merge …` through. A shell command is a program; a hook reading it as text is guessing, and that list
-does not end. Moving the checks to a script whose inputs are three arguments ends the class. The
+does not end. Moving the checks to a script whose inputs are explicit arguments ends the class. The
 global command-string hook is deleted rather than refined again; ordinary merge commands remain
 outside cc-tuner's boundary.
 
@@ -558,7 +559,7 @@ less necessary — the branch is not done without it.
       > apart, so it cannot demonstrate this assertion at all.
 - [x] **Step 2b: producer → checked path, the whole positive path.** Confirm the run posts the verdict review
       **only after** the `--required` approval marker, that `gh pr view --json reviews` returns it with
-      `commit.oid` equal to the head SHA, and then **run `merge.sh --check-only <pr> <strategy> <sha>`
+      `commit.oid` equal to the head SHA, and then **run `merge.sh --check-only <pr> <strategy> <sha> <review-thread>`
       against that real PR and CI and confirm it reports the candidate would be accepted** — the flag
       exists for exactly this, because a check that can only be run by merging is one nobody runs
       twice.
@@ -570,7 +571,7 @@ less necessary — the branch is not done without it.
       `blockedBy` edges as before**, not merely the same number of rows. Then `/clear` and confirm the
       same. Then `/compact` and confirm **no duplication**.
 - [x] **Step 4: checked denial, live.** On a PR whose head SHA carries no verdict review, invoke
-      `merge.sh --check-only <pr> <strategy> <sha>` and confirm it refuses with the missing fact.
+      `merge.sh --check-only <pr> <strategy> <sha> <review-thread>` and confirm it refuses with the missing fact.
 - [x] **Step 5: record the nine `tests/scenarios/task-run/` probes with explicit provenance.** The
       original GREENs predated the skills rewrite, so they were re-measured and now record the exact
       revision and text they describe. These records are historical evidence, not a freshness gate on
@@ -739,16 +740,17 @@ of access survives. And `tests/run.sh` is green at every commit in the sequence.
 ## Definition of done for the branch
 
 - Executable and static checks green **at every commit**. Historical scenario records stay
-  well-formed and attached to a current owner; they are re-run deliberately rather than on every
-  prose edit. The harness is demonstrably able to report a failure.
+  well-formed and attached to the owner they actually measured; a removed owner is named explicitly
+  rather than retargeted. They are re-run deliberately, not on every prose edit. The harness is
+  demonstrably able to report a failure.
 - `merge.sh` denies when in-scope evidence is absent or stale, passes through an out-of-scope PR with
   an exact-head pin, and refuses when scope cannot be determined — all proven by mutation.
 - The eval record shows every step PASS in a real session: `spec → visible tasks with edges → run →
   recovery preserving those edges → a live checked merge denial`.
 - No `runctl`, no state file, no journal, no lock, no schema twin.
 - Lifecycle Bash: `merge.sh`, spec-driven `mutate.sh`, the session-start hook, the plan linter and
-  `plan-path.sh`. The frontier rule moved into the plan linter on 2026-08-24 — a third mode of a
-  piece already counted here, not a sixth piece.
+  `plan-path.sh`. Frontier and safe-batch selection are modes of the plan linter — a piece already
+  counted here, not a sixth piece.
 - The existing opt-in smoke-verification feature separately owns its fail-open `Stop` hook, shared
   fingerprint library and `mark.sh`; it is inert without repository configuration. Setup checks
   remain separate under `scripts/setup/`.

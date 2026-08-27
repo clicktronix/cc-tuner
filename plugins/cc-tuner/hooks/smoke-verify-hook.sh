@@ -10,7 +10,7 @@
 # via scripts/smoke-verify/mark.sh. Rationale: fix commits that pass static
 # checks but were never exercised are this workflow's top regression source.
 #
-# Runaway protection mirrors the cc-codex-triage stop hook:
+# Runaway protection is local to this hook:
 #   1. blocks counter vs cap, per fingerprint — the hard terminator; any
 #      malformed number fails OPEN.
 #   2. Success release: an attestation whose branch AND fingerprint match the

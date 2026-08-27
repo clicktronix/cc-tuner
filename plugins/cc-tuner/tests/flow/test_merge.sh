@@ -46,6 +46,19 @@ world() {  # world <files-json> <reviews-json> <checks-json> [head-sha]
   printf '%s' "$1" | jq -r '.[]? | (.path // .filename // empty)' > "$d/api-files"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
+  mkdir -p "$d/codex/scripts"
+  printf '%s\n' "${4:-$SHA}" > "$d/codex-head"
+  cat > "$d/codex/scripts/review-state.sh" <<'EOF'
+#!/usr/bin/env bash
+D="$(cd "$(dirname "$0")/../.." && pwd)"
+printf '%s\n' "$*" >> "$D/codex-calls"
+[ "$1" = check ] && [ -n "${2:-}" ] || exit 1
+[ ! -f "$D/codex-fail" ] || { echo NO_APPROVAL >&2; exit 10; }
+HEAD="$(cat "$D/codex-head")"
+printf 'CC_CODEX_REQUIRED_REVIEW APPROVE thread=%s head=%s tree=tree123 base_sha=base123 spec_path=docs/spec.md\n' "$2" "$HEAD"
+EOF
+  chmod +x "$d/codex/scripts/review-state.sh"
+  jq -nc --arg root "$d/codex" '[{id:"cc-codex-triage@cc-codex-triage",version:"0.11.0",scope:"user",enabled:true,installPath:$root}]' > "$d/plugins.json"
   printf '%s' "$d"
 }
 
@@ -57,7 +70,21 @@ review() { printf '[{"author":{"login":"%s"},"commit":{"oid":"%s"},"submittedAt"
 APPROVED="$(review agent-bot "$SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $SHA")"
 
 # run <stub> <args...> -> stdout+stderr then rc=<code>
-run() { local d="$1"; shift; out="$(CC_TUNER_GH="$d/gh" bash "$MERGE" "$@" 2>&1)"; printf '%s\nrc=%s\n' "$out" "$?"; }
+run() {
+  local d="$1"; shift
+  # Normal /run calls carry the exact thread. Keep individual cases focused by supplying the standard
+  # fixture thread when they pass a complete merge triplet; partial-argument tests stay partial.
+  if [ "$#" -eq 3 ]; then set -- "$@" review-default
+  elif [ "$#" -eq 4 ] && [ "$1" = --check-only ]; then set -- "$@" review-default
+  fi
+  out="$(CC_TUNER_GH="$d/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $d/plugins.json" bash "$MERGE" "$@" 2>&1)"
+  printf '%s\nrc=%s\n' "$out" "$?"
+}
+run_without_thread() {
+  local d="$1"; shift
+  out="$(CC_TUNER_GH="$d/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $d/plugins.json" bash "$MERGE" "$@" 2>&1)"
+  printf '%s\nrc=%s\n' "$out" "$?"
+}
 
 # --- the one state that merges ------------------------------------------------------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
@@ -66,6 +93,28 @@ check "attested-candidate-merges" "MERGED pr merge 42 --squash --match-head-comm
 check "attested-candidate-rc0"    "rc=0"                                                 "$OUT"
 # The pin is not the caller's to omit: merge.sh always adds it, so the head cannot move underneath.
 check "always-pins-the-head" "--match-head-commit" "$OUT"
+check "required-review-check-runs" "check review-default" "$(cat "$D/codex-calls")"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" 42 squash "$SHA")"
+check "in-scope-merge-requires-review-thread" "requires the same review-thread" "$OUT"
+absent "missing-review-thread-no-merge" "MERGED" "$OUT"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/codex-fail"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "missing-required-review-refused" "did not approve this worktree candidate" "$OUT"
+absent "missing-required-review-no-merge" "MERGED" "$OUT"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+printf '%s\n' "$OTHER_SHA" > "$D/codex-head"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "wrong-required-review-head-refused" "does not cover thread" "$OUT"
+absent "wrong-required-review-head-no-merge" "MERGED" "$OUT"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA" review-explicit)"
+check "explicit-required-review-thread-passes" "rc=0" "$OUT"
+check "explicit-required-review-thread-reaches-checker" "check review-explicit" "$(cat "$D/codex-calls")"
 
 D="$(world "$WIKI_FILES" "$APPROVED" "$GREEN_CI")"
 check "wiki-task-plans-is-in-scope" "rc=0" "$(run "$D" 42 squash "$SHA")"
@@ -245,7 +294,7 @@ LEGACY_REPO="$(flow_repo)"
 mkdir -p "$LEGACY_REPO/.claude/execute-task-runs"
 printf '{"schema_version":1,"status":"active"}\n' > "$LEGACY_REPO/.claude/execute-task-runs/old.state.json"
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
-OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" bash "$MERGE" 42 squash "$SHA" 2>&1; printf 'rc=%s\n' "$?")"
+OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
 check  "legacy-state-refuses-merge"     "removed runtime"  "$OUT"
 check  "legacy-state-names-the-file"    "old.state.json"   "$OUT"
 check  "legacy-state-refuses-rc1"       "rc=1"             "$OUT"
@@ -253,13 +302,13 @@ absent "legacy-state-never-merges"      "MERGED"           "$OUT"
 
 # --check-only must refuse too: it is the eval's evidence, and "would merge" from a repository whose
 # state cannot be reasoned about is not evidence of anything.
-OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" bash "$MERGE" --check-only 42 squash "$SHA" 2>&1; printf 'rc=%s\n' "$?")"
+OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" --check-only 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
 check "legacy-state-refuses-check-only" "removed runtime" "$OUT"
 
 # And the same world with the leftover removed merges, so the refusal above is attributable to the
 # state file and to nothing else in the setup.
 rm -rf "$LEGACY_REPO/.claude/execute-task-runs"
-OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" bash "$MERGE" 42 squash "$SHA" 2>&1; printf 'rc=%s\n' "$?")"
+OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
 check "cleared-legacy-state-merges" "MERGED" "$OUT"
 
 exit $fails

@@ -3,7 +3,7 @@
     "plan",
     "run"
   ],
-  "tests_reference": "plugins/cc-tuner/skills/spec/SKILL.md#7-publish-and-hand-off",
+  "tests_reference": "plugins/cc-tuner/skills/plan/SKILL.md#publish-the-visible-plan",
   "query": "Self-contained simulation; do not read the filesystem. The native task tools (TaskCreate, TaskUpdate, TaskList) are available in this session. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
   "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
   "expected_behavior": [
@@ -101,5 +101,8 @@
     "plugins/cc-tuner/skills/plan/SKILL.md": "6c009d99ba8049eadb5677befc333b918c3dac49081ef70f80fc3f528b2e7b53",
     "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0"
   },
+  "removed_targets": [
+    "plugins/cc-tuner/skills/plan/SKILL.md"
+  ],
   "decision_question": "Does it publish the visible task list — TaskCreate per slice, then addBlockedBy for every edge — BEFORE the first repository mutation?"
 }

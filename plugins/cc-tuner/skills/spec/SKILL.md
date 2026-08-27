@@ -7,9 +7,8 @@ disable-model-invocation: true
 
 # /cc-tuner:spec
 
-Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening product,
-verification, or sequencing decisions. This command owns discovery and readiness; `/run` owns
-delivery.
+Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening decisions.
+This command owns discovery and readiness; `/run` owns delivery.
 
 ## 1. Anchor and read
 
@@ -34,9 +33,8 @@ Fetch it and verify the starting point. If currently on the target branch, creat
 using the task-flow naming rule. If already on a feature branch, confirm it belongs to this task and
 its PR is not already merged. Never commit the spec directly to the integration branch.
 
-The task branch created here is the branch `/run` continues. Create it before grilling because
-`domain-modeling` may write `CONTEXT.md` or ADRs; `/run` must not create a second branch for the same
-spec.
+Create the task branch before grilling because `domain-modeling` may write `CONTEXT.md` or ADRs;
+`/run` continues this branch rather than creating another.
 
 **Commit message format, including any attribution trailers, comes from the repository's
 conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
@@ -57,8 +55,7 @@ Resolve before calling the task ready:
 - the first failing regression check or an honest non-code baseline;
 - targeted and full verification commands, environment, fixtures, and external dependencies.
 
-A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec
-is not ready.
+A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec is not ready.
 
 ## 4. Define acceptance and delivery shape
 
@@ -99,6 +96,9 @@ through every layer it touches, sized for one fresh context window. Name its own
 check, observable delivery, and the other slices that must finish before it can start. A schema layer
 or a list of files is not a slice.
 
+Before writing Owned paths, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" --help`; the
+executable consumer owns that syntax.
+
 For a wide mechanical change that cannot stay green slice by slice, use **expand → migrate →
 contract**: introduce the new form beside the old, migrate consumers in independently checked batches,
 then remove the old form only after every batch.
@@ -117,7 +117,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 Use the printed path literally. Fill `${CLAUDE_SKILL_DIR}/plan-template.md`, then run:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> \
+  --spec <the committed spec path> --branch "$(git branch --show-current)"
 ```
 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;

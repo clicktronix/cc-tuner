@@ -1,15 +1,15 @@
 # <Feature> — plan
 
-**Spec:** <path to the committed spec this plan implements>
-**Branch:** <the task branch this plan belongs to>
+**Spec:** <replace with the committed spec path>
+**Branch:** <replace with the task branch>
 
-Replace every slice below. Two are shown so the `Blocked by` edge is visible; a real plan has as many
-as the work needs. Run `plan-lint.sh check` on the result — this template passes it as written, so a
-failure is something you introduced.
+Replace both headers and every slice below. Two slices are shown so the `Blocked by` edge is visible;
+a real plan has as many as the work needs. `Owned paths: <REPLACE_ME>` is a required slot, not an
+example: replace it using the grammar from `plan-lint.sh --help`, then run `plan-lint.sh check`.
 
 ## Slice 1 — <what this slice makes work>
 Blocked by: none
-Owned paths: <the directories this slice may touch>
+Owned paths: <REPLACE_ME>
 Deciding check: <the exact command that says whether this slice works>
 Delivers: <the end-to-end behaviour, from the user's side — not a layer>
 
@@ -18,7 +18,7 @@ Delivers: <the end-to-end behaviour, from the user's side — not a layer>
 
 ## Slice 2 — <what this slice makes work>
 Blocked by: 1
-Owned paths: <directories>
+Owned paths: <REPLACE_ME>
 Deciding check: <command>
 Delivers: <behaviour>
 

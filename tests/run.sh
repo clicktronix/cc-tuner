@@ -128,7 +128,7 @@ fi
 # unqualified mention is an instruction to run something that no longer exists. Only the latter fails.
 # This found config-init.sh telling users to "re-run /cc-tuner:execute-task" the first time it ran.
 removed_hits=0
-for pat in '/cc-tuner:execute-task' '/cc-tuner:delegate' 'assets/delegate' 'skills/smoke-verify'; do
+for pat in '/cc-tuner:execute-task' '/cc-tuner:delegate' 'assets/delegate' 'skills/smoke-verify/'; do
   for f in $(grep -rlF "$pat" "$PLUGIN" "$ROOT/README.md" 2>/dev/null || true); do
     if grep -F "$pat" "$f" | grep -qvE 'replace|removed|old |superseded|predates|no longer'; then
       bad "${f#$ROOT/} still instructs the use of '$pat' (removed)"
@@ -148,7 +148,7 @@ else
   ok "current READMEs and manifests omit removed /cc-tuner:plan"
 fi
 
-# --- 6. eval scenarios point at files that exist ------------------------------------------------
+# --- 6. scenario provenance is internally consistent --------------------------------------------
 # The git-flow -> task-flow rename left two scenarios referencing a path that no longer existed, and
 # nothing failed. tests_reference is the scenario's claim about what it tests; a dangling one means
 # the recorded RED/GREEN evidence describes a file nobody can read.
@@ -160,11 +160,50 @@ for f in "$ROOT"/tests/scenarios/*/*.json; do
   ref="$(jq -r '.tests_reference // empty' "$f")"
   [ -n "$ref" ] || { bad "${f#$ROOT/} has no tests_reference"; dangling=$((dangling + 1)); continue; }
   path="${ref%%#*}"
-  [ -e "$ROOT/$path" ] || { bad "${f#$ROOT/} references missing $path"; dangling=$((dangling + 1)); continue; }
+  removed_ref=no
+  jq -e --arg p "$path" '(.removed_targets // []) | index($p) != null' "$f" >/dev/null 2>&1 \
+    && removed_ref=yes
+  if [ ! -e "$ROOT/$path" ] && [ "$removed_ref" = no ]; then
+    bad "${f#$ROOT/} references missing $path without recording it in removed_targets"
+    dangling=$((dangling + 1))
+    continue
+  fi
+  case "$path" in
+    plugins/cc-tuner/skills/*)
+      owner="${path#plugins/cc-tuner/skills/}"; owner="${owner%%/*}"
+      jq -e --arg owner "$owner" '(.skills // []) | index($owner) != null' "$f" >/dev/null 2>&1 \
+        || { bad "${f#$ROOT/} tests $owner but its skills list does not name that owner"; dangling=$((dangling + 1)); }
+      ;;
+  esac
+  if jq -e '(.measured_targets // null) | type == "object"' "$f" >/dev/null 2>&1; then
+    jq -e --arg p "$path" '.measured_targets | has($p)' "$f" >/dev/null 2>&1 \
+      || { bad "${f#$ROOT/} tests $path but measured_targets does not contain it"; dangling=$((dangling + 1)); }
+    jq -e '
+      ([.skills[]?] | sort) ==
+      ([.measured_targets | keys[]
+        | select(startswith("plugins/cc-tuner/skills/"))
+        | split("/")[3]] | unique | sort)
+    ' "$f" >/dev/null 2>&1 \
+      || { bad "${f#$ROOT/} skills and measured_targets name different skill owners"; dangling=$((dangling + 1)); }
+  fi
+  for target in $(jq -r '(.measured_targets // {}) | keys[]' "$f"); do
+    if [ ! -e "$ROOT/$target" ] \
+      && ! jq -e --arg p "$target" '(.removed_targets // []) | index($p) != null' "$f" >/dev/null 2>&1; then
+      bad "${f#$ROOT/} measured missing $target without recording it in removed_targets"
+      dangling=$((dangling + 1))
+    fi
+  done
+  for target in $(jq -r '.removed_targets[]?' "$f"); do
+    jq -e --arg p "$target" '(.measured_targets // {}) | has($p)' "$f" >/dev/null 2>&1 \
+      || { bad "${f#$ROOT/} marks $target removed but did not measure it"; dangling=$((dangling + 1)); }
+    [ ! -e "$ROOT/$target" ] \
+      || { bad "${f#$ROOT/} marks $target removed but it still exists"; dangling=$((dangling + 1)); }
+  done
   # A `path#anchor` reference also has to name a heading that is still there — a renamed section is
   # the same dangling-pointer failure as a renamed file, just quieter.
   case "$ref" in
     *"#"*)
+      [ -e "$ROOT/$path" ] || continue
       anchor="${ref#*#}"
       grep '^#\{1,6\} ' "$ROOT/$path" \
         | sed -e 's/^#* //' -e 's/[^A-Za-z0-9 -]//g' -e 's/ /-/g' \
@@ -173,7 +212,7 @@ for f in "$ROOT"/tests/scenarios/*/*.json; do
       ;;
   esac
 done
-[ "$dangling" -eq 0 ] && ok "scenario tests_reference paths resolve ($scen scenarios)"
+[ "$dangling" -eq 0 ] && ok "scenario provenance is consistent ($scen scenarios)"
 
 # --- 6a2. the ADR may not claim "accepted" while the shipped tree is past the evaluated one --------
 # Task 8 step 0 exists so the eval exercises the artifact that ships. Prose cannot hold that: run 3

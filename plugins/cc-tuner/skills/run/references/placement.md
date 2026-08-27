@@ -38,7 +38,8 @@ which reads as forbidding a unit its own tests while the rule two paragraphs up 
 parallel *testing decision*. One plugin, two readings — the same defect as finding 14, introduced by
 the fix for finding 14.
 
-Two slices are independent when their `Owned paths` do not overlap. If they do, they are one unit.
+`plan-lint.sh ready-batches` decides which ready slices have proven-disjoint Owned paths. This
+reference only places the batch it returned; do not recalculate or widen that batch from plan prose.
 
 ## Where each method runs
 

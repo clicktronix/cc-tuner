@@ -61,7 +61,7 @@ A read-only, exact-candidate review skill for `/run` and direct use. It reviews 
 diff through correctness, spec/scope, repository standards, architecture/systemic effects,
 security/data safety, and testing/operability lenses. It may fan out those independent lenses against
 the same immutable SHA, then validates and deduplicates their output without a top-ten cap. Its
-verdict includes both commit and tree SHA; any later change invalidates approval.
+verdict names that candidate SHA; any later commit requires another review.
 
 ### `smoke-verify`
 
@@ -103,7 +103,8 @@ It presents that contract and its tracer-bullet slices for one approval, writes 
 validates the plan, commits the reviewed artifacts together, then publishes native tasks in two passes because `TaskCreate`
 takes no dependency argument.
 
-`/cc-tuner:run [--auto] <spec>` works that plan. It takes the frontier in order, proves each slice
+`/cc-tuner:run [--auto] <spec>` works that plan. It asks the plan linter for the first safe ready
+batch, proves each slice
 RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
 ticks it off in the committed file, then commits a candidate, runs
 `cc-tuner:deep-review`, the mattpocock review and Codex's required review at that exact SHA, publishes
@@ -131,11 +132,11 @@ there. A genuinely new session — `startup` or `/clear` — starts with an empt
 their blocking edges and every finished slice they still depend on. It asks: a command hook cannot
 call `TaskCreate`, so recovery is advisory in exactly the way the plan itself is.
 
-One thing checks rather than advises. `scripts/merge.sh <pr> <squash|merge> <candidate-sha>` re-reads
-the verdict review, the required CI checks and the head SHA from GitHub, refuses unless all three
-agree at that exact commit, and pins the head with `--match-head-commit` so it cannot move between
-the check and the merge. On a pull request that carries no cc-tuner plan it merges straight through:
-the plugin must not seize work that is not its own.
+One thing checks rather than advises. `scripts/merge.sh <pr> <squash|merge> <candidate-sha>
+[review-thread]` re-reads the companion's exact-candidate approval, the public verdict, required CI
+and the head SHA, refuses unless they agree at that commit, and pins the head with
+`--match-head-commit` so it cannot move between the check and the merge. On a pull request that
+carries no cc-tuner plan it merges straight through: the plugin must not seize work that is not its own.
 
 `/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:
 earlier versions tried to judge arbitrary Bash text and alternated between bypasses and blocking

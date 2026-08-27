@@ -68,7 +68,8 @@ codex_contract() {
   [ -f "$review" ] && [ -f "$state" ] \
     && grep -qF -- '--required' "$review" \
     && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
-    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state"
+    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state" \
+    && grep -q '^  check)' "$state"
 }
 
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run

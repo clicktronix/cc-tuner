@@ -1,5 +1,6 @@
 ---
 description: Install, update, or remove the cc-tuner usage statusline (rate-limit 5h/7d + context % + git) in the user's Claude Code settings.
+disable-model-invocation: true
 ---
 
 # /cc-tuner:statusline-setup

@@ -9,7 +9,7 @@ Skills:
 - **`smoke-verify`** — not a skill: an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`). Frontend changes can't end a turn until they were exercised for real and attested with evidence. The whole standard lives in the block message the agent actually receives, rather than in a skill it has to choose to load.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:task-flow-setup` installer that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
-Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
+Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and prints only the user-run installer commands this repo needs. `check` reports; `install` may wire the board after those installers run.
 
 The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
@@ -47,7 +47,7 @@ plugins/
       session-start.sh              # asks a fresh session to rebuild its task list from the plan
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
-      merge.sh                      # the only checked merge path: verdict + required CI on the head SHA
+      merge.sh                      # checked merge: required review + public verdict + CI on the head SHA
       mutate.sh                     # one mutation, graded by the program: no-op and syntax refusals, verified restore
       plan-lint.sh                  # the plan format's validator, and the parser the hook reads it with
       plan-path.sh                  # the one branch -> plan-path resolver

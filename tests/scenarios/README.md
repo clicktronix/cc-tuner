@@ -70,9 +70,10 @@ failure justifies the token cost, and use the live Task 8 boundary for lifecycle
 repository validator checks that scenario references resolve; it does not infer current model
 behavior or freshness from a JSON record.
 
-In a task-run JSON, `skills` and `measured_targets` preserve what the historical probe loaded.
-`tests_reference` names the current owner of the behavior, so it may differ after an ownership
-migration such as the removal of `/plan`.
+In a task-run JSON, `skills`, `measured_targets`, and `tests_reference` preserve what the historical
+probe loaded and judged; do not retarget them after an ownership migration. When a measured owner was
+removed, `removed_targets` names that missing path explicitly. The repository validator checks this
+relationship without treating historical hashes as a freshness gate.
 
 The 2026-08-09 task-run rows were added from the cross-repository production audit that motivated the
 structured-state rewrite. On 2026-08-10 each new row received one isolated RED and GREEN Haiku arm;

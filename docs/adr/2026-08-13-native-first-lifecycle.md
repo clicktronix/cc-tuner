@@ -208,14 +208,14 @@ enforced by `merge.sh` and the path resolver, two are instructions in the run sk
 ### Checked delivery path
 
 The flow has one fail-closed checked path, and it is a **script, not a parser**:
-`scripts/merge.sh <pr> <strategy> <sha>`
-re-reads the verdict, the required checks and the head from GitHub and refuses unless the PR head
-equals the reviewed SHA, carries a verdict review at that SHA, and has green required CI on it.
+`scripts/merge.sh <pr> <strategy> <sha> [review-thread]`
+re-reads the companion's exact-candidate approval, the public verdict, required checks and the head,
+and refuses unless the PR head equals the reviewed SHA and every gate agrees at that SHA.
 
 An earlier revision put the checking in the hook, reading the agent's Bash command string. That failed
 three rounds running — `bash -c`, `eval`, an absolute path to `gh`, a line continuation, `G=gh; "$G"`,
 `$(printf gh)`. A shell command is a program, and a hook reading it as text is guessing. Moving the
-checks to a script whose inputs are three arguments ends the class; removing the global parser also
+checks to a script whose inputs are explicit arguments ends the class; removing the global parser also
 stops cc-tuner from intercepting unrelated merges.
 
 **Scope.** The script applies cc-tuner checks exactly when the target pull request's
@@ -257,21 +257,20 @@ this plugin.
 
 What survives is weaker and true:
 
-- **One machine-checkable verdict bound to the candidate SHA.** A review exists on the exact head SHA,
-  from the expected author, whose body carries the verdict. GitHub stamps the SHA and the plugin
-  cannot forge it — a local file claiming "we reviewed X" can be written any time, a review at X can
-  only exist if X was head when it was submitted. The SHA binding is external and strong.
-- **Green CI on that same SHA**, which GitHub also owns.
+- **One checked required-review result bound to the candidate SHA.** `merge.sh` re-runs
+  `cc-codex-triage`'s `review-state.sh check` for the same worktree and thread that `/run` used. This
+  distinguishes a completed required-review workflow from a verdict string the subject simply typed.
+- **One public verdict record on that SHA.** GitHub binds the review comment to the PR head and author;
+  it remains useful traceability, but the author-controlled text is not the required-review proof.
+- **Green CI on that same SHA**, which GitHub owns.
 
-The verdict itself travels in review prose the author can edit, so it is a guardrail, not a proof.
-Saying otherwise would rebuild the thing being deleted: a check that reads a record its own subject
-controls.
+The companion state is local and the workflow can still be bypassed or deliberately altered, so this
+remains a guardrail rather than an adversarial security boundary. The checked path's claim is narrower:
+it refuses unless the required-review state, public record, CI and current PR head agree.
 
-**The flow gains the step that writes it.** Nothing today posts a GitHub review — `cc-codex-triage`
-returns its verdict into the chat — so `/run` now posts the verdict as a review on the current head
-once Codex returns it. Naming the reader without the writer is its own failure: a checked path reading
-a record nobody produces denies forever, and a script that always denies is indistinguishable from a
-broken one until somebody routes around it.
+**The flow gains the step that writes the public record.** `cc-codex-triage` owns the exact-candidate
+state but does not post a GitHub review, so `/run` publishes the returned verdict on the current head.
+The merge boundary reads both sources instead of asking one to stand in for the other.
 
 **The other two reviews stay mandatory steps of the flow and are not gates.** Deep-review and the
 `mattpocock` review run and must be addressed; they simply have no durable, unforgeable home, and
@@ -313,11 +312,10 @@ workflow discipline against an agent's mistake and must not be described as anyt
 ## Complexity budget
 
 - **Lifecycle** Bash is limited to five pieces: `merge.sh`; spec-driven `mutate.sh`; the
-  `SessionStart` restore hook; the plan linter; and the branch→path resolver. The frontier rule was
-  an instruction in the run skill until 2026-08-24 and is now a third mode of the plan linter, which
-  is already one of the five: `/run` asks which slices may start instead of deriving it from the
-  graph by hand. That is what made the Markdown-only fallback real rather than promised, and it adds
-  no piece to this budget.
+  `SessionStart` restore hook; the plan linter; and the branch→path resolver. Frontier and safe-batch
+  selection are modes of the plan linter, already one of the five: `/run` asks which slices may start
+  together instead of deriving graph and path overlap by hand. That makes the Markdown-only fallback
+  real and keeps parallelism fail-closed without adding another runtime piece.
 - The opt-in smoke-verification feature is a separate runtime surface: its registered fail-open
   `Stop` hook, shared fingerprint library, and `mark.sh`. It is inert unless the repository opts in
   with `.claude/smoke-verify.cfg`.

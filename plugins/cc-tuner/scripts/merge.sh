@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The only sanctioned way to merge a cc-tuner run.
 #
-#   merge.sh [--check-only] <pr> <squash|merge> <candidate-sha>
+#   merge.sh [--check-only] <pr> <squash|merge> <candidate-sha> [review-thread]
 #
 # Why this exists, after three attempts at the other design: the guard used to read the agent's Bash
 # command string and decide whether the merge inside it was attested. That cannot work. A shell
@@ -10,8 +10,8 @@
 # `$(printf gh)`. There is no regex that ends that list.
 #
 # So the checking moved to where the inputs are arguments rather than text. This script takes the PR,
-# the strategy and the SHA as three values, verifies them itself, and only then calls `gh`. Nothing
-# has to guess what a string would have done.
+# strategy, SHA and required-review thread as values, verifies them itself, and only then calls `gh`.
+# Nothing has to guess what a string would have done.
 #
 # `/run` calls this script directly. Raw CLI commands, the web button, the API and direct pushes are
 # outside its boundary; trying to recognise every equivalent Bash program created bypasses and also
@@ -27,9 +27,9 @@ die() { printf 'cc-tuner merge: %s\n' "$1" >&2; exit 1; }
 CHECK_ONLY=""
 case "${1:-}" in --check-only) CHECK_ONLY=1; shift ;; esac
 
-PR="${1:-}"; STRATEGY="${2:-}"; SHA="${3:-}"
+PR="${1:-}"; STRATEGY="${2:-}"; SHA="${3:-}"; REVIEW_THREAD="${4:-}"
 [ -n "$PR" ] && [ -n "$STRATEGY" ] && [ -n "$SHA" ] \
-  || die "usage: merge.sh [--check-only] <pr> <squash|merge> <candidate-sha>"
+  || die "usage: merge.sh [--check-only] <pr> <squash|merge> <candidate-sha> [review-thread]"
 # squash and merge only, matching what a spec is allowed to declare. rebase was accepted here and by
 # /run for one revision, offering a strategy no spec can ask for.
 case "$STRATEGY" in squash|merge) ;; *) die "strategy must be squash or merge" ;; esac
@@ -57,8 +57,8 @@ if [ -n "$LEGACY_ROOT" ]; then
   done
 fi
 
-# Every fact is re-read here, from GitHub, at merge time. Nothing is carried in from the caller except
-# which PR and which SHA they believe they are merging — and both are checked against what GitHub says.
+# Every GitHub fact is re-read here at merge time. The required-review fact is re-read from the
+# companion's exact-candidate state below. Nothing is accepted merely because the caller repeats it.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
 # second call to the same endpoint -- a whole network round trip per merge for nothing.
 PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews 2>/dev/null)" \
@@ -97,6 +97,27 @@ if [ "$IN_SCOPE" = "no" ]; then
   # an opinion about the contents, and passing the SHA the caller asked for is free.
   exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"
 fi
+
+# Re-read the required approval from the companion's own exact-candidate state. The GitHub verdict
+# below is the public record, but it is written by the same agent being reviewed and cannot prove the
+# required review happened. plugin-here.sh resolves the one enabled install that applies to this
+# worktree; using the same worktree is part of the cc-codex-triage state contract.
+CODEX_ROW="$(bash "$SCRIPT_DIR/setup/plugin-here.sh" 'cc-codex-triage@cc-codex-triage' "$LEGACY_ROOT" 2>/dev/null)" \
+  || die "cannot resolve the enabled cc-codex-triage installation for this worktree"
+CODEX_ROOT="${CODEX_ROW%%$(printf '\t')*}"
+CODEX_CHECK="$CODEX_ROOT/scripts/review-state.sh"
+[ -f "$CODEX_CHECK" ] || die "the enabled cc-codex-triage has no review-state.sh checker"
+[ -n "$REVIEW_THREAD" ] \
+  || die "an in-scope cc-tuner merge requires the same review-thread passed to cc-codex-triage"
+CODEX_MARKER="$(bash "$CODEX_CHECK" check "$REVIEW_THREAD" 2>&1)" \
+  || die "cc-codex-triage did not approve this worktree candidate: $CODEX_MARKER"
+set -f
+set -- $CODEX_MARKER
+set +f
+[ "$#" -eq 7 ] && [ "$1" = CC_CODEX_REQUIRED_REVIEW ] && [ "$2" = APPROVE ] \
+  && [ "$3" = "thread=$REVIEW_THREAD" ] && [ "$4" = "head=$HEAD_SHA" ] \
+  && case "$5:$6:$7" in tree=?*:base_sha=?*:spec_path=?*) true ;; *) false ;; esac \
+  || die "cc-codex-triage returned a marker that does not cover thread $REVIEW_THREAD at $HEAD_SHA"
 
 ME="$("$GH" api user --jq .login 2>/dev/null)" || die "cannot identify the authenticated GitHub account"
 
@@ -156,6 +177,6 @@ BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length
 # --check-only stops here, having proved the candidate would be accepted. The eval needs to observe
 # the positive path without actually merging, and a check that can only be run by merging is one
 # nobody will run twice.
-[ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s) at %s: verdict, required CI and head all check out\n' "$PR" "$STRATEGY" "$HEAD_SHA"; exit 0; }
+[ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s) at %s: required review, verdict, required CI and head all check out\n' "$PR" "$STRATEGY" "$HEAD_SHA"; exit 0; }
 
 exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"
