@@ -9,7 +9,8 @@ The lifecycle has been observed end to end, but not all of it against one curren
 the recorded eval. `tests/run.sh` refuses `accepted` while the production surface differs from
 `EVALUATED_SHA`; scenario samples retain their own historical provenance but no longer force eight
 paid model calls after every prose edit. The eval log is the step-by-step source for what was last seen
-where, and its evidence is bounded: the sessions are driven headless, not by a human at a terminal.
+where, and its evidence is bounded: earlier sessions were driven headless; run 7 supplied the attended
+terminal path through merge.
 
 Two design questions are settled. Skill-hook lifetime is no longer load-bearing because `/run`
 invokes the checked merge script directly. The checked path requires **one** SHA-bound verdict plus CI,

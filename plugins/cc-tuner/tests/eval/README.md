@@ -11,24 +11,24 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Observation index after run 5.** What each step was last observed against:
+**Observation index after run 7.** What each behaviour was last observed against:
 
 | step | last observed at | in |
 |---|---|---|
-| 0 — this checkout | `2247c8c` | run 5 |
-| 1 — attended whole flow | `2247c8c` | **partial (run 5)**: the visible plan and delivery stops passed; required review exhausted its three attempts without approving the final candidate, so the flow did not reach merge |
-| 2 — `--auto` whole flow | `2247c8c` | run 5 |
-| 2 — the `blockedBy` refusal, isolated | `2247c8c` | run 5 |
-| 2b — `--check-only` then the same script merges | `2247c8c` | run 5 |
-| 3 — recovery: fresh session, `/clear`, `/compact` | `2247c8c` | run 5 |
-| 4 — live denial, both branches | `2247c8c` | run 5 |
+| 0 — this checkout | `c69fd80` | run 7 |
+| 1 — attended whole flow | `c69fd80` | run 7, complete through checked merge |
+| 2 — `--auto` whole flow | `2247c8c` | run 5; auto-specific decisions unchanged since that observation |
+| 2 — the `blockedBy` refusal, isolated | `2247c8c` | run 5; frontier and dependency decisions unchanged |
+| 2b — `--check-only` then the same script merges | `c69fd80` | run 7 |
+| 3 — recovery: fresh session, `/clear`, `/compact` | `2247c8c` | run 5; recovery hook and graph reconstruction unchanged |
+| 4 — live denial, both branches | `2247c8c` | run 5; the later missing-check diagnostic is covered by its deterministic regression |
 | 5 — the nine probes | `3229c57` | historical evidence re-measured 2026-08-25 under protocol version 2, isolated |
-| 7 — the repeat on the shipped tree | `2247c8c` | **partial (run 5, 2026-08-28)**: 0, 2, the isolated `blockedBy` refusal, 2b, 3 and 4 are PASS; the attended flow stopped after three required `REQUEST_CHANGES` verdicts and has no approval or merge |
-| 6 — this file | — | — |
+| 7 — repeat on the shipped tree | `c69fd80` | **partial (run 7)**: 0, 1 and 2b are current; `--auto`, isolated `blockedBy`, recovery and denial remain on run 5 |
+| 6 — this file | `c69fd80` evidence | run 7 record |
 
-The table explains why Step 7 was added; it does not define completion or the next action. Those live
-only in the branch plan. `EVALUATED_SHA` proves that some eval ran on the named surface, not which
-rows above were repeated there.
+The table records what was actually observed; the branch plan defines completion. `EVALUATED_SHA`
+proves which production surface the latest frozen run exercised, not that every Step 7 row was
+repeated there.
 
 One check holds what used to be prose: `tests/run.sh` refuses an `accepted` ADR while the shipped tree
 has moved past `EVALUATED_SHA`. Scenario results keep their measured-against provenance but no longer
@@ -228,8 +228,9 @@ scenario to delete.**
 
 ## Acceptance
 
-Every step — 0, 1, 2, 2b, 3, 4, 5, 6 and 7 — observed PASS in a real session, and step 7 is the one that says the observations were all against the tree that ships. Not-yet-run does not
-count as a pass, and the branch is not finished until this file says so.
+Every step — 0, 1, 2, 2b, 3, 4, 5, 6 and 7 — must be observed PASS in a real session, and Step 7 says
+the seven repeated observations share the tree that ships. Not-yet-run does not count as a pass, and
+the branch is not finished until this file says so.
 
 **What this eval does not cover, stated here rather than left in the prose of a run.** Run 3 was
 driven headless: `claude -p` with `--resume`, one process per turn, the operator another session. That
@@ -237,13 +238,38 @@ observes what the skills cause — every tool call, every file, every exit code 
 observe the **interactive surface**: the task list as it renders in a terminal, checkpoints, and
 whether a watching human can see the plan being worked. Run 2 hit exactly that gap from the other
 side, when its operator could see no tasks in the checkpoint UI while the transcript showed the flow
-running. Closing it needs one short attended session at a real terminal, and nothing in this file
-should be read as having done that.
+running. Run 7 supplied that attended terminal observation. The earlier headless evidence remains
+bounded as described; run 7 does not retroactively turn it into an interactive run.
 
 ## Log
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 7 — 2026-08-29, attended path against `c69fd80`
+
+Frozen at `c69fd80109e8a907335643a9eec99d07bfca167e` in the detached worktree
+`/Users/clicktronix/Projects/ai/cc-tuner-frozen-11`; fresh public repository
+`clicktronix/cc-tuner-eval-23`; `CLAUDE_CODE_ENABLE_TODO_TOOLS=true`; installed cc-tuner disabled.
+The transcript contains frozen-plugin paths and no installed cc-tuner cache path. The session ran
+from `/spec` through merge in 29 minutes 9 seconds.
+
+| Observation | Result |
+|---|---|
+| Attended lifecycle | **PASS.** `/spec` created `feat/retry-budget` before its first commit, took one approval for the contract and one slice, committed spec and plan, and handed the spec path to `/run`. `/run` stopped before the first push/PR and again before merge; the operator approved each outward boundary. |
+| Task projection | **PASS.** The transcript has one `TaskCreate`, two `TaskUpdate` calls and one `TaskList`; the single slice was visible and progressed from open to in-progress. This fixture has no dependency edge; run 5 remains the isolated live evidence for `blockedBy`. |
+| Review routing | **PASS.** Matt review ran once with two `Agent` calls (Standards and Spec). `deep-review` ran zero times because the candidate had three production files, about 168 changed lines and no sensitive trigger. The statusline text `5 agents` was not used as evidence: the transcript has exactly two `Agent` tool calls; `/spec` separately made five `AskUserQuestion` calls. |
+| Required review | **PASS, two rounds.** Round 1 found a real README defect: it called callers “unaffected” although exhaustion changed from returning `None` to raising. The run published `REQUEST_CHANGES` on `3d480bf` before editing. After the documentation fix, round 2 approved `0a2c13d`; the run published `APPROVE` on that exact SHA. |
+| CI and checked merge | **PASS.** Required `test` was green on `0a2c13d`. `merge.sh 2 squash 0a2c13d… retry-budget` re-read companion state and the public verdict, exited 0 and created squash commit `c7f1351`. PR #2 is `MERGED`; issue #1 closed through its `Closes` link; local and remote task branches were removed. |
+| Cost | 71 Bash calls, two advisory agents, two required Codex rounds, 29m09s. The earlier attended run used 169 Bash calls and 22 advisory agents over about two hours. |
+
+**What this closes and what it does not.** Run 7 closes the attended and positive checked-merge gaps
+on the frozen production surface. It also observes the negative review-routing branch: a small,
+non-sensitive diff skips `deep-review`. It does not observe the new positive routing branch where a
+large or sensitive candidate must invoke `deep-review`, and it does not repeat current-tree `--auto`,
+the isolated dependency refusal, recovery or denial. Under the Step 7 rule committed before this run,
+the task therefore remains open; `EVALUATED_SHA` moves to the tree actually exercised, while the ADR
+stays `proposed`.
 
 ### Run 6 — 2026-08-29, review-routing probe against `868cda0`
 
