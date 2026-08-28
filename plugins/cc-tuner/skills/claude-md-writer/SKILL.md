@@ -123,15 +123,16 @@ A symlink (`ln -s AGENTS.md CLAUDE.md`) works when there is nothing Claude-speci
 
 ### Codex's byte budget is a harder limit than the line target
 
-Codex stops adding instruction files once their **combined** size reaches `project_doc_max_bytes` — **32 KiB by default**. The global `~/.codex/AGENTS.md` counts against the same budget. Past the cap, content is not summarised or warned about: it is simply never in the prompt.
+Codex stops adding **project** instruction files once their combined size reaches `project_doc_max_bytes` — **32 KiB by default**. Past the cap, content is not summarised or warned about: it is simply never in the prompt.
 
-This makes an oversized `AGENTS.md` a correctness bug, not a cost problem. Measured 2026-08-28: a 55,103-byte `AGENTS.md` against a 31,424-byte effective budget cut at line 252 of 536 — ten sections past the cut, including database-migration rules, PR conventions and the CI policy. They had been written, believed in force, and never once read by Codex.
+The budget covers the walk from project root to `cwd`, and nothing else. The global `~/.codex/AGENTS.md` does **not** consume it — verified in codex 0.149.1, `codex-rs/core/src/agents_md.rs`: `load_project_instructions` initialises `remaining = config.project_doc_max_bytes` after global instructions have been placed by a separate path, and only the `agents_md_paths` walk decrements it. So the whole 32 KiB belongs to the project chain — but it is shared across every nested `AGENTS.md` in that chain, so a repo that grows a second one splits the same budget.
+
+This makes an oversized `AGENTS.md` a correctness bug, not a cost problem. Measured 2026-08-28: a 52,887-byte `AGENTS.md` cut at line 268 of 516 — ten sections past the cut, including database-migration rules, PR conventions and the CI policy. They had been written, believed in force, and never once read by Codex.
 
 Check it before anything else when Codex "ignores" an instruction:
 
 ```bash
-G=$(wc -c < ~/.codex/AGENTS.md 2>/dev/null || echo 0)
-head -c $((32768-G)) AGENTS.md | grep -c ''      # last line Codex sees
+head -c 32768 AGENTS.md | grep -c ''      # last line Codex sees, single-file chain
 ```
 
 ## Auto memory
