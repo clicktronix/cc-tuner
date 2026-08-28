@@ -130,20 +130,28 @@ revision of this skill said only "work it, complete it", which is not a discipli
 
 ## Delivery
 
-**A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the
-Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned. This
-is the rule the original complaint was about: one review round then a `REQUEST_CHANGES` left standing.
+**A new commit invalidates exact-candidate evidence** — testing, acceptance, the authoritative review,
+CI and the Definition of Done. Re-earn those on the new SHA. It does not erase findings already read
+or require restarting every advisory review from zero.
 
 1. **Push and open the PR.** Its head is the candidate SHA from here on. The working tree must be
    clean at that commit: a candidate with uncommitted changes is a review of something nobody can
    fetch.
-2. **Review that SHA.** deep-review and `mattpocock-skills:code-review` run and must be addressed.
-   They are mandatory steps, not gates — they have no durable, unforgeable home, and counting the
-   author's own word twice would not make it evidence.
+2. **Run the advisory review once.** `mattpocock-skills:code-review` runs once for every task, on the
+   first clean candidate. Add
+   `deep-review` only when the diff touches a sensitive surface, changes at least 15 production files
+   or 500 production lines, spans repositories/services, or changes a major architectural boundary.
+   These are alternatives to Claude Code's built-in `/code-review`, not extra layers: if the operator
+   explicitly chooses the built-in review, it replaces `deep-review`.
+
+   Address valid findings. Refute claims outside the spec or repository rules rather than promoting
+   every possible mutation, subclass behaviour or speculative extension into a new requirement. After
+   a fix, verify the affected finding and proceed to the authoritative review; do not fan out the
+   advisory reviews again. They discover issues but are not merge gates.
 3. **Obtain the authoritative `--required` approval** from `cc-codex-triage` at that exact SHA.
    Choose one task-specific `--thread <name>` and keep that name for every round and for `merge.sh`;
    the merge boundary re-runs the companion's checker against that thread in this worktree.
-4. **Publish the verdict**, and only what the marker actually says:
+4. **Publish an approval**, and only when the marker actually says `APPROVE`:
 
    Substitute the real PR number and the real candidate SHA — these are values you read from `gh` and
    `git` in this turn, not variables carried from an earlier command:
@@ -152,9 +160,10 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <candidate-sha>"
    ```
 
-   On `REQUEST_CHANGES`, publish that instead. Never publish `APPROVE` for a review that did not
-   approve. The checked merge script reads both this public record and the companion's required-review
-   state; neither substitutes for the other.
+   Do not publish a machine `cc-tuner-verdict` for an intermediate `REQUEST_CHANGES`; the companion
+   log already owns that round and the merge path cannot use a rejection. Never publish `APPROVE` for
+   a review that did not approve. The checked merge script reads both the final public approval and
+   the companion's required-review state; neither substitutes for the other.
 5. **A published approval stands until the SHA changes.** GitHub does not overwrite reviews, so a
    finding that requires a code change needs a new commit and therefore a new candidate, at which
    point the script denies by construction because the head no longer matches. A finding that does
@@ -162,10 +171,11 @@ is the rule the original complaint was about: one review round then a `REQUEST_C
    candidate alone: re-run the required review on the same SHA and publish its verdict. An earlier
    revision called the approval "terminal", which reads as forbidding that and would have pushed the
    flow into manufacturing an empty commit to move the SHA.
-6. **On `REQUEST_CHANGES`, loop.** Fix, re-run the slice's checks and the full regression, commit —
-   which makes a new candidate SHA — then review that SHA and publish its verdict. Repeat until it
-   approves. Stopping at one round with `REQUEST_CHANGES` standing is not a finished review, and is
-   precisely what shipped before.
+6. **On `REQUEST_CHANGES`, loop through the authoritative review only.** Validate each claim against
+   the committed spec, repository rules and a concrete failure. Fix valid findings, re-run the
+   affected checks and full regression, commit, then resume the required review on the new SHA. Do not
+   restart Matt, `deep-review`, or the built-in review. Stop at the configured cap; resetting a capped
+   thread to obtain a more favourable verdict is not part of autonomous delivery.
 
    A finding you refuted with a concrete `file:line`, or one the user deferred, needs no commit: the
    candidate has not changed, so re-run the required review on the same SHA. Manufacturing an empty

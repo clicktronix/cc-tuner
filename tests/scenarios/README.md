@@ -84,10 +84,9 @@ model compliance rate, so the per-scenario JSON preserves the exact limited samp
 
 Exercised again in the spec/run split: all three original `task-run` scenarios (formerly
 `execute-task`) had their guarded text moved into `run.md` and reworded, so all three were re-probed.
-The sensitive-diff scenario now guards review execution shape: deep-review always runs, but a
-low-risk small candidate may stay serial while a sensitive candidate fans out. The original ablation
-still proves the sensitive-surface list is load-bearing; it does not count as a GREEN result for the
-rewritten serial/fanout decision.
+The sensitive-diff scenario is historical evidence for the former always-on review policy. The live
+policy now keeps `deep-review` off the ordinary path and selects it only for large or sensitive
+changes; a new targeted probe is warranted only if that routing repeatedly fails in use.
 
 Exercised in 0.9.0: the `claude-md-writer` docs refresh edited both guarded sections, so both were
 re-probed and carry a `green_recheck` block naming the **risk under test** — for

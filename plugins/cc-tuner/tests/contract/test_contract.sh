@@ -77,7 +77,7 @@ need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository'
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
 need "run-auto-refuses-blocked"     'refuse a task whose `blockedBy` is not empty' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: APPROVE <candidate-sha>' "$RUN"
-need "run-never-forges-approval"    'Never publish `APPROVE` for a review that did not' "$RUN"
+need "run-never-forges-approval"    'Never publish `APPROVE`' "$RUN"
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
 need "run-red-before-green"         'RED before GREEN' "$RUN"
@@ -92,6 +92,13 @@ need "run-mutation-proof-is-conditional" 'not one per slice'   "$RUN"
 need "spec-assigns-mutation-classes"     'fail-closed guards'  "$SPEC"
 need "run-dod-before-merge"         'Definition of Done from the spec' "$RUN"
 need "run-request-changes-loop"     'On `REQUEST_CHANGES`, loop' "$RUN"
+need "run-matt-review-always"       '`mattpocock-skills:code-review` runs once for every task' "$RUN"
+need "run-deep-review-is-conditional" '`deep-review` only when the diff touches' "$RUN"
+need "run-deep-review-file-threshold" '15 production files' "$RUN"
+need "run-deep-review-line-threshold" '500 production lines' "$RUN"
+need "run-does-not-stack-builtin-review" 'it replaces `deep-review`' "$RUN"
+need "run-does-not-repeat-advisory-review" 'do not fan out the' "$RUN"
+need "run-authoritative-loop-only" 'loop through the authoritative review only' "$RUN"
 need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"
 need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
 need "spec-writes-the-plan"         'plan-path.sh" create' "$SPEC"
@@ -134,10 +141,7 @@ fi
 # say is that merges go through that script rather than a raw gh call.
 need "run-no-raw-gh-merge" 'Do not replace it with a raw `gh pr merge`' "$RUN"
 need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
-need "deep-review-always-runs" 'Always perform the review; small-diff thresholds only decide' "$DEEP_REVIEW"
-# The numbers, not a pointer to them. They lived in workflow-contract.json, which nothing loaded, so
-# the skill deferred to a boundary its reader could not see.
-need "deep-review-names-the-thresholds" '50 lines across at most 5 files' "$DEEP_REVIEW"
+need "deep-review-is-not-for-small-work" 'do not use for an ordinary small task' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
 if grep -q '<tree SHA>' "$DEEP_REVIEW"; then
@@ -146,13 +150,19 @@ if grep -q '<tree SHA>' "$DEEP_REVIEW"; then
 else
   echo "PASS deep-review-uses-one-candidate-identity"
 fi
-# deep-review owns this policy. placement explains where independent lenses run, but copying the
-# numbers there made a future threshold change a two-file edit under a one-rule-one-home contract.
-if grep -Eq '50 (changed )?lines|5 files' "$PLACEMENT"; then
+# /run owns routing; placement explains where selected lenses run, but copying thresholds there would
+# make a future policy change a multi-file edit.
+if grep -Eq '[0-9]+ (changed |production )?lines|[0-9]+ (production )?files' "$PLACEMENT"; then
   echo "FAIL review-thresholds-have-two-homes"
   fails=1
 else
   echo "PASS review-thresholds-have-one-home"
+fi
+if grep -qF 'On `REQUEST_CHANGES`, publish that instead' "$RUN"; then
+  echo "FAIL run-still-requires-intermediate-public-verdicts"
+  fails=1
+else
+  echo "PASS run-publishes-only-final-approval"
 fi
 
 # The audit is conditional detail: ordinary authoring should not load its long procedure. The budget

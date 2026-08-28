@@ -57,11 +57,9 @@ and optional cleanup of legacy hand-copied rule files.
 
 ### `deep-review`
 
-A read-only, exact-candidate review skill for `/run` and direct use. It reviews the complete committed
-diff through correctness, spec/scope, repository standards, architecture/systemic effects,
-security/data safety, and testing/operability lenses. It may fan out those independent lenses against
-the same immutable SHA, then validates and deduplicates their output without a top-ten cap. Its
-verdict names that candidate SHA; any later commit requires another review.
+A read-only exhaustive review for large, cross-boundary, or sensitive candidates. It fans out six
+independent lenses against one immutable SHA, then validates and deduplicates their output without a
+top-ten cap. Ordinary changes use the Matt Pocock review and the final Codex gate instead.
 
 ### `smoke-verify`
 
@@ -106,9 +104,9 @@ takes no dependency argument.
 `/cc-tuner:run [--auto] <spec>` works that plan. It asks the plan linter for the first safe ready
 batch, proves each slice
 RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
-ticks it off in the committed file, then commits a candidate, runs
-`cc-tuner:deep-review`, the mattpocock review and Codex's required review at that exact SHA, publishes
-the verdict as a pull-request review, and merges only with green required CI on the same commit and
+ticks it off in the committed file, then commits a candidate, runs the Matt Pocock review once,
+adds `cc-tuner:deep-review` only for large or sensitive changes, and obtains Codex's required review
+at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green required CI on the same commit and
 `--match-head-commit` pinning it. Independent code-writing units alone may fan out into isolated
 worktrees; the parent owns integration and every later gate.
 

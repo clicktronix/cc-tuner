@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Review a clean, committed candidate before delivery using six independent lenses: correctness, specification, standards, architecture/systemic effects, security/data, and testing/operability. Use when a task needs exhaustive code review bound to an exact candidate SHA, especially before a cc-tuner run can proceed to PR or merge.
+description: Exhaustively review a clean, committed candidate through six independent lenses. Use for large, cross-boundary, or sensitive changes selected by /run; do not use for an ordinary small task.
 ---
 
 # Deep Review
@@ -33,10 +33,9 @@ Do not infer correctness from green CI, a plan checkbox, another review, or the 
 
 ## Review lenses
 
-Run every applicable lens independently. Always perform the review; small-diff thresholds only decide
-execution shape. The owning reviewer may run all lenses serially for a candidate that changes **at most
-50 lines across at most 5 files** and touches no sensitive surface. Otherwise fan them out to parallel
-reviewer agents against the immutable candidate.
+Run every applicable lens independently and fan them out against the immutable candidate. `/run`
+owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
+into a second lightweight review.
 
 **The sensitive surfaces, named — because "sensitive" is not self-evident and size is not the test:**
 
@@ -48,22 +47,12 @@ reviewer agents against the immutable candidate.
 - security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and
   server-side allowlists.
 
-**Classify the surface first, and only then look at size.** Asking "is this small" before asking "what
-does it touch" settles the question with the wrong fact, and the answer is then defended rather than
-revisited.
-
 **A candidate touches a sensitive surface when it changes code, values, configuration, fixtures or
 schemas that decide behaviour on that surface.** It does not have to touch that surface's control flow.
 A constant, a default, a fixture row and a migration file are all the surface.
 
-**A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change
-is obvious, not that it is "only" a value. Thresholds decide execution shape for candidates that match
-no surface; they do not overrule a match.
-
-Both the numbers and the list above lived only in a JSON file that nothing loads at runtime, so this
-section asked the reviewer to respect a boundary it had no way to see. That is why they are written
-out here. Keep the lifecycle outside the review sequential and give every reviewer the same literal
-base, candidate, spec, and read-only constraint.
+Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
+candidate, spec, and read-only constraint.
 
 1. **Correctness and edge cases** — logic, state transitions, concurrency, errors, cleanup,
    compatibility, and user-visible behavior.
@@ -121,5 +110,6 @@ List `P3` findings even with `APPROVE`; `/cc-tuner:run` must record each as fixe
 explicitly deferred. Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into
 approval. State which lens was incomplete and return `REQUEST_CHANGES`.
 
-Any fix requires a new candidate commit, fresh verification, and a full new review. An approval for an
-older SHA is stale evidence and must not be reused.
+Any fix makes this verdict stale. Under `/run`, verify the affected findings and let the authoritative
+review judge the final SHA; do not restart all six advisory lenses. A user who directly requested a
+new exhaustive review may run the skill again.

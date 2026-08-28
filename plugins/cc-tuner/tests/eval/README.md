@@ -270,6 +270,23 @@ fixture. Fail-closed delivery worked: it did not invent an approval or merge an 
 the attended lifecycle did not complete, so Step 7 remains open; `EVALUATED_SHA` stays unchanged and
 the ADR remains `proposed`.
 
+**What the attended review actually measured.** All 22 `Agent` calls were advisory reviewers: 18
+from four repetitions of `deep-review`, and four from two Matt Pocock reviews. The three required
+Codex rounds were additional and are not included in that count. Two Codex findings bound the task's
+actual behaviour (a falsy response must be returned, and the caller's budget must not be silently
+capped). Two corrected proof prose or tests introduced during review. The remaining findings expanded
+the contract into index-only numeric objects, exception ancestry, redaction state and subclass
+dispatch. Raising the cap would therefore reward scope growth, not finish the original task faster.
+The policy after this run keeps Matt once, reserves `deep-review` for large or sensitive changes, and
+repeats only the authoritative review after fixes.
+
+The spec path was not misrouted by `/spec`: it was first committed under `docs/PLANS/`, then the first
+review moved it into `docs/ARCHIVE/PLANS/` because the same PR was intended to complete the work. What
+did diverge from the then-current `/run` text is public verdict history: all three
+`REQUEST_CHANGES` results exist in the companion log, but none was posted as a machine PR verdict.
+That omission was safe and exposed a redundant requirement. The live policy now publishes only the
+final `APPROVE`; intermediate rejections remain in the authoritative thread and cannot enable merge.
+
 ### Run 4 — 2026-08-25, Step 7 against the tree that ships
 
 Frozen at `9eb9d4f` as a detached worktree at `/tmp/cc-tuner-frozen`, two fresh repositories
