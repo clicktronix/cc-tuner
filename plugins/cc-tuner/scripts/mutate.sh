@@ -103,7 +103,11 @@ if [ -z "$SYNTAX_CMD" ]; then
   case "$FILE" in
     *.sh)   command -v bash    >/dev/null 2>&1 && SYNTAX_CMD='bash -n "$MUTATE_FILE"' ;;
     *.bash) command -v bash    >/dev/null 2>&1 && SYNTAX_CMD='bash -n "$MUTATE_FILE"' ;;
-    *.py)   command -v python3 >/dev/null 2>&1 && SYNTAX_CMD='python3 -m py_compile "$MUTATE_FILE"' ;;
+    # `py_compile` writes the mutant to __pycache__. When restore puts back an original with the
+    # same size and timestamp second, the next baseline can execute that stale mutant bytecode and
+    # report BASELINE. Compile in memory: syntax is the only fact this step needs.
+    *.py)   command -v python3 >/dev/null 2>&1 \
+              && SYNTAX_CMD="python3 -c 'import sys; compile(open(sys.argv[1], \"rb\").read(), sys.argv[1], \"exec\")' \"\$MUTATE_FILE\"" ;;
     *.json) command -v jq      >/dev/null 2>&1 && SYNTAX_CMD='jq -e . "$MUTATE_FILE" >/dev/null' ;;
   esac
 fi

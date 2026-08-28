@@ -68,6 +68,20 @@ check "syntax-break-is-not-a-kill" "SYNTAX"  "$OUT"
 check "syntax-break-exits-2"       "rc=2"    "$OUT"
 check "syntax-break-restores"      "$BEFORE" "$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
 
+# --- Python syntax checking must not poison the next baseline -----------------------------------
+# `python3 -m py_compile` wrote a mutant .pyc. With the restored source fixed to the same timestamp
+# second and byte length, the next run trusted that cache and reported BASELINE before mutating.
+C="$(flow_workdir)"
+printf 'VALUE = 0\n' > "$C/cache_target.py"
+touch -t 202601010101 "$C/cache_target.py"
+C_TEST="cd $C && PYTHONDONTWRITEBYTECODE=1 python3 -c 'import cache_target; assert cache_target.VALUE == 0'"
+C_MUTATE="sed 's/VALUE = 0/VALUE = 1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE && touch -t 202601010101 \$MUTATE_FILE"
+OUT="$(run "$C/cache_target.py" "$C_TEST" "$C_MUTATE")"
+check "python-mutation-is-graded" "KILLED" "$OUT"
+OUT="$(run "$C/cache_target.py" "$C_TEST" "$C_MUTATE")"
+check "python-cache-does-not-poison-next-baseline" "KILLED" "$OUT"
+absent "python-syntax-check-leaves-no-bytecode-cache" "__pycache__" "$(find "$C" -maxdepth 1 -type d -name __pycache__ -print)"
+
 # --- the ledger line is generated, and names the mutation it ran ----------------------------------
 OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
 check "ledger-names-the-file"      "calc.py"  "$OUT"
