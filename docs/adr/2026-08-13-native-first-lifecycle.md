@@ -269,12 +269,16 @@ remains a guardrail rather than an adversarial security boundary. The checked pa
 it refuses unless the required-review state, public record, CI and current PR head agree.
 
 **The flow gains the step that writes the public record.** `cc-codex-triage` owns the exact-candidate
-state but does not post a GitHub review, so `/run` publishes the returned verdict on the current head.
-The merge boundary reads both sources instead of asking one to stand in for the other.
+state but does not post a GitHub review, so `/run` publishes each returned verdict on the SHA it
+reviewed before changing that candidate. The merge boundary reads the final approval and companion
+state instead of asking one to stand in for the other.
 
-**The other two reviews stay mandatory steps of the flow and are not gates.** Deep-review and the
-`mattpocock` review run and must be addressed; they simply have no durable, unforgeable home, and
-counting them would be counting the author's own word twice.
+**Author review is advisory and each applicable layer runs at most once.** The `mattpocock` review
+runs first for every task. After its findings are addressed, deep-review is added only for a sensitive,
+cross-boundary or large candidate (15 production files, 500 production lines, or a major architectural
+boundary). Claude Code's capped `/code-review` never stacks with a matched deep-review. Later fixes
+re-run only the affected checks and the authoritative exact-SHA review; restarting every advisory lens
+produced 22 reviewer agents on a small eval fixture without improving the merge boundary.
 
 Under `--auto`, `/run` is instructed to refuse a task whose `blockedBy` is non-empty — the one thing
 the platform stores but does not enforce. **This is an instruction, not a gate.** It was described

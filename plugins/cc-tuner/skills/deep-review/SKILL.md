@@ -37,20 +37,6 @@ Run every applicable lens independently and fan them out against the immutable c
 owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
 into a second lightweight review.
 
-**The sensitive surfaces, named — because "sensitive" is not self-evident and size is not the test:**
-
-- authentication, authorization, secrets, and cryptography;
-- migrations and destructive data operations;
-- public APIs, persisted schemas, and cross-service contracts;
-- money, payments, pricing, billing, and entitlements;
-- infrastructure, CI, deployment, and release configuration;
-- security-relevant input handling: injection, SSRF, path traversal, unsafe deserialization, and
-  server-side allowlists.
-
-**A candidate touches a sensitive surface when it changes code, values, configuration, fixtures or
-schemas that decide behaviour on that surface.** It does not have to touch that surface's control flow.
-A constant, a default, a fixture row and a migration file are all the surface.
-
 Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
 candidate, spec, and read-only constraint.
 

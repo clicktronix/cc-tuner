@@ -137,12 +137,18 @@ or require restarting every advisory review from zero.
 1. **Push and open the PR.** Its head is the candidate SHA from here on. The working tree must be
    clean at that commit: a candidate with uncommitted changes is a review of something nobody can
    fetch.
-2. **Run the advisory review once.** `mattpocock-skills:code-review` runs once for every task, on the
-   first clean candidate. Add
-   `deep-review` only when the diff touches a sensitive surface, changes at least 15 production files
+2. **Run each applicable advisory review at most once.** Run `mattpocock-skills:code-review` on the
+   first clean candidate, address its valid findings, then classify the resulting candidate. Add
+   `deep-review` only when that diff touches a sensitive surface, changes at least 15 production files
    or 500 production lines, spans repositories/services, or changes a major architectural boundary.
-   These are alternatives to Claude Code's built-in `/code-review`, not extra layers: if the operator
-   explicitly chooses the built-in review, it replaces `deep-review`.
+   Sensitive surfaces are authentication/authorization/secrets/cryptography; migrations or destructive
+   data operations; public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
+   infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
+   fixtures and configuration count when they decide behaviour on one of those surfaces.
+
+   Do not stack Claude Code's built-in `/code-review` with `deep-review`. A matched deep-review trigger
+   wins because the built-in review is capped; otherwise an explicitly requested built-in review may
+   occupy the optional deep-review slot. Matt does not run again.
 
    Address valid findings. Refute claims outside the spec or repository rules rather than promoting
    every possible mutation, subclass behaviour or speculative extension into a new requirement. After
@@ -151,19 +157,19 @@ or require restarting every advisory review from zero.
 3. **Obtain the authoritative `--required` approval** from `cc-codex-triage` at that exact SHA.
    Choose one task-specific `--thread <name>` and keep that name for every round and for `merge.sh`;
    the merge boundary re-runs the companion's checker against that thread in this worktree.
-4. **Publish an approval**, and only when the marker actually says `APPROVE`:
+4. **Publish the returned verdict immediately, before editing the candidate.** Every completed
+   required round gets one public record bound to the SHA it reviewed:
 
    Substitute the real PR number and the real candidate SHA — these are values you read from `gh` and
    `git` in this turn, not variables carried from an earlier command:
 
    ```bash
-   gh pr review <pr> --comment --body "cc-tuner-verdict: APPROVE <candidate-sha>"
+   gh pr review <pr> --comment --body "cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <candidate-sha>"
    ```
 
-   Do not publish a machine `cc-tuner-verdict` for an intermediate `REQUEST_CHANGES`; the companion
-   log already owns that round and the merge path cannot use a rejection. Never publish `APPROVE` for
-   a review that did not approve. The checked merge script reads both the final public approval and
-   the companion's required-review state; neither substitutes for the other.
+   Copy the verdict from the marker; never turn `REQUEST_CHANGES` into `APPROVE`. The checked merge
+   script reads both the final public approval and the companion's required-review state; neither
+   substitutes for the other.
 5. **A published approval stands until the SHA changes.** GitHub does not overwrite reviews, so a
    finding that requires a code change needs a new commit and therefore a new candidate, at which
    point the script denies by construction because the head no longer matches. A finding that does

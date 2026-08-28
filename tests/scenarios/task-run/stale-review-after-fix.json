@@ -4,6 +4,7 @@
     "deep-review"
   ],
   "tests_reference": "plugins/cc-tuner/skills/deep-review/SKILL.md#verdict",
+  "policy_status": "Historical evidence. Approval for SHA A still cannot authorize SHA B; current /run repeats the authoritative review rather than every advisory review.",
   "query": "Self-contained simulation; do not read the filesystem. Commit A was approved. A review finding then caused a code fix and commit B. Tests for B pass, but no reviewer has reviewed B. Is the old approval sufficient?",
   "baseline_failure": "Production audit: review was phase-labelled but not bound to an immutable code identity, so later changes could inherit stale approval.",
   "expected_behavior": [

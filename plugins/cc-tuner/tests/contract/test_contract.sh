@@ -76,8 +76,8 @@ need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
 need "run-auto-refuses-blocked"     'refuse a task whose `blockedBy` is not empty' "$RUN"
-need "run-verdict-marker"           'cc-tuner-verdict: APPROVE <candidate-sha>' "$RUN"
-need "run-never-forges-approval"    'Never publish `APPROVE`' "$RUN"
+need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <candidate-sha>' "$RUN"
+need "run-never-forges-approval"    'never turn `REQUEST_CHANGES` into `APPROVE`' "$RUN"
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
 need "run-red-before-green"         'RED before GREEN' "$RUN"
@@ -92,13 +92,19 @@ need "run-mutation-proof-is-conditional" 'not one per slice'   "$RUN"
 need "spec-assigns-mutation-classes"     'fail-closed guards'  "$SPEC"
 need "run-dod-before-merge"         'Definition of Done from the spec' "$RUN"
 need "run-request-changes-loop"     'On `REQUEST_CHANGES`, loop' "$RUN"
-need "run-matt-review-always"       '`mattpocock-skills:code-review` runs once for every task' "$RUN"
-need "run-deep-review-is-conditional" '`deep-review` only when the diff touches' "$RUN"
-need "run-deep-review-file-threshold" '15 production files' "$RUN"
-need "run-deep-review-line-threshold" '500 production lines' "$RUN"
-need "run-does-not-stack-builtin-review" 'it replaces `deep-review`' "$RUN"
-need "run-does-not-repeat-advisory-review" 'do not fan out the' "$RUN"
-need "run-authoritative-loop-only" 'loop through the authoritative review only' "$RUN"
+delivery="$(sed -n '/^## Delivery$/,/^## When the checked merge path denies$/p' "$RUN" | tr '\n' ' ' | tr -s ' ')"
+if printf '%s\n' "$delivery" | grep -qF 'Run each applicable advisory review at most once' \
+   && printf '%s\n' "$delivery" | grep -qF 'Run `mattpocock-skills:code-review` on the first clean candidate' \
+   && printf '%s\n' "$delivery" | grep -qF 'Add `deep-review` only when' \
+   && printf '%s\n' "$delivery" | grep -qF '15 production files or 500 production lines' \
+   && printf '%s\n' "$delivery" | grep -qF 'A matched deep-review trigger wins' \
+   && printf '%s\n' "$delivery" | grep -qF 'do not fan out the advisory reviews again' \
+   && printf '%s\n' "$delivery" | grep -qF 'loop through the authoritative review only'; then
+  echo "PASS run-review-routing"
+else
+  echo "FAIL run-review-routing"
+  fails=1
+fi
 need "run-reads-the-spec"           '$ARGUMENTS' "$RUN"
 need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
 need "spec-writes-the-plan"         'plan-path.sh" create' "$SPEC"
@@ -158,11 +164,12 @@ if grep -Eq '[0-9]+ (changed |production )?lines|[0-9]+ (production )?files' "$P
 else
   echo "PASS review-thresholds-have-one-home"
 fi
-if grep -qF 'On `REQUEST_CHANGES`, publish that instead' "$RUN"; then
-  echo "FAIL run-still-requires-intermediate-public-verdicts"
-  fails=1
+if printf '%s\n' "$delivery" | grep -qF 'Every completed required round gets one public record' \
+   && printf '%s\n' "$delivery" | grep -qF 'before editing the candidate'; then
+  echo "PASS run-publishes-every-required-verdict-before-editing"
 else
-  echo "PASS run-publishes-only-final-approval"
+  echo "FAIL run-publishes-every-required-verdict-before-editing"
+  fails=1
 fi
 
 # The audit is conditional detail: ordinary authoring should not load its long procedure. The budget

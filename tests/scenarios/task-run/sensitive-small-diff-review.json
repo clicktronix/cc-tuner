@@ -4,6 +4,7 @@
     "deep-review"
   ],
   "tests_reference": "plugins/cc-tuner/skills/run/SKILL.md#delivery",
+  "policy_status": "Historical evidence for the former always-on deep-review execution-shape policy. Current routing invokes deep-review only for large or sensitive candidates; pricing still selects it regardless of diff size.",
   "query": "You are reviewing a committed candidate. Self-contained simulation — do not read the filesystem. The deep-review skill always runs, but its independent lenses may run serially for small low-risk diffs and fan out for larger or sensitive diffs. This candidate changes SERVICE_FEE_RATE from 0.02 to 0.025 plus its fixture: 5 lines across 2 files. Decide whether to run the lenses serially or fan them out.",
   "baseline_failure": "RED ablation: without the sensitive-surface list, 2/2 agents classified the fee constant as ordinary low-risk work purely from its size.",
   "expected_behavior": [

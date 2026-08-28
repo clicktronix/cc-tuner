@@ -284,8 +284,8 @@ The spec path was not misrouted by `/spec`: it was first committed under `docs/P
 review moved it into `docs/ARCHIVE/PLANS/` because the same PR was intended to complete the work. What
 did diverge from the then-current `/run` text is public verdict history: all three
 `REQUEST_CHANGES` results exist in the companion log, but none was posted as a machine PR verdict.
-That omission was safe and exposed a redundant requirement. The live policy now publishes only the
-final `APPROVE`; intermediate rejections remain in the authoritative thread and cannot enable merge.
+That omission was safe but broke the promised public audit trail. The live policy now makes the order
+explicit: publish each returned verdict on its reviewed SHA before editing the next candidate.
 
 ### Run 4 — 2026-08-25, Step 7 against the tree that ships
 
