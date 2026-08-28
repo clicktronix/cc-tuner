@@ -12,6 +12,8 @@
 #     not a mutant, and a patch that no-ops and then "survives" is the defect that started this;
 #   * the mutant must parse, and if this cannot tell whether it parses it refuses rather than
 #     guessing: a file that no longer parses fails every test and proves only that broken files fail;
+#   * Python baseline and mutant tests use separate bytecode-cache directories, so a same-size,
+#     same-mtime edit cannot be hidden by an existing .pyc;
 #   * the file comes back byte-identical AND mode-identical, and if it cannot, the backup is kept.
 #
 # Exit: 0 KILLED (the test was green and the mutant turned it red), 1 SURVIVED (green either way, so
@@ -53,6 +55,9 @@ and the staging copy is made with mktemp so nothing can pre-empt its path.
 Scope: the mutation command is careless, not hostile — written by whoever runs this, in the same
 session as the test command. The refusals above stop carelessness reaching past the subject. This is
 not a sandbox and does not try to be one.
+
+Python subprocesses in the baseline and mutant test commands get separate fresh bytecode-cache
+directories. Existing or same-mtime .pyc files therefore cannot hide the source being graded.
 
 Prints one ledger line — paste it, do not retype it.
   KILLED     exit 0   the test was green, the mutant turned it red: the guard bites
@@ -97,6 +102,21 @@ mode_of() {
   else stat -c '%a' "$1"; fi                                        # GNU
 }
 
+# A Python import may trust an existing .pyc when the mutant preserves source size and timestamp.
+# Give every test invocation a new cache namespace instead of deleting repository caches or asking
+# callers to remember an interpreter flag. Non-Python test commands simply ignore this environment.
+TEST_CACHE_DIR=""
+run_test() {
+  local rc
+  TEST_CACHE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cc-tuner.pycache.XXXXXX" 2>/dev/null)" \
+    || die "cannot create an isolated Python bytecode cache"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$TEST_CACHE_DIR" sh -c "$TEST_CMD" >/dev/null 2>&1
+  rc=$?
+  rmdir "$TEST_CACHE_DIR" 2>/dev/null || true
+  TEST_CACHE_DIR=""
+  return "$rc"
+}
+
 # Resolve the syntax check before anything is touched, so an unsupported file is refused while the
 # tree is still clean rather than after a mutant is sitting in it.
 if [ -z "$SYNTAX_CMD" ]; then
@@ -125,7 +145,7 @@ fi
 # and the backup is created only after this passes, because a test command that inspects the working
 # tree (a linter over untracked files, a "no stray files" check) would otherwise fail on the backup
 # this script had just dropped next to the subject. Measured in a clean git repository.
-if ! sh -c "$TEST_CMD" >/dev/null 2>&1; then
+if ! run_test; then
   printf 'BASELINE   %s  the test command already fails before any mutation — nothing could be graded\n' "$FILE"
   exit 2
 fi
@@ -159,7 +179,7 @@ restore() {
 # The signal path goes through the same restore, with the trap cleared first so a second signal cannot
 # re-enter it. An earlier version inlined a cp, ignored whether it worked, and deleted the backup
 # anyway -- on a mutant that could not be overwritten that lost the original outright.
-trap 'trap - INT TERM; restore; exit 2' INT TERM
+trap 'trap - INT TERM; [ -z "$TEST_CACHE_DIR" ] || rmdir "$TEST_CACHE_DIR" 2>/dev/null || true; restore; exit 2' INT TERM
 
 # 2. The mutation itself has to succeed and to change something.
 MUTATE_FILE="$FILE" sh -c "$MUT_CMD" >/dev/null 2>&1
@@ -183,7 +203,7 @@ if ! MUTATE_FILE="$FILE" sh -c "$SYNTAX_CMD" >/dev/null 2>&1; then
 fi
 
 # 4. Now the grade means something.
-sh -c "$TEST_CMD" >/dev/null 2>&1
+run_test
 rc=$?
 restore
 

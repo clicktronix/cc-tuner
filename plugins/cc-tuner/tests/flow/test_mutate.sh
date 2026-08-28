@@ -68,19 +68,22 @@ check "syntax-break-is-not-a-kill" "SYNTAX"  "$OUT"
 check "syntax-break-exits-2"       "rc=2"    "$OUT"
 check "syntax-break-restores"      "$BEFORE" "$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
 
-# --- Python syntax checking must not poison the next baseline -----------------------------------
-# `python3 -m py_compile` wrote a mutant .pyc. With the restored source fixed to the same timestamp
-# second and byte length, the next run trusted that cache and reported BASELINE before mutating.
+# --- Python bytecode must not hide a same-size, same-mtime mutant --------------------------------
+# A live run had already imported the original. The mutant kept its size and timestamp, so Python
+# trusted the original .pyc and mutate.sh falsely printed SURVIVED even though a cache-free run failed.
 C="$(flow_workdir)"
 printf 'VALUE = 0\n' > "$C/cache_target.py"
 touch -t 202601010101 "$C/cache_target.py"
-C_TEST="cd $C && PYTHONDONTWRITEBYTECODE=1 python3 -c 'import cache_target; assert cache_target.VALUE == 0'"
+(cd "$C" && unset PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE && python3 -c 'import cache_target; assert cache_target.VALUE == 0')
+CACHE_FILE="$(find "$C/__pycache__" -type f -name 'cache_target*.pyc' -print -quit)"
+CACHE_BEFORE="$(shasum -a 256 "$CACHE_FILE" | cut -d' ' -f1)"
+C_TEST="cd $C && python3 -c 'import cache_target; assert cache_target.VALUE == 0'"
 C_MUTATE="sed 's/VALUE = 0/VALUE = 1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE && touch -t 202601010101 \$MUTATE_FILE"
 OUT="$(run "$C/cache_target.py" "$C_TEST" "$C_MUTATE")"
-check "python-mutation-is-graded" "KILLED" "$OUT"
+check "existing-python-cache-does-not-hide-mutant" "KILLED" "$OUT"
 OUT="$(run "$C/cache_target.py" "$C_TEST" "$C_MUTATE")"
 check "python-cache-does-not-poison-next-baseline" "KILLED" "$OUT"
-absent "python-syntax-check-leaves-no-bytecode-cache" "__pycache__" "$(find "$C" -maxdepth 1 -type d -name __pycache__ -print)"
+equals "repository-bytecode-cache-is-not-rewritten" "$CACHE_BEFORE" "$(shasum -a 256 "$CACHE_FILE" | cut -d' ' -f1)"
 
 # --- the ledger line is generated, and names the mutation it ran ----------------------------------
 OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
