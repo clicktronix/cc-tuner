@@ -250,15 +250,16 @@ that does or does not establish. Leave the outcome blank until it is observed.
 Frozen at `868cda0d6aacdad840dbfbea987e2e9366980336` in
 `/Users/clicktronix/Projects/ai/cc-tuner-frozen-10`; fresh private repository
 `clicktronix/cc-tuner-eval-22`; attended Claude Code session. The run stopped unmerged after about
-31 minutes because GitHub Actions was billing-blocked for the account. Local CI's exact command was
-green on Python 3.11 through 3.14, but no waiver replaced required CI.
+31 minutes. Unlike the earlier public fixtures, this repository was private: branch protection was
+unavailable on the account tier, and its metered Actions jobs did not start. Local CI's exact command
+was green on Python 3.11 through 3.14, but no waiver replaced required CI.
 
 | Observation | Result |
 |---|---|
 | Review routing | `deep-review`: **0**, correctly skipped for one production file and 27 added production lines with no sensitive or cross-service trigger. Matt review: **1** invocation, two axis agents. Required Codex: **2** rounds. |
 | Advisory churn | Matt reported zero violations and one optional judgement-call style note. The run nevertheless moved the candidate with a two-line cleanup. The current rule now says such a note is not a reason to move the SHA. |
 | Required-review loop | Round 1 published `REQUEST_CHANGES` on `4238877` before any edit. The mechanism was reproduced, then refuted as outside the agreed input contract with concrete spec and file references. Round 2 approved the unchanged head and published `APPROVE`. |
-| Merge boundary | `merge.sh --check-only 2 squash 4238877dbb54b6ac3c7fc3f40af368845ff65d1a retry-budget-22` read the companion approval and public verdict, then refused with `cannot read required CI checks`; the PR stayed open. |
+| Merge boundary | `merge.sh --check-only 2 squash 4238877dbb54b6ac3c7fc3f40af368845ff65d1a retry-budget-22` read the companion approval and public verdict, then refused. `gh` reported `no required checks reported`; the frozen script failed to classify that newer wording and printed the generic `cannot read required CI checks`. The parser now accepts both forms. The PR stayed open. |
 | Attended stops | The session continued through local slice commits and stopped before its first push/PR. The frozen text still demanded a stop after the first commit; the run showed that pause was ceremony, and the contract now names outward action, unresolved choice/waiver and merge instead. |
 | Task projection | Not observed: the session was launched without `CLAUDE_CODE_ENABLE_TODO_TOOLS=true`, so no `TaskList`/`blockedBy` UI claim can be made from this run. |
 | Spec template | The generated DoD still required `deep-review` unconditionally and an obsolete tree SHA. The template now requires applicable advisory reviews and the authoritative exact-candidate approval. |
@@ -266,8 +267,8 @@ green on Python 3.11 through 3.14, but no waiver replaced required CI.
 The routing change did what it was intended to do: the previous attended run spent 22 advisory-agent
 calls, 18 of them in repeated deep reviews; this one used two Matt axis agents and no deep-review.
 It still does not close Step 7: the frozen revision exposed product-text defects, task projection was
-absent, and external CI prevented the positive merge path. A new frozen SHA must exercise the amended
-contract with task tools enabled and working required CI.
+absent, and the private fixture could not provide required CI. A new public frozen fixture must
+exercise the amended contract with task tools enabled and at least one required check.
 
 ### Run 5 — 2026-08-28, Step 7 against `2247c8c`
 

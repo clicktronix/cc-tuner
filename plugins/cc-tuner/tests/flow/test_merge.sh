@@ -32,6 +32,7 @@ case "$1 $2" in
     # behaviour the deleted runctl.sh had already learned and documented.
     case "$*" in *--required*) ;; *) exit 1 ;; esac
     if [ -f "$D/checks-none" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
+    if [ -f "$D/checks-none-required" ]; then echo "no required checks reported on the 'task' branch" >&2; exit 1; fi
     serve checks.json ;;
   "pr merge")  printf 'MERGED %s\n' "$*" ;;
   *) exit 1 ;;
@@ -144,6 +145,13 @@ D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none"
 OUT="$(run "$D" 42 squash "$SHA")"
 check  "no-required-checks-refused"  "no required checks configured" "$OUT"
 absent "no-required-checks-no-merge" "MERGED"                        "$OUT"
+
+# Current gh versions include "required" in the same diagnostic when --required is supplied.
+# Keep both forms because the CLI has emitted both and the operator-facing distinction matters.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "new-gh-no-required-checks-refused"  "no required checks configured" "$OUT"
+absent "new-gh-no-required-checks-no-merge" "MERGED"                        "$OUT"
 
 # And the empty-array shape too, in case a future gh ever produces it.
 D="$(world "$PLAN_FILES" "$APPROVED" '[]')"
