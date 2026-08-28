@@ -493,7 +493,9 @@ Delivers: d
 done
 
 # The header comparison is the only guard against running plan A with spec B's DoD and merge shape.
-BRANCH="$(git branch --show-current)"
+# This is fixture data, not repository state. A frozen eval runs from a detached worktree, where
+# `git branch --show-current` is empty and used to make the suite fail before testing the validator.
+BRANCH="feat/fixture-branch"
 P="$(raw_plan expected_headers "**Spec:** README.md
 **Branch:** $BRANCH
 
