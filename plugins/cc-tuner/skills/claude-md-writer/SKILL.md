@@ -1,16 +1,16 @@
 ---
 name: claude-md-writer
-description: Use when creating, refactoring, auditing, or trimming a CLAUDE.md / AGENTS.md / memory file, splitting project instructions into .claude/rules/, or deciding what belongs in CLAUDE.md vs rules vs skills vs hooks vs CLAUDE.local.md. Covers Claude Code memory — imports, path-scoped rules, auto memory, managed/user/project/local precedence — plus the AGENTS.md open format, the audit procedure for an oversized file, and what every authored instruction file must say about how to fix things.
+description: Use when creating, refactoring, auditing, or trimming a CLAUDE.md / AGENTS.md / memory file, splitting project instructions into .claude/rules/, or deciding what belongs in CLAUDE.md vs rules vs skills vs hooks vs CLAUDE.local.md. Covers Claude Code memory, the AGENTS.md open format, and a measured audit route for oversized instruction files.
 ---
 
 # CLAUDE.md Writer
 
-Create and refactor CLAUDE.md, AGENTS.md and `.claude/rules/` files. Every Claude Code memory *fact* here is checked against the source (<https://code.claude.com/docs/en/memory>); AGENTS.md facts against <https://agents.md/>; structuring patterns are labelled where they are convention, not doc. Deep examples, live-repo evidence and sources are in [reference.md](reference.md).
+Create and refactor CLAUDE.md, AGENTS.md and `.claude/rules/` files. Every Claude Code memory *fact* here is checked against the source (<https://code.claude.com/docs/en/memory>); AGENTS.md facts against <https://agents.md/>; structuring patterns are labelled where they are convention, not doc. Detailed mechanisms and sources are in [reference.md](reference.md).
 
 Two jobs, and they are different work:
 
 - **Author** a file that does not exist yet, or add to one → the tables below.
-- **Audit** a file that grew past its budget → the **Audit procedure**. Do not trim an oversized file line by line. Measure it, diagnose *why* it grew, and rebuild it. A file that got to 500 lines did so by a mechanism, and cutting the ten easiest lines leaves the mechanism running.
+- **Audit** a file that grew past its budget → read and follow [audit.md](audit.md). Do not trim it line by line: measure what actually loads, identify why it grew, then rebuild it.
 
 ## Golden rules
 
@@ -21,7 +21,7 @@ Two jobs, and they are different work:
 | **Move task-specific or component-specific content out** | A multi-step procedure or one-area rule belongs in a skill or a path-scoped rule, not in always-on memory |
 | **`paths:` frontmatter lives on `.claude/rules/*.md` and on skills — never on CLAUDE.md** | CLAUDE.md loads by directory hierarchy only. Both rules and skills take `paths` in the same glob format; a skill with `paths` is auto-loaded only for matching files |
 | **Verify with `/context`, not by reading the file** | `/context` lists what actually loaded under **Memory files**. A file you can see on disk is not evidence it loaded |
-| **Pointers over copies** | A pointer still resolves after the target changes; a pasted copy silently goes stale. Versions, env lists and counts are the usual offenders — they all have an authoritative owner already |
+| **Pointers over copies** | A pointer stays current when its target's content changes and breaks visibly when its path changes; a pasted copy silently goes stale. Versions, env lists and counts are the usual offenders — they all have an authoritative owner already |
 | **Hard enforcement → hooks/settings, not memory** | CLAUDE.md *guides*, it doesn't enforce. Conventions — incl. code style ("use 2-space indent") — are valid CLAUDE.md content per the docs; just don't re-paste what a linter/formatter config already enforces, and use a hook / `permissions.deny` for anything that must be *blocked* |
 | **Every line must change behaviour** | The test the docs publish: *"would removing this cause Claude to make mistakes?"* If a linter already catches it, or Claude already does it right, the line is a no-op that costs context in every session |
 
@@ -117,23 +117,18 @@ A symlink (`ln -s AGENTS.md CLAUDE.md`) works when there is nothing Claude-speci
 | Claude Code **and** Codex | keep `.claude/rules/` for Claude, and bridge Codex: a pointer table in `AGENTS.md` naming rule → glob → purpose, plus a skill in `.agents/skills/` mapping work area → files to read. Advisory, not automatic — see the reliability note below |
 | A package with a hard ownership boundary, and a launcher that controls `cwd` | nested `AGENTS.md` + one-line `CLAUDE.md` beside it |
 
-**The bridge is one reliability class weaker than the loader, and that is not a rounding error.** Claude's path rule fires deterministically on a matching read. Codex must first judge the skill relevant, then invoke it, then classify every area the task touches, then read every matching file — four gates instead of zero. Measured failure modes: a task that looks self-evident ("rename this field"), a review-only prompt that pulls attention to the diff, scope widening mid-session after the skill already "ran", a task spanning several router rows where only the dominant one gets picked, a session started above the repo root (Codex scans skills from `cwd` upward only), and the skill simply not being present in that checkout. Put critical prohibitions as short invariants in the root file or behind a static check — do not rely on the bridge to deliver them.
+**The bridge is weaker than the loader.** Claude's path rule fires on a matching
+read; Codex must classify the task, invoke the skill, and follow its routing.
+Keep critical prohibitions as short root invariants or static checks.
 
-**Keep the pointer table generated or parity-checked, not hand-maintained.** Three hand-written copies of one mapping — the rule's `paths:` frontmatter, the pointer table, the skill's routing table — drift. Measured on a live repo carrying exactly this pattern: one rule's frontmatter listed a glob the pointer omitted, the pointer listed a path the frontmatter did not have, and the skill routed that work area to a different file entirely. Three mismatches on one of eight rules.
+**Generate or parity-check the pointer table.** Hand-maintained copies of the
+rule's `paths:`, the pointer table, and the skill router drift independently.
 
-### Codex's byte budget is a harder limit than the line target
+### Codex's project-instruction budget
 
-Codex stops adding **project** instruction files once their combined size reaches `project_doc_max_bytes` — **32 KiB by default**. Past the cap, content is not summarised or warned about: it is simply never in the prompt.
+`project_doc_max_bytes` limits project instruction entries across the environments selected for a run. The default is 32 KiB, but configuration can override it. Codex discovers project files from repository root to `cwd` and spends the budget in that order; user-level `~/.codex/AGENTS.md` is added separately and does not reduce it. If a project file exceeds the remaining budget, Codex truncates it and emits a tracing warning, which may not appear in the ordinary UI.
 
-The budget covers the walk from project root to `cwd`, and nothing else. The global `~/.codex/AGENTS.md` does **not** consume it — verified in codex 0.149.1, `codex-rs/core/src/agents_md.rs`: `load_project_instructions` initialises `remaining = config.project_doc_max_bytes` after global instructions have been placed by a separate path, and only the `agents_md_paths` walk decrements it. So the whole 32 KiB belongs to the project chain — but it is shared across every nested `AGENTS.md` in that chain, so a repo that grows a second one splits the same budget.
-
-This makes an oversized `AGENTS.md` a correctness bug, not a cost problem. Measured 2026-08-28: a 52,887-byte `AGENTS.md` cut at line 268 of 516 — ten sections past the cut, including database-migration rules, PR conventions and the CI policy. They had been written, believed in force, and never once read by Codex.
-
-Check it before anything else when Codex "ignores" an instruction:
-
-```bash
-head -c 32768 AGENTS.md | grep -c ''      # last line Codex sees, single-file chain
-```
+Do not reproduce that loader with a hard-coded subtraction or line count. Inspect the actual model-visible input with `codex debug prompt-input`; [audit.md](audit.md) gives the command and a project-chain diagnostic.
 
 ## Auto memory
 
@@ -184,116 +179,13 @@ Escalate by mechanism, not by emphasis — capital letters and "IMPORTANT" do no
 
 Block-level `<!-- ... -->` comments in CLAUDE.md are stripped before injection — use them for maintainer notes (review dates, rationale). Comments inside fenced code blocks are preserved.
 
-## Audit procedure
-
-For a file that outgrew its budget. Steps 1–5 are mechanical: run them, don't estimate. Adapt the commands to the repo's tooling; the point is that each answer is measured, not recalled.
-
-**1. Measure the whole budget, including ancestors.**
-
-```bash
-wc -l CLAUDE.md AGENTS.md ../CLAUDE.md ../AGENTS.md 2>/dev/null
-head -3 .claude/rules/*.md          # a rule with no `paths:` counts as always-on
-```
-
-Confirm in a live session with `/context` → **Memory files**. Disk is not evidence.
-
-**2. Split by section and look for the outlier.**
-
-```bash
-grep -n "^## " AGENTS.md | awk -F: 'NR>1{print prev" -> "($1-p)} {prev=$0;p=$1} END{print prev" -> to EOF"}'
-```
-
-A section over a quarter of the file is almost always a runbook that ended up in always-on memory.
-
-**3. Find content that already has a path-scoped home.**
-
-```bash
-for id in <the identifiers the file names>; do
-  echo "$id: $(grep -l "$id" CLAUDE.md AGENTS.md .claude/rules/*.md 2>/dev/null | tr '\n' ' ')"
-done
-```
-
-An identifier in both columns is duplicated: the rule fires exactly when it is needed, the copy costs context in every session including the ones with no matching file open.
-
-**4. Find copied lists by diffing them against their owner.** First establish the copy exists — locate the section that enumerates keys (`grep -n "^#\+ .*Environment" AGENTS.md`). No section, step passed. If there is one, extract from **that line range only**:
-
-```bash
-sed -n '<from>,<to>p' AGENTS.md | grep -oE '`[A-Z][A-Z0-9_]+`' | tr -d '`' | sort -u > /tmp/doc
-grep -oE '^[A-Z][A-Z0-9_]+' .env.example | sort -u > /tmp/own
-diff /tmp/own /tmp/doc
-```
-
-**Bound the range by hand.** Run over the whole file, this grep reports drift that isn't there: in a Python repo it collects module constants (`WIRE_URL`, `BATCH_ID_KEY`) and calls them missing env vars — measured 2026-08-28 on a file that had no env table at all and already pointed at its owner. A nonzero diff is a reason to look, not a verdict.
-
-Real drift is an argument for deleting the copy and pointing at the owner, not for fixing the copy.
-
-**5. Check what the tooling already catches.** For each constraint the file states, look for the lint/format/type rule that enforces it. Enforced → delete the line. **Not** enforced → that line is the file's highest-value content, and it is also the shortlist for a future hook.
-
-**6. Label every remaining block with exactly one genre.**
-
-| Genre | Sign | Destination |
-|---|---|---|
-| instruction | "do X", "never Y" | stays |
-| procedure | more than two steps, needed occasionally | `docs/how-to/` or a skill |
-| chronicle | a date, a measurement, "this cost us a day" | `docs/`, a comment beside the code, or the issue |
-| copy | an owner exists elsewhere | delete, link to the owner |
-| generic | true of any project | `~/.claude/CLAUDE.md`, once |
-| duplicate | already in a path-scoped rule | delete |
-
-Chronicle is the genre that hurts most and looks most valuable. The rationale is worth keeping — but no measurement changes the agent's next action, and counts go stale. Move it, don't delete it.
-
-**7. Rebuild to the target shape** (below) rather than editing in place.
-
-**8. Verify.** `wc -l` against the budget, `/context` for what loaded, `/doctor` for a second opinion on a checked-in file — its trim check cuts what Claude can derive from the codebase and keeps pitfalls, rationale and non-default conventions. The real check is behavioural: a week of work without the lines you cut. If nothing regressed, they were decoration.
-
-## Target shape
-
-Order matters: earliest instructions get the most adherence, so the hard prohibitions come before attention runs out.
-
-```markdown
-# <Repo> — agent guide
-
-One line on what this is. Then: this file is the single source of agent rules;
-area rules live in <lever>; procedures in docs/how-to/. Do not copy versions,
-env lists or counts here — copies go stale.
-
-## Start          5-8 lines: package manager, install, dev
-## Gate           the pre-merge commands; a table of change-kind -> extra command
-## Never          hard prohibitions, grouped (code / data / CI / git), each with its consequence
-## How to fix     see below — mandatory
-## Branches       branch naming, commit format, merge strategy
-## Where to look  a table of area -> rule file / skill / runbook
-```
-
-### The `How to fix` section is mandatory
-
-Every authored CLAUDE.md / AGENTS.md gets it. Without it an agent optimises for the smallest diff that makes the symptom go away, and the codebase accumulates special cases — the failure this section exists to prevent. Write it into the file, in the file's language:
-
-```markdown
-## How to fix
-
-- Fix the cause, not the symptom. Name the failing mechanism before editing.
-  If you cannot name it, you have not found it yet.
-- A special case layered on shared infrastructure means the fix is not deep enough.
-  Generalising the mechanism beats adding another branch.
-- Refactoring for cleanliness is expected, not risky. If the fix leaves duplication,
-  dead code, or a shape the next change has to work around, finish it now.
-- Scope it: refactor within the blast radius of the fix — the code the change touches
-  and what it forced out of shape. Not the rest of the file.
-- Say so. The PR names, in one line, what was touched beyond the minimum and why.
-```
-
-The last two bullets are load-bearing. "Do not fear refactoring" without a stated radius and a stated disclosure turns into unreviewable diffs, which is how the opposite rule ("touch only what you must") got written in the first place. Keep all five or the section trades one failure for another.
-
-If the repo already carries a "surgical changes / touch only what you must" rule, this **replaces** it — do not ship both. Two rules that contradict get resolved arbitrarily, and the docs say so explicitly.
-
 ## Workflows
 
-**New project:** `/init` (set `CLAUDE_CODE_NEW_INIT=1` for the interactive multi-artifact flow) → trim what it generated to facts that apply to *every* task → push domain detail behind the right lever → add the `How to fix` section → keep CLAUDE.md well under 200 lines.
+**New project:** `/init` (set `CLAUDE_CODE_NEW_INIT=1` for the interactive multi-artifact flow) → trim what it generated to facts that apply to *every* task → push domain detail behind the right lever → keep CLAUDE.md well under 200 lines.
 
-**Oversized file:** run the **Audit procedure**. Do not start editing before step 5 — the mechanical steps decide most of the cuts, and a file trimmed by intuition regrows.
+**Oversized file:** read and follow [audit.md](audit.md). Gather evidence before editing; do not call a judgement step mechanical or turn one repository's shape into a universal template.
 
-**Several repos at once:** the mechanical steps port unchanged; the target shape does not. Repos differ in which lever is available (rules vs nested AGENTS.md), whether path-scoped rules already exist, and which tools read the file. Audit each, rebuild each. What *does* generalise is a rule copied into every repo's file — an org-wide CI policy, house coding guidelines — which belongs in one owner document with pointers, or at user scope.
+**Several repos at once:** audit each repository against the tools that actually read it. Generic user preferences belong once at user scope; repository files carry only local facts and deviations.
 
 ## Quality checklist
 
@@ -309,6 +201,6 @@ If the repo already carries a "surgical changes / touch only what you must" rule
 - [ ] Every glob quoted, brace groups within budget, no unbalanced `[`?
 - [ ] `@path/to/file` references instead of duplicated content — and no *external* import a teammate could decline into silence?
 - [ ] Must-block rules in hooks/settings, not relying on always-on memory?
-- [ ] **`How to fix` section present, with all five bullets** — cause, generalise, refactor, radius, disclose?
-- [ ] No surviving "touch only what you must" rule contradicting it?
+- [ ] No generic personal preference copied into every repository file?
+- [ ] No conflicting scope or refactoring instructions across the loaded chain?
 - [ ] **Verified with `/context` that the files actually loaded**, not just that they exist?

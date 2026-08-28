@@ -41,8 +41,8 @@ packages/worker/CLAUDE.md     # subdirectory CLAUDE.md — loads on demand
 | An env-var / version / count table pasted from its owner | Point at `.env.example`, `package.json`, the schema. The copy drifts silently and is discovered by accident |
 | A 40-line "how to add a feature" tutorial with an invented entity | The docs list long explanations and tutorials as excluded. Name a real module instead: `see src/.../campaigns/` |
 | The same rationale in a config header *and* in memory | One owner, one pointer. Two copies disagree the day one is edited, and nobody knows which is current |
-| Moving rules into `.claude/rules/` in a repo Codex also works in | Codex reads nested `AGENTS.md`, not `.claude/rules/`. The rules become invisible to it |
-| "Touch only what you must" shipped alongside a root-cause/refactor rule | Contradictory instructions resolve arbitrarily. Pick one; the `How to fix` section in SKILL.md is the replacement |
+| Moving critical rules only into `.claude/rules/` in a repo Codex also works in | Codex does not read `.claude/rules/`. Keep short shared invariants in `AGENTS.md`; use an explicit pointer/router for conditional detail |
+| Conflicting scope or refactoring rules in the loaded chain | Pick one owner and remove the other; do not rely on instruction order to resolve the conflict |
 | Duplicating one CLAUDE.md inside another | `@path/to/shared-file.md` (import; max 4 hops deep) |
 
 ## Path-scoped rule behaviour (the non-obvious parts)
@@ -96,59 +96,13 @@ The **200-line / 25 KB** ceiling applies to `MEMORY.md` only — CLAUDE.md files
 
 Subagents do not inherit the main conversation's auto memory; a **fork** is the exception, since it inherits the parent conversation. A subagent's own `memory` field points at a separate directory.
 
-## Live examples
+## Patterns from public repositories
 
-All read in full 2026-08-27. Length is the first thing to notice: the useful ones are short.
-
-| Repo | Lines | The move worth copying |
-|---|---|---|
-| [temporalio/sdk-java](https://github.com/temporalio/sdk-java/blob/master/AGENTS.md) | 59 | one line per package, then a 4-item review checklist. That is the whole file |
-| [getsentry/sentry](https://github.com/getsentry/sentry/blob/master/AGENTS.md) | 131 | a "Context-Aware Loading" table mapping tree → which nested `AGENTS.md`; procedures referenced by skill name |
-| [cloudflare/workers-sdk](https://github.com/cloudflare/workers-sdk/blob/main/AGENTS.md) | 153 | a 6-line "Start Here", then a task → directory table |
-| [openai/codex](https://github.com/openai/codex/blob/main/AGENTS.md) | 322 | almost entirely review rules and test-authoring guidance; no architecture prose at all |
-| [apache/airflow](https://github.com/apache/airflow/blob/main/AGENTS.md) | 522 | the long outlier — evidence that length is a choice, not a requirement |
-
-Four lines worth lifting verbatim.
-
-**Single owner** — Sentry, first line of the file:
-
-> AGENTS.md files are the source of truth for AI agent instructions. Always update the relevant AGENTS.md file when adding or modifying agent guidance. **Do not add to CLAUDE.md or Cursor rules.**
-
-**No copies** — Cloudflare, third line:
-
-> Prefer authoritative configuration and documentation over copying details into this file: **copied versions, rule lists, and counts become stale.**
-
-**Lazy by area** — Sentry, instead of holding backend patterns at the root:
-
-```
-- Backend  (src/**/*.py)     -> src/AGENTS.md
-- Tests    (tests/**/*.py)   -> tests/AGENTS.md
-- Frontend (static/**/*.tsx) -> static/AGENTS.md
-```
-
-**Procedure by name, not by retelling** — Sentry:
-
-> Creating/applying migrations and resolving rebase conflicts → use the **`generate-migration`** skill.
-
-Three lines instead of forty, pulled in only when the agent goes near migrations.
-
-## A worked audit
-
-One measured run of the procedure, kept as evidence that the mechanical steps decide most of the cuts.
-
-Subject: a Next.js product repo, `AGENTS.md` at 484 lines, plus a workspace-root file at 191 that loaded in the same session — 675 lines, ~42 KB, in every session. The `.claude/rules/` infrastructure was already correct: five files, all path-scoped, none of them in the startup budget.
-
-Section split (step 2) found two sections holding 60% of the file, both procedural: a CI/merge-gate section at 242 lines and a migrations section at 49.
-
-The mechanical steps found what the eye had not:
-
-- **Step 3:** six identifiers lived in both `AGENTS.md` and a path-scoped rule that fires exactly when they matter.
-- **Step 4:** `.env.example` held 25 keys, the file's "Required" table 12.
-- **Step 5:** none of the eight stated code constraints were enforced by ESLint — the config restricted three unrelated things. So the 18-line section doing all the work was 4% of the file, and the section needed weekly was 50%.
-
-Result: 484 → 132 lines, with the two procedures moved to `docs/how-to/` intact. Step 5 is the one that changes what you keep — without it the constraints look like the most deletable section, being the shortest.
-
-One cost worth planning for: moving a section orphans every pointer to it. That rebuild broke 19 references of the form `AGENTS.md → CI Runs` across scripts, test harnesses, workflows and one source comment. Grep for the old section names before declaring the audit done.
+Public repositories vary widely in root-file length. The stable patterns worth
+copying are structural: keep one canonical owner, use short nested overlays for
+package-specific constraints, point at executable configuration instead of
+copying it, and name task procedures rather than retelling them in always-on
+instructions. Treat any public file as an example, not a normative template.
 
 ## Sources
 
@@ -158,6 +112,8 @@ Official (authoritative for everything above):
 - Skills (the `paths` field as it exists for skills/rules) — <https://code.claude.com/docs/en/skills>
 - Best practices, incl. the include/exclude table and the "would removing this cause mistakes?" test — <https://code.claude.com/docs/en/best-practices>
 - AGENTS.md open format (nearest-file precedence, no required sections) — <https://agents.md/>
+- Codex project-instruction loader and truncation path — <https://github.com/openai/codex/blob/main/codex-rs/core/src/agents_md.rs>
+- Codex default `project_doc_max_bytes` — <https://github.com/openai/codex/blob/main/codex-rs/config/defaults.toml>
 
 Community patterns (useful, not normative — verify before relying):
 

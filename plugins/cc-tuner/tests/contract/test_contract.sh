@@ -20,6 +20,8 @@ TASK_FLOW_SETUP="$ROOT/plugins/cc-tuner/skills/task-flow-setup/SKILL.md"
 STATUSLINE_SETUP="$ROOT/plugins/cc-tuner/skills/statusline-setup/SKILL.md"
 SMOKE_SETUP="$ROOT/plugins/cc-tuner/skills/smoke-verify-setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
+CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
+CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 BRANCH_PLAN="$ROOT/docs/superpowers/plans/2026-08-13-native-first-lifecycle.md"
@@ -149,6 +151,21 @@ if grep -Eq '50 (changed )?lines|5 files' "$PLACEMENT"; then
   fails=1
 else
   echo "PASS review-thresholds-have-one-home"
+fi
+
+# The audit is conditional detail: ordinary authoring should not load its long procedure. The budget
+# sentence is pinned because an earlier revision subtracted the global AGENTS.md even though Codex
+# accounts user instructions outside project_doc_max_bytes.
+need "claude-md-writer-links-audit" '[audit.md](audit.md)' "$CLAUDE_MD_WRITER"
+need "claude-md-writer-user-budget-is-separate" 'user-level `~/.codex/AGENTS.md` is added separately and does not reduce it' "$CLAUDE_MD_WRITER"
+need "claude-md-writer-uses-real-prompt" 'codex debug prompt-input' "$CLAUDE_MD_WRITER"
+need "claude-md-audit-checks-old-pointers" "rg -nF -- '<old heading or path>'" "$CLAUDE_MD_AUDIT"
+if grep -qF 'The `How to fix` section is mandatory' "$CLAUDE_MD_WRITER" \
+  || grep -qF 'head -c 32768' "$CLAUDE_MD_WRITER" "$CLAUDE_MD_AUDIT"; then
+  echo "FAIL claude-md-writer-restored-removed-universal-oracle"
+  fails=1
+else
+  echo "PASS claude-md-writer-omits-universal-how-to-fix-and-hard-coded-budget"
 fi
 
 # `board: none` has to be decided before project scope is mentioned. Doctor deliberately reports the
