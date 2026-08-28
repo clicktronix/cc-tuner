@@ -11,19 +11,19 @@ None of it can settle whether a skill makes a model do something, because in tha
 exists. That is what this is for, and it is why `tests/run.sh` does not include it: it needs auth,
 it costs tokens, and it runs by hand.
 
-**Observation index after run 4.** What each step was last observed against:
+**Observation index after run 5.** What each step was last observed against:
 
 | step | last observed at | in |
 |---|---|---|
-| 0 — this checkout | `9eb9d4f` | run 4, and every run before it |
-| 1 — attended whole flow | `cd9fa2f` | run 3, scenario A |
-| 2 — `--auto` whole flow | `f4410f2` | run 3d |
-| 2 — the `blockedBy` refusal, isolated | `9eb9d4f` | run 4, third fixture — the first two were not isolated and are recorded as void |
-| 2b — `--check-only` then the same script merges | `cd9fa2f` | run 3, scenario A. Run 3d merged through `merge.sh` but never called `--check-only` |
-| 3 — recovery: fresh session, `/clear`, `/compact` | `cd9fa2f` | run 3, scenario C. Run 4 repeated fresh session and `/compact` at `9eb9d4f`, but did not observe `/clear` |
-| 4 — live denial, both branches | `9eb9d4f` | run 4 |
+| 0 — this checkout | `2247c8c` | run 5 |
+| 1 — attended whole flow | `2247c8c` | **partial (run 5)**: the visible plan and delivery stops passed; required review exhausted its three attempts without approving the final candidate, so the flow did not reach merge |
+| 2 — `--auto` whole flow | `2247c8c` | run 5 |
+| 2 — the `blockedBy` refusal, isolated | `2247c8c` | run 5 |
+| 2b — `--check-only` then the same script merges | `2247c8c` | run 5 |
+| 3 — recovery: fresh session, `/clear`, `/compact` | `2247c8c` | run 5 |
+| 4 — live denial, both branches | `2247c8c` | run 5 |
 | 5 — the nine probes | `3229c57` | historical evidence re-measured 2026-08-25 under protocol version 2, isolated |
-| 7 — the repeat on the shipped tree | `9eb9d4f` | **partial (run 4, 2026-08-25)**: 0, the isolated `blockedBy` refusal and 4 are PASS at this SHA; recovery has two of three legs; step 2 reached PR and five review rounds before a usage limit; 1 (attended), 2b and recovery after `/clear` are open |
+| 7 — the repeat on the shipped tree | `2247c8c` | **partial (run 5, 2026-08-28)**: 0, 2, the isolated `blockedBy` refusal, 2b, 3 and 4 are PASS; the attended flow stopped after three required `REQUEST_CHANGES` verdicts and has no approval or merge |
 | 6 — this file | — | — |
 
 The table explains why Step 7 was added; it does not define completion or the next action. Those live
@@ -244,6 +244,31 @@ should be read as having done that.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 5 — 2026-08-28, Step 7 against `2247c8c`
+
+Frozen at `2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4` in the detached worktree
+`cc-tuner-frozen-9`. Before that freeze, a shakeout against the preceding candidate found a real
+handoff defect: `/spec` told the operator to pass the plan path to `/run`, whose argument is the spec
+path. That tree was not evaluated. The handoff was fixed in `2247c8c`, the new SHA was frozen, and
+`tests/run.sh` passed there before the live sessions began.
+
+| # | Observed |
+|---|---|
+| 0 | **PASS.** `/cc-tuner:setup` ran `cc-tuner-frozen-9/plugins/cc-tuner/scripts/setup/doctor.sh`; no installed cc-tuner cache appeared in the transcript |
+| 1 — attended | **partial.** `/spec` took one approval and committed the spec and plan. `/run` created two visible tasks, preserved `#2 blockedBy #1`, completed them in frontier order and stopped at the slice and pre-review delivery boundaries. The required reviewer returned `REQUEST_CHANGES` on all three attempts. The run fixed the last findings in `cf93eb2`, but that new SHA has no approval; `review-state.sh check retry-budget-1` returns `NO_APPROVAL`, PR #2 remains open, and nothing merged |
+| 2 — whole `--auto` | **PASS.** In fresh `cc-tuner-eval-20`, the only operator input after `/spec` was the one contract approval. From the `/run --auto` handoff onward there was no non-empty operator input. PR #2 merged through `merge.sh` at candidate `afbe51e8a242091056e43129ed7bdbb01710519c`; `main` became `c76830dbe85699e936ef942e293582acf0c6ae9d` |
+| 2 — `blockedBy` refusal, isolated | **PASS.** In `cc-tuner-eval-15`, the downstream documentation slice was independently satisfiable. `ready-batches` exposed only slice 1; the session refused a direct request to start slice 2 and changed no files |
+| 2b | **PASS.** `merge.sh --check-only 2 squash afbe51e8a242091056e43129ed7bdbb01710519c retry-budget` accepted the real PR and CI; the same script then performed the merge |
+| 3 — recovery | **PASS.** Fresh session, the actual post-`/clear` session, and `/compact` each showed slice 1 open and slice 2 blocked by slice 1, without duplicate tasks |
+| 4 — live denial | **PASS, both branches.** PR #3 without a verdict was refused for the missing review; after a `REQUEST_CHANGES` verdict at its head, the same check refused because the latest verdict was not an approval |
+
+The two whole-flow costs are material product evidence. The unattended run took about one hour and
+used 79 Bash calls and 16 agents. The attended run took about two hours, used 169 Bash calls and 22
+agents, and still ended at a capped review gate after repeatedly finding real defects in a small
+fixture. Fail-closed delivery worked: it did not invent an approval or merge an unapproved SHA. But
+the attended lifecycle did not complete, so Step 7 remains open; `EVALUATED_SHA` stays unchanged and
+the ADR remains `proposed`.
 
 ### Run 4 — 2026-08-25, Step 7 against the tree that ships
 
