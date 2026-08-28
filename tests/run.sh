@@ -199,6 +199,15 @@ for f in "$ROOT"/tests/scenarios/*/*.json; do
     [ ! -e "$ROOT/$target" ] \
       || { bad "${f#$ROOT/} marks $target removed but it still exists"; dangling=$((dangling + 1)); }
   done
+  policy_status="$(jq -r '.policy_status // empty' "$f")"
+  verdict="$(jq -r '.green_check.verdict // empty' "$f")"
+  if [ -n "$policy_status" ] && [ "$verdict" != historical ]; then
+    bad "${f#$ROOT/} has policy_status but its recorded verdict is not historical"
+    dangling=$((dangling + 1))
+  elif [ -z "$policy_status" ] && [ "$verdict" = historical ]; then
+    bad "${f#$ROOT/} has a historical verdict without policy_status"
+    dangling=$((dangling + 1))
+  fi
   # A `path#anchor` reference also has to name a heading that is still there — a renamed section is
   # the same dangling-pointer failure as a renamed file, just quieter.
   case "$ref" in
