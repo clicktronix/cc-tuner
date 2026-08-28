@@ -110,8 +110,9 @@ at the exact final SHA. It publishes the final approval as a pull-request review
 `--match-head-commit` pinning it. Independent code-writing units alone may fan out into isolated
 worktrees; the parent owns integration and every later gate.
 
-Without `--auto`, `/run` stops at delivery boundaries and again before merge. With `--auto`, it runs
-unattended only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
+Without `--auto`, `/run` works local slice commits without interruption, then stops before the first
+push/PR, for a real unresolved decision or waiver, and before merge. With `--auto`, it runs unattended
+only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
 evidence, failed tests, stale review, unresolved `[eyes]`, missing current-SHA CI, or scope beyond the
 spec. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
 forbidden.

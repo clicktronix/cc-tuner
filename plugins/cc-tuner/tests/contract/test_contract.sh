@@ -46,6 +46,13 @@ need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC_TEMPLATE"
 need "spec-full-regression" 'Full regression: <exact command>' "$SPEC_TEMPLATE"
 need "spec-dod" '## Definition of Done' "$SPEC_TEMPLATE"
 need "spec-github-tracker" 'tracker: gh' "$SPEC_TEMPLATE"
+need "spec-dod-routes-applicable-reviews" 'Applicable advisory reviews ran once' "$SPEC_TEMPLATE"
+if grep -Eq 'passed deep review|exact SHA/tree|<tree SHA>' "$SPEC_TEMPLATE"; then
+  echo "FAIL spec-template-requires-obsolete-review-policy"
+  fails=1
+else
+  echo "PASS spec-template-uses-current-review-policy"
+fi
 
 # The branch must exist before grilling, because grilling invokes domain-modeling and that writes
 # CONTEXT.md and ADRs -- committed artifacts, which must not land on the integration branch. Ordering
@@ -76,6 +83,8 @@ need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
 need "run-auto-refuses-blocked"     'refuse a task whose `blockedBy` is not empty' "$RUN"
+need "run-attended-stops-before-outward-action" 'Stop before the first outward action' "$RUN"
+need "run-attended-does-not-stop-on-local-commit" 'A local commit, a successful review or' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <candidate-sha>' "$RUN"
 need "run-never-forges-approval"    'never turn `REQUEST_CHANGES` into `APPROVE`' "$RUN"
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
@@ -150,6 +159,7 @@ need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-is-not-for-small-work" 'do not use for an ordinary small task' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
+need "run-ignores-advisory-style-only-notes" 'only optional style or a judgement' "$RUN"
 if grep -q '<tree SHA>' "$DEEP_REVIEW"; then
   echo "FAIL deep-review-still-requires-derived-tree-sha"
   fails=1

@@ -301,7 +301,8 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
   reviews a SHA that has since moved.
 - Under `--auto` only: refuse to start a task whose `blockedBy` is non-empty. The platform stores the
   edge and does not enforce it, and unattended there is nobody watching.
-- Stop at each delivery boundary without `--auto`.
+- Without `--auto`, continue through local slice commits; stop before the first outward action, on a
+  real unresolved decision or waiver, and before merge.
 
 - [x] **Step 1: write the skill.** Target under 120 lines — `superpowers:executing-plans` does the same
       job in 70. Anything longer is reference material and belongs in a linked file.
@@ -542,8 +543,9 @@ less necessary — the branch is not done without it.
       > the other half of what `domain-modeling` produces, and they landed on the task branch.
       `/spec` presents the contract and slices and waits for one approval before writing either,
       both files are committed, `plan-lint.sh` accepts the plan, `TaskList` shows the slices **with their
-      `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, and stops at each
-      delivery boundary. The edges are the part a one-pass implementation would silently drop.
+      `blockedBy` edges**, `/run` works them in frontier order, ticks the checkboxes, continues through
+      local slice commits, then stops before the first push/PR and before merge. The edges are the part
+      a one-pass implementation would silently drop.
 - [x] **Step 2: unattended delivery, in a fresh repository, branch and session.** Not a continuation
       of step 1: reusing that workspace would let `/run --auto` inherit the attended run's plan file
       and task list. Run `/cc-tuner:spec`, approve its contract and slices once, then

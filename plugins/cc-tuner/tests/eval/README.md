@@ -209,7 +209,7 @@ Task 8, with what it must observe and why it exists. In brief:
 | # | What it observes |
 |---|---|
 | 0 | The session is running this checkout, proved by the recorded path and SHA |
-| 1 | Attended `spec → run`: branch before the first committed write of any kind — amended from "before `CONTEXT.md`", finding 13 — one approval of contract+slices, spec and plan committed, plan linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, stops at each delivery boundary |
+| 1 | Attended `spec → run`: branch before the first committed write of any kind — amended from "before `CONTEXT.md`", finding 13 — one approval of contract+slices, spec and plan committed, plan linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, local commits uninterrupted, stops before the first push/PR and before merge |
 | 2 | Unattended delivery, **fresh repository and session**: one approval in `/spec`, then no questions or delivery stops after the `/run --auto` handoff; plan committed, tasks created when available, and a task with a non-empty `blockedBy` refused out of order |
 | 2b | Producer → checked path: verdict posted only after the `--required` marker, `commit.oid` equal to the head SHA, and `merge.sh --check-only` reporting the candidate would be accepted |
 | 3 | Recovery on the **graph**: same `blockedBy` edges after a fresh session, same after `/clear`, no duplication after `/compact` |
@@ -244,6 +244,30 @@ should be read as having done that.
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 6 — 2026-08-29, review-routing probe against `868cda0`
+
+Frozen at `868cda0d6aacdad840dbfbea987e2e9366980336` in
+`/Users/clicktronix/Projects/ai/cc-tuner-frozen-10`; fresh private repository
+`clicktronix/cc-tuner-eval-22`; attended Claude Code session. The run stopped unmerged after about
+31 minutes because GitHub Actions was billing-blocked for the account. Local CI's exact command was
+green on Python 3.11 through 3.14, but no waiver replaced required CI.
+
+| Observation | Result |
+|---|---|
+| Review routing | `deep-review`: **0**, correctly skipped for one production file and 27 added production lines with no sensitive or cross-service trigger. Matt review: **1** invocation, two axis agents. Required Codex: **2** rounds. |
+| Advisory churn | Matt reported zero violations and one optional judgement-call style note. The run nevertheless moved the candidate with a two-line cleanup. The current rule now says such a note is not a reason to move the SHA. |
+| Required-review loop | Round 1 published `REQUEST_CHANGES` on `4238877` before any edit. The mechanism was reproduced, then refuted as outside the agreed input contract with concrete spec and file references. Round 2 approved the unchanged head and published `APPROVE`. |
+| Merge boundary | `merge.sh --check-only 2 squash 4238877dbb54b6ac3c7fc3f40af368845ff65d1a retry-budget-22` read the companion approval and public verdict, then refused with `cannot read required CI checks`; the PR stayed open. |
+| Attended stops | The session continued through local slice commits and stopped before its first push/PR. The frozen text still demanded a stop after the first commit; the run showed that pause was ceremony, and the contract now names outward action, unresolved choice/waiver and merge instead. |
+| Task projection | Not observed: the session was launched without `CLAUDE_CODE_ENABLE_TODO_TOOLS=true`, so no `TaskList`/`blockedBy` UI claim can be made from this run. |
+| Spec template | The generated DoD still required `deep-review` unconditionally and an obsolete tree SHA. The template now requires applicable advisory reviews and the authoritative exact-candidate approval. |
+
+The routing change did what it was intended to do: the previous attended run spent 22 advisory-agent
+calls, 18 of them in repeated deep reviews; this one used two Matt axis agents and no deep-review.
+It still does not close Step 7: the frozen revision exposed product-text defects, task projection was
+absent, and external CI prevented the positive merge path. A new frozen SHA must exercise the amended
+contract with task tools enabled and working required CI.
 
 ### Run 5 — 2026-08-28, Step 7 against `2247c8c`
 

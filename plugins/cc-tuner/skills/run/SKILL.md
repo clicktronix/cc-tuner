@@ -84,8 +84,10 @@ Three things this adds to the obvious:
   attention that is a visible mistake; unattended nobody is watching. `ready-batches` cannot hand you such
   a slice, so this is the check on a task you reached some other way — a leftover in the list, or one
   you picked by eye rather than from the emitted batch.
-- **Without `--auto`, stop at each delivery boundary** — first commit, PR opened, review returned,
-  before merge. Report what is done and what comes next.
+- **Without `--auto`, keep local slice commits moving.** Stop before the first outward action
+  (push/opening the PR), when a review or acceptance result leaves a real user decision or waiver,
+  and before merge. Report what is done and what comes next. A local commit, a successful review or
+  a completed routine check is not by itself a reason to interrupt the user.
 
 ## Where the work happens
 
@@ -151,9 +153,11 @@ or require restarting every advisory review from zero.
    occupy the optional deep-review slot. Matt does not run again.
 
    Address valid findings. Refute claims outside the spec or repository rules rather than promoting
-   every possible mutation, subclass behaviour or speculative extension into a new requirement. After
-   a fix, verify the affected finding and proceed to the authoritative review; do not fan out the
-   advisory reviews again. They discover issues but are not merge gates.
+   every possible mutation, subclass behaviour or speculative extension into a new requirement. An
+   advisory note that explicitly reports no violation and offers only optional style or a judgement
+   call is not a reason to move the candidate. After a fix, verify the affected finding and proceed
+   to the authoritative review; do not fan out the advisory reviews again. They discover issues but
+   are not merge gates.
 3. **Obtain the authoritative `--required` approval** from `cc-codex-triage` at that exact SHA.
    Choose one task-specific `--thread <name>` and keep that name for every round and for `merge.sh`;
    the merge boundary re-runs the companion's checker against that thread in this worktree.
