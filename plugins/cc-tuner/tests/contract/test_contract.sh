@@ -97,6 +97,8 @@ need "run-strategy-from-the-spec"   'the strategy the spec names' "$RUN"
 need "spec-writes-the-plan"         'plan-path.sh" create' "$SPEC"
 need "spec-validates-the-plan"      'plan-lint.sh" check' "$SPEC"
 need "spec-hands-off-to-run"        '/cc-tuner:run docs/PLANS' "$SPEC"
+need "spec-rejects-plan-as-argument" 'never the plan path' "$SPEC"
+need "run-rejects-plan-as-argument"  'do not silently substitute it and continue' "$RUN"
 
 # This checks the published instruction's order, not whether a model followed it. A lone
 # `addBlockedBy` phrase used to report the whole two-pass contract as PASS.

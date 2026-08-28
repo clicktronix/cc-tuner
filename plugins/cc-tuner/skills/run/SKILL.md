@@ -16,7 +16,9 @@ publish, migration, force-push, or work outside the plan.
 
 ## Before starting
 
-**Read the spec named in `$ARGUMENTS`.** No path, or no such file → stop. It is not decoration: the
+**Read the spec named in `$ARGUMENTS`.** The argument is the spec path, never the plan path. No path,
+no such file, or the resolved plan itself passed as the argument → stop and print the exact spec path
+from the plan header; do not silently substitute it and continue. It is not decoration: the
 spec carries the target branch, the merge strategy, `auto_ready`, the test plan, the acceptance
 criteria and the Definition of Done. Everything below that says "as the spec requires" reads it from
 there, and a run that never opened it is a run following defaults nobody chose.

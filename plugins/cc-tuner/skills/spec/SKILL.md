@@ -140,7 +140,9 @@ absent, say once that only the visible list and its edges are lost, mention
 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` or `--allowedTools TaskCreate` for a future session, and continue to
 the handoff. Do not add a second confirmation after the approved contract and slices.
 
-Print the spec and plan paths, branch, target, and the next command:
+Print the spec and plan paths, branch, target, and the next command. The command takes the committed
+**spec path**, never the plan path; `/run` resolves the branch's plan itself. Copy the path printed as
+`Spec:`, even though the plan is the artifact `/run` will work:
 
 ```text
 /cc-tuner:run docs/PLANS/2026-07-31-thing.md
