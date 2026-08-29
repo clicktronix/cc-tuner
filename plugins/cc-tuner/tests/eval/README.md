@@ -251,6 +251,7 @@ because the proportional rule did not exist when that run began.
 ```text
 policy_commit: 6766184d9b9043628284294c05183e86e3fc1947
 production_candidate: c69fd80109e8a907335643a9eec99d07bfca167e
+integrated_candidate: ba7e1eec147846bf0517a392a124222e30ec1d31
 retained_evidence_from: 2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4
 range: 2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4..c69fd80109e8a907335643a9eec99d07bfca167e
 changed:
@@ -260,6 +261,21 @@ changed:
   plugins/cc-tuner/skills/run/references/placement.md
   plugins/cc-tuner/skills/spec/spec-template.md
 ```
+
+PR #20 was squash-merged after the eval. The evaluated commit is therefore not an ancestor of
+`main`; `EVALUATED_SHA` names the reachable integration commit instead. Before the source branch was
+deleted, this comparison returned no diff:
+
+```sh
+git diff --exit-code c69fd80109e8a907335643a9eec99d07bfca167e \
+  ba7e1eec147846bf0517a392a124222e30ec1d31 -- \
+  plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
+  plugins/cc-tuner/assets plugins/cc-tuner/references plugins/cc-tuner/.claude-plugin
+```
+
+The mapping changes commit identity, not the production artifact that was evaluated. Keeping the
+unreachable branch commit in `EVALUATED_SHA` made both ordinary and release CI unable to perform the
+comparison after the squash merge.
 
 - **Observed on run 7:** the attended lifecycle, task projection, outward checkpoints, exact-SHA
   verdict publication, required-review retry and checked positive merge; the small non-sensitive
