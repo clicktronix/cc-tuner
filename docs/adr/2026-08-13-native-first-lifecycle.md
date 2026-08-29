@@ -1,8 +1,11 @@
 # Native-first lifecycle: delete the machinery the platform already provides
 
 **Date:** 2026-08-13
-**Status:** proposed. The current completion checkpoint lives in Task 8 Step 7 of the branch plan;
-the eval README owns its observations and provenance.
+**Status:** accepted
+
+Task 8 Step 7 is complete. The eval README owns the observations and provenance: run 7 is the
+operator-grandfathered frozen end-to-end smoke, and run 8 is the predeclared focused probe of the
+positive `deep-review` route.
 
 The lifecycle has been observed end to end, but not all of it against one current tree. Earlier
 `accepted` statuses were withdrawn when review found that the production surface had moved beyond
@@ -10,7 +13,7 @@ the recorded eval. `tests/run.sh` refuses `accepted` while the production surfac
 `EVALUATED_SHA`; scenario samples retain their own historical provenance but no longer force eight
 paid model calls after every prose edit. The eval log is the step-by-step source for what was last seen
 where, and its evidence is bounded: earlier sessions were driven headless; run 7 supplied the attended
-terminal path through merge.
+terminal path through merge; run 8 supplied the positive sensitive-change routing observation.
 
 Two design questions are settled. Skill-hook lifetime is no longer load-bearing because `/run`
 invokes the checked merge script directly. The checked path requires **one** SHA-bound verdict plus CI,

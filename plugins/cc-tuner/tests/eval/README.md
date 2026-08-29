@@ -264,8 +264,9 @@ changed:
 - **Observed on run 7:** the attended lifecycle, task projection, outward checkpoints, exact-SHA
   verdict publication, required-review retry and checked positive merge; the small non-sensitive
   branch correctly skipped `deep-review`.
-- **Still owed:** one focused product-route probe in which a large or sensitive candidate causes
-  `/run` to invoke `deep-review`.
+- **Observed on run 8:** an 11-line pricing change matched the money/pricing/billing trigger through
+  `/run`; the frozen plugin invoked `deep-review`, all six lenses completed and the advisory verdict
+  was `REQUEST_CHANGES`.
 - **Deterministic coverage:** the `merge.sh` change only classifies the current `gh` wording for an
   absent required check; `test_merge.sh` reproduces that input. It does not alter the earlier
   missing-verdict or non-approval branches.
@@ -277,6 +278,29 @@ changed:
 
 Written in the MEASURED style of `docs/spike-native-flow.md`: what was run, what was seen, and what
 that does or does not establish. Leave the outcome blank until it is observed.
+
+### Run 8 — 2026-08-29, focused positive `deep-review` route
+
+The product plugin remained frozen at `c69fd80109e8a907335643a9eec99d07bfca167e` in
+`/Users/clicktronix/Projects/ai/cc-tuner-frozen-11`. The public fixture repository
+`clicktronix/cc-tuner-eval-23` used clean candidate
+`41a5bdd1416292819086e86524719217c2435f6f` on PR #3. Required `test` CI was green. The probe was
+started only after the impact record and its policy commit were in the branch.
+
+| Observation | Result |
+|---|---|
+| Product route | **PASS.** `/run` invoked Matt review once, then classified the candidate as money/pricing/billing-sensitive. It did not match the size trigger: one production file and 11 production lines. |
+| Positive trigger | **PASS.** `/run` invoked the frozen `cc-tuner:deep-review`; all six lenses completed against the immutable candidate and returned `REQUEST_CHANGES`. |
+| Agent count | Eight advisory agents: two from Matt review and six from `deep-review`. The transcript, not statusline text, is the source. |
+| Boundary | **PASS.** No `cc-codex-triage` review, public `cc-tuner-verdict`, commit, push or merge followed. The probe stopped after `deep-review` as instructed. |
+| Candidate integrity | **PASS.** The worktree remained clean at `41a5bdd`; mutation experiments ran in throwaway copies. PR #3 was closed and its probe branch deleted after the observation. |
+| Cost | About 26m41s and $7.03. The result reinforces that `deep-review` belongs only on the large-or-sensitive branch, not on ordinary small changes. |
+
+The advisory `REQUEST_CHANGES` concerned the disposable pricing fixture: the rounding assertion did
+not distinguish `ROUND_HALF_UP` from other modes, cent precision was not pinned, and an unrequested
+rate override was uncovered. Those findings do not need to be fixed to establish routing; the probe's
+question was whether `/run` would select and complete the positive branch. It did. Together with the
+grandfathered run 7 smoke, this closes Task 8 Step 7.
 
 ### Run 7 — 2026-08-29, attended path against `c69fd80`
 
@@ -299,9 +323,8 @@ from `/spec` through merge in 29 minutes 9 seconds.
 on the frozen production surface. It also observes the negative review-routing branch: a small,
 non-sensitive diff skips `deep-review`. On 2026-08-29 the operator explicitly grandfathered this
 successful run as the current end-to-end smoke under the newer proportional release rule. That does
-not retroactively make the rule predate the run. The positive route where a large or sensitive
-candidate must invoke `deep-review` remains unobserved, so Step 7 stays open and the ADR stays
-`proposed`.
+not retroactively make the rule predate the run. Run 8 separately observes the positive route where a
+large or sensitive candidate invokes `deep-review`.
 
 ### Run 6 — 2026-08-29, review-routing probe against `868cda0`
 

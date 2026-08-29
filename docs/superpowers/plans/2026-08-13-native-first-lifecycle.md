@@ -614,7 +614,7 @@ less necessary — the branch is not done without it.
       > scenarios that load it were sampled only afterwards and each reached 8 of 8. The evidence and
       > its commit ordering are recorded in `plugins/cc-tuner/tests/eval/README.md`.
 
-- [ ] **Step 7: validate the release candidate in proportion to what changed.** A release candidate
+- [x] **Step 7: validate the release candidate in proportion to what changed.** A release candidate
       needs one frozen end-to-end smoke. Before any additional paid probe, commit an impact record
       that names the candidate, the baseline for retained observations, the exact
       `git diff --name-only` range, changed model-controlled decisions, deterministic coverage and
@@ -626,8 +626,10 @@ less necessary — the branch is not done without it.
 
       **Grandfathered by the operator on 2026-08-29:** successful run 7 counts as the current frozen
       end-to-end smoke. This is an explicit decision made after the run, not a claim that this policy
-      existed before it. Run 7 observed the small-change branch of review routing; the positive
-      `deep-review` branch remains the one focused probe required before this step can close.
+      existed before it. Run 7 observed the small-change branch of review routing. Run 8 then
+      exercised the positive branch through `/run`: an 11-line pricing change matched the sensitive
+      trigger, invoked `deep-review`, completed all six lenses and returned `REQUEST_CHANGES` without
+      starting authoritative review or merge.
 
       The impact record and per-observation provenance live in `tests/eval/README.md`.
 
