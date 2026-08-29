@@ -249,7 +249,7 @@ successful run 7 on 2026-08-29 as the current frozen end-to-end smoke; the excep
 because the proportional rule did not exist when that run began.
 
 ```text
-policy_commit: pending
+policy_commit: 6766184d9b9043628284294c05183e86e3fc1947
 production_candidate: c69fd80109e8a907335643a9eec99d07bfca167e
 retained_evidence_from: 2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4
 range: 2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4..c69fd80109e8a907335643a9eec99d07bfca167e
