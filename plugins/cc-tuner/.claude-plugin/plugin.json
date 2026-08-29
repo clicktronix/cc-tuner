@@ -2,7 +2,7 @@
   "name": "cc-tuner",
   "displayName": "CC Tuner",
   "description": "Tune Claude Code's own configuration. Ships claude-md-writer, task-flow, deep-review, a usage statusline, and a two-command spec-to-merge lifecycle: /cc-tuner:spec records DoR, tests, acceptance and DoD, then confirms and publishes a sliced plan; /cc-tuner:run works that plan, proves RED-to-GREEN, reviews the candidate SHA, and merges only with a verdict review and green required CI on that exact commit. Start with /cc-tuner:setup.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "author": {
     "name": "Clicktronix",
     "url": "https://github.com/clicktronix"

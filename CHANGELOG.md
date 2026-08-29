@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.11.0](https://github.com/clicktronix/cc-tuner/compare/v0.10.0...v0.11.0) (2026-08-29)
+
+
+### Features
+
+* simplify native-first lifecycle ([#21](https://github.com/clicktronix/cc-tuner/issues/21)) ([7746c61](https://github.com/clicktronix/cc-tuner/commit/7746c61c27b6af30af2613d65a1c08fa4e5b26c4))
+
+
+### Bug Fixes
+
+* ignore release-only version in eval gate ([#24](https://github.com/clicktronix/cc-tuner/issues/24)) ([904c78a](https://github.com/clicktronix/cc-tuner/commit/904c78addb460d6ae39b2124357fe91737c00e50))
+* preserve release validation provenance ([#23](https://github.com/clicktronix/cc-tuner/issues/23)) ([d4e0388](https://github.com/clicktronix/cc-tuner/commit/d4e0388c4be92ea1edaccea3589d2920818430d7))
+
 ## [0.10.0](https://github.com/clicktronix/cc-tuner/compare/v0.9.0...v0.10.0) (2026-08-11)
 
 
