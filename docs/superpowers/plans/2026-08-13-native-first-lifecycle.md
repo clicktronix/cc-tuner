@@ -614,42 +614,28 @@ less necessary — the branch is not done without it.
       > scenarios that load it were sampled only afterwards and each reached 8 of 8. The evidence and
       > its commit ordering are recorded in `plugins/cc-tuner/tests/eval/README.md`.
 
-- [ ] **Step 7: repeat, against the tree that ships, every step last observed on an earlier one.**
-      Added 2026-08-22, because eight ticked boxes and a footnote is not a readable plan: a reader saw
-      no open checkpoint while the ADR and the eval log both said Task 8 was unfinished. The steps
-      above were observed — that is why they stay ticked — but they were observed on trees that have
-      since moved, and step 0 requires the eval to exercise the artifact that ships. **Seven
-      observations are owed**, not five: an earlier revision of this step listed five and forgot the
-      two that its own premise implies.
+- [ ] **Step 7: validate the release candidate in proportion to what changed.** A release candidate
+      needs one frozen end-to-end smoke. Before any additional paid probe, commit an impact record
+      that names the candidate, the baseline for retained observations, the exact
+      `git diff --name-only` range, changed model-controlled decisions, deterministic coverage and
+      the focused live probes still owed. Retain earlier live observations when their decision did
+      not change; do not re-run them merely because another section of the same file moved.
 
-      **Before freezing:** close or explicitly defer every open item in
-      `docs/2026-08-20-post-eval-remediation-plan.md` that can change a skill, script, hook or shipped
-      contract. Freezing first would knowingly evaluate a tree that is not the one intended to ship.
+      Script parsers and diagnostics are proved by deterministic tests. A changed model-routing
+      decision needs a live probe through its product route. Reading the new prose is not evidence.
 
-      1. **Step 0** — the frozen SHA and the resolved plugin root, for the new freeze. Every other
-         item here is a claim about *this* tree, and step 0 is what makes that checkable.
-      2. **Step 1** — attended whole flow, last seen on `cd9fa2f`.
-      3. **Step 2, whole** — `/spec`, one approval of its contract and slices, then unattended
-         `/run --auto → merge`. Last seen on `f4410f2`; the production skills and `mutate.sh` have
-         moved past it.
-      4. **Step 2's `blockedBy` refusal**, on a fixture that isolates the edge — last seen on `e39419c`.
-      5. **Step 2b** — `--check-only` accepts, then the same script merges. Last on `cd9fa2f`.
-      6. **Step 3** — fresh session, `/clear`, `/compact`, edges intact. Last on `cd9fa2f`.
-      7. **Step 4** — live denial, both branches. Last on `cd9fa2f`.
+      **Grandfathered by the operator on 2026-08-29:** successful run 7 counts as the current frozen
+      end-to-end smoke. This is an explicit decision made after the run, not a claim that this policy
+      existed before it. Run 7 observed the small-change branch of review routing; the positive
+      `deep-review` branch remains the one focused probe required before this step can close.
 
-      The per-step table of what was last seen where is in `tests/eval/README.md`.
+      The impact record and per-observation provenance live in `tests/eval/README.md`.
 
-**Acceptance:** **every step above** observed PASS in a real session — 0, 1, 2, 2b, 3, 4, 5, 6 and 7. An
-earlier draft said "all five steps" while listing seven, which would have let the two that matter most
-fall outside acceptance: step 0, which proves the eval tested this checkout rather than the installed
-version, and step 2b, the only live proof that the producer writes something the checked path can read.
-**A step recorded as not-yet-run leaves this task incomplete**, and an incomplete Task 8 leaves the
-branch unmergeable — see the Definition of done, which requires the eval record to show every step
-PASS. An earlier draft allowed not-yet-run to count. It also said an incomplete Task 8 blocks Task 9;
-that ordering changed on 2026-08-14, and the sentence is corrected rather than deleted because the
-half it was carrying still holds: the deletion is not the evidence, and shipping is still gated on a
-real session. A step recorded as passing on the strength of reading the skill's text is the exact
-failure mode this branch exists to remove.
+**Acceptance:** one frozen end-to-end smoke has completed on the release candidate; every changed
+model-controlled decision has the focused live evidence declared before its probe; script-only
+changes have deterministic coverage; retained observations name their baseline and why they still
+apply; and no failed changed path is waived as unchanged. A step recorded as passing only from
+reading skill prose is not evidence.
 
 ---
 

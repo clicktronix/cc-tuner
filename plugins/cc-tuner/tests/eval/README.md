@@ -23,12 +23,12 @@ it costs tokens, and it runs by hand.
 | 3 — recovery: fresh session, `/clear`, `/compact` | `2247c8c` | run 5; recovery hook and graph reconstruction unchanged |
 | 4 — live denial, both branches | `2247c8c` | run 5; the later missing-check diagnostic is covered by its deterministic regression |
 | 5 — the nine probes | `3229c57` | historical evidence re-measured 2026-08-25 under protocol version 2, isolated |
-| 7 — repeat on the shipped tree | `c69fd80` | **partial (run 7)**: 0, 1 and 2b are current; `--auto`, isolated `blockedBy`, recovery and denial remain on run 5 |
+| 7 — proportional release validation | `c69fd80` | **partial**: run 7 is the grandfathered frozen end-to-end smoke; the positive `deep-review` route remains to be observed |
 | 6 — this file | `c69fd80` evidence | run 7 record |
 
 The table records what was actually observed; the branch plan defines completion. `EVALUATED_SHA`
-proves which production surface the latest frozen run exercised, not that every Step 7 row was
-repeated there.
+proves which production surface the latest frozen run exercised, not that every retained observation
+was repeated there.
 
 One check holds what used to be prose: `tests/run.sh` refuses an `accepted` ADR while the shipped tree
 has moved past `EVALUATED_SHA`. Scenario results keep their measured-against provenance but no longer
@@ -228,9 +228,10 @@ scenario to delete.**
 
 ## Acceptance
 
-Every step — 0, 1, 2, 2b, 3, 4, 5, 6 and 7 — must be observed PASS in a real session, and Step 7 says
-the seven repeated observations share the tree that ships. Not-yet-run does not count as a pass, and
-the branch is not finished until this file says so.
+Task 8 Step 7 owns the current release rule: one frozen end-to-end smoke on the candidate, then only
+the deterministic checks and focused live probes named in a precommitted impact record. Earlier live
+observations remain evidence for decisions that did not change. Not-yet-run targeted probes do not
+count as a pass, and the branch is not finished until this file says so.
 
 **What this eval does not cover, stated here rather than left in the prose of a run.** Run 3 was
 driven headless: `claude -p` with `--resume`, one process per turn, the operator another session. That
@@ -240,6 +241,37 @@ whether a watching human can see the plan being worked. Run 2 hit exactly that g
 side, when its operator could see no tasks in the checkpoint UI while the transcript showed the flow
 running. Run 7 supplied that attended terminal observation. The earlier headless evidence remains
 bounded as described; run 7 does not retroactively turn it into an interactive run.
+
+## Release-candidate impact record
+
+This record was committed before the remaining focused probe. The operator explicitly grandfathered
+successful run 7 on 2026-08-29 as the current frozen end-to-end smoke; the exception is recorded
+because the proportional rule did not exist when that run began.
+
+```text
+policy_commit: pending
+production_candidate: c69fd80109e8a907335643a9eec99d07bfca167e
+retained_evidence_from: 2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4
+range: 2247c8ce5572f8c0421bb1edd950f9ba21f0d9a4..c69fd80109e8a907335643a9eec99d07bfca167e
+changed:
+  plugins/cc-tuner/scripts/merge.sh
+  plugins/cc-tuner/skills/deep-review/SKILL.md
+  plugins/cc-tuner/skills/run/SKILL.md
+  plugins/cc-tuner/skills/run/references/placement.md
+  plugins/cc-tuner/skills/spec/spec-template.md
+```
+
+- **Observed on run 7:** the attended lifecycle, task projection, outward checkpoints, exact-SHA
+  verdict publication, required-review retry and checked positive merge; the small non-sensitive
+  branch correctly skipped `deep-review`.
+- **Still owed:** one focused product-route probe in which a large or sensitive candidate causes
+  `/run` to invoke `deep-review`.
+- **Deterministic coverage:** the `merge.sh` change only classifies the current `gh` wording for an
+  absent required check; `test_merge.sh` reproduces that input. It does not alter the earlier
+  missing-verdict or non-approval branches.
+- **Retained from run 5:** unattended `--auto`, the isolated `blockedBy` refusal, recovery and both
+  denial branches. Their model decisions did not change in the range above; no file-name map is used
+  as a substitute for that review.
 
 ## Log
 
@@ -265,11 +297,11 @@ from `/spec` through merge in 29 minutes 9 seconds.
 
 **What this closes and what it does not.** Run 7 closes the attended and positive checked-merge gaps
 on the frozen production surface. It also observes the negative review-routing branch: a small,
-non-sensitive diff skips `deep-review`. It does not observe the new positive routing branch where a
-large or sensitive candidate must invoke `deep-review`, and it does not repeat current-tree `--auto`,
-the isolated dependency refusal, recovery or denial. Under the Step 7 rule committed before this run,
-the task therefore remains open; `EVALUATED_SHA` moves to the tree actually exercised, while the ADR
-stays `proposed`.
+non-sensitive diff skips `deep-review`. On 2026-08-29 the operator explicitly grandfathered this
+successful run as the current end-to-end smoke under the newer proportional release rule. That does
+not retroactively make the rule predate the run. The positive route where a large or sensitive
+candidate must invoke `deep-review` remains unobserved, so Step 7 stays open and the ADR stays
+`proposed`.
 
 ### Run 6 — 2026-08-29, review-routing probe against `868cda0`
 
