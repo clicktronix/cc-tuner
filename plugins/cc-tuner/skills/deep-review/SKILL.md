@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Review a clean, committed candidate before delivery using independent correctness, specification, standards, architecture, systemic, security/data, and testing/operability lenses. Use when a task needs exhaustive code review bound to an exact candidate SHA, especially before a cc-tuner run can proceed to PR or merge.
+description: Exhaustively review a clean, committed candidate through six independent lenses. Use for large, cross-boundary, or sensitive changes selected by /run; do not use for an ordinary small task.
 ---
 
 # Deep Review
@@ -17,8 +17,7 @@ Require literal values for:
 - committed spec path, when the task has one.
 
 Refuse to review when `HEAD` is not the candidate SHA, the worktree is dirty, the base cannot be
-resolved, or the candidate is not a descendant of the base. Record the candidate tree with
-`git rev-parse <candidate>^{tree}`. A later commit or tree invalidates this result.
+resolved, or the candidate is not a descendant of the base. A later commit invalidates this result.
 
 ## Build the review packet
 
@@ -34,11 +33,12 @@ Do not infer correctness from green CI, a plan checkbox, another review, or the 
 
 ## Review lenses
 
-Run every applicable lens independently. Always perform the review; small-diff thresholds only decide
-execution shape. The owning reviewer may run all lenses serially for a candidate within both
-contract-defined thresholds and outside every sensitive surface. Otherwise fan them out to parallel
-reviewer agents against the immutable candidate. Keep the lifecycle outside the review sequential and
-give every reviewer the same literal base, candidate, tree, spec, and read-only constraint.
+Run every applicable lens independently and fan them out against the immutable candidate. `/run`
+owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
+into a second lightweight review.
+
+Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
+candidate, spec, and read-only constraint.
 
 1. **Correctness and edge cases** — logic, state transitions, concurrency, errors, cleanup,
    compatibility, and user-visible behavior.
@@ -89,12 +89,13 @@ Priority meanings:
 
 Return exactly one verdict after the complete finding list:
 
-- `REQUEST_CHANGES <candidate SHA> <tree SHA>` when any validated `P0`-`P2` finding remains;
-- `APPROVE <candidate SHA> <tree SHA>` only when no validated blocking finding remains.
+- `REQUEST_CHANGES <candidate SHA>` when any validated `P0`-`P2` finding remains;
+- `APPROVE <candidate SHA>` only when no validated blocking finding remains.
 
 List `P3` findings even with `APPROVE`; `/cc-tuner:run` must record each as fixed, refuted, or
 explicitly deferred. Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into
 approval. State which lens was incomplete and return `REQUEST_CHANGES`.
 
-Any fix requires a new candidate commit, fresh verification, and a full new review. An approval for an
-older SHA or tree is stale evidence and must not be reused.
+Any fix makes this verdict stale. Under `/run`, verify the affected findings and let the authoritative
+review judge the final SHA; do not restart all six advisory lenses. A user who directly requested a
+new exhaustive review may run the skill again.

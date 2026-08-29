@@ -1,11 +1,10 @@
 # Skill evaluation scenarios
 
-Eval scenarios for `/run` (pressure/discipline probes; the rows are still labelled
+Historical scenarios for `/run` (pressure/discipline probes; the rows are still labelled
 `execute-task` where that is the version the baseline was measured on), `claude-md-writer`
 (retrieval/application probes), and `task-flow` (whose REDs are documented production
-incidents from the pre-plugin era rather than fresh probe runs — the failures already
-happened for real), following Anthropic's evaluation-driven development and
-the superpowers `writing-skills` RED-GREEN loop. Format mirrors
+incidents from the pre-plugin era rather than fresh probe runs — the failures already happened for
+real). Format mirrors
 `clicktronix/nextjs-clean-skills` `tests/scenarios/` (`query`, `baseline_failure`,
 `expected_behavior`, `anti_expectation`, plus `baseline_observed` / `green_check`
 once runs happen).
@@ -15,18 +14,19 @@ isolated haiku subagents — the weak-model audience is where guidance earns its
 RED = no skill/playbook text in context, with one deliberate exception:
 `sensitive-small-diff-review`'s RED is an **ablation** baseline (the probe includes the
 small-diff execution policy but WITHOUT the sensitive-surface list — the question is whether the list
-changes review depth). GREEN = the relevant guidance verbatim, as it appears in production.
+changes review depth). GREEN supplied the guidance named by that record at the recorded revision; it
+is not a claim about current prose.
 
 The four 2026-07-26/28 `task-flow` rows were measured differently: their REDs are documented
 production incidents, but a **fresh RED arm was also probed** (same query, guidance withheld) so the
 verdict rests on a measured contrast rather than on the incident alone. Where the two disagree, the
 row says so.
 
-## Status (task-run recheck 2026-08-10; older rows retain their recorded dates)
+## Status (historical task-run probes last re-measured under the protocol in `tests/eval/README.md`; older rows retain their recorded dates)
 
 | Scenario | RED | GREEN | Verdict |
 | --- | --- | --- | --- |
-| task-run/sensitive-small-diff-review | **2/2 historical ablation** | passes | **load-bearing** — the old ablation missed pricing sensitivity; the rewritten GREEN fans out the same five-line fee change |
+| task-run/sensitive-small-diff-review | **2/2 historical ablation** | **8/8** | **load-bearing** — the ablation missed pricing; naming the six surfaces was not enough on its own, and two of eight answers still let diff size overrule a billing match until the skill said to classify the surface first |
 | claude-md-writer/paths-rule-placement | **2/2 reproduced** | flips | **load-bearing** — baseline confidently invents config (`scope:`/`languages:` keys, `src/api/.claude.md`) a user would paste and silently get nothing |
 | claude-md-writer/what-goes-where | inconsistent | flips | value = factual precision (mechanism names), not discipline |
 | task-run/eyes-criterion-autonomy | 0/2 | holds (cites unresolved [eyes]/auto-ready mechanics) | did not reproduce — hard-stop kept as insurance; GREEN-regression probe recorded |
@@ -34,9 +34,9 @@ row says so.
 | task-run/visible-plan-before-edit | partial hold | passes | guidance adds the complete downstream lifecycle and state/UI bindings omitted by the RED arm |
 | task-run/dor-first-failing-check | partial hold | passes | guidance removes the RED arm's option to discover/invent missing contract details during the run |
 | task-run/false-green-regression-test | holds unaided | passes | not load-bearing in isolation; retained as cheap regression and machine-gate specification |
-| task-run/implementation-only-parallelism | **reproduced** | passes | **load-bearing** — RED parallelizes review and proposes multiple PRs; GREEN confines delegation to code writing |
-| task-run/request-changes-blocks-merge | partial hold | passes | guidance requires a fresh approval after disposition; tree changes also require a new immutable candidate and all three fresh approvals |
-| task-run/stale-review-after-fix | partial hold | passes | guidance invalidates testing, acceptance, every review, CI, and DoD rather than only reviewer sign-off |
+| task-run/implementation-only-parallelism | **reproduced** | passes | **load-bearing** — RED parallelizes the lifecycle and proposes multiple PRs; GREEN keeps integration, the testing decision, the review **verdict**, delivery and merge with the parent. Independent read-only lenses may still fan out when the current risk routing selects `deep-review` |
+| task-run/request-changes-blocks-merge | partial hold | historical GREEN | still proves `REQUEST_CHANGES` blocks merge and a new SHA needs authoritative approval; its requirement to restart every advisory review was superseded after run 5 measured the resulting review explosion |
+| task-run/stale-review-after-fix | partial hold | historical GREEN | still proves approval for SHA A cannot authorize SHA B; its requirement to restart every advisory review was superseded by targeted finding verification plus a fresh authoritative review |
 | task-run/reviewer-unavailable-fails-closed | holds unaided | passes | not load-bearing in isolation; retained for machine-enforced reviewer/lens completeness |
 | task-run/current-sha-ci | holds unaided | passes | not load-bearing in isolation; retained for exact-SHA hosted-check enforcement |
 | task-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
@@ -65,10 +65,15 @@ so the RED arm is a stronger-than-neutral control. That corpus supplies none of 
 under test, so the measured effects are lower bounds — but a clean-room harness would make the next
 batch trustworthy without the asterisk.
 
-Per the Iron Law, a future behavior-changing edit to a guarded section needs its own RED→GREEN (or
-an honest unaided-hold result plus GREEN regression) before shipping. The repository validator now
-requires recorded baseline and GREEN evidence for this task-run batch; it does not infer model
-quality merely from a scenario file existing.
+Use proportional evidence for future behavior changes: re-run a targeted scenario when a repeated
+failure justifies the token cost, and use the live Task 8 boundary for lifecycle acceptance. The
+repository validator checks that scenario references resolve; it does not infer current model
+behavior or freshness from a JSON record.
+
+In a task-run JSON, `skills`, `measured_targets`, and `tests_reference` preserve what the historical
+probe loaded and judged; do not retarget them after an ownership migration. When a measured owner was
+removed, `removed_targets` names that missing path explicitly. The repository validator checks this
+relationship without treating historical hashes as a freshness gate.
 
 The 2026-08-09 task-run rows were added from the cross-repository production audit that motivated the
 structured-state rewrite. On 2026-08-10 each new row received one isolated RED and GREEN Haiku arm;
@@ -79,10 +84,9 @@ model compliance rate, so the per-scenario JSON preserves the exact limited samp
 
 Exercised again in the spec/run split: all three original `task-run` scenarios (formerly
 `execute-task`) had their guarded text moved into `run.md` and reworded, so all three were re-probed.
-The sensitive-diff scenario now guards review execution shape: deep-review always runs, but a
-low-risk small candidate may stay serial while a sensitive candidate fans out. The original ablation
-still proves the sensitive-surface list is load-bearing; it does not count as a GREEN result for the
-rewritten serial/fanout decision.
+The sensitive-diff scenario is historical evidence for the former always-on review policy. The live
+policy now keeps `deep-review` off the ordinary path and selects it only for large or sensitive
+changes; a new targeted probe is warranted only if that routing repeatedly fails in use.
 
 Exercised in 0.9.0: the `claude-md-writer` docs refresh edited both guarded sections, so both were
 re-probed and carry a `green_recheck` block naming the **risk under test** — for

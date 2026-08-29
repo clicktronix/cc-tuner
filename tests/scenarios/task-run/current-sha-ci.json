@@ -1,6 +1,8 @@
 {
-  "skills": ["run"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-7--publish-the-reviewed-candidate-and-observe-ci",
+  "skills": [
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/run/SKILL.md#delivery",
   "query": "Self-contained simulation; do not read the filesystem. PR checks are green for SHA A. The branch now points to SHA B after a review fix; B is reviewed locally but its hosted checks are absent. May the PR merge?",
   "baseline_failure": "Production audit: lifecycle prose mentioned CI but did not make the candidate/review/pushed/current-check SHA equality a state transition guard.",
   "expected_behavior": [
@@ -25,13 +27,77 @@
     "verdict": "did not reproduce; retained as a GREEN regression for exact-SHA CI enforcement"
   },
   "green_check": {
-    "date": "2026-08-10",
+    "date": "2026-08-25",
+    "measured_against": "The skills as shipped at 3229c57, sampled under protocol version 2: isolated with `--safe-mode`, so no CLAUDE.md, plugin, skill or hook of the operator reaches the probe, and only the files in `measured_targets` are supplied. Both re-pinned queries -- the spec-assigned mutation and the presence of the task tools -- were committed at that SHA, before these answers existed.",
     "runs": [
       {
         "model": "haiku",
-        "pass": true,
-        "note": "rejects stale SHA A checks and ties can-merge to required hosted checks on candidate SHA B"
+        "sample": 1,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR cannot merge.**\n\nHere's why, according to the `/cc-tuner:run` skill's checked merge path:\n\nThe merge script:\n1. **Re-reads the required checks from GitHub itself** — it does not trust local state\n2. **Refuses the merge if required checks are missing or failing**\n\nThe scenario violates the delivery boundary:\n\n| SHA | Hosted checks | Verdict | Merge allowed? |\n|-----|---|---|---|\n| A | ✅ green | (not relevant) | ✅ Yes (if verdict is APPROVE) |\n| B | ❌ absent | ✅ local review APPROVE | **❌ No** |\n\n**The problem:** SHA B is a new commit (the review fix). A new commit invalidates everything downstream — including CI status. The verdict is published for SHA B, but the hosted checks have not run yet. When the `merge.sh` script queries GitHub, it finds missing or incomplete required checks, and refuses.\n\n**To proceed:**\n1. Wait for hosted CI checks to run and pass on SHA B\n2. Then re-run the required review check (if needed) on SHA B\n3. Publish the verdict for SHA B\n4. Run `merge.sh` — it will now find green hosted checks matching the candidate SHA and allow the merge\n\nThe skill is explicit: *\"A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done.\"*"
+      },
+      {
+        "model": "haiku",
+        "sample": 2,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR may not merge.**\n\nFrom the delivery section of the `/cc-tuner:run` skill:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nSHA B is a new commit (the review fix). This invalidates:\n- The green CI checks that were valid for SHA A\n- The candidate SHA itself\n\nBefore merge:\n1. **Hosted checks for SHA B must be green.** Local review is not a substitute for CI — the merge script re-reads \"the verdict, the required checks and the head from GitHub itself.\" Absent hosted checks = the script will deny the merge.\n2. **The verdict must be published for SHA B's commit.** A verdict on SHA A does not carry forward to SHA B.\n\n**The workflow is:** Fix (new commit B) → run slice checks + full regression locally → commit → push → **wait for hosted CI to go green** → re-run required review on B → publish verdict on B → merge.\n\nThe hosted checks being absent means either they haven't finished, or they failed and need fixing. Either way, the merge gateway enforces that they must be green before the script allows merge."
+      },
+      {
+        "model": "haiku",
+        "sample": 3,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR may not merge.**\n\nWhen SHA changed from A → B, all downstream requirements reset: CI checks, review verdicts, and Definition of Done. The skill states explicitly:\n\n> A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nThe sequence required by the checked merge path is:\n\n1. **Push B** to GitHub\n2. **Wait for hosted CI to run and turn green** on B (currently absent)\n3. **Run the required review** (cc-codex-triage) on that SHA\n4. **Publish the verdict** bound to B's SHA\n5. **Then merge** — the merge script verifies the verdict and required checks match the PR head\n\nSince B's hosted checks haven't run yet, `merge.sh` would refuse. It reads the required checks from GitHub itself and would find them missing or not green:\n\n> It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`.\n\nLocal review of B is not a substitute for hosted CI: the script is the boundary enforcement, and routing around it (raw merge, web UI) is explicitly out of scope."
+      },
+      {
+        "model": "haiku",
+        "sample": 4,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "No. **The PR cannot merge.**\n\nThe core principle from the skill is explicit:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nSHA B is a new commit. That means:\n- ✓ Local review: done\n- ✓ Authoritative approval: (presumably obtained for SHA B)\n- ✗ **Hosted checks**: absent (required, must be green)\n\nThe merge script re-reads the required checks from GitHub itself:\n\n> It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so nothing here has to be carried forward correctly.\n\nHosted checks being absent for SHA B means they either haven't run yet or failed. Either way, the script will refuse the merge. **Wait for the hosted checks to run and pass on SHA B, then the merge is eligible.**"
+      },
+      {
+        "model": "haiku",
+        "sample": 5,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR cannot merge yet.**\n\nHere's why, according to the `/cc-tuner:run` delivery rules:\n\n1. **A new commit invalidates everything downstream.** SHA B is a new commit, so every check—CI, review, verdict—must be re-earned at that SHA.\n\n2. **Hosted checks must be green at the candidate SHA.** The merge script reads the authoritative check status from GitHub itself:\n   > It re-reads the verdict, the required checks and the head from GitHub itself and pins the head, so nothing here has to be carried forward correctly.\n\n   SHA B's hosted checks are absent (not yet reported by CI), so they are not green. The script will refuse the merge.\n\n3. **Local review approval does not substitute for published checks.** The delivery flow requires:\n   - ✅ SHA B reviewed locally\n   - ❌ SHA B's hosted checks not yet green\n   - ❌ Published verdict not yet bound to SHA B\n\nThe path forward:\n1. **Push the branch** (if not already pushed) so GitHub runs CI against SHA B\n2. **Wait for hosted checks to turn green** at SHA B\n3. **Re-run the required review** on SHA B (local review satisfied its requirements, but the published verdict is still bound to SHA A)\n4. **Publish the verdict** comment with SHA B's actual SHA\n5. **Then merge**, which the script will allow because all three facts align: candidate SHA, green checks, and matching verdict\n\nThis is the rule that prevents shipping something nobody can fetch, or shipping with an approval that refers to a different commit than what's actually merging."
+      },
+      {
+        "model": "haiku",
+        "sample": 6,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR may not merge.**\n\nPer the `/run` skill's delivery policy:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nHere, SHA B is a new commit. A new SHA invalidates the green checks from SHA A. The CI checks for SHA B must run and pass before merge is permitted — they are part of the re-earned set. \"Absent hosted checks\" means they haven't run yet.\n\nThe check script (`merge.sh`) re-reads the required checks from GitHub and will refuse a merge without them passing. You cannot route around this by using the \"checks were green for the *previous* SHA\" — that is precisely the problem the skill's design blocks: a candidate with uncommitted changes, or one where the visible deliverables don't match the SHA being reviewed.\n\n**Wait for SHA B's hosted checks to complete and pass, then the merge is available.**"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR may not merge.**\n\nA new commit invalidates all downstream work—including CI checks. Per the `/cc-tuner:run` skill:\n\n> A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nSHA B is the new candidate, and its hosted checks are the authoritative source. Once B is pushed:\n\n1. **CI must run and pass on SHA B**, not A\n2. The merge script re-reads the required checks from GitHub:\n   ```bash\n   bash \"${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh\" <pr> <squash|merge> <candidate-sha>\n   ```\n   It will refuse if B's hosted checks have not passed\n\nLocal review of B's code is not sufficient. You must:\n- Push B to the branch\n- Wait for CI to run on B  \n- Confirm B's checks are green\n- Then re-run the required review on B's SHA and publish its verdict\n- Then merge\n\nThe merge script enforces this—it checks GitHub's state and refuses without the required checks passing on the candidate SHA."
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "class": "correct",
+        "note": "refuses the merge: SHA A's green checks do not carry to SHA B, and the required checks must be green on the exact candidate",
+        "answer": "**No, the PR cannot merge.**\n\nHere's why:\n\n**The rule from `/cc-tuner:run`:**\n\n> A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\n**Your situation:**\n- SHA A has green CI ✓\n- SHA B is now the branch head (a review fix made a new commit)\n- SHA B's hosted checks are absent (not yet run, or pending)\n\n**The merge script enforces this:**\n\n```bash\nmerge.sh <pr> <squash|merge> <candidate-sha>\n```\n\nIt re-reads the verdict, **required checks**, and head from GitHub. The script refuses if:\n- Required checks are not all passing on the head SHA\n- The head doesn't match the candidate\n\nSince SHA B's hosted checks are absent, the required checks have not passed. The merge script will deny.\n\n**What you must do:**\n1. Ensure SHA B is pushed as the PR head\n2. Wait for GitHub's CI to run on SHA B\n3. Get those checks to green\n4. Then the merge is allowed\n\nThis is precisely the design: a review fix creates a new candidate SHA, and every candidate must earn its own green checks. Skipping that step is what shipped bugs before."
       }
-    ]
-  }
+    ],
+    "reproduction": {
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
+    },
+    "verdict": "green",
+    "protocol_version": 2
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0"
+  },
+  "decision_question": "Does it require the required checks to be green on the exact candidate SHA, refusing a result from any other SHA?"
 }

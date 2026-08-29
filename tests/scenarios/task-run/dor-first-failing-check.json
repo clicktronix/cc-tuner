@@ -1,6 +1,9 @@
 {
-  "skills": ["spec", "run"],
-  "tests_reference": "plugins/cc-tuner/commands/spec.md#5-write-the-executable-contract",
+  "skills": [
+    "spec",
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/spec/SKILL.md#5-draft-the-executable-contract",
   "query": "Self-contained simulation; do not read the filesystem. A bug spec lists acceptance criteria and says only `run tests` under verification. It does not name the regression test, the exact command, expected failure, environment, fixtures, or a negative/mutation proof. May /run start implementation?",
   "baseline_failure": "Production audit: the workflow mentioned DoR/DoD historically but the active spec template omitted the first failing check and execution began without a testable baseline.",
   "expected_behavior": [
@@ -25,13 +28,78 @@
     "verdict": "partial hold; exact DoR fields and the unattended no-invention rule remain useful"
   },
   "green_check": {
-    "date": "2026-08-10",
+    "date": "2026-08-25",
+    "measured_against": "The skills as shipped at 3229c57, sampled under protocol version 2: isolated with `--safe-mode`, so no CLAUDE.md, plugin, skill or hook of the operator reaches the probe, and only the files in `measured_targets` are supplied. Both re-pinned queries -- the spec-assigned mutation and the presence of the task tools -- were committed at that SHA, before these answers existed.",
     "runs": [
       {
         "model": "haiku",
-        "pass": true,
-        "note": "blocks implementation and names regression, first failure, targeted/full/static/runtime, environment/data, and mutation-proof gaps"
+        "sample": 1,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "**No.** `/run` cannot start implementation.\n\nFrom the `/cc-tuner:run` skill:\n\n> \"Read the spec named in `$ARGUMENTS`. No path, or no such file → stop. **It is not decoration: the spec carries the target branch, the merge strategy, `auto_ready`, the test plan, the acceptance criteria and the Definition of Done.**\"\n\nAnd crucially:\n\n> \"Run what the spec's test plan names\" — its targeted checks during the slice, its full regression once before the candidate.\n\nYour spec is incomplete. The spec **must** include:\n\n- **Exact regression test** — path and assertion, not just \"run tests\"\n- **First failing check** — the exact command that fails, and the specific assertion/error it demonstrates\n- **Targeted and full regression commands** — not placeholders\n- **Expected failure mode** — what exactly the check shows is broken\n- **Environment and fixtures** — dependencies, test data, services\n- **Negative/mutation proof** — how to demonstrate the test actually catches the fix (not just a check that passes by accident)\n\nFrom `/cc-tuner:spec`:\n\n> \"A pending `TBD`, \"as appropriate\", unknown test command, or unstated expected failure means the spec is not ready.\"\n\n**Next step:** Use `/cc-tuner:spec` to grill the problem and write out the complete executable contract. Only then can `/cc-tuner:run` work the plan."
+      },
+      {
+        "model": "haiku",
+        "sample": 2,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "No. `/run` cannot start implementation.\n\nThe spec fails the **Definition of Ready** that `/cc-tuner:spec` establishes in section 3 of its SKILL.md. It must resolve:\n\n- the **first failing regression check** or honest non-code baseline\n- **targeted and full verification commands**, environment, fixtures, and external dependencies\n- acceptance **evidence** (a deciding command or human step per criterion)\n\nA spec that says only \"run tests\" under verification is incomplete. It names no:\n\n- **Regression test** — what code or assertion captures the bug\n- **First failing check** — the exact command and the specific assertion/error proving the gap\n- **Targeted checks** — which commands verify the fix\n- **Full regression** — the entire command suite\n- **Environment** — services, fixtures, test data, credentials\n- **Negative/mutation proof** — how the test is shown to fail without the fix\n\nThese are not decoration. Section 5 of `/cc-tuner:spec` is explicit: \"not applicable\" is valid *only* with a concrete reason and an alternative baseline/diff check — never because the work is inconvenient.\n\n**Next step:** Run `/cc-tuner:spec` on that issue to grill the problem, name the exact failing check, capture the current failure, and write an executable test plan. Only then does `/cc-tuner:run` have what it needs to work and to prove the fix."
+      },
+      {
+        "model": "haiku",
+        "sample": 3,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "**No.** The spec is incomplete. `/run` cannot start.\n\nPer the `/run` skill's **Before starting** section:\n\n> **Read the spec named in `$ARGUMENTS`.** No path, or no such file → stop. **It is not decoration: the spec carries the target branch, the merge strategy, `auto_ready`, the test plan, the acceptance criteria and the Definition of Done.**\n\nA spec that lists only \"run tests\" has no test plan. The `/spec` skill requires explicit:\n\n- **Regression test**: the path and assertion to add or existing check\n- **First failing check**: exact command, and the specific error/assertion proving the gap\n- **Expected failure**: what you see when it's broken (before the fix)\n- **Environment**: services, fixtures, test data, credentials boundary\n- **Negative/mutation proof**: how the test is shown to fail without the fix — or `not applicable — <concrete reason>` with an alternative baseline/diff check\n\nA spec without these has no way to verify the fix works, has no way to prove the test actually tests something (RED before GREEN), and has no proof that the solution touches the right code.\n\n**Next step:** Run `/cc-tuner:spec` to complete the specification. It owns discovery and readiness; `/run` owns delivery only when the spec is ready."
+      },
+      {
+        "model": "haiku",
+        "sample": 4,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "No. `/run` **cannot start implementation** with that spec.\n\nThe spec is **not ready for delivery**, and `/run` is explicitly designed to stop if it isn't.\n\nFrom the `/run` skill:\n\n> **Read the spec named in `$ARGUMENTS`.** No path, or no such file → stop. It is not decoration: the spec carries the target branch, the merge strategy, `auto_ready`, the test plan, the acceptance criteria and the Definition of Done.\n\nThe test plan is the critical contract. Your spec is missing:\n\n- **Exact regression test path** — \"run tests\" is a direction, not a test  \n- **Exact command and expected failure** — `/run` must see the check *fail* before the fix (RED before GREEN) and prove which assertion proves the gap  \n- **Environment, fixtures, test data** — what services, databases, credentials, or state does the test need?  \n- **Negative/mutation proof** — *how* is the test shown to fail without the fix? For bugs, a mutation proof is required; the spec's call, not `/run`'s, to decide whether it's a mutation or a baseline diff check\n\nFrom `/run`'s \"Proving a slice, before it counts as done\":\n\n> A slice is done when its acceptance criteria hold **and** you can show why you believe it. An earlier revision of this skill said only \"work it, complete it\", which is not a discipline — it is a hope.\n\nAnd crucially:\n\n> Run the negative proof the spec assigned — not one per slice... Execute what it names; do not invent a mutation for a slice whose spec did not ask for one, and do not skip one it did.\n\n**The spec must be written and committed via `/cc-tuner:spec` first.** That skill owns discovery and readiness. It grills the problem, names exact verification commands, and records the negative proof before `/run` even starts. A vague spec sent to `/run` reproduces the exact failure the rework was designed to prevent: a run that guesses at test commands and lacks proof of the gap.\n\nRun `/cc-tuner:spec` on the issue. Grill the test plan until every command is exact, the first failure is reproducible and named, and the negative proof is explicit."
+      },
+      {
+        "model": "haiku",
+        "sample": 5,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "No. `/run` cannot start.\n\nPer the `/run` skill documentation (Before Starting section), the spec must carry:\n- **exact test commands** — \"unknown test command... means the spec is not ready\"\n- **expected failure specifics** — \"unstated expected failure means the spec is not ready\"  \n- **negative/mutation proof** — named file, command to revert behavior, and check that goes red\n\nYour spec has a gap at each:\n- \"run tests\" is not an exact command\n- Expected failure is unstated\n- Negative proof is missing\n\nThe Definition of Ready in `/run`'s spec template requires: *\"commands, expected first failure, environment, and data are explicit\"*. Saying only \"run tests\" violates that contract — `/run` would have no objective measure of success, no way to verify the fix actually works, and no guard against a check that never failed in the first place.\n\n**Next step:** Run `/cc-tuner:spec` on the bug issue. Section 3 (\"Grill the problem\") asks these questions one at a time until answers stabilize:\n- What is the exact first failing check that proves the bug?\n- What error or assertion does it show?\n- What environment, fixtures, or data does that check need?\n- How will the test be shown to fail without the fix? (the mutation proof)\n\nWhen `spec` commits the plan, it will be ready for `/run --auto`."
+      },
+      {
+        "model": "haiku",
+        "sample": 6,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "**No.** `/cc-tuner:run` cannot start. The spec is incomplete.\n\nThe `/run` skill's preamble states:\n\n> **Read the spec named in `$ARGUMENTS`.** No path, or no such file → stop. **It is not decoration: the spec carries the target branch, the merge strategy, `auto_ready`, the test plan, the acceptance criteria and the Definition of Done.**\n\nUnder \"Proving a slice, before it counts as done,\" it requires:\n\n- **Run the first failing check first** — the spec must name the exact command and expected failure\n- **Run the negative proof the spec assigned** — the spec must say what has to be shown (mutation file/revert command, or alternative baseline check)\n- **Run what the spec's test plan names** — targeted checks, full regression, and environment\n\nThe spec in your scenario lacks:\n- ❌ Regression test path and assertion\n- ❌ Exact command for first failing check\n- ❌ Expected failure (specific assertion/error proving the gap)\n- ❌ Targeted/full test commands\n- ❌ Environment, fixtures, test data, credentials boundary\n- ❌ Negative/mutation proof (how the test is shown to fail without the fix)\n\nThe `/spec` skill's contract is explicit:\n\n> \"For a documentation-only or mechanical task, `First failing check` and `Negative/mutation proof` may say `not applicable` only with a concrete reason and an alternative baseline/diff check. **Do not use `not applicable` merely because writing a regression test is inconvenient.**\"\n\nAnd:\n\n> \"A pending `TBD`, \"as appropriate\", unknown test command, or unstated expected failure means **the spec is not ready.**\"\n\n**Next step:** Run `/cc-tuner:spec` on this bug to grill the problem and produce an executable test plan before calling `/run`."
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "No. `/cc-tuner:run` **refuses to start** because the spec is not ready.\n\nFrom the `/cc-tuner:run` skill:\n\n> **Read the spec named in `$ARGUMENTS`.** No path, or no such file → stop. It is not decoration: the spec carries the target branch, the merge strategy, `auto_ready`, **the test plan**, the acceptance criteria and the Definition of Done.\n\nAnd from `/cc-tuner:spec` section 3 (Grill the problem):\n\n> A pending `TBD`, \"as appropriate\", unknown test command, or unstated expected failure **means the spec is not ready.**\n\nA spec that lists only \"run tests\" under verification is missing required Definition of Ready details:\n\n- ❌ Regression test **path** and assertion\n- ❌ **Exact command** for the first failing check  \n- ❌ **Expected failure** (specific assertion/error proving the gap)\n- ❌ Targeted checks (exact commands)\n- ❌ Full regression command (exact command)\n- ❌ Runtime/acceptance environment, fixtures, test data\n- ❌ Negative/mutation proof (or documented `not applicable` with reason)\n\n**The fix:** Run `/cc-tuner:spec` first to grill the problem. That skill will:\n- Extract concrete verification commands from the codebase\n- Name the regression test path and exact assertion\n- Document the environment and fixtures needed\n- Define what \"expected failure\" means for this bug\n\nOnce the spec is grilled and committed with those details explicit, `/cc-tuner:run` will have what it needs to verify the fix and proceed to delivery."
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "class": "correct",
+        "note": "refuses to start and names what is missing: the exact first failing command and the failure that proves the gap",
+        "answer": "No. `/run` cannot start implementation with this spec.\n\nFrom the `/cc-tuner:spec` skill:\n\n> A pending `TBD`, \"as appropriate\", unknown test command, or **unstated expected failure** means the spec is not ready.\n\nThis spec is missing the precisioning that makes a spec executable:\n\n**From the DoR checklist** (must be complete before work starts):\n- ❌ \"the first failing regression check or an honest non-code baseline\" — not stated\n- ❌ \"targeted and full verification commands, environment, fixtures, and external dependencies\" — vague \"run tests\" is not a command\n\n**From the Test Plan section** (required in the committed spec):\n- ❌ Regression test — not named\n- ❌ First failing check: `<exact command>`; expected failure: `<specific assertion/error proving the gap>` — missing both\n- ❌ Negative/mutation proof — not named\n\nThe spec does say it can use `not applicable` *only with a concrete reason*:\n\n> For a documentation-only or mechanical task, `First failing check` and `Negative/mutation proof` may say `not applicable` only with a concrete reason and an alternative baseline/diff check. Do not use `not applicable` merely because writing a regression test is inconvenient.\n\nBut \"use only 'run tests'\" doesn't qualify — it's neither a concrete reason nor an alternative baseline.\n\n**What happens if you try:**\n- `/run` will read the spec per its contract.\n- \"Verify that SHA\" requires the exact test commands from the spec — `/run` cannot invent them.\n- Proving a slice means \"show why you believe it\": RED before GREEN requires the exact failing check on record first.\n- Without these, acceptance is guesswork, not evidence.\n\n**Next step:** Hand the spec back to `/cc-tuner:spec` with the problem stated. It will grill out the exact commands, the expected failure, the environment, and how to prove the fix actually fixes what it claims."
       }
-    ]
-  }
+    ],
+    "reproduction": {
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
+    },
+    "verdict": "green",
+    "protocol_version": 2
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0",
+    "plugins/cc-tuner/skills/spec/SKILL.md": "6930edce603fe3180918be146ef59a94691122dad5a48888f6b7655d8b8b96a7"
+  },
+  "decision_question": "Does it refuse to implement, and require the exact first failing command plus the failure that proves the gap?"
 }

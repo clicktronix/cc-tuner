@@ -47,7 +47,7 @@ silently if that ever breaks. The OAuth token is read locally and only sent to
 
 Canonical git workflow — branch naming, Conventional Commits (incl. breaking
 changes), PR verification gates, GitHub Projects board recipes (create-on-board,
-field-ID caching, card lifecycle), plan lifecycle (`wiki/PLANS/` → `ARCHIVE`,
+field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 `docs/` fallback), and anti-pattern case studies with dated incidents.
 
 The always-on core installs per repo via `/cc-tuner:task-flow-setup` (plugins
@@ -57,11 +57,9 @@ and optional cleanup of legacy hand-copied rule files.
 
 ### `deep-review`
 
-A read-only, exact-candidate review skill for `/run` and direct use. It reviews the complete committed
-diff through correctness, spec/scope, repository standards, architecture/systemic effects,
-security/data safety, and testing/operability lenses. It may fan out those independent lenses against
-the same immutable SHA, then validates and deduplicates their output without a top-ten cap. Its
-verdict includes both commit and tree SHA; any later change invalidates approval.
+A read-only exhaustive review for large, cross-boundary, or sensitive candidates. It fans out six
+independent lenses against one immutable SHA, then validates and deduplicates their output without a
+top-ten cap. Ordinary changes use the Matt Pocock review and the final Codex gate instead.
 
 ### `smoke-verify`
 
@@ -88,24 +86,33 @@ routes the agent to do it.
 
 ## /spec and /run
 
-The task loop, split in two on purpose.
+The task loop has two commands. `/cc-tuner:spec` does the discovery, creates the task branch, confirms
+the contract and vertical slices once, then commits the spec and plan and — when the Task tools are
+available — publishes the slices as native tasks. `/cc-tuner:run` works that plan to a merged pull
+request; `--auto` removes its delivery stops when the spec is auto-ready.
 
-`/cc-tuner:spec <issue | description>` does all the asking. It reads the repo, issue, architecture,
+`/cc-tuner:spec <issue | description>` does all the discovery and planning. It reads the repo, issue, architecture,
 code, tests, and consumers, grills requirements via `mattpocock-skills:grilling` plus
-`mattpocock-skills:domain-modeling`, and commits an executable contract. Its DoR names the observed
+`mattpocock-skills:domain-modeling`, and drafts an executable contract. Its DoR names the observed
 baseline, first failing check and expected failure, targeted/full checks, environment and data. Every
 acceptance criterion names its deciding machine or human step; every `[eyes]` item records a machine
 replacement or waiver. Its DoD binds verification, reviews, PR head, and CI to the same candidate.
+It presents that contract and its tracer-bullet slices for one approval, writes both artifacts,
+validates the plan, commits the reviewed artifacts together, then publishes native tasks in two passes because `TaskCreate`
+takes no dependency argument.
 
-`/cc-tuner:run [--auto] <spec>` executes it. It first publishes a visible `TaskCreate` plan, then
-implements, performs explicit Testing & Code Verification, commits an immutable candidate, runs
-`cc-tuner:deep-review`, mattpocock review, and Codex review to exact-SHA approval, then opens the PR and
-accepts only current-head CI. Independent code-writing units alone may fan out into isolated
-worktrees; the parent owns integration and every later gate. Structured run state enforces phase
-transitions; the Markdown journal is audit narrative, not truth.
+`/cc-tuner:run [--auto] <spec>` works that plan. It asks the plan linter for the first safe ready
+batch, proves each slice
+RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
+ticks it off in the committed file, then commits a candidate, runs the Matt Pocock review once,
+adds `cc-tuner:deep-review` only for large or sensitive changes, and obtains Codex's required review
+at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green required CI on the same commit and
+`--match-head-commit` pinning it. Independent code-writing units alone may fan out into isolated
+worktrees; the parent owns integration and every later gate.
 
-Without `--auto`, `/run` stops at delivery boundaries and again before merge. With `--auto`, it runs
-unattended only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
+Without `--auto`, `/run` works local slice commits without interruption, then stops before the first
+push/PR, for a real unresolved decision or waiver, and before merge. With `--auto`, it runs unattended
+only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
 evidence, failed tests, stale review, unresolved `[eyes]`, missing current-SHA CI, or scope beyond the
 spec. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
 forbidden.
@@ -114,13 +121,26 @@ These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipel
 neither well: its intake step was marked "human gate, always", so full autonomy was structurally
 impossible, while the interactive work was compressed into one step of ten.
 
-Run progress lives in `.claude/execute-task-runs/<run-id>.state.json`, with ownership, allowed phase
-transitions, task bindings, gates, candidate identity, reviews, CI, and DoD recorded structurally.
-`journal.sh append` accepts evidence over stdin so backticks and command substitutions in logs cannot
-execute in the shell. A run that hits a condition only a human can resolve is blocked; `resume`
-reports that and refuses, and only an explicit `runctl.sh unblock` — which journals the decision —
-reactivates it. The visible Claude task list is recreated from structured state after compaction
-or resume.
+Run progress lives in the committed plan file and in Claude Code's own task list. There is no state
+file: the plan's `- [x]` ticks are the record that survives a session, the task list is the record
+that is visible inside one, and `git` and `gh` hold the delivery facts. Nothing keeps a second copy.
+
+The task list survives `/compact` and resume unchanged, which was measured, so nothing is restored
+there. A genuinely new session — `startup` or `/clear` — starts with an empty list, and a
+`SessionStart` hook asks the agent to rebuild it from the plan, emitting the unfinished slices with
+their blocking edges and every finished slice they still depend on. It asks: a command hook cannot
+call `TaskCreate`, so recovery is advisory in exactly the way the plan itself is.
+
+One thing checks rather than advises. `scripts/merge.sh <pr> <squash|merge> <candidate-sha>
+[review-thread]` re-reads the companion's exact-candidate approval, the public verdict, required CI
+and the head SHA, refuses unless they agree at that commit, and pins the head with
+`--match-head-commit` so it cannot move between the check and the merge. On a pull request that
+carries no cc-tuner plan it merges straight through: the plugin must not seize work that is not its own.
+
+`/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:
+earlier versions tried to judge arbitrary Bash text and alternated between bypasses and blocking
+unrelated merges. A raw CLI call, the merge button on github.com, `git push` and the REST API can all
+bypass this checked path. It is workflow discipline, not a local security boundary.
 
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).
@@ -137,7 +157,7 @@ match; `deep-review` is also available directly as `/cc-tuner:deep-review`. The 
 lifecycle playbooks remain explicit user commands: `/cc-tuner:statusline-setup`,
 `/cc-tuner:task-flow-setup` (the rule is installed only by this command),
 `/cc-tuner:smoke-verify-setup` (the hook stays inert until this command writes repo config),
-`/cc-tuner:spec`, and `/cc-tuner:run`.
+`/cc-tuner:spec` and `/cc-tuner:run`.
 
 ## Scope
 

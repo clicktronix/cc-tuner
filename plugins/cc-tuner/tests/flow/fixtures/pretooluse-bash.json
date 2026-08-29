@@ -1,0 +1,17 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/tmp/flow-transcript.jsonl",
+  "cwd": "/tmp/flow-repo",
+  "prompt_id": "flow-prompt",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "bash tests/test_arming.sh; echo \"EXIT=$?\"",
+    "description": "Run harness before the prototype exists"
+  },
+  "tool_use_id": "flow-tool-use"
+}

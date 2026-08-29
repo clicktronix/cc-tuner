@@ -76,7 +76,8 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
 **Card lifecycle:** In Progress when implementation opens after recording the prior status; Done after
 the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
-the card In Progress. One deferred review finding = one issue, never a buried comment-thread list.
+the card In Progress. One deferred review finding = one issue: an issue is trackable and outlives the PR, while a
+comment-thread list closes with the thread that held it.
 
 ## After the merge
 
@@ -113,6 +114,12 @@ invariant rather than a style preference. Two ways to consume them:
 Whichever is in use, a commit outside the Conventional format is a commit that will be missing from
 the notes; that is the actual cost of an off-format commit.
 
+**Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
+carries `Co-Authored-By:` or a session trailer is a preference — some repositories want the
+authorship visible, some want the history to read as the team's — so the answer lives in
+`.claude/rules/task-flow.md`, which the template ships a line for. Left unfilled, an agent falls back
+to whatever its harness does by default, and the repository ends up with a convention nobody chose.
+
 ## Merge strategies
 
 - Feature → `<target>`: **squash** + `--delete-branch` — linear trunk, WIP chain collapses.
@@ -120,13 +127,17 @@ the notes; that is the actual cost of an off-format commit.
   the stack lands on `<target>`. Squashing mid-chain orphans the SHAs of every PR above it.
 - Re-check the base of each stacked PR after the one below merges.
 
-## Plan lifecycle
+## Spec lifecycle (`PLANS/`)
+
+These are design documents — `/cc-tuner:spec` writes them and their execution plans. Execution plans
+are a different artifact with a different path (`task-plans/`) and a different lifecycle.
 
 1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
    plugin path.
 2. Worth keeping → promote to `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`. The plans root is `wiki/`
    when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
-   Minimum header: `Goal:`, `Architecture:`, then tasks with file paths.
+   Minimum header: `Goal:`, `Issue:`, and `Architecture:`. Slices, owned paths, and blockers live in
+   the separate execution plan that links back to this spec.
 3. First paragraph links the tracking issue; the issue body links the plan back.
 4. Completed → move to `<plans-root>/ARCHIVE/PLANS/` **in the same PR that completes the work** —
    never as a standalone doc PR.

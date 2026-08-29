@@ -1,12 +1,14 @@
 {
-  "skills": ["run"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-2--implement",
+  "skills": [
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/run/references/placement.md#parallelism-only-where-it-is-safe",
   "query": "Self-contained simulation; do not read the filesystem. Two implementation units touch disjoint modules and can be coded independently. Testing, acceptance, architecture review, PR creation, and merge remain. Decide what may run in parallel and who owns integration.",
   "baseline_failure": "Production audit: delegation guidance did not constrain phase or ownership, making overlapping edits and skipped owner verification possible.",
   "expected_behavior": [
     "Parallelizes only the independent code-writing units in isolated worktrees",
     "Assigns exact non-overlapping paths, acceptance slices, and scoped tests",
-    "Keeps integration, authoritative testing, acceptance, review, delivery, and merge with the parent"
+    "Keeps integration, authoritative testing, acceptance, the review decision, delivery, and merge with the parent"
   ],
   "anti_expectation": [
     "Does not parallelize lifecycle phases",
@@ -25,13 +27,78 @@
     "verdict": "reproduced; implementation-only parallelism and single-parent integration are load-bearing"
   },
   "green_check": {
-    "date": "2026-08-10",
+    "date": "2026-08-25",
+    "measured_against": "The skills as shipped at 3229c57, sampled under protocol version 2: isolated with `--safe-mode`, so no CLAUDE.md, plugin, skill or hook of the operator reaches the probe, and only the files in `measured_targets` are supplied. Both re-pinned queries -- the spec-assigned mutation and the presence of the task tools -- were committed at that SHA, before these answers existed.",
     "runs": [
       {
         "model": "haiku",
-        "pass": true,
-        "note": "parallelizes only isolated disjoint coding and scoped checks while the parent retains integration, acceptance, review, PR, and merge"
+        "sample": 1,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "Based on the `placement.md` rules in your cc-tuner configuration, here's the parallel work and integration model:\n\n## What May Run in Parallel\n\n**Two code-writing units** (one isolated git worktree each):\n- Each unit writes independently into its own worktree, commits locally\n- No blocking between them — both can progress concurrently\n- Each unit's own checks run during writing (not part of the testing decision)\n\n**Review lenses only** (once the candidate is immutable):\n- If you reach code review, independent read-only reviewers (`deep-review` lenses) can fan out over the same candidate SHA\n- The review *decision* stays sequential: one owner reads all lenses and publishes one verdict\n\n## What Cannot Parallel\n\n- ❌ Testing decisions (merged candidate against the full regression)\n- ❌ Acceptance criteria judgment  \n- ❌ Architecture review verdict (one owner, one decision)\n- ❌ PR creation, review hand-off, merge\n\n---\n\n## Integration Ownership\n\n**The person who fanned out the work owns all of:**\n\n1. **Taking both units' commits into a single candidate** — you pull both worktrees' commits onto the task branch, creating one SHA\n2. **Running authoritative tests** — full regression on the assembled candidate (not delegated to the units)\n3. **Carrying it through review** — one review pass, one verdict published at that SHA\n4. **Opening the one PR** — single pull request with that candidate as the head\n5. **Merging** — using the spec's merge strategy\n\n**Units hand back:** commits only. Not PRs, not CI checks, not approval claims. The owner integrates them.\n\n---\n\n## Suggested Workflow\n\n```\nUnit A (worktree)  →┐\n                    ├→ Owner: merge to candidate → test → review → verdict → merge\nUnit B (worktree)  →┘\n```\n\nWould you like me to check the actual plan to verify the slice dependencies, or do you need help setting up the two worktrees?"
+      },
+      {
+        "model": "haiku",
+        "sample": 2,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "# Parallelism and Integration Decision\n\nGiven two implementation units touching **disjoint modules**:\n\n## What may run in parallel\n\n✅ **Code writing only** — each unit gets its own isolated git worktree. They code independently with no interference.\n\nEach unit:\n- Writes its slice to its worktree\n- Runs its own checks while coding (fast feedback)\n- Hands back a commit (not a PR)\n\n## What stays sequential\n\n❌ **Everything else**:\n- **Testing decisions** — run the full test suite once, on the assembled candidate\n- **Review** — one verdict for the combined candidate, not separate reviews per unit\n- **Acceptance** — one gate, one Definition of Done check\n- **Delivery** — one PR, one merge, one decision\n\n## Integration ownership\n\nThe **parent owner** (the agent/person who fanned the work out) remains the single owner:\n\n1. **Collect** both units' commits into a single branch/candidate SHA\n2. **Test** that combined candidate against the full regression suite (not unit tests)\n3. **Review** the combined candidate once (independent lenses may fan out, but the verdict is one)\n4. **Publish** one verdict tied to that SHA\n5. **Merge** via the checked merge script\n\n**Why this matters**: If unit A breaks unit B's integration, discovering it only after merging is past the point where it counts. One candidate tested together catches cross-unit issues before they land.\n\n---\n\nWhat is the spec path for this work? If you have a committed plan, I can read it and work the frontier according to `/cc-tuner:run` rules."
+      },
+      {
+        "model": "haiku",
+        "sample": 3,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "# Parallelism and Integration Ownership\n\nBased on the **`placement.md`** reference in your `/cc-tuner:run` skill, here's the framework:\n\n## What May Run in Parallel ✅\n\nTwo units **may run concurrently** in isolated git worktrees if:\n- Their **Owned paths** do not overlap (confirmed: disjoint modules ✓)\n- Each writes independently to its own worktree\n- **No shared testing decision** between them\n\nEach unit:\n- Runs its own checks **while writing** (those are part of the writing phase)\n- Hands back **commits only**, not a PR\n- Does not merge or claim approval\n\n## Who Owns Integration ⚙️\n\n**The original task owner** — whoever fanned the work out — owns:\n\n1. **Candidate assembly**: Take commits from both units → single integration branch\n2. **Authoritative testing**: Run the full regression suite on the *assembled* candidate (not each unit's tests separately)\n3. **Acceptance criteria**: Verify against the spec's requirements on the integrated code\n4. **Single review cycle**: One candidate → one review → one verdict (not two reviews for two units)\n5. **PR and merge**: One PR that lands both units' commits together\n\n## The Critical Rule\n\n> A fanned-out unit hands back commits, never a pull request. Whoever fanned the work out is the one owner: they take the units' commits into a **single candidate**, run the authoritative tests on that candidate, carry it through one review to one verdict, and open the one pull request that merges.\n\n**One plan, one candidate, one verdict, one merge.**\n\n---\n\nDoes your spec commit a plan file? If so, I can help you set up the units in isolated worktrees and walk the integration flow according to your spec's test plan and Definition of Done."
+      },
+      {
+        "model": "haiku",
+        "sample": 4,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "# Parallelism Decision\n\nBased on `references/placement.md` and the current state, here's the strategy:\n\n## What Runs in Parallel\n\n**The two independent code-writing units** — each in its own isolated git worktree, operating on disjoint modules with no path overlap. Each unit:\n- Writes code and commits\n- Runs local checks while writing (unit tests, linting)\n- Hands back commits *only* — no PR, no merge attempt\n\n**Why isolated worktrees:** Two branches mutating the same working tree creates race conditions on file state and merge conflicts. Isolation guarantees they do not interfere.\n\n## What Stays Sequential (One Owner)\n\nThe **integration owner** takes both units' commits onto the main task branch and:\n1. **Assemble the candidate** — cherry-pick or rebase both units' commits into one coherent SHA\n2. **Run full regression testing** — the spec's test plan over the integrated candidate (never parallel decision-making about test results)\n3. **Architecture review** — one verdict, one reviewer, one candidate immutable during review\n4. **PR creation and delivery** — open one PR for the integrated candidate, obtain required approval on that exact SHA, merge via the checked script\n\n## Why Not Parallel for Testing/Review/Merge\n\n- Testing and architecture review read a single candidate that must not change mid-decision\n- Two approval decisions about two separate SHAs = two things nobody reviewed together\n- Delivery (push, PR, merge) is ordered: a new commit invalidates everything downstream\n\n## Who Owns It\n\nDetermine:\n1. **Unit A owner** — writes code in worktree A, commits\n2. **Unit B owner** — writes code in worktree B, commits  \n3. **Integration owner** (likely you) — takes both units' commits, runs regression, carries the assembled candidate through one review, one PR, one merge\n\nIs this the structure you want to implement, or do you need me to examine the actual plan file to see which slices correspond to these units?"
+      },
+      {
+        "model": "haiku",
+        "sample": 5,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "# Parallelism and Integration for Two Independent Units\n\nBased on your `placement.md` rules, here's the safe parallel structure:\n\n## ✓ What may run in parallel\n\n**The two implementation units** — each in an isolated git worktree using `EnterWorktree` — since they touch disjoint `Owned paths`. Each unit:\n- Writes code to its module independently\n- Runs its own development checks while coding (TDD, local tests)\n- Commits its changes\n- **Hands back commits, not a PR**\n\nThis is the parallelism that lives in the writing.\n\n## ✗ What stays sequential\n\n- **Testing decision** — one owner runs the authoritative test suite once on the assembled candidate (both units' commits combined)\n- **Acceptance criteria** — one verdict on the unified candidate\n- **Architecture review** — one lens over the integrated result\n- **PR creation** — one PR with one head SHA\n- **Merge** — one merge strategy, one merged state\n\n## Who owns integration\n\n**You** — the orchestrator who launched the two worktrees. Your responsibilities:\n\n1. **Collect commits**: Pull each unit's commits into the task branch (or rebase them into one branch)\n2. **Run the full test suite** on the combined candidate — this is the decision point, not during parallel work\n3. **Run the spec's Definition of Done checks** (mutations, negative proofs, regression) on that one SHA\n4. **Carry one candidate through one review** to one verdict\n5. **Open the one PR** and merge via the checked merge script\n\n**The units do not open their own PRs.** Two candidates reviewed apart is two things nobody reviewed together — that's the defect this separation prevents.\n\n---\n\n**Next step**: Do you have a spec file I should read to confirm the test plan, acceptance criteria, and Definition of Done that will gate the merged candidate? That tells me whether your two units align with the slices the spec names."
+      },
+      {
+        "model": "haiku",
+        "sample": 6,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "# Parallelism Structure for Two Independent Units\n\nBased on the placement guidance, here's the safe parallelization:\n\n## What May Run in Parallel\n**Implementation writing only** — the two units code independently in separate git worktrees because their owned paths do not overlap. Each unit:\n- Writes their slice of code\n- Runs their own focused unit checks *while writing* (part of the writing process, not a gate)\n- Commits their changes to their worktree\n- Hands back commits to the owner\n\n## What Must Stay Sequential\n- **Testing decision**: One authoritative test run on the assembled candidate (after both units' commits are merged)\n- **Acceptance criteria**: Evaluated once against the single candidate\n- **Architecture review**: Deep-review and code-review run against the immutable assembled candidate, not unit-by-unit\n- **PR and merge**: One PR for both units, one verdict, one merge\n\n## Integration Ownership\n**The person who fanned out the work** owns:\n1. **Assembly**: Pull both units' committed changes into a single task-branch candidate\n2. **Authoritative testing**: Run full regression on the assembled candidate\n3. **Review gateway**: Carry the single candidate through review (where independent lenses *may* fan for read-only analysis, but the verdict decision stays unified)\n4. **Delivery**: One PR, one verdict comment, one merge\n\n## Why This Pattern\n- Two units never test their integration separately — they answer separate questions about a candidate that has not changed, invalidating both\n- A candidate with uncommitted changes from either unit cannot be reviewed or merged\n- GitHub can only review one PR head; two PRs merged separately means nobody reviewed them together\n\n**Rule:** One plan, one candidate, one verdict, one merge."
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "Based on the placement reference guide, here's the decision structure for your scenario:\n\n## What may run in parallel\n\n**The two implementation units:** Yes, safely fan out.\n- Each runs in its own isolated git worktree\n- Both touch disjoint modules (no overlapping `Owned paths`)\n- Each unit runs its own **checks while writing** — those are part of writing, not a second opinion about the candidate\n\n## What stays sequential\n\n- **Testing decision:** One authoritative test run on the assembled candidate (after both units commit)\n- **Acceptance & architecture review:** Single pass over the integrated candidate\n- **PR creation, review verdict, merge:** All remain sequential; they read one candidate nobody is changing\n\n## Ownership & integration\n\n**One owner orchestrates both units:**\n\n1. **Receive commits from both units** — no unit opens its own PR or claims its own approval\n2. **Integrate into a single candidate** — one commit incorporating both units' work (or a merge commit if slices are git-tracked separately, but one head)\n3. **Run the authoritative test suite once on that candidate** (the spec's full regression)\n4. **Run architecture review (deep-review + code-review) once** on that candidate\n5. **Obtain one verdict** from the required approval step\n6. **Open one PR**, **merge once**\n\n## The contract\n\n- Each unit hands back commits ready to merge, not PRs\n- Unit A doesn't wait for unit B's review, but **both commit before any testing decision**\n- Two candidates reviewed apart are two things nobody reviewed together — you must have one\n- If unit A's commit forces unit B to change files (merge conflict or behavior dependency), they are not disjoint and cannot fan out\n\n**The rule in one sentence:** Parallelism lives in the writing; the decision stays singular."
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "class": "correct",
+        "note": "parallelises the code-writing units only, counts a unit's own checks as writing, and keeps the testing decision, verdict, delivery and merge with one owner on one assembled candidate",
+        "answer": "I need more context to give you a sound decision. You've described the shape of the work, but I'm missing the spec and plan that define the ownership, acceptance criteria, and integration points.\n\nTo advise on parallelism and integration ownership, I need to know:\n\n1. **What's the spec?** — the target branch, test plan, acceptance criteria, Definition of Done, and any constraints on merge strategy\n2. **What are the two units?** — their `Owned paths` (the modules/files each will touch)\n3. **What's the plan?** — the committed slices and their dependencies, read from the spec's plan file\n\n**Per the placement reference in your system context**, two slices are independent **when their `Owned paths` do not overlap**. If they do overlap, they're one unit, and you can't fan them out.\n\n**The rules are:**\n- ✅ **Parallel code-writing** across disjoint modules (one isolated worktree each)\n- ❌ **Never parallel** testing decisions, review decisions, or delivery steps — those read a candidate that changes\n- ✅ **Review is the exception** — independent read-only lenses over *one immutable* candidate\n- 📋 **Integration owner**: whoever fanned the work out takes the units' commits into a single candidate, owns the tests and review, and opens the single PR/merge\n\n**Tell me:**\n- What spec and plan are we working from? (I'll read them)\n- What are the `Owned paths` for each unit?\n- What are the integration points between them?\n\nThen I can tell you what may run in parallel and who owns stitching it together."
       }
-    ]
-  }
+    ],
+    "reproduction": {
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
+    },
+    "verdict": "green",
+    "protocol_version": 2
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0",
+    "plugins/cc-tuner/skills/run/references/placement.md": "3defaef41e2fd0892b121c07e3a0a1509da53657c973a10f2d43cb1409e89ae6"
+  },
+  "decision_question": "Does it parallelise only the code-writing units — a unit's own scoped checks count as writing — while keeping the authoritative testing decision, the review verdict, delivery and merge with one owner on one assembled candidate?"
 }

@@ -21,7 +21,7 @@ Claude Code plugins can't register a statusline on their own — it has to live 
 user's `settings.json`. Run the bundled command, which copies the script and wires it
 in (with a settings backup):
 
-**To set it up, follow `${CLAUDE_PLUGIN_ROOT}/commands/statusline-setup.md`** —
+**To set it up, follow `${CLAUDE_PLUGIN_ROOT}/skills/statusline-setup/SKILL.md`** —
 `/cc-tuner:statusline-setup` (install by default; also `update`, `remove`, `status`).
 After install, the user restarts Claude Code or runs `/reload`.
 

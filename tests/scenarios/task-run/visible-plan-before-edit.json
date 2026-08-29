@@ -1,12 +1,15 @@
 {
-  "skills": ["run"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-1--publish-the-execution-plan",
-  "query": "Self-contained simulation; do not read the filesystem. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
+  "skills": [
+    "plan",
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/plan/SKILL.md#publish-the-visible-plan",
+  "query": "Self-contained simulation; do not read the filesystem. The native task tools (TaskCreate, TaskUpdate, TaskList) are available in this session. You have opened a valid spec with three implementation tasks and are about to edit the first source file. No visible Claude task list exists yet. What must happen before the edit?",
   "baseline_failure": "Production incident: /run proceeded from prose directly into edits; the UI never showed the lifecycle plan and later review/merge work disappeared from the agent's active plan.",
   "expected_behavior": [
     "Creates visible TaskCreate items before the first repository mutation",
-    "Includes implementation, testing, acceptance, candidate review, PR/current-SHA CI, and DoD/merge/reconciliation",
-    "Links blockers and keeps one item in_progress through TaskUpdate"
+    "Creates one task per plan slice, carrying what it delivers and its acceptance criteria",
+    "Links blockers with TaskUpdate addBlockedBy for every edge the plan file names"
   ],
   "anti_expectation": [
     "Does not substitute a prose plan or journal paragraph for the task list",
@@ -25,13 +28,81 @@
     "verdict": "partial hold; the visible-list instinct is native, but the complete lifecycle plan is supplied by the workflow"
   },
   "green_check": {
-    "date": "2026-08-10",
+    "date": "2026-08-25",
+    "measured_against": "The skills as shipped at 3229c57, sampled under protocol version 2: isolated with `--safe-mode`, so no CLAUDE.md, plugin, skill or hook of the operator reaches the probe, and only the files in `measured_targets` are supplied. Both re-pinned queries -- the spec-assigned mutation and the presence of the task tools -- were committed at that SHA, before these answers existed.",
     "runs": [
       {
         "model": "haiku",
-        "pass": true,
-        "note": "creates implementation plus every downstream lifecycle task, blockedBy order, state bindings, and the HITL boundary before editing"
+        "sample": 1,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Before editing the first source file, the plan's slices must be **published as visible tasks**.\n\nEven though the plan file is committed and represents the durable state, the native task tools need to create the visible task list so progress can be tracked and dependencies are explicit.\n\nThis happens in **two passes**:\n\n1. **TaskCreate** — one task per slice in order, with subject = slice title and description = what it delivers + acceptance criteria\n2. **TaskUpdate** with `addBlockedBy` — establish every blocker edge from the plan\n\nAfter those two passes, **TaskList** should show all slices with their dependencies wired. Only then start work on the first slice from the frontier.\n\nThis is important because:\n- The task list is the visible projection of the plan — the plan file is the state, but the task list is what a watcher sees\n- Dependencies on the tasks will be enforced (or at least visible) when you mark tasks `in_progress` and `completed`\n- The full regression tests and acceptance criteria are right there on each task, not scattered across the session"
+      },
+      {
+        "model": "haiku",
+        "sample": 2,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Based on the skill documentation you've shared, **the plan must be published as a visible task list before you edit**.\n\nThe sequence is:\n\n1. ✓ Spec is opened and committed\n2. ✓ Plan is created and committed (three slices with their ordering and acceptance criteria)\n3. **→ Plan must be published as tasks** (this is missing)\n4. Then work begins\n\nTo publish the plan:\n\n1. **Create tasks** — one `TaskCreate` per slice, in order, with the slice title as the subject and the delivery + acceptance criteria as the description.\n\n2. **Add dependencies** — two passes of `TaskUpdate addBlockedBy` to establish the edges between slices (which slices block which).\n\n3. **Verify** — `TaskList` to confirm the edges are present and correct.\n\nWhy this must happen first:\n- The visible task list is the **only durable progress marker** that survives the session and is seen by anyone watching.\n- The plan file stores the spec and ordering, but the task graph is what drives the actual work sequence — `/cc-tuner:run` reads the plan's `frontier` to find what *may* start, not the task list.\n- Without the task graph published, slices appear disconnected even though the plan document orders them.\n\nThe `/cc-tuner:run` skill says it explicitly: *\"If the task tools are there and `TaskList` is empty, publish the plan's slices\"* — before the loop that ticks checkboxes and advances the work.\n\nIs the plan file already committed, or does `/cc-tuner:plan` still need to run?"
+      },
+      {
+        "model": "haiku",
+        "sample": 3,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Before editing the first source file, **the plan's slices must be published as a visible task list**.\n\nAccording to the `/cc-tuner:run` workflow, when task tools are available and `TaskList` is empty:\n\n1. **Create tasks for each slice** — `TaskCreate` for every slice, in order. The subject is the slice title; the description includes what it delivers and its acceptance criteria.\n\n2. **Add blocking edges** — `TaskUpdate` with `addBlockedBy` for every dependency between slices.\n\n3. **Verify** — `TaskList` to confirm all edges are correct. The visible task list is a projection of the plan file's state, and the edges are critical — they're the half that an incomplete implementation would drop silently.\n\nThis happens **before** touching any source file because:\n- The plan file is the durable store (committed to git); the task list is the visible projection\n- Starting work without publishing the visible plan means nobody watching sees progress or dependencies\n- The frontier check (`plan-lint.sh frontier`) reads from the plan file, not the task list, so the workflow works either way — but publishing makes the dependencies visible and actionable\n\nOnce the visible task list exists with all edges, you're ready to ask the plan what may start first and begin the first slice."
+      },
+      {
+        "model": "haiku",
+        "sample": 4,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Before editing the first source file, **the plan must be published as a visible task list.**\n\nFrom the `/cc-tuner:plan` and `/cc-tuner:run` skill documentation:\n\nSince the task tools are available and the visible task list is empty, you must:\n\n1. **Create tasks for each slice** in order using `TaskCreate`\n   - Subject: the slice title\n   - Description: what it delivers + acceptance criteria\n\n2. **Add blocking edges** using `TaskUpdate` with `addBlockedBy`\n   - One update per dependency edge in the plan\n\n3. **Verify with `TaskList`** that the edges match what's in the plan file\n\nThe reason this happens *before* editing: **The plan file is the durable state; the visible task list is a projection of it.** A task list makes progress visible to watchers, but more importantly, it enforces the dependencies—the blocked-by edges are what prevent starting a slice before its blockers are complete. The plan file itself survives the session; the task tools are the operational check on each turn.\n\nThe `/cc-tuner:run` skill notes this explicitly:\n> \"If the task tools are there and `TaskList` is empty, publish the plan's slices — two passes, `TaskCreate` then `TaskUpdate addBlockedBy`.\"\n\nOnce those tasks exist with their edges in place, the frontier is visible and the first slice can start."
+      },
+      {
+        "model": "haiku",
+        "sample": 5,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Before editing the first source file, the **visible task list must be published** to match the committed plan. Here's what must happen:\n\n1. **Resolve the plan path** — the plan file is the source of truth, not this conversation:\n   ```bash\n   bash \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh\" resolve\n   ```\n\n2. **Create tasks for every slice** — one `TaskCreate` per slice, in slice order. The subject is the slice title; the description is what it delivers plus its acceptance criteria (from the plan file).\n\n3. **Add blocking edges** — one `TaskUpdate` per edge, using `addBlockedBy` to encode which slices must finish before each one can start (from the plan file's `Blocked by:` field).\n\n4. **Verify the graph** — `TaskList` to confirm the edges match what's in the plan. The visible task list is a projection of the plan file's state, and they must stay in sync: a completed task with an unticked plan file is lost; a ticked file with no matching task is recoverable.\n\nWhy this must happen *before* the edit:\n- The `/run` skill's loop reads the plan file to ask what may start: `frontier` returns the slices ready now.\n- If there's no visible task list yet, the first slice looks orphaned — nobody watching sees progress, and the two sources (plan file and task list) diverge.\n- A watcher cannot see the work happening until the tasks are there to track it.\n\nOnce the tasks are published and the graph is right, **then** you work the frontier: ask the plan what may start, edit to implement it, and tick the checkboxes in both places as acceptance criteria are met."
+      },
+      {
+        "model": "haiku",
+        "sample": 6,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Before editing the first source file, you must **publish the committed plan to the visible task list**.\n\nPer the `/cc-tuner:run` skill:\n\n> If the task tools are there and `TaskList` is empty, publish the plan's slices — two passes, `TaskCreate` then `TaskUpdate addBlockedBy`.\n\nThis requires:\n\n1. **Read the plan file** to extract all slices, their titles, descriptions (what they deliver + acceptance criteria), and blocked-by edges.\n\n2. **`TaskCreate` for each slice** in order, with:\n   - Subject: the slice title\n   - Description: what it delivers + acceptance criteria\n\n3. **`TaskUpdate addBlockedBy`** for every dependency edge to connect the slices.\n\n4. **Verify with `TaskList`** that all edges are present and correct.\n\nThe visible task list is a projection of the plan file — they must stay synchronized, but the plan file is the durable store. Until the slices are published, nobody watching sees the scope or the blocking edges, and the first edit appears to start work that may be blocked by something else finishing first.\n\nDo you have the plan file path, or should I help resolve it from the current branch?"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "Before the edit, the plan's slices must be **published as native tasks**.\n\nAccording to the `/cc-tuner:run` skill documentation:\n\n> If the task tools are there and `TaskList` is empty, publish the plan's slices — two passes, `TaskCreate` then `TaskUpdate addBlockedBy`.\n\nIn your scenario:\n- ✓ The task tools are available (as noted in the system reminder)\n- ✗ No visible task list exists yet\n- → **The plan slices have not been published**\n\n**What must happen:**\n\n1. **First pass — TaskCreate**: Create a task for each of the three slices in the committed plan. Each task's subject is the slice title; description includes what it delivers plus acceptance criteria.\n\n2. **Second pass — TaskUpdate addBlockedBy**: For each slice, call `TaskUpdate` with `addBlockedBy` to establish which other slices must finish first. This captures the blocking edges from the plan file.\n\n3. Then — and only then — ask the plan what may start (`plan-lint.sh frontier`) and edit the first source file.\n\nThis two-pass approach is necessary because `TaskCreate` takes no dependency argument; the edges are added afterward. The visible task list is a projection of the plan file's state, not the state itself — the durable store is the committed plan, but the task list is what watchers see."
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "class": "correct",
+        "note": "publishes the visible list before the first mutation, naming both passes -- TaskCreate per slice, then addBlockedBy for every edge",
+        "answer": "According to the cc-tuner workflow (from the `/cc-tuner:run` skill), before editing source code:\n\n**Publish the plan's slices as visible tasks — two passes:**\n\n1. **Pass 1: Create tasks**  \n   Call `TaskCreate` for each of the three implementation tasks (slices), in order. Each task's subject is the slice title; its description includes what it delivers plus its acceptance criteria.\n\n2. **Pass 2: Add blocking edges**  \n   Call `TaskUpdate` with `addBlockedBy` for every dependency edge between tasks — so the task list shows which slices block which others.\n\n3. **Verify**  \n   Call `TaskList` and check that the edges in the visible task list match the edges in the plan file. This is the half a one-pass implementation drops silently; without it, the task list looks finished when work is not.\n\nOnly after these three tasks are visible and their edges are set should work on the first source file begin.\n\nThe reason: the plan file is the durable state that survives the session; the visible task list is the projection that a watcher sees. Skipping the publication means nobody watching sees progress, and the next session or teammate has no recorded status to read."
       }
-    ]
-  }
+    ],
+    "reproduction": {
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
+    },
+    "verdict": "green",
+    "protocol_version": 2
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/plan/SKILL.md": "6c009d99ba8049eadb5677befc333b918c3dac49081ef70f80fc3f528b2e7b53",
+    "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0"
+  },
+  "removed_targets": [
+    "plugins/cc-tuner/skills/plan/SKILL.md"
+  ],
+  "decision_question": "Does it publish the visible task list — TaskCreate per slice, then addBlockedBy for every edge — BEFORE the first repository mutation?"
 }

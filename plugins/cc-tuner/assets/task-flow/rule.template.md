@@ -3,7 +3,7 @@
 # Task flow — invariants
 
 Only the rules whose violation loses work, leaks secrets, or breaks history. Everything procedural —
-board recipes, epics, worktree cleanup, post-merge sync, merge strategies, changelog, plan lifecycle —
+board recipes, epics, worktree cleanup, post-merge sync, merge strategies, changelog, spec lifecycle —
 lives in the `cc-tuner:task-flow` skill, which loads when you need it. Where `task-flow.local.md`
 conflicts with this file, the local file wins.
 
@@ -45,6 +45,14 @@ a commit missing from the changelog.
 Breaking change: `!` after type/scope plus a `BREAKING CHANGE:` footer carrying the migration note.
 
 One commit = one logical change. A WIP chain during work is fine — squash-on-merge collapses it.
+
+**Attribution trailers:** `<none | Co-Authored-By: <agent> | ...>`
+
+Fill this in. Whether a commit made by an agent carries `Co-Authored-By:` or a session trailer is a
+decision each repository makes — some want the authorship visible, some want the history to read as
+the team's. cc-tuner does not hold an opinion; it reads this line. Left unfilled, an agent falls back
+to whatever its harness does by default, which is how a repository ends up with a convention nobody
+chose.
 
 ## Pull requests
 

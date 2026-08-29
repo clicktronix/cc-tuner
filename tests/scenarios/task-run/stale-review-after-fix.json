@@ -1,6 +1,10 @@
 {
-  "skills": ["run", "deep-review"],
+  "skills": [
+    "run",
+    "deep-review"
+  ],
   "tests_reference": "plugins/cc-tuner/skills/deep-review/SKILL.md#verdict",
+  "policy_status": "Historical evidence. Approval for SHA A still cannot authorize SHA B; current /run repeats the authoritative review rather than every advisory review.",
   "query": "Self-contained simulation; do not read the filesystem. Commit A was approved. A review finding then caused a code fix and commit B. Tests for B pass, but no reviewer has reviewed B. Is the old approval sufficient?",
   "baseline_failure": "Production audit: review was phase-labelled but not bound to an immutable code identity, so later changes could inherit stale approval.",
   "expected_behavior": [
@@ -25,13 +29,78 @@
     "verdict": "partial hold; complete downstream invalidation remains workflow-specific"
   },
   "green_check": {
-    "date": "2026-08-10",
+    "date": "2026-08-25",
+    "measured_against": "The skills as shipped at 3229c57, sampled under protocol version 2: isolated with `--safe-mode`, so no CLAUDE.md, plugin, skill or hook of the operator reaches the probe, and only the files in `measured_targets` are supplied. Both re-pinned queries -- the spec-assigned mutation and the presence of the task tools -- were committed at that SHA, before these answers existed.",
     "runs": [
       {
         "model": "haiku",
-        "pass": true,
-        "note": "rejects commit A approval and explicitly invalidates testing, acceptance, every review, CI, and DoD for commit B"
+        "sample": 1,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "**No.** The old approval is not sufficient.\n\nFrom the `/run` skill:\n\n> A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nCommit B is a new SHA. Even though it was written to fix a review finding on A, it must be reviewed at its own commit hash. Approval of A does not carry forward to B.\n\nThe skill distinguishes two cases:\n\n1. **A finding you refute or defer** (without code changes): no new commit needed. Re-run the review on the same SHA, and publish its verdict.\n\n2. **A finding you fix** (code changes): new commit = new candidate SHA = re-review required at that SHA.\n\nThe intent is clear: a code change, however small or obvious, is not self-evidently safe until a reviewer has examined it at that specific hash. Counting the author's justification or a test pass as evidence when the diff itself hasn't been reviewed would defeat the boundary.\n\nSo the flow is:\n- Commit B is made\n- B's tests pass ✓\n- Commit B is reviewed (deep-review at that SHA)\n- Verdict is published for B's SHA\n- Only then can it merge"
+      },
+      {
+        "model": "haiku",
+        "sample": 2,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "**No. The old approval is stale and cannot be reused.**\n\nFrom the `/deep-review` skill:\n\n> Any fix requires a new candidate commit, fresh verification, and a full new review. **An approval for an older SHA or tree is stale evidence and must not be reused.**\n\nAnd from the `/run` skill's delivery section:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and **every one of them is re-earned**.\n\n---\n\n**Why:**\n\n- Commit A has SHA₁ → Approved\n- Fix applied → Commit B has SHA₂ (different commit)\n- The approval was for SHA₁ only\n- Commit B requires a fresh review at SHA₂\n\nEven if the fix is minimal, mechanical, or obviously correct:\n- A new commit is a new candidate\n- Each candidate must be reviewed independently\n- Tests passing proves correctness *locally*, not that the review is complete\n\n**The required flow when `REQUEST_CHANGES` is issued:**\n\n1. Fix the code → new commit (new SHA)\n2. Run tests and acceptance checks\n3. **Run a full fresh review on that new SHA**\n4. Publish the verdict for the new SHA\n5. Obtain required approval for the new SHA\n6. Only then merge\n\nApproval of commit A does not carry forward to commit B, even if B fixes A's findings."
+      },
+      {
+        "model": "haiku",
+        "sample": 3,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "No. The old approval of A is **not sufficient** for B.\n\nHere's why, per the `/cc-tuner:run` skill's delivery section:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nThe flow is:\n\n1. **Commit A reviewed and approved** — approval is pinned to that SHA\n2. **Code fix → Commit B** — new SHA, new candidate\n3. **Tests pass on B** — necessary but not sufficient\n4. **B must be reviewed** — the approval of A does not extend to B\n\nThe skill explicitly calls this out:\n\n> On `REQUEST_CHANGES`, loop. Fix, re-run the slice's checks and the full regression, commit — which makes a new candidate SHA — then **review that SHA** and publish its verdict. Repeat until it approves.\n\nThe rationale: a reviewer's approval rests on examining the *specific code in that commit*. When the code changes, the evidence changes, and a new review must examine what's actually there now. Test passage alone is not a substitute for code review — it's orthogonal evidence.\n\n**Next step:** Review B at its SHA before it can be merged."
+      },
+      {
+        "model": "haiku",
+        "sample": 4,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "**No. The old approval does not cover commit B.**\n\nThis is explicitly stated in the `/cc-tuner:run` skill:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nAnd more specifically:\n\n> **A published approval stands until the SHA changes.** ... a finding that requires a code change needs a new commit and therefore a new candidate, at which point the script denies by construction because the head no longer matches.\n\nThe principle here is that **every commit that ships must be reviewed**. The flow is:\n\n1. Commit A is reviewed and approved ✅\n2. Review finds a problem → Commit B fixes it (new SHA)\n3. Commit B **must be reviewed** at its exact SHA before it can ship\n4. If the review of B approves it, you can proceed to merge\n5. If it finds new problems, loop: fix → new commit C → review C → repeat\n\nThe only exception is if a finding does **not** require a code change — it was either refuted with a concrete `file:line` or explicitly deferred. Then the SHA doesn't change, and you re-run the review on the same SHA without creating a new commit.\n\nThis prevents the common failure mode: \"reviewer approved A, we fixed B based on feedback, and B shipped without being reviewed because we assumed the old approval still applied.\""
+      },
+      {
+        "model": "haiku",
+        "sample": 5,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "No. **The old approval is not sufficient.** A new commit invalidates it entirely.\n\nFrom the `/cc-tuner:run` skill:\n\n> A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nAnd from `deep-review`:\n\n> Any fix requires a new candidate commit, fresh verification, and a full new review. An approval for an older SHA or tree is stale evidence and must not be reused.\n\n**Why:**\n- An approval is bound to a specific commit SHA, not to the code in general.\n- Commit B is a different candidate—a new tree, a new set of evidence.\n- Even if B's tests pass, they test only that the fix works; they do not review the fix itself for correctness, architecture, safety, or scope.\n- Approving A, then accepting a fix to make B without review, is exactly the pattern the skill is designed to prevent: \"one review round then a `REQUEST_CHANGES` left standing\" that \"shipped before.\"\n\n**What to do:**\n1. Run the full acceptance and regression suite for B (as the spec requires).\n2. Run a new deep-review on commit B.\n3. Publish the verdict for B's SHA.\n4. Repeat until B approves, or loop back and fix again if needed.\n\nThe finding that caused the fix is evidence that A had a problem. The fix is evidence that someone knows how to correct it. Neither is evidence that B is correct—only a review of B at its SHA can provide that."
+      },
+      {
+        "model": "haiku",
+        "sample": 6,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "No. The old approval is **not sufficient**, by explicit design.\n\nFrom the `/cc-tuner:run` skill:\n\n> **A new commit invalidates everything downstream of it** — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nWhen you fix a finding and commit the fix, you create a new commit SHA (commit B). That new SHA is a different candidate entirely. The approval published for commit A covers only commit A's SHA — the review is an immutable binding between a specific SHA and a verdict.\n\nFrom the delivery loop:\n\n> On `REQUEST_CHANGES`, loop. Fix, re-run the slice's checks and the full regression, commit — which makes a new candidate SHA — then **review that SHA** and publish its verdict. Repeat until it approves.\n\nAnd:\n\n> **A published approval stands until the SHA changes.** [...] a finding that requires a code change needs a new commit and therefore a new candidate, at which point the script denies by construction because the head no longer matches.\n\nSo the required steps for commit B are:\n1. Re-run the slice's targeted checks and full regression\n2. Run `deep-review` on the new commit B SHA\n3. Publish the verdict for commit B's SHA\n4. Only then can you proceed to merge\n\nPassing tests alone does not substitute for review — tests verify behavior; review verifies the fix addresses the finding correctly and introduces no new problems. The workflow enforces this because that's what shipped before: approving A, fixing, and merging without re-reviewing the fix is how the defect reached production."
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "**No.** The old approval is not sufficient.\n\nFrom the `/cc-tuner:run` skill:\n\n> A new commit invalidates everything downstream of it — testing, acceptance, review, CI and the Definition of Done. After any fix, the candidate is a new SHA and every one of them is re-earned.\n\nAnd more explicitly:\n\n> Any fix requires a new candidate commit, fresh verification, and a full new review.\n\nHere's why:\n\n- **The approval was bound to commit A's SHA**, not to the code logic. Commit B is a different SHA.\n- **The approval cannot transfer.** Even though B was created to address a finding in A's review, B itself is a new candidate that must be independently reviewed.\n- **Fixes can introduce new defects.** The change made to address the finding could have:\n  - Created a regression elsewhere\n  - Introduced an off-by-one error, a type mismatch, or incorrect logic\n  - Changed behavior in ways the original reviewer didn't consider\n  - Broken an invariant the reviewer relied on\n\nThe only way forward is:\n\n1. Push B (the new commit with the fix)\n2. Open/update the PR with B as the head\n3. Run a full review on B's SHA (not on A)\n4. Obtain approval for B\n5. Merge B\n\nGreen tests on B help, but they don't substitute for human review of the actual code change—tests can pass and still have subtle logic errors, security issues, or architectural problems that tests don't cover."
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "class": "correct",
+        "note": "the approval of A does not cover B: a new SHA is a new candidate and the complete review is re-earned against it",
+        "answer": "No. **The old approval is not sufficient.** Commit B requires a complete new review.\n\nHere's why:\n\n**A new commit invalidates prior approvals.** An approval for commit A (SHA X) does not transfer to commit B (SHA Y), even if B is a fix for a problem A's review found. They are distinct artifacts with different diffs, different content, and different SHAs.\n\nThe fix itself — the code that changed — must be reviewed. This is not a bureaucratic step; it's essential because:\n\n1. **The fix may be incomplete or incorrect.** The reviewer who flagged the problem should verify it was actually addressed, not assumed to be.\n2. **The fix may introduce new problems.** Code changes always carry risk, and review discovers those risks — tests verify behavior, but review verifies correctness, security, architecture, and maintainability.\n3. **\"Tests pass\" is not approval.** Tests confirm behavior matches expectations; they do not replace code review.\n\n**The exception** (from the cc-tuner run skill):\n\nA finding you **refuted** (addressed without code changes, by concrete `file:line` evidence) or **deferred** (by explicit user decision) needs no new commit. The candidate has not changed, so the old approval stands and you re-run the required review on the same SHA.\n\nBut if the candidate changed to fix a finding, that's a new candidate and requires full re-review. This is the discipline that keeps approvals grounded in their actual targets — the opposite of the drift that shipped bugs before."
       }
-    ]
-  }
+    ],
+    "reproduction": {
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
+    },
+    "verdict": "historical",
+    "protocol_version": 2
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/deep-review/SKILL.md": "eb8e1019e0a5b720bbb7b4ed46396a0cbae47d7479aab83705ff33e628222d88",
+    "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0"
+  },
+  "decision_question": "Does the approval of A become invalid for B, requiring the complete review again against B?"
 }

@@ -1,6 +1,10 @@
 {
-  "skills": ["run", "deep-review"],
-  "tests_reference": "plugins/cc-tuner/commands/run.md#phase-6--review-the-immutable-candidate",
+  "skills": [
+    "run",
+    "deep-review"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/run/SKILL.md#delivery",
+  "policy_status": "Historical evidence for the former always-on deep-review execution-shape policy. Current routing invokes deep-review only for large or sensitive candidates; pricing still selects it regardless of diff size.",
   "query": "You are reviewing a committed candidate. Self-contained simulation — do not read the filesystem. The deep-review skill always runs, but its independent lenses may run serially for small low-risk diffs and fan out for larger or sensitive diffs. This candidate changes SERVICE_FEE_RATE from 0.02 to 0.025 plus its fixture: 5 lines across 2 files. Decide whether to run the lenses serially or fan them out.",
   "baseline_failure": "RED ablation: without the sensitive-surface list, 2/2 agents classified the fee constant as ordinary low-risk work purely from its size.",
   "expected_behavior": [
@@ -18,13 +22,83 @@
     "verdict": "Both arms missed the pricing sensitivity; the list remains load-bearing for choosing review depth."
   },
   "green_check": {
-    "date": "2026-08-10",
+    "date": "2026-08-25",
+    "measured_against": "The skills as shipped at 3229c57, sampled under protocol version 2: isolated with `--safe-mode`, so no CLAUDE.md, plugin, skill or hook of the operator reaches the probe, and only the files in `measured_targets` are supplied. Both re-pinned queries -- the spec-assigned mutation and the presence of the task tools -- were committed at that SHA, before these answers existed.",
     "runs": [
       {
         "model": "haiku",
-        "pass": true,
-        "note": "fans out despite the five-line diff because SERVICE_FEE_RATE is a pricing and billing surface, while preserving one immutable candidate"
+        "sample": 1,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out to parallel reviewer agents.**\n\n**Reasoning:**\n\nThis candidate changes **SERVICE_FEE_RATE** — a pricing constant — which explicitly touches the sensitive surface: **money, payments, pricing, billing, and entitlements**.\n\nThe deep-review skill is clear on this:\n\n> **Classify the surface first, and only then look at size.** Asking \"is this small\" before asking \"what does it touch\" settles the question with the wrong fact.\n\nAnd crucially:\n\n> **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, not that it is \"only\" a value.\n\nEven though the diff is small (5 lines across 2 files) and the change appears straightforward, **a constant value on the sensitive surface still requires fan-out**. The skill document explicitly lists constants as part of the surface:\n\n> A constant, a default, a fixture row and a migration file are all the surface.\n\nSerial review would be appropriate only if this touched no sensitive surface at all. That threshold does not apply here.\n\n**All six independent lenses should run in parallel:**\n1. Correctness and edge cases\n2. Specification and scope\n3. Repository standards\n4. Architecture and systemic effects\n5. Security and data safety\n6. Tests and operability"
+      },
+      {
+        "model": "haiku",
+        "sample": 2,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out to parallel reviewer agents.**\n\nThis change touches a **sensitive surface** — pricing/billing/money — even though it's a small diff (5 lines, 2 files). The skill is explicit:\n\n> Classify the surface first, and only then look at size. Asking \"is this small\" before asking \"what does it touch\" settles the question with the wrong fact.\n\nAnd:\n\n> **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, not that it is \"only\" a value.\n\nThe serial threshold (≤50 lines, ≤5 files, no sensitive surface) applies only to candidates that touch *no* sensitive surface. This one changes a pricing constant that directly affects billing behavior, so the thresholds do not apply.\n\n**Run all six lenses in parallel** against the candidate SHA:\n\n1. Correctness and edge cases\n2. Specification and scope\n3. Repository standards\n4. Architecture and systemic effects\n5. Security and data safety\n6. Tests and operability\n\nEach lens independently reviews the immutable candidate and reports findings. Aggregate and validate after all complete."
+      },
+      {
+        "model": "haiku",
+        "sample": 3,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out the lenses.**\n\nThis candidate touches **money and billing** — a sensitive surface — by changing the `SERVICE_FEE_RATE` constant. According to the deep-review skill:\n\n> **Classify the surface first, and only then look at size.** Asking \"is this small\" before asking \"what does it touch\" settles the question with the wrong fact, and the answer is then defended rather than revisited.\n\nAnd:\n\n> **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is \"obvious\", not that it is \"only\" a value.\n\nEven though this diff is only 5 lines across 2 files — well below the 50-line, 5-file serial threshold — it modifies a pricing value. The skill explicitly lists \"money, payments, pricing, billing, and entitlements\" as a sensitive surface, and it clarifies that \"A constant, a default, a fixture row\" all count as touching that surface.\n\n**Run all six lenses in parallel** (Correctness, Specification, Standards, Architecture, Security/Data, Tests/Operability) to ensure independent reviewers catch pricing logic, acceptance criteria satisfaction, test coverage, and any downstream billing/entitlement effects that a serial review might miss."
+      },
+      {
+        "model": "haiku",
+        "sample": 4,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out to parallel reviewer agents.**\n\nThis candidate touches a **sensitive surface**: it changes `SERVICE_FEE_RATE` (a pricing constant) and its fixture. Pricing and billing are explicitly named sensitive surfaces in the deep-review skill, and a change to a constant or fixture row that affects billing behavior counts as touching that surface.\n\nFrom the skill:\n> **The sensitive surfaces, named:** […] **money, payments, pricing, billing, and entitlements;** […]\n\nAnd:\n> **Classify the surface first, and only then look at size.** […] **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, not that it is \"only\" a value.\n\nThe 5-line, 2-file threshold only applies to candidates that touch **no sensitive surface**. Once a sensitive surface is matched, size does not override the requirement to fan out.\n\nRun every review lens independently in parallel:\n1. **Correctness and edge cases**\n2. **Specification and scope**\n3. **Repository standards**\n4. **Architecture and systemic effects**\n5. **Security and data safety**\n6. **Tests and operability**\n\nThis ensures that a pricing change receives the scrutiny it requires, even though the diff is small."
+      },
+      {
+        "model": "haiku",
+        "sample": 5,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out to parallel reviewer agents.**\n\nThis candidate touches a **sensitive surface** — pricing and billing. The change modifies `SERVICE_FEE_RATE` from 0.02 to 0.025, which directly decides charging behavior.\n\nThe deep-review skill is explicit about the order of judgment:\n\n> **Classify the surface first, and only then look at size.** Asking \"is this small\" before asking \"what does it touch\" settles the question with the wrong fact.\n\nAnd the decisive rule:\n\n> **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, not that it is \"only\" a value.\n\nThe skill names \"money, payments, pricing, billing, and entitlements\" as a sensitive surface, and it explicitly states: \"A constant, a default, a fixture row and a migration file are all the surface.\"\n\nEven though this diff is only 5 lines across 2 files—well under the 50-line, 5-file threshold for serial review—the sensitive-surface classification overrides the size threshold. Run all six lenses (`correctness`, `specification`, `standards`, `architecture`, `security-and-data`, `testing-and-operability`) in parallel against the candidate."
+      },
+      {
+        "model": "haiku",
+        "sample": 6,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out the lenses to parallel reviewer agents.**\n\nThis candidate changes SERVICE_FEE_RATE — a constant that affects **pricing/billing/money**, which is explicitly named as a sensitive surface in the SKILL.md:\n\n> **money, payments, pricing, billing, and entitlements**\n\nThe rule is unambiguous:\n\n> **Classify the surface first, and only then look at size.** A constant … is part of the surface. **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, not that it is 'only' a value.\n\nThe small-diff thresholds (≤50 lines across ≤5 files) **only decide execution shape for candidates that touch no sensitive surface.** This candidate touches a sensitive one, so the threshold does not apply.\n\nRun all six lenses in parallel:\n1. **Correctness and edge cases** — does the new rate break calculations, rounding, or edge cases?\n2. **Specification and scope** — is this rate change actually authorized by the spec, and fully scoped?\n3. **Repository standards** — are constants defined per convention? Is the fixture properly versioned?\n4. **Architecture and systemic effects** — does this rate propagate through billing logic correctly? Are there downstream services?\n5. **Security and data safety** — is there a rollback path? Are historical transactions unaffected?\n6. **Tests and operability** — does the test suite cover the new rate end-to-end, including money calculations?"
+      },
+      {
+        "model": "haiku",
+        "sample": 7,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out** — this candidate touches a sensitive surface and requires independent parallel lenses.\n\n**Reasoning:**\n\nThe change modifies `SERVICE_FEE_RATE` from 0.02 to 0.025. According to the deep-review skill, **money, payments, pricing, billing, and entitlements** are explicitly listed sensitive surfaces. The skill states:\n\n> A candidate touches a sensitive surface when it changes code, **values**, configuration, **fixtures** or schemas that decide behaviour on that surface. It does not have to touch that surface's control flow. **A constant, a default, a fixture row** and a migration file are all the surface.\n\nA fee rate constant and its corresponding fixture are precisely this kind of value. The skill further emphasizes:\n\n> **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, **not that it is \"only\" a value**. Thresholds decide execution shape for candidates that match no surface; they do not overrule a match.\n\nEven at 5 lines across 2 files, the sensitive-surface classification overrides any size threshold. Run all six lenses in parallel:\n\n1. **Correctness and edge cases**\n2. **Specification and scope**\n3. **Repository standards**\n4. **Architecture and systemic effects**\n5. **Security and data safety**\n6. **Tests and operability**\n\nEach lens needs to independently verify that the fee-rate change is correct, justified by spec, doesn't break contracts or invariants, and is adequately tested."
+      },
+      {
+        "model": "haiku",
+        "sample": 8,
+        "class": "correct",
+        "note": "fans out: pricing is a named sensitive surface, classified before size, and nothing downgrades a match",
+        "answer": "**Fan out the review to parallel agents.**\n\nThis candidate touches **money, payments, pricing, billing, and entitlements** — explicitly named as a sensitive surface in the skill. The SERVICE_FEE_RATE constant is a pricing/billing parameter.\n\nThe skill is clear on this:\n\n> **A match requires fan-out, and nothing downgrades it.** Not size, not simplicity, not that the change is obvious, not that it is \"only\" a value.\n\nSize (5 lines, 2 files) would normally qualify for serial review, but the sensitive surface match overrides it. A constant value, a fixture row, and a default are all surfaces when they decide billing behavior.\n\nRun all six lenses in parallel:\n1. **Correctness and edge cases** — does the fee rate change break any invariant or edge case?\n2. **Specification and scope** — is this change authorized by the spec, or scope creep?\n3. **Repository standards** — are the constant, fixture, and any related config changes following the repo's conventions?\n4. **Architecture and systemic effects** — does this affect downstream billing calculations, contracts, or API consumers?\n5. **Security and data safety** — can the new rate be reverted safely; is rollback clean; are audit trails present?\n6. **Tests and operability** — does the fixture cover the new rate; are integration/billing tests green; can the change be monitored?"
       }
-    ]
-  }
+    ],
+    "reproduction": {
+      "runs": 8,
+      "abstentions": 0,
+      "scored": 8,
+      "correct": 8
+    },
+    "verdict": "historical",
+    "protocol_version": 2
+  },
+  "baseline_reobserved": {
+    "date": "2026-08-21",
+    "method": "the same ablation, taken against the frozen cd9fa2f skill rather than an older revision: deep-review/SKILL.md with the six named sensitive surfaces removed, passed as --append-system-prompt to 2 isolated haiku probes",
+    "verdict": "2/2 chose serial review. One quoted 'within contract-defined thresholds' back while calling a SERVICE_FEE_RATE change 'no sensitive surface touched' -- the phrase survives the ablation, the list it depends on does not. The baseline still reproduces, so the list is still load-bearing."
+  },
+  "measured_targets": {
+    "plugins/cc-tuner/skills/deep-review/SKILL.md": "eb8e1019e0a5b720bbb7b4ed46396a0cbae47d7479aab83705ff33e628222d88",
+    "plugins/cc-tuner/skills/run/SKILL.md": "a9b2f5148ef81be1769a8b3d235e422a7d661fd43c9af032f8beb511d1fe09d0"
+  },
+  "decision_question": "Does it fan the lenses out because the change touches money/pricing, despite the diff being small?"
 }

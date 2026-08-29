@@ -9,9 +9,9 @@ Skills:
 - **`smoke-verify`** — not a skill: an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`). Frontend changes can't end a turn until they were exercised for real and attested with evidence. The whole standard lives in the block message the agent actually receives, rather than in a skill it has to choose to load.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:task-flow-setup` installer that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
-Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and then runs only the installers this repo needs. `check` reports, `install` acts.
+Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and prints only the user-run installer commands this repo needs. `check` reports; `install` may wire the board after those installers run.
 
-The task loop is two commands, deliberately split: **`/cc-tuner:spec`** does all the asking, creates the task branch, and commits machine-checkable acceptance criteria; **`/cc-tuner:run [--auto] <spec>`** continues that branch through implementation, PR, CI, and merge. Without `--auto` it stops at phase boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
+The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
 
 ## Why this exists
@@ -33,26 +33,27 @@ plugins/
   cc-tuner/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
-    workflow-contract.json          # shared thresholds, sensitive surfaces, order, invariants
     assets/
-      execute-task/config.template.md   # per-project run settings (superseded by a spec's Run config)
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
       smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
-    references/
-      tiering.md                    # effort-selection guidance; policy stays in the contract
-    commands/
-      run.md                        # /cc-tuner:run [--auto] <spec> executor
-      setup.md                      # /cc-tuner:setup env check + installer orchestration
-      spec.md                       # /cc-tuner:spec interactive spec writer
-      task-flow-setup.md            # /cc-tuner:task-flow-setup rule installer
-      smoke-verify-setup.md         # /cc-tuner:smoke-verify-setup gate opt-in
-      statusline-setup.md           # /cc-tuner:statusline-setup installer
+    skills/
+      run/SKILL.md                  # /cc-tuner:run [--auto] <spec> executor
+      spec/SKILL.md                 # /cc-tuner:spec writes the contract and sliced execution plan
+      spec/spec-template.md         # executable spec contract filled by /cc-tuner:spec
+      spec/plan-template.md         # plan grammar filled by /cc-tuner:spec
+      setup/SKILL.md                # /cc-tuner:setup env check + installer orchestration
     hooks/
-      hooks.json                    # Stop hook registration
+      hooks.json                    # SessionStart + Stop registrations
+      session-start.sh              # asks a fresh session to rebuild its task list from the plan
       smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
-      execute-task/                 # deterministic bash for /run gates (dir name predates the split)
+      merge.sh                      # checked merge: required review + public verdict + CI on the head SHA
+      mutate.sh                     # one mutation, graded by the program: no-op and syntax refusals, verified restore
+      plan-lint.sh                  # the plan format's validator, and the parser the hook reads it with
+      plan-path.sh                  # the one branch -> plan-path resolver
       setup/doctor.sh               # environment checks behind /cc-tuner:setup
+      setup/prereq-check.sh         # companion plugins installed, enabled, and carrying their contracts
+      setup/plugin-here.sh          # which install of a plugin applies to this repo (one rule, two callers)
       smoke-verify/                 # fingerprint lib + attestation writer (mark.sh)
     skills/
       claude-md-writer/

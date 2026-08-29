@@ -6,17 +6,16 @@
 # Exit 0 when nothing is MISS, 1 otherwise. bash 3.2 compatible: macOS ships 3.2.57.
 #
 # Test seams (all default to the real thing):
-#   HOME                 plugin root ($HOME/.claude/plugins), the same location prereq-check.sh
-#                        and the delivery gate resolve
+#   CC_TUNER_PLUGIN_LIST_CMD  command whose stdout is the installed-plugin JSON
+#                             (default: claude plugin list --json)
 #   CC_TUNER_MCP_CMD     command whose stdout is parsed for MCP servers (default: claude mcp list)
 #   CC_TUNER_HOME        home dir for user-level checks (default: $HOME)
 set -u
 
 MODE="${1:-quick}"          # quick | full — full adds the MCP probe, which health-checks every
                             # configured server and can sit for 30s per unreachable one.
-HERE="$(cd "$(dirname "$0")" && pwd)"
-PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 UHOME="${CC_TUNER_HOME:-$HOME}"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 miss=0
 
 say()  { printf '%s\n' "$1"; }
@@ -25,18 +24,49 @@ warn() { say "WARN $1"; }
 bad()  { say "MISS $1"; miss=1; }
 
 # --- 1. command-line tools ----------------------------------------------------------------------
-# jq is hard-required: statusline-setup refuses to patch settings.json without it, and tests/run.sh
-# will not start. The rest degrade rather than block.
+# Only git blocks: nothing here works without it. jq blocks two named consumers, not this tool, and
+# both refuse on their own -- statusline-setup checks before it patches settings.json, and
+# tests/run.sh will not start. A global MISS made doctor exit non-zero, and /cc-tuner:setup stops on a
+# non-zero exit, so a missing jq halted setting up claude-md-writer, which never calls jq at all.
+# A blocker belongs to the capability that needs it, not to the tool that reports on all of them.
 # Plain `if`, not `a && b || c`: that chain runs `c` whenever `b` fails, so one day a reporting
 # helper returns non-zero and the script starts claiming things are missing that are not.
 if command -v git     >/dev/null 2>&1; then ok "git";     else bad "git — required for every command here"; fi
-if command -v jq      >/dev/null 2>&1; then ok "jq";      else bad "jq — statusline-setup and the test runner both refuse to run without it; brew install jq"; fi
+if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — statusline-setup refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
 if command -v gh      >/dev/null 2>&1; then ok "gh";      else warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"; fi
 if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — the statusline's usage segment degrades without it"; fi
+
+# --- 1b. the native task tools -------------------------------------------------------------------
+# `/cc-tuner:spec` publishes the visible plan through TaskCreate and wires its edges with
+# TaskUpdate addBlockedBy. From Claude Code 2.1.233 those tools are **off by default** on Opus 4.8,
+# Sonnet 5 and later -- the reasoning being that such models track multi-step work without a written
+# checklist -- and are restored by exporting CLAUDE_CODE_ENABLE_TODO_TOOLS=1 before starting Claude.
+#
+# Measured on 2.1.235: an Opus 5 session asked to call TaskCreate answers UNAVAILABLE without the
+# variable and CREATED with it. Four eval sessions in a row published no task list because of this,
+# and the cause was misread as an MCP outage each time -- which is precisely why it belongs in the
+# tool whose job is to say whether the environment works.
+#
+# **This reads an environment variable; it does not probe for the tools, and must not be read as
+# doing so.** Both errors are possible in principle: the variable set while something else excludes
+# the tools, and the tools present through `--tools` or `--allowedTools` while the variable is unset.
+# A doctor is a separate process from the session that would hold the tools, so it cannot ask. The
+# capability answer belongs to `/cc-tuner:spec`, which is in that session and finds out by calling.
+#
+# A hint, not a blocker: the plan file is the durable store and a run drives from it either way.
+# What is at stake is the visible task list and its edges.
+case "${CLAUDE_CODE_ENABLE_TODO_TOOLS:-}" in
+  1|true|TRUE|yes) ok "CLAUDE_CODE_ENABLE_TODO_TOOLS is set — the usual reason /cc-tuner:spec cannot publish the visible task list does not apply here (this reads the variable, it does not probe for the tools)" ;;
+  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — on Opus 4.8 / Sonnet 5 and later the TaskCreate tools are off by default, so /cc-tuner:spec may commit the plan file and publish no visible task list; export CLAUDE_CODE_ENABLE_TODO_TOOLS=1 before starting Claude Code, or pass --allowedTools TaskCreate. Only the session itself can tell whether they are there" ;;
+esac
 
 # --- 2. gh auth and the project scope ------------------------------------------------------------
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
 # single most common reason an agent silently gives up on the board, so name it before it happens.
+#
+# It warns rather than blocks: a spec may say `board: none` (see skills/spec/SKILL.md), and such a
+# repo never runs a board command. The refusal belongs to step 4 of /cc-tuner:setup and to the board
+# recipes in the task-flow skill, which know whether a board is in play; this tool does not.
 if command -v gh >/dev/null 2>&1; then
   if gh auth status >/dev/null 2>&1; then
     # Match the scope exactly rather than as a substring: `read:project` contains "project" but
@@ -45,7 +75,7 @@ if command -v gh >/dev/null 2>&1; then
        | grep -qx project; then
       ok "gh token has the 'project' scope"
     else
-      bad "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; fix: gh auth refresh -s project"
+      warn "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; harmless for a repo whose spec says board: none. fix: gh auth refresh -s project"
     fi
   else
     bad "gh is not authenticated — run: gh auth login"
@@ -53,22 +83,60 @@ if command -v gh >/dev/null 2>&1; then
 fi
 
 # --- 3. companion plugins ------------------------------------------------------------------------
-# Delegated to the existing checker rather than duplicated: it already knows the anchor paths.
-PREREQ="$PLUGIN_ROOT/scripts/execute-task/prereq-check.sh"
-if [ -f "$PREREQ" ]; then
-  if out="$(bash "$PREREQ" 2>&1)"; then
-    ok "companion plugins (mattpocock-skills, cc-codex-triage)"
-  else
-    printf '%s\n' "$out" | while IFS= read -r line; do
-      case "$line" in
-        MISSING:*) say "MISS ${line#MISSING: }" ;;
-        *)         say "     $line" ;;
-      esac
-    done
-    miss=1
-  fi
+# Which installation applies is asked of scripts/setup/plugin-here.sh, which prereq-check.sh also
+# uses. It was implemented here as well until 2026-08-14, and the two copies disagreed twice over: on
+# `enabled: false`, which this one filtered and the preflight did not, and on how many installs count,
+# where this one took the top row and the preflight searched them all. Both divergences produced the
+# same shape — doctor and the preflight answering one question differently — so there is now one
+# program and two callers.
+# Prints "<version> (<scope>)" and returns the resolver's own status: 0 found, 1 absent, 2 unknown.
+# Passing the status through is the whole point of the resolver having three outcomes. An earlier
+# version ended this line with `|| return 0`, flattening 1 and 2 into "nothing found", so a malformed
+# plugin list produced two confident MISS lines telling the user to reinstall plugins that were never
+# looked for -- while prereq-check, reading the same resolver, correctly said the answer is unknown.
+plugin_here() {
+  row="$(bash "$(cd "$(dirname "$0")" && pwd)/plugin-here.sh" "$1" "$REPO_ROOT" 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  [ -n "$row" ] || return 1
+  # Split in bash rather than with awk or cut. This tool reports on environments that are missing
+  # things, so every external it adds is one more way for it to fail in exactly the situation it
+  # exists to diagnose -- its own suite runs it against a PATH holding seven utilities, and caught an
+  # awk here on the first run.
+  #
+  # Parameter expansion, not `read -r a b c` with IFS set to tab: tab is one of the default IFS
+  # whitespace characters, so `read` collapses empty fields and shifts everything left. A row whose
+  # installPath was empty then reported the scope as the version, and the scope as nothing.
+  rest="${row#*	}"
+  pv="${rest%%	*}"
+  ps="${rest#*	}"
+  printf '%s (%s)' "$pv" "$ps"
+}
+
+# Still asked once, only to tell "no plugins listed" from "that plugin is not installed": the first
+# is an environment this tool cannot see into, the second is a finding about the environment.
+PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
+
+companion() {  # companion <id> <what needs it> <install hint>
+  found="$(plugin_here "$1")"
+  case $? in
+    0) ok "$1 $found — $2" ;;
+    # Not installed is a finding about the environment; unable to tell is a limit of this tool, and
+    # naming an install command for a plugin nobody looked for sends the user to fix the wrong thing.
+    1) bad "$1 not installed for this repo — $2; install: $3" ;;
+    *) warn "$1 — could not determine which installation applies; $2" ;;
+  esac
+}
+
+if [ -z "$PLUGIN_LIST" ] || ! command -v jq >/dev/null 2>&1; then
+  warn "could not list installed plugins — companion plugin checks skipped"
 else
-  warn "prereq-check.sh not found at $PREREQ — cannot verify companion plugins"
+  companion 'mattpocock-skills@mattpocock' \
+    'grilling + domain-modeling in /cc-tuner:spec, code-review in /cc-tuner:run' \
+    '/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
+  companion 'cc-codex-triage@cc-codex-triage' \
+    'required-review gate in /cc-tuner:run' \
+    '/plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage'
 fi
 
 # --- 4. MCP servers (full mode only) -------------------------------------------------------------
@@ -93,13 +161,13 @@ else
 fi
 
 # --- 5. what is installed in THIS repo -----------------------------------------------------------
-if ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-  [ -f "$ROOT/.claude/rules/task-flow.md" ] \
+if [ -n "$REPO_ROOT" ]; then
+  [ -f "$REPO_ROOT/.claude/rules/task-flow.md" ] \
     && ok "task-flow rule installed" \
     || warn "task-flow rule not installed here — /cc-tuner:task-flow-setup"
-  [ -f "$ROOT/.claude/rules/git-flow.md" ] \
+  [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
     && warn "legacy git-flow.md still present — /cc-tuner:task-flow-setup migrates it (keeps your cached board field IDs)"
-  [ -f "$ROOT/.claude/smoke-verify.cfg" ] \
+  [ -f "$REPO_ROOT/.claude/smoke-verify.cfg" ] \
     && ok "smoke-verify gate opted in" \
     || say "     smoke-verify not opted in here (frontend repos only — /cc-tuner:smoke-verify-setup)"
 else

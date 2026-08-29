@@ -5,14 +5,14 @@
     "url": "https://github.com/clicktronix"
   },
   "metadata": {
-    "description": "Tune Claude Code's own configuration. A home for skills that write and audit Claude Code's config files against the official docs — claude-md-writer for CLAUDE.md / .claude/rules/ memory, a usage statusline, and /cc-tuner:spec + /cc-tuner:run for driving a coding task end-to-end from intake to merge, plus task-flow — canonical branch/commit/PR/board/plan conventions with a /cc-tuner:task-flow-setup rule installer.",
+    "description": "Tune Claude Code's own configuration. A home for skills that write and audit Claude Code's config files against the official docs \u2014 claude-md-writer for CLAUDE.md / .claude/rules/ memory, a usage statusline, and /cc-tuner:spec plus /cc-tuner:run for driving a coding task end-to-end from intake to merge, plus task-flow \u2014 canonical branch/commit/PR/board/plan conventions with a /cc-tuner:task-flow-setup rule installer.",
     "version": "0.10.0"
   },
   "plugins": [
     {
       "name": "cc-tuner",
       "source": "./plugins/cc-tuner",
-      "description": "Check the environment and install what a repo needs (/cc-tuner:setup), audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (/cc-tuner:statusline-setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:spec then /cc-tuner:run), plus canonical task-flow conventions installed per repo (/cc-tuner:task-flow-setup).",
+      "description": "Check the environment and install what a repo needs (/cc-tuner:setup), audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (/cc-tuner:statusline-setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:spec, then /cc-tuner:run), plus canonical task-flow conventions installed per repo (/cc-tuner:task-flow-setup).",
       "version": "0.10.0"
     }
   ]

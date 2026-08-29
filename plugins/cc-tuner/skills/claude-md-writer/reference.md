@@ -37,6 +37,12 @@ packages/worker/CLAUDE.md     # subdirectory CLAUDE.md — loads on demand
 | Relying on CLAUDE.md to *block* an action | CLAUDE.md isn't enforced — use a hook or `permissions.deny` for hard blocks |
 | Code pasted into memory | → `@path/to/file` reference; pasted code goes stale silently |
 | Only negative rules ("don't X") | Pair with the alternative ("don't X; do Y") |
+| Incident narration in always-on memory ("measured 2026-08-14, 773 lines", "this cost a day") | Rationale belongs in `docs/`, in a comment beside the code, or in the issue. No measurement changes the agent's next action, and counts go stale |
+| An env-var / version / count table pasted from its owner | Point at `.env.example`, `package.json`, the schema. The copy drifts silently and is discovered by accident |
+| A 40-line "how to add a feature" tutorial with an invented entity | The docs list long explanations and tutorials as excluded. Name a real module instead: `see src/.../campaigns/` |
+| The same rationale in a config header *and* in memory | One owner, one pointer. Two copies disagree the day one is edited, and nobody knows which is current |
+| Moving critical rules only into `.claude/rules/` in a repo Codex also works in | Codex does not read `.claude/rules/`. Keep short shared invariants in `AGENTS.md`; use an explicit pointer/router for conditional detail |
+| Conflicting scope or refactoring rules in the loaded chain | Pick one owner and remove the other; do not rely on instruction order to resolve the conflict |
 | Duplicating one CLAUDE.md inside another | `@path/to/shared-file.md` (import; max 4 hops deep) |
 
 ## Path-scoped rule behaviour (the non-obvious parts)
@@ -90,13 +96,28 @@ The **200-line / 25 KB** ceiling applies to `MEMORY.md` only — CLAUDE.md files
 
 Subagents do not inherit the main conversation's auto memory; a **fork** is the exception, since it inherits the parent conversation. A subagent's own `memory` field points at a separate directory.
 
+## Patterns from public repositories
+
+Public repositories vary widely in root-file length. The stable patterns worth
+copying are structural: keep one canonical owner, use short nested overlays for
+package-specific constraints, point at executable configuration instead of
+copying it, and name task procedures rather than retelling them in always-on
+instructions. Treat any public file as an example, not a normative template.
+
 ## Sources
 
 Official (authoritative for everything above):
 
 - Memory management — <https://code.claude.com/docs/en/memory>
 - Skills (the `paths` field as it exists for skills/rules) — <https://code.claude.com/docs/en/skills>
+- Best practices, incl. the include/exclude table and the "would removing this cause mistakes?" test — <https://code.claude.com/docs/en/best-practices>
+- AGENTS.md open format (nearest-file precedence, no required sections) — <https://agents.md/>
+- Codex project-instruction loader and truncation path — <https://github.com/openai/codex/blob/main/codex-rs/core/src/agents_md.rs>
+- Codex default `project_doc_max_bytes` — <https://github.com/openai/codex/blob/main/codex-rs/config/defaults.toml>
 
 Community patterns (useful, not normative — verify before relying):
 
+- The 150-line threshold and the +20-23% inference-cost figure come from third-party measurement, not the docs; the only doc-published target is 200 lines. <https://www.betterclaw.io/blog/agents-md-best-practices>
+- Structural completeness of practitioner AGENTS.md files, 34-file corpus, 37% below threshold — <https://arxiv.org/abs/2604.21090>
+- The genre labels (instruction / procedure / chronicle / copy / generic / duplicate) are this skill's framing, not doc.
 - The "layered documentation" idea is a common community structuring of the official `.claude/rules/` + subdirectory-CLAUDE.md mechanisms; the mechanisms are official, the specific 3-tier framing is not.
