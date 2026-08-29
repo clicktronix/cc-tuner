@@ -207,17 +207,15 @@ check "the-kept-original-is-the-original" "$RBEFORE" "$(shasum -a 256 "$R/calc.p
 rm -f "$R/calc.py.premutation"
 
 # --- a signal restores through the same path ------------------------------------------------------
-# The harness runs in the FOREGROUND and its own test command signals it. Two earlier versions put it
-# in a background job and killed that: a background job inherits an ignored SIGINT, so removing INT
-# from the trap left the suite at 64 PASS while proving nothing. `sh -c` execs the test command, so
-# $PPID inside it is this harness.
+# The harness runs in the FOREGROUND. Two earlier versions put it in a background job and killed that:
+# a background job inherits an ignored SIGINT, so removing INT from the trap left the suite at 64 PASS
+# while proving nothing. The mutation shell is a direct child, so it captures $PPID and a delayed
+# helper signals that exact harness. Relying on the test shell's $PPID worked on macOS but addressed an
+# intermediate `dash` process on Ubuntu.
 for sig in TERM INT; do
   X="$(flow_workdir)"; subject "$X"
   XBEFORE="$(shasum -a 256 "$X/calc.py" | cut -d' ' -f1)"
-  cat > "$X/slow.sh" <<SLOW
-if [ -e "$X/seen" ]; then kill -$sig \$PPID; sleep 5; else : > "$X/seen"; fi
-SLOW
-  OUT="$(run "$X/calc.py" "sh $X/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 400 \$MUTATE_FILE")"
+  OUT="$(run "$X/calc.py" "if [ -e '$X/seen' ]; then sleep 5; else : > '$X/seen'; fi" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 400 \$MUTATE_FILE; target=\$PPID; (sleep 1; kill -$sig \$target) &")"
   chmod 644 "$X/calc.py" 2>/dev/null
   # Mode 400, not 000: an unreadable mutant fails the syntax check instead, and the run ends before the
   # signal can arrive. An earlier fixture made that mistake, and a third made a worse one — it put the
@@ -235,10 +233,7 @@ done
 for sig in TERM INT; do
   Y="$(flow_workdir)"; subject "$Y"
   YBEFORE="$(shasum -a 256 "$Y/calc.py" | cut -d' ' -f1)"
-  cat > "$Y/slow.sh" <<SLOW
-if [ -e "$Y/seen" ]; then kill -$sig \$PPID; sleep 5; else : > "$Y/seen"; fi
-SLOW
-  OUT="$(run "$Y/calc.py" "sh $Y/slow.sh" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 500 $Y")"
+  OUT="$(run "$Y/calc.py" "if [ -e '$Y/seen' ]; then sleep 5; else : > '$Y/seen'; fi" "printf 'x=1\n' >> \$MUTATE_FILE; chmod 500 $Y; target=\$PPID; (sleep 1; kill -$sig \$target) &")"
   chmod 755 "$Y" 2>/dev/null
   check  "signal-$sig-unrestorable-rc2"            "rc=2"        "$OUT"
   check  "signal-$sig-unrestorable-keeps-original" "premutation" "$(ls "$Y")"
