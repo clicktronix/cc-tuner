@@ -1,9 +1,10 @@
-# The commit the authenticated eval last ran against, end to end, in the frozen-worktree form
-# described in this directory's README ("Running it").
+# The reachable main commit whose production surface is identical to the commit exercised by the
+# authenticated frozen-worktree eval described in this directory's README ("Running it").
 #
 # tests/run.sh compares the production surface at this commit with the working tree, and refuses to
 # let the ADR say "accepted" while they differ. Twice the record claimed the evaluated artifact was
 # the shipped one when a later commit had already moved it, and both times a reader had to catch it.
 #
-# Change this line only after an eval run against the commit it names.
-c69fd80109e8a907335643a9eec99d07bfca167e
+# A squash merge changes commit identity without changing those files. The README must record the
+# evaluated commit, the integration commit and an empty production-surface diff between them.
+ba7e1eec147846bf0517a392a124222e30ec1d31

@@ -46,6 +46,8 @@ jobs:
         with:
           ref: ${{ steps.release-pr.outputs.sha }}
           persist-credentials: false
+          # tests/run.sh compares the accepted production surface with EVALUATED_SHA.
+          fetch-depth: 0
 
       - name: Validate release PR
         id: validate-release
