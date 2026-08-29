@@ -250,15 +250,23 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
   esac
   if ! git -C "$ROOT" cat-file -e "$eval_sha^{commit}" 2>/dev/null; then
     bad "EVALUATED_SHA names $eval_sha, which is not a commit here"
-  elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
-         plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
-         plugins/cc-tuner/assets plugins/cc-tuner/references \
-         plugins/cc-tuner/.claude-plugin 2>/dev/null; then
-    ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
-  elif [ "$adr_status" = "accepted" ]; then
-    bad "the ADR says accepted, but the production surface has moved since the evaluated commit ${eval_sha%${eval_sha#???????}} — re-run the eval and update EVALUATED_SHA, or set the ADR back to proposed"
   else
-    ok "production surface has moved since the eval, and the ADR says '$adr_status' rather than accepted"
+    # A release changes plugin.json.version without changing runtime behaviour. Version agreement is
+    # checked separately above; every other manifest field remains part of the evaluated surface.
+    evaluated_manifest="$(git -C "$ROOT" show "$eval_sha:plugins/cc-tuner/.claude-plugin/plugin.json" 2>/dev/null | jq -cS 'del(.version)' 2>/dev/null)"
+    current_manifest="$(jq -cS 'del(.version)' "$ROOT/plugins/cc-tuner/.claude-plugin/plugin.json" 2>/dev/null)"
+    if [ -z "$evaluated_manifest" ] || [ -z "$current_manifest" ]; then
+      bad "cannot compare the evaluated plugin manifest after removing release-only version metadata"
+    elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
+           plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
+           plugins/cc-tuner/assets plugins/cc-tuner/references 2>/dev/null \
+         && [ "$evaluated_manifest" = "$current_manifest" ]; then
+      ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
+    elif [ "$adr_status" = "accepted" ]; then
+      bad "the ADR says accepted, but the production surface has moved since the evaluated commit ${eval_sha%${eval_sha#???????}} — re-run the eval and update EVALUATED_SHA, or set the ADR back to proposed"
+    else
+      ok "production surface has moved since the eval, and the ADR says '$adr_status' rather than accepted"
+    fi
   fi
 fi
 
