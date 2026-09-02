@@ -3,10 +3,11 @@
 **Date:** 2026-08-13
 **Status:** proposed
 
-<!-- Was accepted against ba7e1ee. This PR edits three files of the production surface
-     (claude-md-writer SKILL.md and reference.md), so by tests/run.sh §6a2 the verdict has to be
-     re-earned: re-run the frozen-worktree eval, update EVALUATED_SHA, and set this back to
-     accepted. Nothing about the lifecycle decision itself changed. -->
+<!-- Deliberately "proposed", not a slipped update. tests/run.sh §6a2 refuses "accepted" while the
+     production surface differs from EVALUATED_SHA, and every change to skills, scripts, hooks,
+     assets or output-styles moves that surface. Set it back to accepted only together with a fresh
+     frozen-worktree eval and a new EVALUATED_SHA. Nothing about the lifecycle decision itself has
+     changed. -->
 
 Task 8 Step 7 is complete. The eval README owns the observations and provenance: run 7 is the
 operator-grandfathered frozen end-to-end smoke, and run 8 is the predeclared focused probe of the

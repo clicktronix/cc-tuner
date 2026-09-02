@@ -145,6 +145,19 @@ bypass this checked path. It is workflow discipline, not a local security bounda
 Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
 cc-tuner installs and works standalone without them).
 
+## Output style
+
+`Mechanism First` (`output-styles/mechanism-first.md`) ships with the plugin and appears in the
+`/config` picker once cc-tuner is enabled. It makes answers lead with the mechanism behind a result
+rather than a list of steps, draw ASCII diagrams for boundaries, pipelines and ownership seams, keep
+issue and PR references in `<identifier> — <title>` form, and translate into the user's language
+without transliterating English terms. It sets `keep-coding-instructions: true`, so Claude Code's own
+engineering instructions stay in place.
+
+Nothing installs it: pick it in `/config` → Output style, then `/clear`, since the style is read once
+at session start. The plugin does not set `force-for-plugin` — which style you run is your choice,
+not the plugin's.
+
 ## Install
 
 ```

@@ -58,6 +58,12 @@ is worse than not offering it, because nothing later contradicts the claim.
   ```
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer its command once; if doctor
   already reported the script installed, skip silently. Print `/cc-tuner:statusline-setup install`.
+- **The `Mechanism First` output style** — the plugin ships it, so there is nothing to install and
+  no installer to print. Mention it once, as a preference rather than a fix: it makes answers lead
+  with the mechanism, draw ASCII diagrams for boundaries and pipelines, and translate without
+  transliterating. To use it: `/config` → Output style → `Mechanism First`, then `/clear`, because
+  the style is read once at session start. Never select it for the user — a style rewrites part of
+  the system prompt for every response, and that choice is theirs.
 
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 
