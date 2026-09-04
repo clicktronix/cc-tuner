@@ -149,6 +149,70 @@ A difference is a reason to inspect the ownership boundary, not a verdict.
 When the owner is authoritative, replace the copy with a pointer instead of
 repairing both lists.
 
+## 5b. Check a rule against its own `paths:`
+
+Two failures live here, and both are silent.
+
+**A rule that legislates where it never loads.** A body that governs an area outside the rule's own
+globs is inert there and fires where it does not apply. One repository's architecture rule carried a
+"new public table" migration checklist while scoped to `src/**`: it loaded on UI edits and stayed
+silent on every migration. The same rule documented `src/infrastructure/**` ownership with that path
+absent from its frontmatter.
+
+This one resists a one-liner — a rule may legitimately *mention* a neighbour it does not govern, and
+only a reader can tell a mention from a rule. Do it by hand, once per rule: list the directories the
+body gives instructions about, list the directories the frontmatter matches, and account for every
+difference. A rule for area X whose body legislates area Y either grows a glob or loses the section.
+
+**A pointer table that has drifted from the frontmatter.** Where `AGENTS.md` lists rule → glob for
+the agents that do not autoload rules, that table is a hand copy, and one session was enough for a
+glob to vanish from it while the rule kept matching. This one is mechanical, so it belongs in the
+repository's gate rather than in an audit that ends:
+
+```python
+# audit-pointer-table-parity — сверяет колонку глобов в AGENTS.md с paths: правил
+import ast, pathlib, re, sys
+
+def expand(glob):
+    m = re.search(r'\{([^}]*)\}', glob)
+    if not m:
+        return [glob]
+    return [g for opt in m.group(1).split(',')
+              for g in expand(glob[:m.start()] + opt.strip() + glob[m.end():])]
+
+def prefixes(globs):
+    return {re.sub(r'/?\*.*$', '', e).rstrip('/') for g in globs for e in expand(g)} - {''}
+
+table = pathlib.Path('AGENTS.md').read_text().splitlines()
+issues = []
+for rule in sorted(pathlib.Path('.claude/rules').glob('*.md')):
+    txt = rule.read_text()
+    declared = []
+    if txt.startswith('---') and 'paths:' in txt.split('---')[1]:
+        declared = ast.literal_eval(txt.split('---')[1].split('paths:', 1)[1].strip())
+    row = next((l for l in table if l.startswith(f'| `.claude/rules/{rule.name}`')), None)
+    if row is None:
+        issues.append(f'{rule.name}: no row in the pointer table')
+        continue
+    cell = row.split('|')[2]
+    if not declared:
+        if 'always' not in cell:
+            issues.append(f'{rule.name}: has no paths:, but the table does not say "always"')
+        continue
+    listed = prefixes(re.findall(r'`([^`]+)`', cell))
+    for miss in sorted(prefixes(declared) - listed):
+        issues.append(f'{rule.name}: table is missing {miss}')
+    for extra in sorted(listed - prefixes(declared)):
+        issues.append(f'{rule.name}: table claims {extra}, frontmatter does not')
+
+print('\n'.join(issues) if issues else 'pointer table matches every rule frontmatter')
+sys.exit(1 if issues else 0)
+```
+
+Run it before trusting the table, and again after editing either side. It reports a missing glob, a
+glob the table invented, a rule with no row, and a `paths:`-less rule the table does not mark as
+always-loaded.
+
 ## 6. Classify the remaining content
 
 Use one genre per block:

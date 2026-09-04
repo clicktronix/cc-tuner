@@ -4,7 +4,10 @@
 
 Only the rules whose violation loses work, leaks secrets, or breaks history. Everything procedural —
 board recipes, epics, worktree cleanup, post-merge sync, merge strategies, changelog, spec lifecycle —
-lives in the `cc-tuner:task-flow` skill, which loads when you need it. Where `task-flow.local.md`
+lives in the `cc-tuner:task-flow` skill, which loads when you need it. That skill lives in the
+plugin cache: a repository also worked by Codex, Cursor or a Claude session without the plugin
+cannot read it, so whichever procedures such a session must not skip — post-merge cleanup and the
+merge strategy are the usual two — belong in `task-flow.local.md`. Where `task-flow.local.md`
 conflicts with this file, the local file wins.
 
 ## Never
@@ -46,13 +49,14 @@ Breaking change: `!` after type/scope plus a `BREAKING CHANGE:` footer carrying 
 
 One commit = one logical change. A WIP chain during work is fine — squash-on-merge collapses it.
 
-**Attribution trailers:** `<none | Co-Authored-By: <agent> | ...>`
+**Attribution trailers:** answer this in `task-flow.local.md`, not here — this file is generated
+and an answer written into it is lost on the next `/cc-tuner:task-flow-setup update`.
 
-Fill this in. Whether a commit made by an agent carries `Co-Authored-By:` or a session trailer is a
-decision each repository makes — some want the authorship visible, some want the history to read as
-the team's. cc-tuner does not hold an opinion; it reads this line. Left unfilled, an agent falls back
-to whatever its harness does by default, which is how a repository ends up with a convention nobody
-chose.
+Whether a commit made by an agent carries `Co-Authored-By:` or a session trailer is a decision each
+repository makes — some want the authorship visible, some want the history to read as the team's.
+cc-tuner does not hold an opinion; it reads the local file, which wins on conflict. Left unanswered,
+an agent falls back to whatever its harness does by default, which is how a repository ends up with
+a convention nobody chose.
 
 ## Pull requests
 
@@ -60,5 +64,9 @@ chose.
   stacked work. No issue → say why in the body.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
   output into the body: it is already in the logs, and it buries the part a human has to read.
+  **Where the target runs no checks on a pull request** — a repo whose workflows are `push`-only, or
+  a paused runner — there is no such link, and dispatching CI on the branch to manufacture one is
+  not the answer. Record the local gate instead: which commands ran, on what, and what came back.
+  Put that repo's format in `task-flow.local.md`.
 - Match the body's length to the change. Say what changed, why, and what is still open. A one-file
   fix does not need sections.
