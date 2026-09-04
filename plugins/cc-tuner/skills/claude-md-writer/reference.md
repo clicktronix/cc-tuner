@@ -86,7 +86,7 @@ Personal, gitignored notes — appended after `CLAUDE.md` at the project root, s
 
 ## Auto-memory index limits (the part that bites)
 
-The **200-line / 25 KB** ceiling applies to `MEMORY.md` only — CLAUDE.md files load in full at any length (shorter just adheres better).
+The **200-line / 25 KB** ceiling applies to `MEMORY.md` only. A CLAUDE.md is loaded in full up to **4 MiB**, and a file larger than that is **skipped entirely** — not truncated, so nothing in it applies. Below that ceiling length costs adherence, not loading.
 
 - Content past the threshold **is not loaded**, silently.
 - After a write, Claude Code measures the file: near a limit it reminds Claude to shorten; over a limit the write still succeeds but returns an error telling Claude to rewrite the index, because the overflow is dropped on the next load (v2.1.210+).

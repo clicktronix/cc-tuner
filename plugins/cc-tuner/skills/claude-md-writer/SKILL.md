@@ -16,7 +16,7 @@ Two jobs, and they are different work:
 
 | Rule | Why |
 |---|---|
-| **CLAUDE.md < 200 lines** | Loads into context at the start of every session — the only doc-published size target |
+| **CLAUDE.md < 200 lines** | Loads into context at the start of every session — the only doc-published size *target*. The hard limit is separate: a CLAUDE.md over **4 MiB** is skipped whole, so an oversized file fails silently rather than partially |
 | **Critical / always-on rules first** | Earliest instructions get the most adherence |
 | **Move task-specific or component-specific content out** | A multi-step procedure or one-area rule belongs in a skill or a path-scoped rule, not in always-on memory |
 | **`paths:` frontmatter lives on `.claude/rules/*.md` and on skills — never on CLAUDE.md** | CLAUDE.md loads by directory hierarchy only. Both rules and skills take `paths` in the same glob format; a skill with `paths` is auto-loaded only for matching files |
@@ -107,6 +107,15 @@ Use plan mode for changes under `src/billing/`.
 
 A symlink (`ln -s AGENTS.md CLAUDE.md`) works when there is nothing Claude-specific to add — but not on Windows without Administrator or Developer Mode, where the import is the portable choice. Either way, confirm with `/context` that `CLAUDE.md` shows under **Memory files**.
 
+Two first-party importers exist and neither replaces the pointer above, because both copy once:
+`/init` reads Cursor (`.cursor/rules/`, `.cursorrules`) and Copilot
+(`.github/copilot-instructions.md`) rules into the CLAUDE.md it generates, and with
+`CLAUDE_CODE_NEW_INIT=1` also `AGENTS.md`, `.devin/rules/`, `.windsurf/rules/`/`.windsurfrules` and
+`.clinerules`; `/import` (v2.1.213+) appends a one-time copy of another agent's instruction files to
+the matching CLAUDE.md and carries over its MCP servers, commands, subagents and skills. Use them to
+seed a file, then keep `@AGENTS.md` as the live link — a one-time copy is the drift this skill warns
+about everywhere else.
+
 **`.claude/rules/` is Claude-only.** Codex does not read it. So moving rules out of `AGENTS.md` into `.claude/rules/` makes them invisible to every other agent on the repo — bridge it with a pointer section plus a skill under `.agents/skills/` (see below).
 
 **Codex has no lazy loading at all, and nested `AGENTS.md` is not a substitute for `paths:`.** Codex builds its instruction chain **once per run, at startup**, walking from the project root down to `cwd` and appending each `AGENTS.md` it passes. Reading or editing a file in a subdirectory does **not** pull in that subdirectory's file. "Nearest wins" describes precedence — the closer file lands later in the combined prompt — not deferred loading. A nested file *below* `cwd` is never read. So nested `AGENTS.md` only works under an operational contract: every Codex session starts inside the package it is working on.
@@ -145,7 +154,7 @@ Relative paths resolve from the importing file. Imported files are expanded into
 
 Import parsing **skips code spans and fenced blocks**, so to mention a path without importing it, wrap it in backticks: `` `@README` `` stays literal, bare `@README` imports.
 
-**External imports need one-time approval.** An import in a *project* memory file whose path resolves outside the working directory — `@~/.claude/my-notes.md`, say — triggers an approval dialog the first time. **Decline once and the imports stay disabled with no further prompt**, which looks exactly like a file that silently does nothing. Imports in user-scope files (`~/.claude/CLAUDE.md`, `~/.claude/rules/`) load without the dialog. So do not build a team-shared setup on an external import; commit the content instead.
+**External imports need one-time approval.** An import in a *project* memory file whose path resolves outside the working directory — `@~/.claude/my-notes.md`, say — triggers an approval dialog the first time. **Decline once and the imports stay disabled with no further prompt**, which looks exactly like a file that silently does nothing. Imports in user-scope files (`~/.claude/CLAUDE.md`, `~/.claude/rules/`) load without the dialog — **except in Cowork sessions on the desktop**, which skip any user-scope import resolving outside the session's working directory, and skip a `~/.claude/CLAUDE.md` that is itself a symlink or a `~/.claude/rules/` link pointing outside it. So do not build a team-shared setup on an external import, and do not rely on a home-directory import as the only carrier of a rule: commit the content instead.
 
 ## Compaction
 
