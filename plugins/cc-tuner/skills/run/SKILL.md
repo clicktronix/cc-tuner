@@ -74,7 +74,10 @@ nothing about the loop changes.
 Three things this adds to the obvious:
 
 - **Tick the plan file and commit it.** When every acceptance criterion of a slice is met, change its
-  `- [ ]` to `- [x]` in the plan file and commit. The task list does not survive the session; the file does.
+  `- [ ]` to `- [x]` in the plan file and commit. **Tick the spec's acceptance criteria in the same
+  commit**, for whichever of them that slice made true: they are the contract's own record, they are
+  provable here, and a spec left at zero ticks beside a plan at twenty is how a finished run reads as
+  a failed one. The spec's Definition of Done is not ticked here — see step 9. The task list does not survive the session; the file does.
   A ticked file with no matching task is recoverable, a completed task with an unticked file is lost.
   **Commit message format, including any attribution trailers, comes from the repository's
   conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
@@ -106,6 +109,8 @@ Delivers, criteria), and these standing constraints:
 
 - write only inside the slice's Owned paths;
 - make the deciding check pass, having first seen it fail, and say which command showed each;
+- do not delegate further: a unit implements its own slice. Nested delegation was measured spawning
+  dozens of agents nobody asked for, and a subagent's subagent is a brief written from a brief;
 - where `.claude/smoke-verify.cfg` exists, exercise the change and attest **before** committing —
   `scripts/smoke-verify/mark.sh verified <rule> '<what you exercised and saw>'`. The gate is a Stop
   hook over the *uncommitted* delta, and a unit that commits first takes its work out of the gate's
@@ -155,6 +160,12 @@ revision of this skill said only "work it, complete it", which is not a discipli
 
   It grades the mutation instead of taking your account of it, and it refuses rather than guessing —
   `--help` is the contract, and it cannot drift from the code the way a paragraph here can.
+
+  **Run it once for the guard it covers.** The proof belongs to a guard, not to a commit: re-run it
+  only if the guard's own code or its test changed. A live run spent ten builds re-proving one budget
+  after edits nowhere near it, because "the SHA moved" was read as "the proof expired". A new SHA
+  invalidates the review and CI, which are about the whole candidate; it does not invalidate a
+  measurement of one guard nothing touched.
 
   **Paste its lines into the run log; do not retype them.** Live runs reported a mutant SURVIVED that
   a quoting bug never applied, and one "corrected" a right number into a wrong one because a
@@ -227,10 +238,10 @@ or require restarting every advisory review from zero.
    candidate has not changed, so re-run the required review on the same SHA. Manufacturing an empty
    commit to move the SHA would be inventing evidence, which is the opposite of the point.
 7. **Check the Definition of Done from the spec** before merging. Every item, named, with what
-   satisfied it. Then **tick the spec's own boxes and commit it** — its acceptance criteria and its
-   Definition of Done, in the same commit, with the candidate's SHA in the message. The plan is ticked
-   slice by slice and the spec only here, so leaving this out ships a spec whose every box says failed
-   beside a plan that says everything passed, with nothing to say which one went stale.
+   satisfied it. **Report it; do not commit anything here.** A commit at this point moves the head, and
+   the head is what the approval and the CI were earned on — the merge step would then refuse the
+   candidate it just approved. The spec's Definition of Done is ticked in step 9, once those items are
+   actually true.
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
@@ -269,7 +280,11 @@ or require restarting every advisory review from zero.
    The script refuses a merge without the pin: the head can move between the check and the merge,
    and only GitHub can close that window.
 9. **Reconcile after the merge**, as the spec requires: sync the target, delete the branch, close the
-   issue.
+   issue, and **tick the spec's Definition of Done** on the synced target, naming the merge commit.
+   Only here are those items true, and only here does a commit cost nothing — before the merge it
+   would have invalidated the very approval the DoD is recording. Where the target refuses direct
+   pushes, carry the ticks in the next branch that touches the repository rather than opening a pull
+   request for five checkboxes.
 
 ## When the checked merge path denies
 

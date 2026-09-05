@@ -138,8 +138,11 @@ for rule in $RULES; do
   EXTRA=""
   [ -n "$EXCLUDES" ] && EXTRA=" Also does not count here: $EXCLUDES."
 
+  # Always name the rule. The name is optional only when exactly one rule matches, and the hook cannot
+  # promise that -- a config with a bare `patterns=` plus one named rule printed the un-named form for
+  # `default` and mark.sh then refused it, so the gate handed out a command that could not work at the
+  # one moment it was telling the agent what to do.
   ATTEST="bash '$MARK' verified $rule '<what you exercised and saw>'"
-  [ "$rule" = default ] && ATTEST="bash '$MARK' verified '<what you exercised and saw>'"
 
   BLOCKED="$BLOCKED [$rule] UNVERIFIED: ${FILES}— COUNTS: ${COUNTS}.${NO_COUNTS}${EXTRA} Attest with: $ATTEST."
   BLOCKED_ROUNDS="${BLOCKED_ROUNDS}${BLOCKED_ROUNDS:+, }$rule $N/$CAP"

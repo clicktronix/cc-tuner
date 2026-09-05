@@ -263,4 +263,18 @@ check "missing-file-rc2"     "rc=2"         "$OUT"
 OUT="$(run "$W/calc.py" "true")"
 check "wrong-arity-refused" "usage:" "$OUT"
 
+# A test that DIED is not a test that failed. A shell reports a signal as 128+n, so an OOM kill or a
+# timeout arrived here as a non-zero status and was graded KILLED -- the mutant credited with a red
+# suite it never caused, which is the exact class of false KILLED this script exists to refuse.
+S="$(flow_workdir)"; printf 'x=1\n' > "$S/f.sh"
+# The test passes on the original and, on the mutant, kills itself with SIGTERM instead of returning
+# a failing status -- the shape an OOM kill or a timeout has.
+SIGNAL_TEST="bash -c 'grep -q x=1 \"$S/f.sh\" || kill -TERM \$\$'"
+SIGNAL_MUT="sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE"
+OUT="$(run "$S/f.sh" "$SIGNAL_TEST" "$SIGNAL_MUT")"
+check  "signal-is-not-a-verdict" "SIGNAL"           "$OUT"
+check  "signal-says-nothing-graded" "nothing was graded" "$OUT"
+check  "signal-exits-2"          "rc=2"             "$OUT"
+absent "signal-not-graded-as-killed" "KILLED"       "$OUT"
+
 exit $fails

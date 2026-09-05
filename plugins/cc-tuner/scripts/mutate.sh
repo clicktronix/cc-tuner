@@ -8,6 +8,7 @@
 # KILLED or a false SURVIVED that something actually produced:
 #
 #   * the test must be GREEN before the mutation, or a red suite grades every mutant as killed;
+#   * a test that is KILLED by a signal (OOM, timeout, interrupt) is not a test the mutant failed;
 #   * the mutation command must exit 0 and change the file — a half-applied patch that errors out is
 #     not a mutant, and a patch that no-ops and then "survives" is the defect that started this;
 #   * the mutant must parse, and if this cannot tell whether it parses it refuses rather than
@@ -65,6 +66,8 @@ Prints one ledger line — paste it, do not retype it.
   BASELINE   exit 2   the test was already failing, so no mutant could have been graded
   MUTATION   exit 2   the mutation command failed or left the file byte-identical
   SYNTAX     exit 2   the mutant does not parse, or nothing here can tell whether it does
+  SIGNAL     exit 2   the test was killed (OOM, timeout, interrupt) rather than failed: a death is
+                      not a verdict, and grading it KILLED credits the mutant with someone else's kill
 USAGE
 }
 
@@ -206,6 +209,16 @@ fi
 run_test
 rc=$?
 restore
+
+# A test that DIED is not a test that failed. A shell reports a signal as 128+n, so an OOM kill, a
+# timeout, or a Ctrl-C arrives here as a non-zero status and used to be graded KILLED -- the mutant
+# credited with a red suite it never caused. That is a false KILLED, which is the whole class of lie
+# this script exists to refuse, and it was reachable from the commonest way a heavy mutation run ends.
+if [ "$rc" -ge 128 ] 2>/dev/null; then
+  printf 'SIGNAL     %s  rc=%s  the test was killed by signal %s, not failed by the mutant — nothing was graded  %s\n' \
+    "$FILE" "$rc" "$((rc - 128))" "$MUT_CMD"
+  exit 2
+fi
 
 if [ "$rc" -ne 0 ]; then
   printf 'KILLED     %s  rc=%s  green before, red after  %s\n' "$FILE" "$rc" "$MUT_CMD"

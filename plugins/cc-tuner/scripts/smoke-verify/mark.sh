@@ -51,6 +51,26 @@ matching_rules() {
   return 0
 }
 
+# Of those, the ones the gate would still block on: matching is not the same question as unattested,
+# and answering the first while asking the second reported an already-attested rule as outstanding
+# after every partial attestation.
+rule_is_attested() { # $1=rule
+  local state_file fp
+  state_file="$(smoke_state_file "$1")"
+  [ -f "$state_file" ] || return 1
+  [ "$(smoke_state_get branch "$state_file")" = "$BRANCH" ] || return 1
+  fp="$(smoke_fingerprint "$(smoke_rule_get patterns "$1")")"
+  [ "$(smoke_state_get fingerprint "$state_file")" = "$fp" ] || return 1
+  case "$(smoke_state_get status "$state_file")" in verified|skipped) return 0 ;; *) return 1 ;; esac
+}
+
+unattested_rules() {
+  matching_rules | while IFS= read -r rule; do
+    [ -n "$rule" ] || continue
+    rule_is_attested "$rule" || printf '%s\n' "$rule"
+  done
+}
+
 MODE="${1:-}"
 
 if [ "$MODE" = "status" ]; then
@@ -154,6 +174,6 @@ rm -f "$BLOCKS_FILE" 2>/dev/null
 echo "smoke-verify: attested '$MODE' for rule $RULE on branch $BRANCH (fp $(printf '%.16s' "$FP")…)"
 # Saying what is still open matters more than the confirmation: a multi-rule delta where one rule was
 # attested looks finished from the agent's side and still blocks, and the reason has to be legible.
-REMAINING="$(matching_rules | grep -vx -- "$RULE" || true)"
+REMAINING="$(unattested_rules || true)"
 [ -n "$REMAINING" ] && echo "smoke-verify: still unattested for this delta: $(printf '%s' "$REMAINING" | tr '\n' ' ')"
 exit 0

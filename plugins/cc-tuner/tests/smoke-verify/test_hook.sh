@@ -256,6 +256,31 @@ OUT="$(run_hook)"
   && echo "PASS edit-rearms-one-rule" || { echo "FAIL edit-rearms-one-rule (out=$OUT)"; fails=1; }
 rm -rf "$T"
 
+# The command the hook prints has to be one mark.sh accepts. It printed the un-named form for
+# `default`, and mark.sh refuses that whenever a second rule also matches -- the gate handing out an
+# unusable command at the one moment it is telling the agent what to do.
+mkrepo
+mkdir -p "$T/.claude" "$T/migrations"
+printf 'cap=3\npatterns=\\.(tsx)$\npatterns.migration=(^|/)migrations/\ncounts.migration=apply and roll back\n' > "$T/.claude/smoke-verify.cfg"
+echo '<div/>' > "$T/A.tsx"; echo 'ALTER TABLE t;' > "$T/migrations/001.sql"
+OUT="$(run_hook)"
+printf '%s' "$OUT" | grep -q "verified default '" \
+  && echo "PASS attest-command-names-the-rule" || { echo "FAIL attest-command-names-the-rule (out=$OUT)"; fails=1; }
+
+# ...and running exactly what it printed must work
+OUT="$( cd "$T" && bash "$MARK" verified default 'opened A.tsx in the browser' 2>&1 )"; rc=$?
+{ [ $rc -eq 0 ] && printf '%s' "$OUT" | grep -q "attested 'verified' for rule default"; } \
+  && echo "PASS printed-command-is-accepted" || { echo "FAIL printed-command-is-accepted (rc=$rc out=$OUT)"; fails=1; }
+
+# After both rules are attested the writer must not still report one as outstanding: matching is not
+# the same question as unattested, and answering the first while asking the second was wrong every time.
+OUT="$( cd "$T" && bash "$MARK" verified migration 'applied 001 and rolled it back on scratch' 2>&1 )"
+printf '%s' "$OUT" | grep -q 'still unattested' \
+  && { echo "FAIL remainder-counts-attested-rules (out=$OUT)"; fails=1; } || echo "PASS remainder-excludes-attested"
+OUT="$(run_hook)"
+[ -z "$OUT" ] && echo "PASS both-attested-releases" || { echo "FAIL both-attested-releases (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
 # an unknown rule name is refused, not silently treated as the evidence line
 mkrepo; rules_cfg
 echo '<div/>' > "$T/Only.tsx"
