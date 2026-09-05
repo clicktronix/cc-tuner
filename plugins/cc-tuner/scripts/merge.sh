@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The only sanctioned way to merge a cc-tuner run.
 #
-#   merge.sh [--check-only] <pr> <squash|merge> <candidate-sha> [review-thread]
+#   merge.sh [--check-only] [--ci required|any|none:<reason>] <pr> <squash|merge> <sha> [thread]
 #
 # Why this exists, after three attempts at the other design: the guard used to read the agent's Bash
 # command string and decide whether the merge inside it was attested. That cannot work. A shell
@@ -25,11 +25,32 @@ GH="${CC_TUNER_GH:-gh}"
 die() { printf 'cc-tuner merge: %s\n' "$1" >&2; exit 1; }
 
 CHECK_ONLY=""
-case "${1:-}" in --check-only) CHECK_ONLY=1; shift ;; esac
+# CI policy, defaulting to the strictest. It is an argument rather than a constant because "required"
+# is not universal: a repository with no branch protection has no required checks at all, and one
+# whose CI is triggered by hand for cost reasons has none on a given head. Refusing both outright did
+# not make them safer — it sent the operator to `gh pr merge` by hand, which is outside every check in
+# this file. What each mode means is at the CI section below, where it is applied.
+CI_MODE=required
+CI_REASON=""
+while :; do
+  case "${1:-}" in
+    --check-only) CHECK_ONLY=1; shift ;;
+    --ci)
+      [ -n "${2:-}" ] || die "--ci needs a mode: required, any, or none:<reason>"
+      case "$2" in
+        required|any) CI_MODE="$2" ;;
+        none:?*)      CI_MODE=none; CI_REASON="${2#none:}" ;;
+        none|none:)   die "--ci none needs a reason: --ci 'none:<why this repository runs no CI>'" ;;
+        *)            die "unknown --ci mode '$2' (expected required, any, or none:<reason>)" ;;
+      esac
+      shift 2 ;;
+    *) break ;;
+  esac
+done
 
 PR="${1:-}"; STRATEGY="${2:-}"; SHA="${3:-}"; REVIEW_THREAD="${4:-}"
 [ -n "$PR" ] && [ -n "$STRATEGY" ] && [ -n "$SHA" ] \
-  || die "usage: merge.sh [--check-only] <pr> <squash|merge> <candidate-sha> [review-thread]"
+  || die "usage: merge.sh [--check-only] [--ci required|any|none:<reason>] <pr> <squash|merge> <candidate-sha> [review-thread]"
 # squash and merge only, matching what a spec is allowed to declare. rebase was accepted here and by
 # /run for one revision, offering a strategy no spec can ask for.
 case "$STRATEGY" in squash|merge) ;; *) die "strategy must be squash or merge" ;; esac
@@ -150,33 +171,63 @@ case "$VERDICT" in
   *)  die "the latest cc-tuner verdict on $HEAD_SHA is not an approval: $VERDICT" ;;
 esac
 
-# --required, and zero checks is not green: an empty list satisfies "nothing failed" under any naive
-# reading, and absent CI is unproven CI.
-# `gh pr checks --required` does NOT return an empty list when the branch requires nothing: it exits
-# non-zero and says "no checks reported" or "no required checks reported" on stderr. This was learned the hard way in the deleted
-# runctl.sh, which carried it and a comment explaining it; reading only the exit status reports "cannot read
-# CI" for a repository that simply has no branch protection, sending the operator to look for a
-# failing check that does not exist.
+# Zero checks is not green: an empty list satisfies "nothing failed" under any naive reading, and
+# absent CI is unproven CI. The three modes differ only in WHICH checks answer that question, never in
+# whether a failing one can be waived:
+#
+#   required (default) — GitHub's own required checks. The strongest claim available: the repository
+#                        itself declared what must pass, so nothing here decides it.
+#   any                — every check reported on the head. For a repository that runs CI without
+#                        branch protection, which is most solo and fork repositories. Weaker, because
+#                        a workflow that never started reports nothing; that is why at least one
+#                        check is still demanded.
+#   none:<reason>      — a recorded waiver, honoured ONLY when GitHub reports no checks whatsoever on
+#                        the head. A waiver over a failing or still-running check is refused: absence
+#                        is what a human can accept responsibility for, failure is not. The reason is
+#                        mandatory and is printed, so the run log carries who accepted what.
+#
+# `gh pr checks` does NOT return an empty list when there is nothing to report: it exits non-zero and
+# says "no checks reported" or "no required checks reported" on stderr. This was learned the hard way
+# in the deleted runctl.sh; reading only the exit status reports "cannot read CI" for a repository
+# that simply has no branch protection, sending the operator to look for a failing check that does not
+# exist.
+case "$CI_MODE" in
+  required) CI_SELECT="--required"; CI_LABEL="required" ;;
+  *)        CI_SELECT="";           CI_LABEL="reported" ;;
+esac
 CHECKS_ERR="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-checks.XXXXXX")" || die "cannot create a temporary file"
-if ! CHECKS="$("$GH" pr checks "$PR" --required --json name,bucket 2>"$CHECKS_ERR")"; then
+NONE_REPORTED=""
+# Unquoted on purpose: an empty CI_SELECT must expand to no argument at all, not to an empty one.
+# shellcheck disable=SC2086
+if ! CHECKS="$("$GH" pr checks "$PR" $CI_SELECT --json name,bucket 2>"$CHECKS_ERR")"; then
   if grep -Eq 'no( required)? checks reported' "$CHECKS_ERR"; then
+    NONE_REPORTED=1
+    CHECKS='[]'
+  else
     rm -f "$CHECKS_ERR"
-    die "$PR has no required checks configured on GitHub — absent CI is unproven CI, so configure at least one required check"
+    die "cannot read $CI_LABEL CI checks for $HEAD_SHA"
   fi
-  rm -f "$CHECKS_ERR"
-  die "cannot read required CI checks for $HEAD_SHA"
 fi
 rm -f "$CHECKS_ERR"
 TOTAL="$(printf '%s' "$CHECKS" | jq -r 'length // 0')"
-[ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || die "no required CI checks ran on $HEAD_SHA — absent CI is unproven CI"
-BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"
-[ "${BAD:-1}" -eq 0 ] 2>/dev/null || die "$BAD of $TOTAL required CI checks on $HEAD_SHA are not passing"
+
+if [ "$CI_MODE" = none ]; then
+  # The waiver's whole safety is this comparison. Anything reported — passing, failing or pending —
+  # means CI exists here and gets to decide, so the waiver is refused rather than allowed to outrank it.
+  { [ -n "$NONE_REPORTED" ] || [ "${TOTAL:-0}" -eq 0 ]; } 2>/dev/null \
+    || die "--ci none was passed, but $TOTAL check(s) are reported on $HEAD_SHA — a waiver covers CI that does not exist, never CI that ran. Drop the waiver and let those checks decide."
+  printf 'cc-tuner merge: no CI reported on %s; merging under a recorded waiver: %s\n' "$HEAD_SHA" "$CI_REASON" >&2
+else
+  [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || die "no $CI_LABEL CI checks ran on $HEAD_SHA — absent CI is unproven CI. Configure a required check, or pass --ci any if this repository runs CI without branch protection, or --ci 'none:<reason>' to merge under a recorded waiver."
+  BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"
+  [ "${BAD:-1}" -eq 0 ] 2>/dev/null || die "$BAD of $TOTAL $CI_LABEL CI checks on $HEAD_SHA are not passing"
+fi
 
 # --match-head-commit closes the window between the checks above and the merge itself, on GitHub's
 # side, which nothing local can do.
 # --check-only stops here, having proved the candidate would be accepted. The eval needs to observe
 # the positive path without actually merging, and a check that can only be run by merging is one
 # nobody will run twice.
-[ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s) at %s: required review, verdict, required CI and head all check out\n' "$PR" "$STRATEGY" "$HEAD_SHA"; exit 0; }
+[ -z "$CHECK_ONLY" ] || { printf 'would merge %s (--%s) at %s: required review, verdict, CI (--ci %s) and head all check out\n' "$PR" "$STRATEGY" "$HEAD_SHA" "$CI_MODE"; exit 0; }
 
 exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"

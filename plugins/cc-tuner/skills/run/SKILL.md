@@ -3,7 +3,7 @@ name: run
 description: Work this branch's committed plan to a merged PR — safe ready batches, ticked checkboxes, exact-candidate reviews, green CI, and a merge that pins the head.
 argument-hint: '[--auto] <path-to-spec>'
 disable-model-invocation: true
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
 ---
 
 # /cc-tuner:run
@@ -89,11 +89,46 @@ Three things this adds to the obvious:
   and before merge. Report what is done and what comes next. A local commit, a successful review or
   a completed routine check is not by itself a reason to interrupt the user.
 
-## Where the work happens
+## Delegating a slice
 
-Which slices may run at once, and which workspace each method belongs in, are in
-[`references/placement.md`](references/placement.md). Read it before fanning out or before invoking
-`prototype`, `research`, `domain-modeling` or `diagnosing-bugs`.
+You are the orchestrator. Implementation of a slice may be handed to a subagent dispatched with the
+Agent tool; the decisions may not. That split is not a preference — a subagent starts with none of
+this session's context, so it can be handed a job but cannot be handed a judgement.
+
+**Delegate when the slice is worth its brief.** A subagent costs one written brief and buys back a
+context window and, on a cheaper model, most of the tokens. That trade wins for a slice with real
+implementation work in it and loses for a two-line edit you could make while writing the delegation.
+Under `--auto`, prefer delegating: your own context is the scarce resource across a long plan.
+
+**The brief is written from the files, never from this conversation** — which is what makes
+delegation cheap here, because everything a unit needs is already committed. It carries the spec path
+with the instruction to read it, the slice verbatim from the plan (title, Owned paths, Deciding check,
+Delivers, criteria), and these standing constraints:
+
+- write only inside the slice's Owned paths;
+- make the deciding check pass, having first seen it fail, and say which command showed each;
+- commit in this repository's convention; do not push, do not open or comment on a pull request, do
+  not merge, and do not claim any review or approval;
+- report what changed, the commands run with their results, and anything the slice's text turned out
+  to be wrong about.
+
+Never write "as we discussed" or point at a finding from earlier in this session: the unit cannot see
+it, and work built on a brief like that misses the point in a way that reads as disobedience.
+
+**What never leaves you.** Reading `mutate.sh` output; deciding a slice is done; the full regression
+before the candidate; the review verdict; the Definition of Done; and everything under Delivery. A
+unit reports; you decide. Where the native task tools are present, you own the task list too — a
+subagent's status updates are not the plan's state.
+
+**Verify what comes back against the tree, not against the report.** Read the unit's diff, run the
+deciding check yourself, and confirm it touched nothing outside its Owned paths. A unit's summary is a
+claim about work one command can inspect, and the RED-to-GREEN discipline below exists because a claim
+is not evidence.
+
+[`references/placement.md`](references/placement.md) owns the rest and is the only place that states
+it: which slices may run at once, which workspace `prototype`, `research`, `domain-modeling` and
+`diagnosing-bugs` belong in, and the dispatch mechanics — agent type, model, concurrency, isolation,
+escalation. Read it before fanning out or before invoking any of those skills.
 
 
 ## Proving a slice, before it counts as done
@@ -191,15 +226,28 @@ or require restarting every advisory review from zero.
    candidate has not changed, so re-run the required review on the same SHA. Manufacturing an empty
    commit to move the SHA would be inventing evidence, which is the opposite of the point.
 7. **Check the Definition of Done from the spec** before merging. Every item, named, with what
-   satisfied it.
+   satisfied it. Then **tick the spec's own boxes and commit it** — its acceptance criteria and its
+   Definition of Done, in the same commit, with the candidate's SHA in the message.
+
+   Two files record the same completion, and the plan is ticked slice by slice while the spec is not
+   ticked at all until here. Left implicit, that reads as a spec whose every criterion failed while
+   the plan says everything passed; the boxes then disagree in the permanent record and the reader has
+   no way to tell which one went stale. Ticking the spec at the one moment its DoD is actually
+   established is what keeps the two consistent.
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
-   Pass the strategy the spec names:
+   Pass the strategy **and the CI mode** the spec's `ci:` field names — both are values it declared,
+   not defaults chosen here. Omit `--ci` when that mode is `required`, and read a spec that names
+   checks without naming a mode as `required`: that is what every spec written before the field had
+   modes meant:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" <pr> <squash|merge> <candidate-sha> <review-thread>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] <pr> <squash|merge> <candidate-sha> <review-thread>
    ```
+
+   If the spec declares `none` and checks turn out to exist, the spec is wrong about the repository:
+   fix the spec, do not drop the flag. The script refuses that combination anyway.
 
    It re-runs the companion's exact-candidate check, re-reads the public verdict, required checks and
    head, and pins the head, so nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:

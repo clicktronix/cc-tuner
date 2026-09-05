@@ -48,16 +48,24 @@ is worse than not offering it, because nothing later contradicts the claim.
   which is nearly all of them. Also offer it when doctor reported a legacy `git-flow.md`: that path
   migrates the deltas file, and the cached board field IDs inside it, before anything overwrites it.
   Print `/cc-tuner:task-flow-setup install`.
-- **`/cc-tuner:smoke-verify-setup`** — user-run only. Decide whether the repo wants it: only one with
-  a frontend worth exercising does, so check first (`package.json`, an `app/` or `src/components`
-  tree). A backend-only repo should not have it; say so rather than offering a gate that will never
-  fire. When it does want it, print the command for the user to run:
+- **`/cc-tuner:smoke-verify-setup`** — user-run only. Nearly every repository has *some* change worth
+  exercising, so the question is not "is there a frontend" but "what does this repository change that a
+  green typecheck says nothing about" — screens, migrations, endpoints, jobs, generated artifacts,
+  infrastructure. Look at the tree and name the candidates before offering it. Decline only when you
+  can say what the repository is instead, and a library whose entire surface is covered by its unit
+  tests is the honest example of that. When it does want it, print the command for the user to run:
 
   ```
   /cc-tuner:smoke-verify-setup install
   ```
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer its command once; if doctor
   already reported the script installed, skip silently. Print `/cc-tuner:statusline-setup install`.
+- **The `Mechanism First` output style** — the plugin ships it, so there is nothing to install and
+  no installer to print. Mention it once, as a preference rather than a fix: it makes answers lead
+  with the mechanism, draw ASCII diagrams for boundaries and pipelines, and translate without
+  transliterating. To use it: `/config` → Output style → `Mechanism First`, then `/clear`, because
+  the style is read once at session start. Never select it for the user — a style rewrites part of
+  the system prompt for every response, and that choice is theirs.
 
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 

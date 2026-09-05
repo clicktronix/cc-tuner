@@ -47,56 +47,91 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 [ -n "$BRANCH" ] || allow
 [ "$BRANCH" = "HEAD" ] && allow  # detached HEAD: nothing stable to scope to
 
-PATTERNS="$(smoke_cfg_get patterns)"
-[ -n "$PATTERNS" ] || allow  # empty/missing patterns = misconfigured → fail open
+RULES="$(smoke_rules)"
+[ -n "$RULES" ] || allow  # no rules = misconfigured → fail open
 
 CAP="$(smoke_cfg_get cap)"
 case "$CAP" in ''|*[!0-9]*|0*) CAP=3;; esac  # non-numeric/leading-zero → default
 
-MATCHED="$(smoke_matched_paths "$PATTERNS" || true)"
-[ -n "$MATCHED" ] || allow
+# The default evidence list, used by a rule that declares none. It is deliberately about EXERCISING
+# something rather than about a browser: the gate covers whatever a repository points it at, and a
+# migration, an endpoint and a screen are proved differently. A rule that knows its own kind of change
+# says so in `counts.<rule>`, and that text replaces this one.
+GENERIC_COUNTS="run the changed path for real and read the result — execute the exact failing case and show it passing, drive the affected flow end to end (a real request, a migration applied and rolled back, a page opened and interacted with through a browser-driving tool such as chrome-devtools MCP), or render the real artifact and look at it"
 
-FP="$(smoke_fingerprint "$PATTERNS")"
-[ -n "$FP" ] || allow
+BLOCKED=""      # newline-separated per-rule sections for the block message
+BLOCKED_ROUNDS=""
+for rule in $RULES; do
+  PATTERNS="$(smoke_rule_get patterns "$rule")"
+  [ -n "$PATTERNS" ] || continue
 
-# Release: an attestation for exactly this branch + delta.
-if [ -f "$SMOKE_STATE" ]; then
-  ST_BRANCH="$(smoke_state_get branch)"
-  ST_FP="$(smoke_state_get fingerprint)"
-  ST_STATUS="$(smoke_state_get status)"
-  if [ "$ST_BRANCH" = "$BRANCH" ] && [ "$ST_FP" = "$FP" ]; then
-    case "$ST_STATUS" in verified|skipped) allow;; esac
+  MATCHED="$(smoke_matched_paths "$PATTERNS" || true)"
+  [ -n "$MATCHED" ] || continue
+
+  FP="$(smoke_fingerprint "$PATTERNS")"
+  [ -n "$FP" ] || continue
+
+  STATE_FILE="$(smoke_state_file "$rule")"
+  BLOCKS_FILE="$(smoke_blocks_file "$rule")"
+
+  # Release: an attestation for exactly this branch + delta, for THIS rule. Per rule, because
+  # verifying the screen says nothing about whether the migration was run.
+  if [ -f "$STATE_FILE" ]; then
+    ST_BRANCH="$(smoke_state_get branch "$STATE_FILE")"
+    ST_FP="$(smoke_state_get fingerprint "$STATE_FILE")"
+    ST_STATUS="$(smoke_state_get status "$STATE_FILE")"
+    if [ "$ST_BRANCH" = "$BRANCH" ] && [ "$ST_FP" = "$FP" ]; then
+      case "$ST_STATUS" in verified|skipped) continue;; esac
+    fi
   fi
-fi
 
-# Cap bookkeeping, per fingerprint. Malformed counter → fail open.
-mkdir -p "$SMOKE_STATE_DIR" 2>/dev/null || allow
-N=0
-if [ -f "$SMOKE_BLOCKS" ]; then
-  B_FP="$(sed -n 's/^fp=//p' "$SMOKE_BLOCKS" 2>/dev/null | head -1)"
-  B_N="$(sed -n 's/^n=//p' "$SMOKE_BLOCKS" 2>/dev/null | head -1)"
-  if [ "$B_FP" = "$FP" ]; then
-    case "$B_N" in
-      0|[1-9]|[1-9][0-9]) N="$B_N";;
-      *) allow;;
-    esac
+  # Cap bookkeeping, per rule and per fingerprint. Malformed counter → fail open for this rule only:
+  # one unreadable counter must not disarm the rules that are still readable.
+  mkdir -p "$SMOKE_STATE_DIR" 2>/dev/null || continue
+  N=0
+  if [ -f "$BLOCKS_FILE" ]; then
+    B_FP="$(sed -n 's/^fp=//p' "$BLOCKS_FILE" 2>/dev/null | head -1)"
+    B_N="$(sed -n 's/^n=//p' "$BLOCKS_FILE" 2>/dev/null | head -1)"
+    if [ "$B_FP" = "$FP" ]; then
+      case "$B_N" in
+        0|[1-9]|[1-9][0-9]) N="$B_N";;
+        *) continue;;
+      esac
+    fi
   fi
-fi
-[ "$N" -ge "$CAP" ] && allow
-N=$((N + 1))
-printf 'fp=%s\nn=%s\n' "$FP" "$N" > "$SMOKE_BLOCKS.tmp" 2>/dev/null \
-  && mv -f "$SMOKE_BLOCKS.tmp" "$SMOKE_BLOCKS" 2>/dev/null || allow
+  [ "$N" -ge "$CAP" ] && continue
+  N=$((N + 1))
+  printf 'fp=%s\nn=%s\n' "$FP" "$N" > "$BLOCKS_FILE.tmp" 2>/dev/null \
+    && mv -f "$BLOCKS_FILE.tmp" "$BLOCKS_FILE" 2>/dev/null || continue
 
-FILES="$(printf '%s\n' "$MATCHED" | head -8 | tr '\n' ' ')"
-TOTAL="$(printf '%s\n' "$MATCHED" | grep -c .)"
-[ "$TOTAL" -gt 8 ] 2>/dev/null && FILES="$FILES(+$((TOTAL - 8)) more) "
+  FILES="$(printf '%s\n' "$MATCHED" | head -8 | tr '\n' ' ')"
+  TOTAL="$(printf '%s\n' "$MATCHED" | grep -c .)"
+  [ "$TOTAL" -gt 8 ] 2>/dev/null && FILES="$FILES(+$((TOTAL - 8)) more) "
+
+  COUNTS="$(smoke_rule_get counts "$rule")"
+  [ -n "$COUNTS" ] || COUNTS="$GENERIC_COUNTS"
+  EXCLUDES="$(smoke_rule_get excludes "$rule")"
+  EXTRA=""
+  [ -n "$EXCLUDES" ] && EXTRA=" Also does not count here: $EXCLUDES."
+
+  ATTEST="bash '$MARK' verified $rule '<what you exercised and saw>'"
+  [ "$rule" = default ] && ATTEST="bash '$MARK' verified '<what you exercised and saw>'"
+
+  BLOCKED="$BLOCKED [$rule] UNVERIFIED: ${FILES}— COUNTS: ${COUNTS}.${EXTRA} Attest with: $ATTEST."
+  BLOCKED_ROUNDS="${BLOCKED_ROUNDS}${BLOCKED_ROUNDS:+, }$rule $N/$CAP"
+done
+
+[ -n "$BLOCKED" ] || allow
 
 # The block text carries the whole standard, deliberately. It used to end with 'see the
 # cc-tuner:smoke-verify skill for what counts as evidence' — a pointer the agent had to choose to
 # follow, at the one moment it is being told to stop. Everything load-bearing is inlined now, above
 # all the DOES NOT COUNT list: the gate's entire purpose is rejecting static checks as proof, so an
 # agent that never reads the list is an agent that attests on a green typecheck.
-REASON="smoke-verify gate (round $N/$CAP): frontend changes are UNVERIFIED: ${FILES}— Exercise the real behavior before finishing. COUNTS (any one, against the actual change): open the affected page or flow via chrome-devtools MCP (navigate, interact, screenshot) and confirm the changed behavior; run the exact failing case or affected test file and show it passing; render the real artifact (PDF, email preview, storybook story) and look at it. DOES NOT COUNT: typecheck, lint, a full-suite run that was already green before the change, the diff looks correct, or re-reading the code. Then attest with ONE line of concrete evidence — what you exercised and what it showed: bash '$MARK' verified '<what you exercised and saw>'. ATTEST BEFORE COMMITTING: the gate only sees the uncommitted delta, so committing without attesting takes the change out of scope entirely. Editing a matched file again re-arms the gate (staging or committing the same content does not), so verify after the code settles. If the USER explicitly told you to skip verification this turn, attest: bash '$MARK' skip '<who said so and why>'. Never attest verified on the strength of static checks — the evidence line is the audit trail and it will say so."
+#
+# What varies per rule is WHAT counts; what never varies is what does not. So the generic refusal
+# below frames every section, and each rule adds its own exclusions to it.
+REASON="smoke-verify gate (round $BLOCKED_ROUNDS): changes are UNVERIFIED. Exercise the real behavior before finishing, once per section below.$BLOCKED DOES NOT COUNT for any of them: typecheck, lint, a full-suite run that was already green before the change, the diff looks correct, or re-reading the code. ATTEST BEFORE COMMITTING: the gate only sees the uncommitted delta, so committing without attesting takes the change out of scope entirely. Editing a matched file again re-arms that rule (staging or committing the same content does not), so verify after the code settles. If the USER explicitly told you to skip verification this turn, attest the same way with 'skip' instead of 'verified' and say who authorized it. Never attest verified on the strength of static checks — the evidence line is the audit trail and it will say so."
 REASON="$(printf '%s' "$REASON" | tr -d '"\\' | tr -s '[:cntrl:]' ' ')"
 printf '{"decision":"block","reason":"%s"}\n' "$REASON"
 exit 0

@@ -24,6 +24,48 @@ smoke_cfg_get() { # $1=key
   sed -n "s/^$1=//p" "$SMOKE_CFG" 2>/dev/null | head -1 | tr -d '\r'
 }
 
+# --- rules ---------------------------------------------------------------
+# A repository has more than one kind of change worth exercising, and they are
+# not proved the same way: a screen is proved in a browser, a migration by
+# running it up and down, an endpoint by a real request. One `patterns=` with
+# one hard-coded evidence list could only ever describe one of them, which is
+# why the gate shipped frontend-only and stayed there.
+#
+# So the config carries named rules:
+#
+#   patterns.<rule>=<ERE over repo-relative paths>
+#   counts.<rule>=<what proves THIS kind of change>
+#   excludes.<rule>=<what someone will try to pass off as proof here>
+#
+# A bare `patterns=` (the pre-rules config) is still read, as the rule named
+# `default`. Its state files keep their old paths too, so an existing install
+# keeps its attestations across this upgrade.
+smoke_rules() {
+  {
+    sed -n 's/^patterns\.\([A-Za-z0-9_][A-Za-z0-9_-]*\)=.*/\1/p' "$SMOKE_CFG" 2>/dev/null
+    sed -n 's/^patterns=.*/default/p' "$SMOKE_CFG" 2>/dev/null | head -1
+  } | tr -d '\r' | awk '!seen[$0]++'
+}
+
+# `default` reads the suffixed key first so that writing `patterns.default=`
+# explicitly does what it looks like it does. Falling straight through to the
+# bare key would ignore it while the config still reads as configured, which is
+# the failure mode this whole file is built to avoid.
+smoke_rule_get() { # $1=key $2=rule
+  local value
+  value="$(smoke_cfg_get "$1[.]$2")"
+  if [ -z "$value" ] && [ "$2" = default ]; then
+    value="$(smoke_cfg_get "$1")"
+  fi
+  printf '%s' "$value"
+}
+
+# `default` keeps the unsuffixed paths: an attestation written by the previous
+# version must still release the gate after the upgrade, and a state file whose
+# name changes silently is an attestation that silently stops counting.
+smoke_state_file()  { if [ "$1" = default ]; then printf '%s/state' "$SMOKE_STATE_DIR"; else printf '%s/state.%s' "$SMOKE_STATE_DIR" "$1"; fi; }
+smoke_blocks_file() { if [ "$1" = default ]; then printf '%s/blocks' "$SMOKE_STATE_DIR"; else printf '%s/blocks.%s' "$SMOKE_STATE_DIR" "$1"; fi; }
+
 # Path from a porcelain line: strip the 3-char "XY " prefix; renames keep the
 # destination side (the side that exists in the worktree). The caller disables
 # core.quotePath so ordinary non-ASCII names remain real filesystem paths. Git
@@ -71,6 +113,6 @@ smoke_fingerprint() { # $1=patterns-ERE
   } | smoke_sha
 }
 
-smoke_state_get() { # $1=key
-  sed -n "s/^$1=//p" "$SMOKE_STATE" 2>/dev/null | head -1
+smoke_state_get() { # $1=key [$2=state file, default: the pre-rules path]
+  sed -n "s/^$1=//p" "${2:-$SMOKE_STATE}" 2>/dev/null | head -1
 }
