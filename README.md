@@ -6,7 +6,7 @@ Skills:
 
 - **`claude-md-writer`** — create, refactor, and audit `CLAUDE.md` / `.claude/rules/` memory files, every Claude Code memory fact checked against <https://code.claude.com/docs/en/memory>.
 - **`statusline`** — a usage-focused statusline (rate-limit 5h/7d windows, context %, git, model + effort, session duration) with a `/cc-tuner:statusline-setup` installer, since plugins can't register a statusline on their own.
-- **`smoke-verify`** — not a skill: an opt-in Stop-hook gate (`/cc-tuner:smoke-verify-setup`). A change can't end a turn until it was exercised for real and attested with evidence. The repository declares its own kinds of change and what proves each — a screen in a browser, a migration applied and rolled back, an endpoint hit with a real request — and each is released separately. The whole standard lives in the block message the agent actually receives, rather than in a skill it has to choose to load.
+- **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed. It replaced a Stop-hook gate that classified changes by file path: paths do not know what a change does, and a fixed proof per extension asks for the wrong evidence as often as the right one.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:task-flow-setup` installer that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
 Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and prints only the user-run installer commands this repo needs. `check` reports; `install` may wire the board after those installers run.
@@ -35,7 +35,6 @@ plugins/
     README.md
     assets/
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
-      smoke-verify/config.template.cfg  # per-repo smoke-verify opt-in config
     skills/
       run/SKILL.md                  # /cc-tuner:run [--auto] <spec> executor
       spec/SKILL.md                 # /cc-tuner:spec writes the contract and sliced execution plan
@@ -43,9 +42,8 @@ plugins/
       spec/plan-template.md         # plan grammar filled by /cc-tuner:spec
       setup/SKILL.md                # /cc-tuner:setup env check + installer orchestration
     hooks/
-      hooks.json                    # SessionStart + Stop registrations
+      hooks.json                    # SessionStart registration
       session-start.sh              # asks a fresh session to rebuild its task list from the plan
-      smoke-verify-hook.sh          # the smoke-verify gate (fail-open bash)
     scripts/
       merge.sh                      # checked merge: required review + public verdict + CI on the head SHA
       mutate.sh                     # one mutation, graded by the program: no-op and syntax refusals, verified restore
@@ -54,7 +52,6 @@ plugins/
       setup/doctor.sh               # environment checks behind /cc-tuner:setup
       setup/prereq-check.sh         # companion plugins installed, enabled, and carrying their contracts
       setup/plugin-here.sh          # which install of a plugin applies to this repo (one rule, two callers)
-      smoke-verify/                 # fingerprint lib + attestation writer (mark.sh)
     skills/
       claude-md-writer/
         SKILL.md                    # corrected canonical skill

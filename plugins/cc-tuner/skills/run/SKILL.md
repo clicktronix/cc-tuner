@@ -92,6 +92,21 @@ Three things this adds to the obvious:
   and before merge. Report what is done and what comes next. A local commit, a successful review or
   a completed routine check is not by itself a reason to interrupt the user.
 
+## Who may stop the run
+
+**This skill owns every approval and every stop.** Skills invoked from here — `tdd`, `code-review`,
+`deep-review`, `verify-feature`, `diagnosing-bugs`, `research` — supply methods and findings. None of
+them may demand its own confirmation, declare its own gate, or end the loop, and where one reads as
+if it does, that text is about its own standalone use and does not apply inside a run.
+
+The reason is not tidiness. Several workflow skills loaded at once each bring a lifecycle, and the
+places where they disagree become places the run stops to ask a question nobody needed answered. What
+stays strict is the *result*: acceptance criteria, findings, and the candidate's evidence. Continuing
+work already approved at `/cc-tuner:spec` is not a new decision and does not need a new yes.
+
+Stop only for the boundaries this skill names: the first outward action without `--auto`, a real user
+decision or waiver, an unproved acceptance criterion, and merge.
+
 ## Delegating a slice
 
 You are the orchestrator. Implementation of a slice may be handed to a subagent dispatched with the
@@ -111,10 +126,8 @@ Delivers, criteria), and these standing constraints:
 - make the deciding check pass, having first seen it fail, and say which command showed each;
 - do not delegate further: a unit implements its own slice. Nested delegation was measured spawning
   dozens of agents nobody asked for, and a subagent's subagent is a brief written from a brief;
-- where `.claude/smoke-verify.cfg` exists, exercise the change and attest **before** committing —
-  `scripts/smoke-verify/mark.sh verified <rule> '<what you exercised and saw>'`. The gate is a Stop
-  hook over the *uncommitted* delta, and a unit that commits first takes its work out of the gate's
-  scope entirely; nothing downstream sees that it was never exercised;
+- report what you did NOT verify. You run the slice's deciding check; proving the behaviour against a
+  running system is the orchestrator's stage, and it needs to know what is still only compiled;
 - commit in this repository's convention; do not push, do not open or comment on a pull request, do
   not merge, and do not claim any review or approval;
 - report what changed, the commands run with their results, and anything the slice's text turned out
@@ -176,6 +189,22 @@ revision of this skill said only "work it, complete it", which is not a discipli
 - **Re-check `[eyes]` as a second fail-safe.** A conforming spec already makes unresolved human-only
   acceptance set `auto_ready: no`; if a stale or hand-edited plan still reaches this point under
   `--auto`, stop and ask. A waiver is the user's to give, recorded with who and when.
+
+## Verifying the feature, not the build
+
+When every slice is done and before the candidate is offered to any review, invoke
+**`cc-tuner:verify-feature`**. It reads the spec's acceptance criteria and the diff, finds what this
+repository already provides (commands, fixtures, runbooks, a browser tool, a database), chooses the
+instrument per behaviour, runs it, and returns what was observed.
+
+This is the stage that decides an `[eyes]` criterion. A criterion written as human-only sometimes has
+a machine representative once the code exists — the built chart option can be asserted where "the
+inversion reads as an inversion" cannot — and finding it is part of the stage, not a licence to
+downgrade the criterion. What it cannot prove, it reports as unproved and says what would be needed.
+
+**You decide what an unproved criterion means**, not the skill: stop and ask under `--auto`, or carry
+it as a named residual risk when the user has already accepted it. Paste its record into the run log
+and the pull-request body — it is the part a reviewer cannot reconstruct from the diff.
 
 ## Delivery
 

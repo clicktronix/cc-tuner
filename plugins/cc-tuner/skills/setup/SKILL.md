@@ -48,16 +48,10 @@ is worse than not offering it, because nothing later contradicts the claim.
   which is nearly all of them. Also offer it when doctor reported a legacy `git-flow.md`: that path
   migrates the deltas file, and the cached board field IDs inside it, before anything overwrites it.
   Print `/cc-tuner:task-flow-setup install`.
-- **`/cc-tuner:smoke-verify-setup`** — user-run only. Nearly every repository has *some* change worth
-  exercising, so the question is not "is there a frontend" but "what does this repository change that a
-  green typecheck says nothing about" — screens, migrations, endpoints, jobs, generated artifacts,
-  infrastructure. Look at the tree and name the candidates before offering it. Decline only when you
-  can say what the repository is instead, and a library whose entire surface is covered by its unit
-  tests is the honest example of that. When it does want it, print the command for the user to run:
-
-  ```
-  /cc-tuner:smoke-verify-setup install
-  ```
+- **Nothing to install for verification.** It is a stage of `/run` (`cc-tuner:verify-feature`), which
+  reads the spec's criteria and picks the instrument per behaviour. What is worth reporting is what
+  this repository can drive — a dev server, a database, a browser tool — because that decides what a
+  run is able to prove. Say what you found; do not offer an installer.
 - **The native task tools**, when doctor reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset. This one is
   a settings edit, not an installer, so in `install` mode offer to make it: add
   `"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}` to `~/.claude/settings.json`, preserving the rest of

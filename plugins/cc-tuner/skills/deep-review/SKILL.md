@@ -95,7 +95,8 @@ Priority meanings:
 
 ## Verdict
 
-This verdict is **advisory input to `/cc-tuner:run`, not a merge gate**. Only the authoritative review
+This verdict is **advisory input to `/cc-tuner:run`, not a merge gate**, and it does not stop the run:
+`/run` owns every stop in a run it started. Only the authoritative review
 gates a merge, and only `merge.sh` enforces one. `REQUEST_CHANGES` here means the run must address or
 concretely refute the blocking findings before it takes the candidate to that review — it does not
 open a second approval loop of its own.

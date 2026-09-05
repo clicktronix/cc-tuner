@@ -18,7 +18,6 @@ PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
 TASK_FLOW_SETUP="$ROOT/plugins/cc-tuner/skills/task-flow-setup/SKILL.md"
 STATUSLINE_SETUP="$ROOT/plugins/cc-tuner/skills/statusline-setup/SKILL.md"
-SMOKE_SETUP="$ROOT/plugins/cc-tuner/skills/smoke-verify-setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
@@ -210,7 +209,7 @@ else
   fails=1
 fi
 need "setup-auth-miss-is-login" '`gh auth login` — an interactive browser flow' "$SETUP"
-for setup_skill in "$SETUP" "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP" "$SMOKE_SETUP"; do
+for setup_skill in "$SETUP" "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP"; do
   need "$(basename "$(dirname "$setup_skill")")-is-user-invoked" 'disable-model-invocation: true' "$setup_skill"
 done
 need "release-pr-status" 'context=release-pr/validate' "$RELEASE_WORKFLOW"

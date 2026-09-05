@@ -57,11 +57,18 @@ place where that job is described, and the two would part company.
   lens; `Explore` only to locate things, because it reads excerpts and does not audit what it finds.
   Both are built in. If the host offers neither, do the work yourself rather than guessing at a type
   that may not exist.
-- **Model.** `sonnet` for implementation; `haiku` only for mechanical retrieval where being wrong is
-  visible immediately. The orchestrator stays on the session's own model, because what it does is
-  decide. Escalate on evidence, not on feeling: a unit failing the same deciding check twice is
-  re-dispatched once on a stronger model with the failure text attached, and after that the
-  orchestrator takes the slice. A third cheap attempt costs more than the expensive one would have.
+- **Model and effort.** `sonnet` at medium effort for implementation from a clear brief — that is
+  where the saving is, and a brief that needs more than that is a brief that is not finished. A strong
+  model at high effort for what is a judgement: an architectural choice, and a final review whose
+  findings are contested. `haiku` only for mechanical retrieval where being wrong is visible
+  immediately. The orchestrator stays on the session's own model, because what it does is decide.
+  Escalate on evidence, not on feeling: a unit failing the same deciding check twice is re-dispatched
+  once on a stronger model with the failure text attached, and after that the orchestrator takes the
+  slice. A third cheap attempt costs more than the expensive one would have.
+- **Cost is not automatic.** Delegation saves tokens only when the brief is short and the unit does
+  not have to rediscover the task; a long brief plus a verification pass can cost more than doing the
+  slice. Say the expected saving when proposing a fan-out, and count builds separately from agents —
+  two units are two agents and, on a repository with a heavy build, two full builds.
 - **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
   That is the whole difference, and it is easy to lose by narrating between calls.
 - **Isolation.** A single unit while you wait works in this checkout and needs nothing. Give

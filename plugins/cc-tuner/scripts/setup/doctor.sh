@@ -167,9 +167,11 @@ if [ -n "$REPO_ROOT" ]; then
     || warn "task-flow rule not installed here — /cc-tuner:task-flow-setup"
   [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
     && warn "legacy git-flow.md still present — /cc-tuner:task-flow-setup migrates it (keeps your cached board field IDs)"
+  # Verification is a stage of /run (cc-tuner:verify-feature), not a per-repo opt-in any more, so
+  # there is nothing to report here. What still helps is knowing whether anything can drive a browser,
+  # because that is the instrument a UI criterion needs and its absence changes what a run can prove.
   [ -f "$REPO_ROOT/.claude/smoke-verify.cfg" ] \
-    && ok "smoke-verify gate opted in" \
-    || say "     smoke-verify not opted in here (frontend repos only — /cc-tuner:smoke-verify-setup)"
+    && warn "leftover .claude/smoke-verify.cfg — the Stop-hook gate it opted into was removed; verification is now a stage of /run (cc-tuner:verify-feature). Delete the file and .claude/smoke-verify/"
 else
   warn "not inside a git repository — repo-level checks skipped"
 fi
