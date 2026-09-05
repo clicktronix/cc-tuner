@@ -99,10 +99,13 @@ and parsers, recovery paths, and regressions for shipped defects. Elsewhere a ba
 is enough. `/run` executes the proof named here; it does not invent another.
 
 `ci` names both the **mode** and the checks. `required` is the default and assumes GitHub branch
-protection; `any` is for a repository that runs CI without it; `none:<reason>` is for one that runs no
-CI on a pull request at all, and the reason is recorded because it is the only thing a reader will
-have. `/run` passes this mode to the checked merge script verbatim, and that script refuses `none`
-whenever GitHub reports any check — a waiver covers CI that does not exist, never CI that ran. `auto_ready: yes` requires one PR, complete DoR,
+protection; `any` is for a repository that runs CI without it. Prefer `any` wherever a workflow can be
+dispatched by hand: a manual run still attaches its result to the head commit, so the checks answer
+for themselves. `none:<reason>` is only for a repository that runs no CI on a pull request at all, and
+it carries **two** obligations, not one: the merge script refuses it whenever GitHub reports any check,
+and it refuses it again unless the pull-request body carries `cc-tuner-local-ci: <sha> <what ran, and
+what it returned>` for that exact commit. `/run` passes the mode verbatim; both refusals are the
+script's, not advice. `auto_ready: yes` requires one PR, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
 

@@ -51,8 +51,10 @@ to stop receives it rather than having to choose to load it. What follows is the
 detail, which belongs here because this is the command someone runs when asking "why is this blocking".
 
 - **Rules.** `patterns.<rule>` / `counts.<rule>` / `excludes.<rule>` in the config. A bare `patterns=`
-  from a pre-rules install still works, as the rule named `default`, and keeps its old state paths so
-  the upgrade does not throw an existing attestation away.
+  from a pre-rules install still works, as the rule named `default`: it keeps its old state paths, so
+  the upgrade does not throw an existing attestation away, and its block message keeps the evidence
+  text that install always received. A named rule with no `counts` gets a generic demand and says so
+  in its own block message; `mark.sh status` names both cases.
 - **One rule, one attestation.** A delta that matches two rules blocks until both are attested, and
   `mark.sh` refuses an un-named attestation in that case rather than applying one evidence line to
   both. "I ran the tests" is not proof that the migration was applied, and the refusal is the point.

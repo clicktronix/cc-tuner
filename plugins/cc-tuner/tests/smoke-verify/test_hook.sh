@@ -176,6 +176,18 @@ OUT="$(run_hook)"; rc=$?
   && echo "PASS detached-head-allows" || { echo "FAIL detached-head-allows (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$T"
 
+# An upgrade must not weaken the standard. A pre-rules config has no counts.default, and the block
+# message it receives has to be the text that install has always received -- the repo never sees the
+# new template, because smoke-verify-setup asks before overwriting a tuned config.
+mkrepo; cfg
+echo '<div/>' > "$T/Legacy.tsx"
+OUT="$(run_hook)"
+{ printf '%s' "$OUT" | grep -q 'navigate, interact, screenshot' \
+  && printf '%s' "$OUT" | grep -q 'storybook story' \
+  && printf '%s' "$OUT" | grep -q 'pre-rules single-pattern config'; } \
+  && echo "PASS default-rule-keeps-its-standard" || { echo "FAIL default-rule-keeps-its-standard (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
 # --- named rules: the gate is not about frontends ------------------------------------------------
 # One `patterns=` with one hard-coded evidence list could only ever describe one kind of change, and
 # the kind it described was a screen. These cases pin the replacement: a repository declares its own

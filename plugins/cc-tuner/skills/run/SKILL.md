@@ -243,16 +243,18 @@ or require restarting every advisory review from zero.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] <pr> <squash|merge> <candidate-sha> <review-thread>
    ```
 
-   Under `ci: none` the waiver is not enough on its own: publish what stood in for CI on the candidate
-   first, or the script refuses. Substitute the real SHA and the real result:
+   Under `ci: none` the waiver is not enough on its own: the pull-request body must carry a line
+   naming this exact commit, or the script refuses.
 
-   ```bash
-   gh pr review <pr> --comment --body "cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>"
+   ```text
+   cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>
    ```
 
-   That record is the whole difference between a waiver and a licence. In a repository whose policy is
-   to report no checks, "no checks reported" is satisfied by the policy itself, so the only evidence
-   left is what a person can read on the commit.
+   Be honest about what that is. It is an **attributable claim, not a check**: you write it, nothing
+   re-runs it, and it does not make `none` equivalent to CI. It is required because in a repository
+   whose policy is to report no checks, "no checks reported" is satisfied by that policy, so a merge
+   with nothing written down leaves an auditor nothing at all. Write the real command and the real
+   result — a placeholder satisfies the grammar and is a lie on the permanent record.
 
    If the spec declares `none` and checks turn out to exist, the spec is wrong about the repository:
    fix the spec, do not drop the flag. The script refuses that combination anyway.

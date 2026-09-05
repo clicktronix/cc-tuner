@@ -65,6 +65,13 @@ case "$CAP" in ''|*[!0-9]*|0*) CAP=3;; [1-9]|[1-9][0-9]) ;; *) CAP=99;; esac
 # says so in `counts.<rule>`, and that text replaces this one.
 GENERIC_COUNTS="run the changed path for real and read the result — execute the exact failing case and show it passing, drive the affected flow end to end (a real request, a migration applied and rolled back, a page opened and interacted with through a browser-driving tool such as chrome-devtools MCP), or render the real artifact and look at it"
 
+# The rule named `default` is the pre-rules config, whose `patterns=` came from a template that was
+# frontend-shaped. It therefore keeps the exact text that install has always received: an upgrade must
+# not quietly hand an existing repository a vaguer demand than it had yesterday, and that repository
+# never sees the new template, because /cc-tuner:smoke-verify-setup asks before overwriting a tuned
+# config and the answer is "keep".
+DEFAULT_COUNTS="open the affected page or flow via chrome-devtools MCP (navigate, interact, screenshot) and confirm the changed behavior; run the exact failing case or affected test file and show it passing; render the real artifact (PDF, email preview, storybook story) and look at it"
+
 BLOCKED=""      # newline-separated per-rule sections for the block message
 BLOCKED_ROUNDS=""
 for rule in $RULES; do
@@ -118,7 +125,15 @@ for rule in $RULES; do
   # upgraded pre-rules install would quietly get a vaguer standard than the one it had.
   COUNTS="$(smoke_rule_get counts "$rule")"
   NO_COUNTS=""
-  [ -n "$COUNTS" ] || { COUNTS="$GENERIC_COUNTS"; NO_COUNTS=" (this rule declares no counts.$rule — add one saying what proves a change of this kind here, and this text is replaced by it)"; }
+  if [ -z "$COUNTS" ]; then
+    if [ "$rule" = default ]; then
+      COUNTS="$DEFAULT_COUNTS"
+      NO_COUNTS=" (this repository still uses the pre-rules single-pattern config, so this is the standing frontend list; declare named rules with their own counts.<rule> to cover its other kinds of change)"
+    else
+      COUNTS="$GENERIC_COUNTS"
+      NO_COUNTS=" (this rule declares no counts.$rule — add one saying what proves a change of this kind here, and this text is replaced by it)"
+    fi
+  fi
   EXCLUDES="$(smoke_rule_get excludes "$rule")"
   EXTRA=""
   [ -n "$EXCLUDES" ] && EXTRA=" Also does not count here: $EXCLUDES."

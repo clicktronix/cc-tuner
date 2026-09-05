@@ -87,7 +87,7 @@ fi
 # companion's exact-candidate state below. Nothing is accepted merely because the caller repeats it.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
 # second call to the same endpoint -- a whole network round trip per merge for nothing.
-PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews 2>/dev/null)" \
+PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews,body 2>/dev/null)" \
   || die "cannot resolve pull request '$PR'"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
@@ -166,16 +166,17 @@ ME="$("$GH" api user --jq .login 2>/dev/null)" || die "cannot identify the authe
 # The embedded SHA is the exact GitHub head, not a second 7-to-40-hex grammar that could disagree with
 # the comparison above.
 #
-# Select by GRAMMAR, then take the latest — not the latest and then test its grammar. There is now a
-# second marker kind (`cc-tuner-local-ci:`, below) that can be posted on the same commit, and under
-# "latest wins" posting it after the verdict made the verdict invisible: the gate would have refused a
-# properly approved candidate for the reason "not reviewed at this commit".
+# LATEST wins, and only then is the grammar tested — deliberately, because "the latest review by this
+# account on this commit is not a verdict" has to null the verdict. A revision briefly filtered by
+# grammar first, so that a second marker could share this stream; that also made a later review saying
+# "hold on, I found a regression, do not merge" invisible, and an approval from five hours earlier
+# merged over the top of it. The second marker moved to the pull-request body instead: nothing else
+# may compete for the last word here.
 VERDICT="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
-  [ .reviews[]?
-    | select((.commit.oid // "") == $sha and (.author.login // "") == $me)
-    | . + {first: ((.body // "") | (split("\n")[0] // "") | sub("[ \t\r]+$"; ""))}
-    | select(.first | test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$")) ]
-  | sort_by(.submittedAt) | last | .first // ""')"
+  [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
+  | sort_by(.submittedAt) | last | .body // ""
+  | (split("\n")[0] // "") | sub("[ \t\r]+$"; "")
+  | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$") then . else "" end')"
 case "$VERDICT" in
   "cc-tuner-verdict: APPROVE $HEAD_SHA") ;;
   "") die "no cc-tuner verdict from $ME on $HEAD_SHA — the candidate has not been reviewed at this commit" ;;
@@ -228,24 +229,27 @@ if [ "$CI_MODE" = none ]; then
   { [ -n "$NONE_REPORTED" ] || [ "${TOTAL:-0}" -eq 0 ]; } 2>/dev/null \
     || die "the spec declares 'ci: none' but $TOTAL check(s) are reported on $HEAD_SHA — a waiver covers CI that does not exist, never CI that ran. The spec is wrong about this repository: correct its ci: mode and let those checks decide."
 
-  # "No checks reported" is not evidence in a repository whose policy is to report none. Without this,
-  # the waiver's own precondition would be satisfied by the very policy it waives, and `none` would be
-  # a permanent, self-justifying licence to merge unverified -- a reason string as the only artifact.
+  # "No checks reported" is not evidence in a repository whose policy is to report none: the waiver's
+  # own precondition is satisfied by the policy it waives. So `none` additionally demands that whatever
+  # stood in for CI be written down on the pull request, naming this exact commit.
   #
-  # So the substitute verification has to leave the same kind of record the verdict does: bound to this
-  # commit, published where a human reads it, in one grammar this can check. Same account, same SHA,
-  # first line, for the same reason the verdict marker has those rules.
-  LOCAL_CI="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
-    [ .reviews[]?
-      | select((.commit.oid // "") == $sha and (.author.login // "") == $me)
-      | . + {first: ((.body // "") | (split("\n")[0] // "") | sub("[ \t\r]+$"; ""))}
-      | select(.first | test("^cc-tuner-local-ci: " + $sha + " \\S.*$")) ]
-    | sort_by(.submittedAt) | last | .first // ""')"
+  # Be exact about what that buys. This is an ATTRIBUTABLE CLAIM, not a check: the account that writes
+  # it is the account that wants the merge, and nothing here re-runs what it describes. It is worth
+  # requiring because a claim bound to a SHA is auditable afterwards and a merge with nothing on the
+  # record is not -- but it does not make `none` equivalent to CI, and the skills must not say it does.
+  # Contrast the verdict above, which is backed by cc-codex-triage's own independent checker.
+  #
+  # In the pull-request BODY, not the review stream. It shared that stream for one revision, which
+  # forced the verdict lookup to filter by grammar, which in turn let a dissenting review be skipped
+  # over. A second grammar must not compete for the last word on a commit.
+  LOCAL_CI="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" '
+    (.body // "") | split("\n") | map(sub("[ \t\r]+$"; ""))
+    | map(select(test("^cc-tuner-local-ci: " + $sha + " \\S.*$"))) | last // ""')"
   [ -n "$LOCAL_CI" ] \
-    || die "'ci: none' waives CI on $HEAD_SHA, so what stood in for it has to be on the record. Publish the local result on the candidate, then merge:
-  gh pr review $PR --comment --body \"cc-tuner-local-ci: $HEAD_SHA <the command that ran, and what it returned>\""
+    || die "'ci: none' waives CI on $HEAD_SHA, so what stood in for it has to be on the record. Add a line to the pull-request body naming this commit, then merge:
+  cc-tuner-local-ci: $HEAD_SHA <the command that ran, and what it returned>"
   printf 'cc-tuner merge: no CI reported on %s; merging under a recorded waiver: %s\n' "$HEAD_SHA" "$CI_REASON" >&2
-  printf 'cc-tuner merge: local verification of record: %s\n' "$LOCAL_CI" >&2
+  printf 'cc-tuner merge: local verification claimed on the pull request: %s\n' "$LOCAL_CI" >&2
 else
   # Names the fix without offering a menu. The mode is the spec's declaration, not a choice made at the
   # merge boundary, and a die message listing the other two modes invites exactly the substitution

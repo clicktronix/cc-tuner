@@ -30,7 +30,7 @@
 - [ ] Complete diff and formatter/autofix output were read; no unexplained files remain
 - [ ] Applicable advisory reviews ran once; valid findings were addressed or concretely refuted; authoritative Codex review approved the exact candidate SHA
 - [ ] PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares —
-      under `none:` that means no checks exist and the local result is published on the candidate
+      under `none:` that means no checks exist and the PR body records the local result for that SHA
 
 ## Completion and reconciliation
 - [ ] PR is merged with the configured method
@@ -47,8 +47,8 @@ ci: <mode> — <the checks, and how to observe them>
       any               CI runs here but nothing is required — every reported check must pass
       none:<reason>     this repository runs no CI on a pull request; the reason is recorded and
                         printed at merge. Honoured only when GitHub reports no checks at all AND the
-                        local result that stood in for CI is published on the candidate SHA as
-                        `cc-tuner-local-ci: <sha> <what ran, and what it returned>`.
+                        PR body carries `cc-tuner-local-ci: <sha> <what ran, and what it returned>`
+                        for that commit. Prefer `any` where a workflow can be dispatched by hand.
 target_test: <exact command>
 full_test: <exact command>
 tracker: gh

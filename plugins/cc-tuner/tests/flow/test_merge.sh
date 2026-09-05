@@ -49,9 +49,10 @@ EOF
   chmod +x "$1/gh"
 }
 
-world() {  # world <files-json> <reviews-json> <checks-json> [head-sha]
+world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [pr-body]
   local d; d="$(flow_workdir)"; gh_stub "$d"
-  printf '{"headRefOid":"%s","reviews":%s}\n' "${4:-$SHA}" "$2" > "$d/pr.json"
+  jq -nc --arg head "${4:-$SHA}" --argjson reviews "$2" --arg body "${5:-}" \
+    '{headRefOid: $head, reviews: $reviews, body: $body}' > "$d/pr.json"
   printf '%s' "$1" | jq -r '.[]? | (.path // .filename // empty)' > "$d/api-files"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
@@ -189,21 +190,17 @@ OUT="$(run_without_thread "$D" --ci any 42 squash "$SHA" review-default)"
 check  "ci-any-nothing-reported-refused" "absent CI is unproven CI" "$OUT"
 absent "ci-any-nothing-reported-no-merge" "MERGED"                  "$OUT"
 
-# --ci none:<reason>: the recorded waiver. Two conditions, not one -- nothing reported AND a published
-# local result on this exact SHA. Without the second, the waiver's precondition ("no checks reported")
-# would be satisfied by the very policy it waives, and `none` would be a self-justifying licence.
-LOCAL_CI="$(review agent-bot "$SHA" 2026-01-01T00:01:00Z "cc-tuner-local-ci: $SHA bun run check — 6299 pass 0 fail")"
-BOTH="$(printf '%s' "$APPROVED" | jq -c --argjson extra "$LOCAL_CI" '. + $extra')"
-D="$(world "$PLAN_FILES" "$BOTH" "$GREEN_CI")"; : > "$D/checks-none-any"
+# --ci none:<reason>: the recorded waiver. Two conditions, not one -- nothing reported AND a written
+# local result naming this exact commit in the pull-request body. Without the second, the waiver's
+# precondition ("no checks reported") would be satisfied by the very policy it waives.
+LOCAL_LINE="Closes #1
+
+cc-tuner-local-ci: $SHA bun run check — 6299 pass 0 fail"
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "$SHA" "$LOCAL_LINE")"; : > "$D/checks-none-any"
 OUT="$(run_without_thread "$D" --ci 'none:paid CI minutes, run by hand before release' 42 squash "$SHA" review-default)"
 check "ci-none-merges-when-absent"   "MERGED"                     "$OUT"
 check "ci-none-prints-the-waiver"    "paid CI minutes"            "$OUT"
 check "ci-none-prints-the-local-run" "bun run check"              "$OUT"
-
-# A second marker kind on the same SHA must not hide the verdict. Under "latest review wins" it did:
-# the local-ci record posted after the approval made the approval invisible and the gate refused a
-# properly reviewed candidate for the wrong reason.
-absent "ci-none-verdict-not-shadowed" "has not been reviewed at this commit" "$OUT"
 
 # ...and without that record the waiver is refused, however good the reason reads.
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-any"
@@ -211,18 +208,16 @@ OUT="$(run_without_thread "$D" --ci 'none:paid CI minutes' 42 squash "$SHA" revi
 check  "ci-none-needs-a-local-record" "has to be on the record" "$OUT"
 absent "ci-none-no-record-no-merge"   "MERGED"                  "$OUT"
 
-# A local-ci record for a different commit does not carry over to this one.
-STALE="$(review agent-bot "$SHA" 2026-01-01T00:01:00Z "cc-tuner-local-ci: $OTHER_SHA bun run check — green")"
-BOTH="$(printf '%s' "$APPROVED" | jq -c --argjson extra "$STALE" '. + $extra')"
-D="$(world "$PLAN_FILES" "$BOTH" "$GREEN_CI")"; : > "$D/checks-none-any"
+# A record for a different commit does not carry over to this one.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "$SHA" "cc-tuner-local-ci: $OTHER_SHA bun run check — green")"
+: > "$D/checks-none-any"
 OUT="$(run_without_thread "$D" --ci 'none:paid CI minutes' 42 squash "$SHA" review-default)"
-check  "ci-none-stale-record-refused" "has to be on the record" "$OUT"
-absent "ci-none-stale-record-no-merge" "MERGED"                 "$OUT"
+check  "ci-none-stale-record-refused"  "has to be on the record" "$OUT"
+absent "ci-none-stale-record-no-merge" "MERGED"                  "$OUT"
 
-# An empty result line is not a record: "cc-tuner-local-ci: <sha>" with nothing after it says nothing.
-EMPTY="$(review agent-bot "$SHA" 2026-01-01T00:01:00Z "cc-tuner-local-ci: $SHA")"
-BOTH="$(printf '%s' "$APPROVED" | jq -c --argjson extra "$EMPTY" '. + $extra')"
-D="$(world "$PLAN_FILES" "$BOTH" "$GREEN_CI")"; : > "$D/checks-none-any"
+# An empty result is not a record: the marker with nothing after the SHA says nothing.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "$SHA" "cc-tuner-local-ci: $SHA")"
+: > "$D/checks-none-any"
 OUT="$(run_without_thread "$D" --ci 'none:paid CI minutes' 42 squash "$SHA" review-default)"
 check "ci-none-empty-record-refused" "has to be on the record" "$OUT"
 
@@ -260,6 +255,16 @@ D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 check "flag-after-positionals-refused" "Flags go first" "$(run_without_thread "$D" 42 squash "$SHA" --ci any)"
 check "flag-in-thread-position-refused" "flags go before" "$(run_without_thread "$D" 42 squash "$SHA" --ci)"
 check "extra-argument-refused" "too many arguments" "$(run_without_thread "$D" 42 squash "$SHA" thread extra)"
+
+# The last word on a commit belongs to the latest review, and only then is its grammar read. A
+# revision that filtered by grammar first -- so a second marker kind could share this stream -- let an
+# approval from five hours earlier merge over a later review saying "do not merge this".
+DISSENT="$(review agent-bot "$SHA" 2026-01-01T05:00:00Z "Hold on — I found a regression in the retry path, do not merge this.")"
+BOTH="$(printf '%s' "$APPROVED" | jq -c --argjson extra "$DISSENT" '. + $extra')"
+D="$(world "$PLAN_FILES" "$BOTH" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "later-dissent-blocks"  "has not been reviewed at this commit" "$OUT"
+absent "later-dissent-no-merge" "MERGED"                              "$OUT"
 
 # The reproduction of the original defect: a run with nothing recorded merged freely in 0.10.0.
 D="$(world "$PLAN_FILES" '[]' '[]')"

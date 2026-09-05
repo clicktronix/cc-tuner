@@ -58,7 +58,15 @@ if [ "$MODE" = "status" ]; then
   for rule in $RULES; do
     patterns="$(smoke_rule_get patterns "$rule")"
     state_file="$(smoke_state_file "$rule")"
+    counts="$(smoke_rule_get counts "$rule")"
     echo "--- rule $rule (patterns=$patterns)"
+    if [ -z "$counts" ]; then
+      if [ "$rule" = default ]; then
+        echo "    counts: none declared — pre-rules config, using the standing frontend list"
+      else
+        echo "    counts: NONE DECLARED — the block message falls back to a generic demand; add counts.$rule"
+      fi
+    fi
     matched="$(smoke_matched_paths "$patterns" || true)"
     if [ -z "$matched" ]; then
       echo "    gate:  idle (no matched changes)"
