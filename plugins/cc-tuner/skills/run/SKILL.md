@@ -89,13 +89,7 @@ Three things this adds to the obvious:
   and before merge. Report what is done and what comes next. A local commit, a successful review or
   a completed routine check is not by itself a reason to interrupt the user.
 
-## Where the work happens
-
-Which slices may run at once, and which workspace each method belongs in, are in
-[`references/placement.md`](references/placement.md). Read it before fanning out or before invoking
-`prototype`, `research`, `domain-modeling` or `diagnosing-bugs`.
-
-## Delegating a slice, and why the plan makes it possible
+## Delegating a slice
 
 You are the orchestrator. Implementation of a slice may be handed to a subagent dispatched with the
 Agent tool; the decisions may not. That split is not a preference — a subagent starts with none of
@@ -106,48 +100,35 @@ context window and, on a cheaper model, most of the tokens. That trade wins for 
 implementation work in it and loses for a two-line edit you could make while writing the delegation.
 Under `--auto`, prefer delegating: your own context is the scarce resource across a long plan.
 
-**The brief is written from the files, never from this conversation.** Everything a unit needs is
-already committed, which is what makes delegation cheap here:
-
-- the **spec path**, and the instruction to read it — target branch, test plan, DoD live there;
-- the **slice verbatim** from the plan: title, Owned paths, Deciding check, Delivers, criteria;
-- the repository's instruction files, which a subagent loads on its own (`CLAUDE.md` hierarchy);
-- the standing constraints below.
-
-Never write "as we discussed" or refer to a finding from earlier in this session. The unit cannot see
-it, and a brief that assumes otherwise produces work that misses the point in a way that reads as
-disobedience.
-
-**Constraints every implementation brief carries, stated in it:**
+**The brief is written from the files, never from this conversation** — which is what makes
+delegation cheap here, because everything a unit needs is already committed. It carries the spec path
+with the instruction to read it, the slice verbatim from the plan (title, Owned paths, Deciding check,
+Delivers, criteria), and these standing constraints:
 
 - write only inside the slice's Owned paths;
 - make the deciding check pass, having first seen it fail, and say which command showed each;
 - commit in this repository's convention; do not push, do not open or comment on a pull request, do
   not merge, and do not claim any review or approval;
-- report back: what changed, the commands run with their results, and anything the slice's text turned
-  out to be wrong about.
+- report what changed, the commands run with their results, and anything the slice's text turned out
+  to be wrong about.
 
-**Model.** Dispatch implementers on `sonnet` — that is where the token saving is, and a slice whose
-brief is complete does not need more. Keep `opus` (your own model) for what you do not delegate.
-Escalate rather than retry blindly: if a unit comes back failing the same deciding check twice,
-re-dispatch once on a more capable model with the failure attached, and if that fails, take the slice
-yourself. Three cheap attempts cost more than one expensive one.
-
-**Parallel batches.** `ready-batches` decides which slices may run at once; when it returns more than
-one, dispatch them **in a single message** so they run concurrently, and give each unit
-`isolation: "worktree"` — proven-disjoint Owned paths still share one index and one checkout, and two
-units committing in the same worktree interleave into commits neither of them wrote. Take their
-commits into this branch yourself.
+Never write "as we discussed" or point at a finding from earlier in this session: the unit cannot see
+it, and work built on a brief like that misses the point in a way that reads as disobedience.
 
 **What never leaves you.** Reading `mutate.sh` output; deciding a slice is done; the full regression
 before the candidate; the review verdict; the Definition of Done; and everything under Delivery. A
 unit reports; you decide. Where the native task tools are present, you own the task list too — a
 subagent's status updates are not the plan's state.
 
-**Verify what comes back, against the tree and not against the report.** Read the unit's diff, run the
+**Verify what comes back against the tree, not against the report.** Read the unit's diff, run the
 deciding check yourself, and confirm it touched nothing outside its Owned paths. A unit's summary is a
-claim about work you can inspect in one command, and the whole point of the RED-to-GREEN discipline
-below is that a claim is not evidence.
+claim about work one command can inspect, and the RED-to-GREEN discipline below exists because a claim
+is not evidence.
+
+[`references/placement.md`](references/placement.md) owns the rest and is the only place that states
+it: which slices may run at once, which workspace `prototype`, `research`, `domain-modeling` and
+`diagnosing-bugs` belong in, and the dispatch mechanics — agent type, model, concurrency, isolation,
+escalation. Read it before fanning out or before invoking any of those skills.
 
 
 ## Proving a slice, before it counts as done
@@ -256,18 +237,17 @@ or require restarting every advisory review from zero.
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
-   Pass the strategy **and the CI mode** the spec names — both are values it declared, not defaults
-   chosen here. Omit `--ci` only when the spec's `ci:` mode is `required`:
+   Pass the strategy **and the CI mode** the spec's `ci:` field names — both are values it declared,
+   not defaults chosen here. Omit `--ci` when that mode is `required`, and read a spec that names
+   checks without naming a mode as `required`: that is what every spec written before the field had
+   modes meant:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] <pr> <squash|merge> <candidate-sha> <review-thread>
    ```
 
-   `--ci any` widens the question to every check reported on the head, for a repository that runs CI
-   without branch protection. `--ci 'none:<reason>'` is a recorded waiver for a repository that runs no
-   CI on a pull request; the script honours it only while GitHub reports no checks at all, so it can
-   never outrank a red or a pending one. If the spec says `none` and checks turn out to exist, that is
-   the spec being wrong about the repository — fix the spec, do not drop the flag.
+   If the spec declares `none` and checks turn out to exist, the spec is wrong about the repository:
+   fix the spec, do not drop the flag. The script refuses that combination anyway.
 
    It re-runs the companion's exact-candidate check, re-reads the public verdict, required checks and
    head, and pins the head, so nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:

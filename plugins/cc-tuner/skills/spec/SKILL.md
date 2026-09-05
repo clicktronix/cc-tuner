@@ -156,7 +156,8 @@ When the native task tools are available, publish the visible plan before any im
 
 The task list is only a projection; the committed plan remains the source of truth. If the tools are
 absent, say once that only the visible list and its edges are lost, mention
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` or `--allowedTools TaskCreate` for a future session, and continue to
+`{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` — the form that
+survives the next session — or `--allowedTools TaskCreate` for this one, and continue to
 the handoff. Do not add a second confirmation after the approved contract and slices.
 
 Print the spec and plan paths, branch, target, and the next command. The command takes the committed

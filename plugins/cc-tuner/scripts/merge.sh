@@ -29,8 +29,7 @@ CHECK_ONLY=""
 # is not universal: a repository with no branch protection has no required checks at all, and one
 # whose CI is triggered by hand for cost reasons has none on a given head. Refusing both outright did
 # not make them safer — it sent the operator to `gh pr merge` by hand, which is outside every check in
-# this file. The modes are applied in the CI section below; what none of them can do is turn a red or
-# a still-running check green.
+# this file. What each mode means is at the CI section below, where it is applied.
 CI_MODE=required
 CI_REASON=""
 while :; do

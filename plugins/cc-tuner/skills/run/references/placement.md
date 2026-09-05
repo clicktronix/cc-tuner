@@ -6,6 +6,11 @@ decides when each one runs.
 
 ## Parallelism, only where it is safe
 
+**Delegating and parallelising are different decisions.** One slice handed to one subagent while the
+orchestrator waits is delegation: it costs a brief, buys context back, and needs no worktree. Two
+units writing at once is parallelism, and everything below is about that. Read a rule here as a limit
+on running things at the same time, never as a limit on handing one job to one unit.
+
 Fan out **only across independent code-writing units**, one isolated git worktree each. Never
 parallelise a testing decision or any step of delivery: those read a state that the other branch is
 still changing, and two answers about one candidate is not twice the confidence.
@@ -48,11 +53,15 @@ The plugin ships no agent definitions on purpose: a slice's brief is different e
 already written down — the committed spec plus the slice's own text. A named agent would add a second
 place where that job is described, and the two would part company.
 
-- **Type.** `general-purpose` for implementation, `Explore` for read-only search. Both are built in.
-  If the host offers neither, do the work yourself rather than guessing at a type that may not exist.
-- **Model.** `sonnet` for implementation and for review lenses; `haiku` only for mechanical retrieval
-  (collecting a file list, extracting values) where being wrong is visible immediately. The
-  orchestrator stays on the session's own model, because what it does is decide.
+- **Type.** `general-purpose` for anything that writes code or forms a judgement, including a review
+  lens; `Explore` only to locate things, because it reads excerpts and does not audit what it finds.
+  Both are built in. If the host offers neither, do the work yourself rather than guessing at a type
+  that may not exist.
+- **Model.** `sonnet` for implementation; `haiku` only for mechanical retrieval where being wrong is
+  visible immediately. The orchestrator stays on the session's own model, because what it does is
+  decide. Escalate on evidence, not on feeling: a unit failing the same deciding check twice is
+  re-dispatched once on a stronger model with the failure text attached, and after that the
+  orchestrator takes the slice. A third cheap attempt costs more than the expensive one would have.
 - **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
   That is the whole difference, and it is easy to lose by narrating between calls.
 - **Isolation.** `isolation: "worktree"` for every parallel implementation unit. Disjoint Owned paths
@@ -60,13 +69,6 @@ place where that job is described, and the two would part company.
 - **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
   the transcript, not the output style, not what a review just said. Anything load-bearing goes into
   the brief as literal text or as a path it is told to read.
-
-## Model, and when to stop being cheap
-
-Delegation buys context and tokens; it costs a brief and a verification pass. Escalate on evidence
-rather than on feeling: a unit that fails the same deciding check twice is re-dispatched once on a
-more capable model with the failure text attached, and after that the orchestrator takes the slice.
-Repeating a cheap attempt a third time costs more than the expensive attempt would have.
 
 ## Where each method runs
 
