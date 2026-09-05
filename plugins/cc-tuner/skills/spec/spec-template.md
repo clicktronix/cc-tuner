@@ -40,7 +40,12 @@ branch: <current task branch>
 target: <integration branch>
 merge: squash|merge
 auto_ready: yes|no — <reason when no>
-ci: <required GitHub checks on the target branch, and how to observe them>
+ci: <mode> — <the checks, and how to observe them>
+    mode is one of:
+      required          the target branch has required checks on GitHub (the default; strongest)
+      any               CI runs here but nothing is required — every reported check must pass
+      none:<reason>     this repository runs no CI on a pull request; the reason is recorded and
+                        printed at merge. Honoured only when GitHub reports no checks at all.
 target_test: <exact command>
 full_test: <exact command>
 tracker: gh

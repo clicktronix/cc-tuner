@@ -25,9 +25,10 @@ if [ "$MODE" = "pattern" ]; then
   exit 0
 fi
 
-# NOT docs/plans. `/cc-tuner:spec` writes specs to <root>/PLANS/, and on macOS's case-insensitive
-# APFS `docs/PLANS` and `docs/plans` are the same directory -- so specs and plans would share one
-# folder and, with matching dates and slugs, could collide as files. git stores literal paths, so the
+# NOT docs/plans. `/cc-tuner:spec` writes specs to <root>/PLANS/ -- or whichever case the repository
+# already tracks, since on macOS's case-insensitive APFS `docs/PLANS` and `docs/plans` are one
+# directory and on Linux they are two. Either way specs and plans would share a folder and, with
+# matching dates and slugs, could collide as files. git stores literal paths, so the
 # two spellings also disagree about what exists. A distinct directory removes the whole class.
 # The root follows the spec's own convention: wiki/ when the repo uses it, docs/ otherwise.
 DIR="docs/task-plans"

@@ -1,7 +1,7 @@
 ---
 description: Turn an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run.
 argument-hint: '<issue number | URL | free-text description>'
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 disable-model-invocation: true
 ---
 
@@ -25,6 +25,15 @@ Read, in order:
 - architecture records, the code, tests, and consumers the task can affect.
 
 Do not ask for information already present in those sources.
+
+**Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
+subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
+with the Agent tool (`Explore` for search, `general-purpose` on `sonnet` for a question that needs
+running commands), all in a single message so they run at once. Each gets a literal question and the
+paths to look in; none of them decides anything. You read what comes back and write the spec. This is
+the cheapest part of the flow to parallelise, because discovery is read-only and the failure mode of a
+wrong answer is that you notice it while drafting. Do not delegate the grilling in section 3: the
+questions there change the draft, and a subagent cannot see the draft.
 
 ## 2. Create the task branch
 
@@ -76,6 +85,12 @@ Read `${CLAUDE_SKILL_DIR}/spec-template.md` and fill every field. Draft the resu
 do not write it before the approval in section 6. Its final path is
 `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise.
 
+**A directory that differs only in case is the same directory — use the one that exists.** macOS is
+case-insensitive and Linux is not, so a repository that already keeps specs in `docs/plans/` gets one
+folder on a laptop and two in CI if this writes `docs/PLANS/`. Check with
+`git ls-files 'docs/*lans*' 'wiki/*lans*'` before creating anything, and write into whatever spelling
+the repository already tracks.
+
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.
 
@@ -83,7 +98,11 @@ Assign a mutation where a false green is otherwise indistinguishable: fail-close
 and parsers, recovery paths, and regressions for shipped defects. Elsewhere a baseline or diff check
 is enough. `/run` executes the proof named here; it does not invent another.
 
-`ci` names checks the target branch requires. `auto_ready: yes` requires one PR, complete DoR,
+`ci` names both the **mode** and the checks. `required` is the default and assumes GitHub branch
+protection; `any` is for a repository that runs CI without it; `none:<reason>` is for one that runs no
+CI on a pull request at all, and the reason is recorded because it is the only thing a reader will
+have. `/run` passes this mode to the checked merge script verbatim, and that script refuses `none`
+whenever GitHub reports any check — a waiver covers CI that does not exist, never CI that ran. `auto_ready: yes` requires one PR, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
 

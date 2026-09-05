@@ -27,13 +27,21 @@ case "$1 $2" in
     serve api-files ;;
   "pr view")   serve pr.json ;;
   "pr checks")
-    # Real `gh pr checks --required` exits 1 and reports on stderr when the branch requires nothing;
-    # it never returns an empty array. A stub that returns [] tests a CLI that does not exist -- the
-    # behaviour the deleted runctl.sh had already learned and documented.
-    case "$*" in *--required*) ;; *) exit 1 ;; esac
-    if [ -f "$D/checks-none" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
-    if [ -f "$D/checks-none-required" ]; then echo "no required checks reported on the 'task' branch" >&2; exit 1; fi
-    serve checks.json ;;
+    # Real `gh pr checks` exits 1 and reports on stderr when there is nothing to report; it never
+    # returns an empty array. A stub that returns [] tests a CLI that does not exist -- the behaviour
+    # the deleted runctl.sh had already learned and documented.
+    #
+    # --required and the bare form are separate worlds here, because that is the whole point of the
+    # --ci modes: a branch can require nothing while checks still run on the head.
+    case "$*" in
+      *--required*)
+        if [ -f "$D/checks-none" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
+        if [ -f "$D/checks-none-required" ]; then echo "no required checks reported on the 'task' branch" >&2; exit 1; fi
+        serve checks.json ;;
+      *)
+        if [ -f "$D/checks-none-any" ]; then echo "no checks reported on the 'task' branch" >&2; exit 1; fi
+        if [ -f "$D/checks-any.json" ]; then serve checks-any.json; else serve checks.json; fi ;;
+    esac ;;
   "pr merge")  printf 'MERGED %s\n' "$*" ;;
   *) exit 1 ;;
 esac
@@ -143,19 +151,77 @@ check "red-ci-refused" "not passing" "$(run "$D" 42 squash "$SHA")"
 # check that does not exist.
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none"
 OUT="$(run "$D" 42 squash "$SHA")"
-check  "no-required-checks-refused"  "no required checks configured" "$OUT"
+check  "no-required-checks-refused"  "absent CI is unproven CI" "$OUT"
 absent "no-required-checks-no-merge" "MERGED"                        "$OUT"
 
 # Current gh versions include "required" in the same diagnostic when --required is supplied.
 # Keep both forms because the CLI has emitted both and the operator-facing distinction matters.
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
 OUT="$(run "$D" 42 squash "$SHA")"
-check  "new-gh-no-required-checks-refused"  "no required checks configured" "$OUT"
+check  "new-gh-no-required-checks-refused"  "absent CI is unproven CI" "$OUT"
 absent "new-gh-no-required-checks-no-merge" "MERGED"                        "$OUT"
 
 # And the empty-array shape too, in case a future gh ever produces it.
 D="$(world "$PLAN_FILES" "$APPROVED" '[]')"
 check "zero-required-checks-refused" "absent CI is unproven CI" "$(run "$D" 42 squash "$SHA")"
+
+# --- the CI modes ---------------------------------------------------------------------------------
+# `required` is not universal. A repository with no branch protection requires nothing, and one whose
+# CI runs by hand has nothing on a given head. Refusing both outright is what sent operators to a raw
+# `gh pr merge`, which is outside every check in this file -- so the modes exist. What none of them
+# may do is turn a red or a pending check green, and that is what these cases pin.
+
+# --ci any: the branch requires nothing, but checks ran on the head and passed.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
+OUT="$(run_without_thread "$D" --ci any 42 squash "$SHA" review-default)"
+check "ci-any-merges-on-reported-green" "MERGED" "$OUT"
+
+# ...and a red reported check still refuses. `any` widens WHICH checks answer, not whether they may fail.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
+printf '%s\n' '[{"name":"build","bucket":"fail"}]' > "$D/checks-any.json"
+OUT="$(run_without_thread "$D" --ci any 42 squash "$SHA" review-default)"
+check  "ci-any-red-refused"  "not passing" "$OUT"
+absent "ci-any-red-no-merge" "MERGED"      "$OUT"
+
+# ...and `any` with nothing reported at all is still absent CI, not a pass.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-any"
+OUT="$(run_without_thread "$D" --ci any 42 squash "$SHA" review-default)"
+check  "ci-any-nothing-reported-refused" "absent CI is unproven CI" "$OUT"
+absent "ci-any-nothing-reported-no-merge" "MERGED"                  "$OUT"
+
+# --ci none:<reason>: the recorded waiver, and the only state it covers -- nothing reported at all.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-any"
+OUT="$(run_without_thread "$D" --ci 'none:paid CI minutes, run by hand before release' 42 squash "$SHA" review-default)"
+check "ci-none-merges-when-absent"   "MERGED"                     "$OUT"
+check "ci-none-prints-the-waiver"    "paid CI minutes"            "$OUT"
+
+# The waiver's whole safety: it may not outrank CI that exists. A red check reported on the head
+# refuses even under `none`, because absence is what a human can take responsibility for.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
+printf '%s\n' '[{"name":"build","bucket":"fail"}]' > "$D/checks-any.json"
+OUT="$(run_without_thread "$D" --ci 'none:we do not run CI' 42 squash "$SHA" review-default)"
+check  "ci-none-refused-over-reported-checks" "never CI that ran" "$OUT"
+absent "ci-none-reported-checks-no-merge"     "MERGED"            "$OUT"
+
+# A pending check is CI that exists and has not answered yet, so the waiver is refused there too.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
+printf '%s\n' '[{"name":"build","bucket":"pending"}]' > "$D/checks-any.json"
+OUT="$(run_without_thread "$D" --ci 'none:we do not run CI' 42 squash "$SHA" review-default)"
+check  "ci-none-refused-over-pending" "never CI that ran" "$OUT"
+absent "ci-none-pending-no-merge"     "MERGED"            "$OUT"
+
+# A waiver with no reason is not a waiver: the run log would record that CI was skipped and nothing
+# about who accepted it.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check "ci-none-needs-a-reason" "needs a reason" "$(run_without_thread "$D" --ci none 42 squash "$SHA" review-default)"
+check "ci-unknown-mode-refused" "unknown --ci mode" "$(run_without_thread "$D" --ci sometimes 42 squash "$SHA" review-default)"
+
+# The default is unchanged when no mode is passed: required checks, nothing else.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-required"
+printf '%s\n' '[{"name":"build","bucket":"pass"}]' > "$D/checks-any.json"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "default-ignores-non-required-green" "absent CI is unproven CI" "$OUT"
+absent "default-non-required-no-merge"      "MERGED"                   "$OUT"
 
 # The reproduction of the original defect: a run with nothing recorded merged freely in 0.10.0.
 D="$(world "$PLAN_FILES" '[]' '[]')"
@@ -271,7 +337,7 @@ check "rebase-refused"            "strategy must" "$(run "$D" 42 rebase "$SHA")"
 # --check-only proves the candidate would be accepted without merging it. The eval has to observe the
 # positive path, and a check that can only be run by merging is one nobody will run twice.
 OUT="$(run "$D" --check-only 42 squash "$SHA")"
-check  "check-only-reports-pass" "verdict, required CI and head all check out" "$OUT"
+check  "check-only-reports-pass" "CI (--ci required) and head all check out" "$OUT"
 check  "check-only-rc0"          "rc=0"                                        "$OUT"
 absent "check-only-does-not-merge" "MERGED"                                    "$OUT"
 

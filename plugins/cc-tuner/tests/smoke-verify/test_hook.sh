@@ -30,7 +30,7 @@ rm -rf "$T"
 mkrepo; cfg
 echo '<div/>' > "$T/Comp.tsx"
 OUT="$(run_hook)"; rc=$?
-{ [ $rc -eq 0 ] && printf '%s' "$OUT" | grep -q '"decision":"block"' && printf '%s' "$OUT" | grep -q 'round 1/3'; } \
+{ [ $rc -eq 0 ] && printf '%s' "$OUT" | grep -q '"decision":"block"' && printf '%s' "$OUT" | grep -q 'round default 1/3'; } \
   && echo "PASS fe-change-blocks" || { echo "FAIL fe-change-blocks (out=$OUT)"; fails=1; }
 
 # the block text must carry the standard itself, not a pointer to a skill. The DOES NOT COUNT list
@@ -68,13 +68,13 @@ rm -rf "$T"
 mkrepo; cfg '\.(tsx)$' 2
 echo x > "$T/A.tsx"
 O1="$(run_hook)"; O2="$(run_hook)"; O3="$(run_hook)"
-{ printf '%s' "$O1" | grep -q 'round 1/2' && printf '%s' "$O2" | grep -q 'round 2/2' && [ -z "$O3" ]; } \
+{ printf '%s' "$O1" | grep -q 'round default 1/2' && printf '%s' "$O2" | grep -q 'round default 2/2' && [ -z "$O3" ]; } \
   && echo "PASS cap-fails-open" || { echo "FAIL cap-fails-open (o1=$O1 o2=$O2 o3=$O3)"; fails=1; }
 
 # new delta resets the counter
 echo y >> "$T/A.tsx"
 OUT="$(run_hook)"
-printf '%s' "$OUT" | grep -q 'round 1/2' \
+printf '%s' "$OUT" | grep -q 'round default 1/2' \
   && echo "PASS new-delta-resets-cap" || { echo "FAIL new-delta-resets-cap (out=$OUT)"; fails=1; }
 rm -rf "$T"
 
@@ -174,6 +174,82 @@ printf '%s' "$OUT" | grep -q '"decision":"block"' \
 OUT="$(run_hook)"; rc=$?
 { [ $rc -eq 0 ] && [ -z "$OUT" ]; } \
   && echo "PASS detached-head-allows" || { echo "FAIL detached-head-allows (rc=$rc out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# --- named rules: the gate is not about frontends ------------------------------------------------
+# One `patterns=` with one hard-coded evidence list could only ever describe one kind of change, and
+# the kind it described was a screen. These cases pin the replacement: a repository declares its own
+# classes of change, each with what proves THAT class, and each is released on its own.
+rules_cfg() {
+  mkdir -p "$T/.claude"
+  cat > "$T/.claude/smoke-verify.cfg" <<'CFG'
+cap=3
+patterns.ui=\.(tsx|jsx)$
+counts.ui=open the affected screen through chrome-devtools MCP and interact with it
+excludes.ui=a storybook snapshot that was already green
+patterns.migration=(^|/)migrations/.*\.(sql|py)$
+counts.migration=apply the migration and roll it back on a scratch database, and show the schema diff
+patterns.api=(^|/)api/.*\.py$
+counts.api=send a real request to the running service and show the status and body
+CFG
+}
+
+# a backend-only change triggers its own rule, with its own evidence text and no browser talk
+mkrepo; rules_cfg
+mkdir -p "$T/migrations"; echo 'ALTER TABLE t ADD COLUMN c int;' > "$T/migrations/001_add_c.sql"
+OUT="$(run_hook)"
+{ printf '%s' "$OUT" | grep -q '\[migration\]' \
+  && printf '%s' "$OUT" | grep -q 'roll it back on a scratch database' \
+  && printf '%s' "$OUT" | grep -q 'round migration 1/3'; } \
+  && echo "PASS non-frontend-rule-blocks" || { echo "FAIL non-frontend-rule-blocks (out=$OUT)"; fails=1; }
+absent_ui=$(printf '%s' "$OUT" | grep -c '\[ui\]')
+[ "$absent_ui" -eq 0 ] && echo "PASS unmatched-rule-silent" || { echo "FAIL unmatched-rule-silent (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# two classes changed in one turn -> both named, and the per-rule exclusion rides along
+mkrepo; rules_cfg
+mkdir -p "$T/migrations" "$T/api"
+echo 'ALTER TABLE t ADD COLUMN d int;' > "$T/migrations/002_add_d.sql"
+echo '<div/>' > "$T/Panel.tsx"
+OUT="$(run_hook)"
+{ printf '%s' "$OUT" | grep -q '\[migration\]' && printf '%s' "$OUT" | grep -q '\[ui\]' \
+  && printf '%s' "$OUT" | grep -q 'storybook snapshot that was already green'; } \
+  && echo "PASS two-rules-both-named" || { echo "FAIL two-rules-both-named (out=$OUT)"; fails=1; }
+
+# an ambiguous attestation is refused rather than applied to both: one evidence line cannot stand
+# for two kinds of change, which is the whole reason the rules are separate.
+OUT="$( cd "$T" && bash "$MARK" verified 'ran the app' 2>&1 )"; rc=$?
+{ [ $rc -eq 2 ] && printf '%s' "$OUT" | grep -q 'name the one you exercised'; } \
+  && echo "PASS ambiguous-attestation-refused" || { echo "FAIL ambiguous-attestation-refused (rc=$rc out=$OUT)"; fails=1; }
+
+# attesting one rule releases only that rule, and says what is still open
+OUT="$( cd "$T" && bash "$MARK" verified migration 'applied 002 up and down on scratch, schema diff shown' 2>&1 )"
+printf '%s' "$OUT" | grep -q 'still unattested for this delta: ui' \
+  && echo "PASS partial-attestation-reports-remainder" || { echo "FAIL partial-attestation-reports-remainder (out=$OUT)"; fails=1; }
+OUT="$(run_hook)"
+{ printf '%s' "$OUT" | grep -q '\[ui\]'; } && printf '%s' "$OUT" | grep -qv '\[migration\] UNVERIFIED' \
+  && echo "PASS attested-rule-drops-out" || { echo "FAIL attested-rule-drops-out (out=$OUT)"; fails=1; }
+printf '%s' "$OUT" | grep -q '\[migration\]' \
+  && { echo "FAIL attested-rule-still-listed (out=$OUT)"; fails=1; } || echo "PASS attested-rule-not-listed"
+
+# the last one released ends the block entirely
+( cd "$T" && bash "$MARK" verified ui 'opened /panel in chrome-devtools, the panel renders' >/dev/null 2>&1 )
+OUT="$(run_hook)"
+[ -z "$OUT" ] && echo "PASS all-rules-attested-allows" || { echo "FAIL all-rules-attested-allows (out=$OUT)"; fails=1; }
+
+# editing one rule's file re-arms only that rule
+echo '<span/>' >> "$T/Panel.tsx"
+OUT="$(run_hook)"
+{ printf '%s' "$OUT" | grep -q '\[ui\]'; } && ! printf '%s' "$OUT" | grep -q '\[migration\]' \
+  && echo "PASS edit-rearms-one-rule" || { echo "FAIL edit-rearms-one-rule (out=$OUT)"; fails=1; }
+rm -rf "$T"
+
+# an unknown rule name is refused, not silently treated as the evidence line
+mkrepo; rules_cfg
+echo '<div/>' > "$T/Only.tsx"
+OUT="$( cd "$T" && bash "$MARK" verified typo 'whatever' 2>&1 )"; rc=$?
+{ [ $rc -eq 2 ] && printf '%s' "$OUT" | grep -q "no rule 'typo'"; } \
+  && echo "PASS unknown-rule-refused" || { echo "FAIL unknown-rule-refused (rc=$rc out=$OUT)"; fails=1; }
 rm -rf "$T"
 
 exit $fails

@@ -65,18 +65,34 @@ top-ten cap. Ordinary changes use the Matt Pocock review and the final Codex gat
 
 A per-repo opt-in Stop-hook gate against the top regression source in agentic
 coding: fix commits that pass typecheck/lint but were never actually run. In a
-repo that opted in via `/cc-tuner:smoke-verify-setup`, a turn that changed
-frontend files (configurable regex in `.claude/smoke-verify.cfg`) cannot end
-until the change was **exercised for real** — page rendered, failing case
-re-run, artifact looked at — and attested with one line of evidence:
+repo that opted in via `/cc-tuner:smoke-verify-setup`, a turn that changed files
+matching a rule cannot end until that change was **exercised for real** and
+attested with one line of evidence.
+
+**The rules are the repository's, not the plugin's.** A screen, a migration and
+an endpoint are not proved the same way, so `.claude/smoke-verify.cfg` declares
+each kind of change and what proves it:
 
 ```
-bash <plugin>/scripts/smoke-verify/mark.sh verified 'opened /fit page, labels render'
+patterns.migration=(^|/)migrations/
+counts.migration=apply it and roll it back on a scratch schema, and show the diff
+excludes.migration=the ORM generated it, or the SQL reads correctly
 ```
 
-The attestation binds to the branch + worktree-content fingerprint of the
-delta, so editing again re-arms the gate (staging/committing identical content
-does not). Explicit user-authorized skips are recorded (`mark.sh skip '<why>'`).
+`counts.<rule>` is the text the agent receives when it is blocked, so the
+standard is where the agent already is. Each rule releases separately:
+
+```
+bash <plugin>/scripts/smoke-verify/mark.sh verified migration '002 applied and rolled back on scratch, schema diff shown'
+```
+
+A delta matching two rules blocks until both are attested, and an un-named
+attestation is refused rather than applied to both — one evidence line cannot
+stand for two kinds of change. The attestation binds to the branch + the
+worktree-content fingerprint of that rule's delta, so editing again re-arms that
+rule (staging/committing identical content does not). Explicit user-authorized
+skips are recorded (`mark.sh skip <rule> '<why>'`). A pre-rules config with a
+bare `patterns=` still works, as the rule named `default`.
 Fail-open everywhere: no config, no matched changes, malformed counter state,
 or `cap` blocks (default 3) on an unchanged delta → the turn ends normally.
 Scope: the gate fingerprints **uncommitted** changes — attest before

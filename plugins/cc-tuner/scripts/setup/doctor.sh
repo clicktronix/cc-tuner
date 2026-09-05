@@ -57,7 +57,7 @@ if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 —
 # What is at stake is the visible task list and its edges.
 case "${CLAUDE_CODE_ENABLE_TODO_TOOLS:-}" in
   1|true|TRUE|yes) ok "CLAUDE_CODE_ENABLE_TODO_TOOLS is set — the usual reason /cc-tuner:spec cannot publish the visible task list does not apply here (this reads the variable, it does not probe for the tools)" ;;
-  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — on Opus 4.8 / Sonnet 5 and later the TaskCreate tools are off by default, so /cc-tuner:spec may commit the plan file and publish no visible task list; export CLAUDE_CODE_ENABLE_TODO_TOOLS=1 before starting Claude Code, or pass --allowedTools TaskCreate. Only the session itself can tell whether they are there" ;;
+  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — on Opus 4.8 / Sonnet 5 and later the TaskCreate tools are off by default, so /cc-tuner:spec may commit the plan file and publish no visible task list; set it durably as {\"env\": {\"CLAUDE_CODE_ENABLE_TODO_TOOLS\": \"1\"}} in ~/.claude/settings.json, or export it before starting Claude Code, or pass --allowedTools TaskCreate. Only the session itself can tell whether they are there" ;;
 esac
 
 # --- 2. gh auth and the project scope ------------------------------------------------------------

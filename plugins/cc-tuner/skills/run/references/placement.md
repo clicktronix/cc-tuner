@@ -41,6 +41,33 @@ the fix for finding 14.
 `plan-lint.sh ready-batches` decides which ready slices have proven-disjoint Owned paths. This
 reference only places the batch it returned; do not recalculate or widen that batch from plan prose.
 
+## How a unit is dispatched
+
+Units are **dispatched dynamically with the Agent tool**, not selected from a roster of named agents.
+The plugin ships no agent definitions on purpose: a slice's brief is different every time, and it is
+already written down — the committed spec plus the slice's own text. A named agent would add a second
+place where that job is described, and the two would part company.
+
+- **Type.** `general-purpose` for implementation, `Explore` for read-only search. Both are built in.
+  If the host offers neither, do the work yourself rather than guessing at a type that may not exist.
+- **Model.** `sonnet` for implementation and for review lenses; `haiku` only for mechanical retrieval
+  (collecting a file list, extracting values) where being wrong is visible immediately. The
+  orchestrator stays on the session's own model, because what it does is decide.
+- **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
+  That is the whole difference, and it is easy to lose by narrating between calls.
+- **Isolation.** `isolation: "worktree"` for every parallel implementation unit. Disjoint Owned paths
+  prove two units will not fight over a *file*; they do not stop two units committing into one index.
+- **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
+  the transcript, not the output style, not what a review just said. Anything load-bearing goes into
+  the brief as literal text or as a path it is told to read.
+
+## Model, and when to stop being cheap
+
+Delegation buys context and tokens; it costs a brief and a verification pass. Escalate on evidence
+rather than on feeling: a unit that fails the same deciding check twice is re-dispatched once on a
+more capable model with the failure text attached, and after that the orchestrator takes the slice.
+Repeating a cheap attempt a third time costs more than the expensive attempt would have.
+
 ## Where each method runs
 
 Ordering, not overrides. cc-tuner never rewrites another plugin's skill; it decides when each runs.

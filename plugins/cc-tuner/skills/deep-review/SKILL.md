@@ -37,6 +37,13 @@ Run every applicable lens independently and fan them out against the immutable c
 owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
 into a second lightweight review.
 
+Dispatch each lens as its own read-only subagent with the Agent tool, all in one message so they run
+concurrently, on `sonnet` unless a lens has repeatedly missed things on this codebase. A lens is a
+reading job over a tree nobody is changing, which is why it may fan out at all — and each one must be
+given the literal candidate SHA, base ref, spec path and read-only constraint in its own brief,
+because a subagent sees none of this session. What must not fan out is the aggregation below: one
+owner reads every lens's findings and produces one verdict.
+
 Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
 candidate, spec, and read-only constraint.
 
