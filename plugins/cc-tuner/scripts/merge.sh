@@ -87,7 +87,7 @@ fi
 # companion's exact-candidate state below. Nothing is accepted merely because the caller repeats it.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
 # second call to the same endpoint -- a whole network round trip per merge for nothing.
-PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews,body 2>/dev/null)" \
+PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews,comments 2>/dev/null)" \
   || die "cannot resolve pull request '$PR'"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
@@ -239,15 +239,24 @@ if [ "$CI_MODE" = none ]; then
   # record is not -- but it does not make `none` equivalent to CI, and the skills must not say it does.
   # Contrast the verdict above, which is backed by cc-codex-triage's own independent checker.
   #
-  # In the pull-request BODY, not the review stream. It shared that stream for one revision, which
-  # forced the verdict lookup to filter by grammar, which in turn let a dissenting review be skipped
-  # over. A second grammar must not compete for the last word on a commit.
+  # A COMMENT, and deliberately neither of the other two places. Not the review stream: it shared that
+  # for one revision, which forced the verdict lookup to filter by grammar, which in turn let a
+  # dissenting review be skipped over -- a second grammar must not compete for the last word on a
+  # commit. Not the body either: the only one-line way to append to a body is `gh pr edit --body`,
+  # which REPLACES it, so the obvious command silently deletes the description this workflow spent the
+  # run building. A comment is append-only, attributed, timestamped, and outside `.reviews[]`.
+  #
+  # Any author, and the author is printed. A record written by someone other than the merging actor is
+  # stronger evidence, not weaker, and the point of the line is that a person can be asked about it.
   LOCAL_CI="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" '
-    (.body // "") | split("\n") | map(sub("[ \t\r]+$"; ""))
-    | map(select(test("^cc-tuner-local-ci: " + $sha + " \\S.*$"))) | last // ""')"
+    [ .comments[]?
+      | . + {first: ((.body // "") | (split("\n")[0] // "") | sub("[ \t\r]+$"; ""))}
+      | select(.first | test("^cc-tuner-local-ci: " + $sha + " \\S.*$"))
+      | "\(.first)   — " + (.author.login // "unknown") ]
+    | last // ""')"
   [ -n "$LOCAL_CI" ] \
-    || die "'ci: none' waives CI on $HEAD_SHA, so what stood in for it has to be on the record. Add a line to the pull-request body naming this commit, then merge:
-  cc-tuner-local-ci: $HEAD_SHA <the command that ran, and what it returned>"
+    || die "'ci: none' waives CI on $HEAD_SHA, so what stood in for it has to be on the record:
+  $GH pr comment $PR --body \"cc-tuner-local-ci: $HEAD_SHA <the command that ran, and what it returned>\""
   printf 'cc-tuner merge: no CI reported on %s; merging under a recorded waiver: %s\n' "$HEAD_SHA" "$CI_REASON" >&2
   printf 'cc-tuner merge: local verification claimed on the pull request: %s\n' "$LOCAL_CI" >&2
 else

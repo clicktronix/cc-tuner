@@ -103,8 +103,8 @@ protection; `any` is for a repository that runs CI without it. Prefer `any` wher
 dispatched by hand: a manual run still attaches its result to the head commit, so the checks answer
 for themselves. `none:<reason>` is only for a repository that runs no CI on a pull request at all, and
 it carries **two** obligations, not one: the merge script refuses it whenever GitHub reports any check,
-and it refuses it again unless the pull-request body carries `cc-tuner-local-ci: <sha> <what ran, and
-what it returned>` for that exact commit. `/run` passes the mode verbatim; both refusals are the
+and it refuses it again unless a comment on the pull request carries `cc-tuner-local-ci: <sha> <what
+ran, and what it returned>` for that exact commit. `/run` passes the mode verbatim; both refusals are the
 script's, not advice. `auto_ready: yes` requires one PR, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.

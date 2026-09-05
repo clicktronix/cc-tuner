@@ -243,12 +243,15 @@ or require restarting every advisory review from zero.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] <pr> <squash|merge> <candidate-sha> <review-thread>
    ```
 
-   Under `ci: none` the waiver is not enough on its own: the pull-request body must carry a line
-   naming this exact commit, or the script refuses.
+   Under `ci: none` the waiver is not enough on its own: a comment on the pull request has to record
+   what stood in for CI, naming this exact commit, or the script refuses.
 
-   ```text
-   cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>
+   ```bash
+   gh pr comment <pr> --body "cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>"
    ```
+
+   A comment, not the description: `gh pr edit --body` replaces the body, so the one-line way to add
+   this to the description deletes the description.
 
    Be honest about what that is. It is an **attributable claim, not a check**: you write it, nothing
    re-runs it, and it does not make `none` equivalent to CI. It is required because in a repository

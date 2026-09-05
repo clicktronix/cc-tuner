@@ -131,9 +131,11 @@ Without `--auto`, `/run` works local slice commits without interruption, then st
 push/PR, for a real unresolved decision or waiver, and before merge. With `--auto`, it runs unattended
 only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
 evidence, failed tests, stale review, unresolved `[eyes]`, CI that ran and did not pass, or scope
-beyond the spec. Where a repository runs no CI at all, the spec has to say so in advance and the pull-request body has
-to record what stood in for it, naming that commit. That record is an attributable claim, not a check
-— it does not make the mode equivalent to CI, and a merge with nothing written down is still refused. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
+beyond the spec. Where a repository runs no CI at all, the spec has to say so in advance and a pull-request comment has
+to record what stood in for it, naming that commit. That record is an attributable claim, not a check:
+under `--auto` the unattended run writes it about its own work, so what a person approved is the
+**mode**, once, at spec time — not each merge's claim. A merge with nothing written down is still
+refused. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
 forbidden.
 
 These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipeline and could do
@@ -155,8 +157,8 @@ One thing checks rather than advises. `scripts/merge.sh [--ci <mode>] <pr> <squa
 CI and the head SHA, refuses unless they agree at that commit, and pins the head with
 `--match-head-commit` so it cannot move between the check and the merge. `--ci` says which checks
 answer for CI — GitHub's required ones by default, every reported one where a repository has no branch
-protection, or none at all where it runs none, and that last one only alongside a recorded
-local result for the same commit. No mode lets a check that ran and failed through. On a pull request that
+protection, or none at all where it runs none, and that last one only alongside a PR comment
+recording the local result for the same commit. No mode lets a check that ran and failed through. On a pull request that
 carries no cc-tuner plan it merges straight through: the plugin must not seize work that is not its own.
 
 `/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:

@@ -49,10 +49,12 @@ EOF
   chmod +x "$1/gh"
 }
 
-world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [pr-body]
+world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [local-ci comment body]
   local d; d="$(flow_workdir)"; gh_stub "$d"
-  jq -nc --arg head "${4:-$SHA}" --argjson reviews "$2" --arg body "${5:-}" \
-    '{headRefOid: $head, reviews: $reviews, body: $body}' > "$d/pr.json"
+  local comments='[]'
+  [ -n "${5:-}" ] && comments="$(jq -nc --arg b "$5" '[{author:{login:"agent-bot"}, body:$b}]')"
+  jq -nc --arg head "${4:-$SHA}" --argjson reviews "$2" --argjson comments "$comments" \
+    '{headRefOid: $head, reviews: $reviews, comments: $comments}' > "$d/pr.json"
   printf '%s' "$1" | jq -r '.[]? | (.path // .filename // empty)' > "$d/api-files"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
@@ -193,14 +195,13 @@ absent "ci-any-nothing-reported-no-merge" "MERGED"                  "$OUT"
 # --ci none:<reason>: the recorded waiver. Two conditions, not one -- nothing reported AND a written
 # local result naming this exact commit in the pull-request body. Without the second, the waiver's
 # precondition ("no checks reported") would be satisfied by the very policy it waives.
-LOCAL_LINE="Closes #1
-
-cc-tuner-local-ci: $SHA bun run check — 6299 pass 0 fail"
+LOCAL_LINE="cc-tuner-local-ci: $SHA bun run check — 6299 pass 0 fail"
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "$SHA" "$LOCAL_LINE")"; : > "$D/checks-none-any"
 OUT="$(run_without_thread "$D" --ci 'none:paid CI minutes, run by hand before release' 42 squash "$SHA" review-default)"
 check "ci-none-merges-when-absent"   "MERGED"                     "$OUT"
 check "ci-none-prints-the-waiver"    "paid CI minutes"            "$OUT"
 check "ci-none-prints-the-local-run" "bun run check"              "$OUT"
+check "ci-none-names-who-claimed-it" "agent-bot"                 "$OUT"
 
 # ...and without that record the waiver is refused, however good the reason reads.
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-any"
@@ -265,6 +266,13 @@ D="$(world "$PLAN_FILES" "$BOTH" "$GREEN_CI")"
 OUT="$(run "$D" 42 squash "$SHA")"
 check  "later-dissent-blocks"  "has not been reviewed at this commit" "$OUT"
 absent "later-dissent-no-merge" "MERGED"                              "$OUT"
+
+# A marker quoted inside prose does not open a record, for the same reason it does not open a review.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "$SHA" "I think cc-tuner-local-ci: $SHA bun test would be enough here")"
+: > "$D/checks-none-any"
+OUT="$(run_without_thread "$D" --ci 'none:no CI here' 42 squash "$SHA" review-default)"
+check  "ci-none-quoted-marker-refused" "has to be on the record" "$OUT"
+absent "ci-none-quoted-marker-no-merge" "MERGED"                 "$OUT"
 
 # The reproduction of the original defect: a run with nothing recorded merged freely in 0.10.0.
 D="$(world "$PLAN_FILES" '[]' '[]')"
