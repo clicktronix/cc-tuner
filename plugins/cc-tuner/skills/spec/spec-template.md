@@ -29,7 +29,8 @@
 - [ ] Targeted, full, static/build, runtime, and acceptance checks passed as specified
 - [ ] Complete diff and formatter/autofix output were read; no unexplained files remain
 - [ ] Applicable advisory reviews ran once; valid findings were addressed or concretely refuted; authoritative Codex review approved the exact candidate SHA
-- [ ] PR head equals the reviewed SHA and required CI is green on that SHA
+- [ ] PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares —
+      under `none:` that means no checks exist and the local result is published on the candidate
 
 ## Completion and reconciliation
 - [ ] PR is merged with the configured method
@@ -45,7 +46,9 @@ ci: <mode> — <the checks, and how to observe them>
       required          the target branch has required checks on GitHub (the default; strongest)
       any               CI runs here but nothing is required — every reported check must pass
       none:<reason>     this repository runs no CI on a pull request; the reason is recorded and
-                        printed at merge. Honoured only when GitHub reports no checks at all.
+                        printed at merge. Honoured only when GitHub reports no checks at all AND the
+                        local result that stood in for CI is published on the candidate SHA as
+                        `cc-tuner-local-ci: <sha> <what ran, and what it returned>`.
 target_test: <exact command>
 full_test: <exact command>
 tracker: gh

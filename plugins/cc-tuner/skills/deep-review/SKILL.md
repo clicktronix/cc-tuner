@@ -38,8 +38,8 @@ owns the decision to invoke this expensive workflow; once selected, `deep-review
 into a second lightweight review.
 
 Dispatch each lens as its own read-only `general-purpose` subagent with the Agent tool, all in one
-message so they run concurrently, on `sonnet` unless a lens has repeatedly missed things on this
-codebase. A lens is a
+message so they run concurrently, on `sonnet`; escalate a lens the way `placement.md` escalates any
+unit — on a returned result you can point at, not on a feeling about the codebase. A lens is a
 reading job over a tree nobody is changing, which is why it may fan out at all — and each one must be
 given the literal candidate SHA, base ref, spec path and read-only constraint in its own brief,
 because a subagent sees none of this session. What must not fan out is the aggregation below: one
@@ -94,6 +94,11 @@ Priority meanings:
 - `P3`: non-blocking maintainability or clarity improvement with concrete future cost.
 
 ## Verdict
+
+This verdict is **advisory input to `/cc-tuner:run`, not a merge gate**. Only the authoritative review
+gates a merge, and only `merge.sh` enforces one. `REQUEST_CHANGES` here means the run must address or
+concretely refute the blocking findings before it takes the candidate to that review — it does not
+open a second approval loop of its own.
 
 Return exactly one verdict after the complete finding list:
 

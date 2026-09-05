@@ -64,8 +64,14 @@ place where that job is described, and the two would part company.
   orchestrator takes the slice. A third cheap attempt costs more than the expensive one would have.
 - **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
   That is the whole difference, and it is easy to lose by narrating between calls.
-- **Isolation.** `isolation: "worktree"` for every parallel implementation unit. Disjoint Owned paths
-  prove two units will not fight over a *file*; they do not stop two units committing into one index.
+- **Isolation.** A single unit while you wait works in this checkout and needs nothing. Give
+  `isolation: "worktree"` to every unit in a **parallel** batch: disjoint Owned paths prove two units
+  will not fight over a *file*, and do not stop two units committing into one index.
+- **Getting a worktree unit's commits back.** A worktree is a different checkout of the same
+  repository, so its commits exist in this object store but not on the task branch. Tell the unit to
+  work on a branch named for its slice and to report that branch name; when it returns, bring its
+  commits over with `git cherry-pick <task-branch>..<slice-branch>` and delete the branch. Say this in
+  the brief — a unit that commits onto a detached HEAD leaves work only a reflog can find.
 - **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
   the transcript, not the output style, not what a review just said. Anything load-bearing goes into
   the brief as literal text or as a path it is told to read.

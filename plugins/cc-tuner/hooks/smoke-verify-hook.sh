@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# cc-tuner — Stop hook: smoke-verify gate for frontend changes.
+# cc-tuner — Stop hook: the smoke-verify gate.
 #
-# FAST and fail-open. Blocks the end of a turn only when ALL of:
+# FAST and fail-open. For each rule the repo declares, blocks the end of a turn
+# only when ALL of:
 #   - the repo opted in (.claude/smoke-verify.cfg exists),
-#   - changed files match the config's frontend patterns,
-#   - no attestation (verified/skipped) exists for exactly this delta.
-# The hook never verifies anything itself — it routes Claude to verify the
-# change empirically (render / run the failing case / screenshot) and attest
+#   - changed files match that rule's patterns,
+#   - no attestation (verified/skipped) exists for exactly that rule's delta.
+# The hook never verifies anything itself — it routes Claude to exercise the
+# change for real, in the way that rule's `counts.<rule>` demands, and attest
 # via scripts/smoke-verify/mark.sh. Rationale: fix commits that pass static
-# checks but were never exercised are this workflow's top regression source.
+# checks but were never run are this workflow's top regression source. The rules
+# are the repository's: a screen, a migration and an endpoint are not proved the
+# same way, and nothing here knows which of them this repo has.
 #
-# Runaway protection is local to this hook:
+# Runaway protection is local to this hook, and per rule:
 #   1. blocks counter vs cap, per fingerprint — the hard terminator; any
-#      malformed number fails OPEN.
+#      malformed number fails OPEN for that rule.
 #   2. Success release: an attestation whose branch AND fingerprint match the
 #      current delta (mark.sh recomputes with the same shared lib).
 #   3. A counter that cannot be persisted → allow (never unbounded blocking).
@@ -50,8 +53,11 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 RULES="$(smoke_rules)"
 [ -n "$RULES" ] || allow  # no rules = misconfigured → fail open
 
+# 1-99, matching what the counter below can read back. A larger value parsed fine here and then hit
+# the counter's two-digit grammar, which fails open -- so `cap=150` disarmed the rule instead of
+# raising its ceiling, and the config file said 1-99 while nothing enforced it.
 CAP="$(smoke_cfg_get cap)"
-case "$CAP" in ''|*[!0-9]*|0*) CAP=3;; esac  # non-numeric/leading-zero → default
+case "$CAP" in ''|*[!0-9]*|0*) CAP=3;; [1-9]|[1-9][0-9]) ;; *) CAP=99;; esac
 
 # The default evidence list, used by a rule that declares none. It is deliberately about EXERCISING
 # something rather than about a browser: the gate covers whatever a repository points it at, and a
@@ -108,8 +114,11 @@ for rule in $RULES; do
   TOTAL="$(printf '%s\n' "$MATCHED" | grep -c .)"
   [ "$TOTAL" -gt 8 ] 2>/dev/null && FILES="$FILES(+$((TOTAL - 8)) more) "
 
+  # A rule with no `counts.<rule>` gets the generic demand AND says so. Silence there is how an
+  # upgraded pre-rules install would quietly get a vaguer standard than the one it had.
   COUNTS="$(smoke_rule_get counts "$rule")"
-  [ -n "$COUNTS" ] || COUNTS="$GENERIC_COUNTS"
+  NO_COUNTS=""
+  [ -n "$COUNTS" ] || { COUNTS="$GENERIC_COUNTS"; NO_COUNTS=" (this rule declares no counts.$rule — add one saying what proves a change of this kind here, and this text is replaced by it)"; }
   EXCLUDES="$(smoke_rule_get excludes "$rule")"
   EXTRA=""
   [ -n "$EXCLUDES" ] && EXTRA=" Also does not count here: $EXCLUDES."
@@ -117,7 +126,7 @@ for rule in $RULES; do
   ATTEST="bash '$MARK' verified $rule '<what you exercised and saw>'"
   [ "$rule" = default ] && ATTEST="bash '$MARK' verified '<what you exercised and saw>'"
 
-  BLOCKED="$BLOCKED [$rule] UNVERIFIED: ${FILES}— COUNTS: ${COUNTS}.${EXTRA} Attest with: $ATTEST."
+  BLOCKED="$BLOCKED [$rule] UNVERIFIED: ${FILES}— COUNTS: ${COUNTS}.${NO_COUNTS}${EXTRA} Attest with: $ATTEST."
   BLOCKED_ROUNDS="${BLOCKED_ROUNDS}${BLOCKED_ROUNDS:+, }$rule $N/$CAP"
 done
 

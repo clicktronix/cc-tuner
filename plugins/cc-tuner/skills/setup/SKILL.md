@@ -58,6 +58,12 @@ is worse than not offering it, because nothing later contradicts the claim.
   ```
   /cc-tuner:smoke-verify-setup install
   ```
+- **The native task tools**, when doctor reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset. This one is
+  a settings edit, not an installer, so in `install` mode offer to make it: add
+  `"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}` to `~/.claude/settings.json`, preserving the rest of
+  the file, after the user agrees. Say that it takes effect in the next session. Without it
+  `/cc-tuner:spec` commits the plan and publishes no visible task list, which reads as the plugin not
+  working.
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer its command once; if doctor
   already reported the script installed, skip silently. Print `/cc-tuner:statusline-setup install`.
 - **The `Mechanism First` output style** — the plugin ships it, so there is nothing to install and

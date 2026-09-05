@@ -95,10 +95,9 @@ You are the orchestrator. Implementation of a slice may be handed to a subagent 
 Agent tool; the decisions may not. That split is not a preference — a subagent starts with none of
 this session's context, so it can be handed a job but cannot be handed a judgement.
 
-**Delegate when the slice is worth its brief.** A subagent costs one written brief and buys back a
-context window and, on a cheaper model, most of the tokens. That trade wins for a slice with real
-implementation work in it and loses for a two-line edit you could make while writing the delegation.
-Under `--auto`, prefer delegating: your own context is the scarce resource across a long plan.
+**Delegate when the slice is worth its brief** — real implementation work, not a two-line edit you
+could make while writing the delegation. Under `--auto`, prefer delegating: your own context is the
+scarce resource across a long plan.
 
 **The brief is written from the files, never from this conversation** — which is what makes
 delegation cheap here, because everything a unit needs is already committed. It carries the spec path
@@ -107,13 +106,14 @@ Delivers, criteria), and these standing constraints:
 
 - write only inside the slice's Owned paths;
 - make the deciding check pass, having first seen it fail, and say which command showed each;
+- where `.claude/smoke-verify.cfg` exists, exercise the change and attest **before** committing —
+  `scripts/smoke-verify/mark.sh verified <rule> '<what you exercised and saw>'`. The gate is a Stop
+  hook over the *uncommitted* delta, and a unit that commits first takes its work out of the gate's
+  scope entirely; nothing downstream sees that it was never exercised;
 - commit in this repository's convention; do not push, do not open or comment on a pull request, do
   not merge, and do not claim any review or approval;
 - report what changed, the commands run with their results, and anything the slice's text turned out
   to be wrong about.
-
-Never write "as we discussed" or point at a finding from earlier in this session: the unit cannot see
-it, and work built on a brief like that misses the point in a way that reads as disobedience.
 
 **What never leaves you.** Reading `mutate.sh` output; deciding a slice is done; the full regression
 before the candidate; the review verdict; the Definition of Done; and everything under Delivery. A
@@ -125,10 +125,11 @@ deciding check yourself, and confirm it touched nothing outside its Owned paths.
 claim about work one command can inspect, and the RED-to-GREEN discipline below exists because a claim
 is not evidence.
 
-[`references/placement.md`](references/placement.md) owns the rest and is the only place that states
-it: which slices may run at once, which workspace `prototype`, `research`, `domain-modeling` and
-`diagnosing-bugs` belong in, and the dispatch mechanics — agent type, model, concurrency, isolation,
-escalation. Read it before fanning out or before invoking any of those skills.
+[`references/placement.md`](references/placement.md) carries the rest: which slices may run at once,
+which workspace `prototype`, `research`, `domain-modeling` and `diagnosing-bugs` belong in, and the
+dispatch mechanics — agent type, model, concurrency, isolation, escalation. Read it before fanning out
+or before invoking any of those skills. `deep-review` and `/cc-tuner:spec` name their own agent type
+and model for their own read-only fan-outs; where they are silent, placement decides.
 
 
 ## Proving a slice, before it counts as done
@@ -227,13 +228,9 @@ or require restarting every advisory review from zero.
    commit to move the SHA would be inventing evidence, which is the opposite of the point.
 7. **Check the Definition of Done from the spec** before merging. Every item, named, with what
    satisfied it. Then **tick the spec's own boxes and commit it** — its acceptance criteria and its
-   Definition of Done, in the same commit, with the candidate's SHA in the message.
-
-   Two files record the same completion, and the plan is ticked slice by slice while the spec is not
-   ticked at all until here. Left implicit, that reads as a spec whose every criterion failed while
-   the plan says everything passed; the boxes then disagree in the permanent record and the reader has
-   no way to tell which one went stale. Ticking the spec at the one moment its DoD is actually
-   established is what keeps the two consistent.
+   Definition of Done, in the same commit, with the candidate's SHA in the message. The plan is ticked
+   slice by slice and the spec only here, so leaving this out ships a spec whose every box says failed
+   beside a plan that says everything passed, with nothing to say which one went stale.
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
@@ -245,6 +242,17 @@ or require restarting every advisory review from zero.
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] <pr> <squash|merge> <candidate-sha> <review-thread>
    ```
+
+   Under `ci: none` the waiver is not enough on its own: publish what stood in for CI on the candidate
+   first, or the script refuses. Substitute the real SHA and the real result:
+
+   ```bash
+   gh pr review <pr> --comment --body "cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>"
+   ```
+
+   That record is the whole difference between a waiver and a licence. In a repository whose policy is
+   to report no checks, "no checks reported" is satisfied by the policy itself, so the only evidence
+   left is what a person can read on the commit.
 
    If the spec declares `none` and checks turn out to exist, the spec is wrong about the repository:
    fix the spec, do not drop the flag. The script refuses that combination anyway.

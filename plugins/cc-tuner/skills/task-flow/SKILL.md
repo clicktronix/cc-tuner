@@ -157,7 +157,9 @@ operative rules are the procedures and checklist in this file; the examples expl
       of the diff it produced
 - [ ] Nothing deferred as "pre-existing" without `git diff <base>...HEAD` showing the branch does not
       cause it
-- [ ] PR body links the green CI run instead of pasting its output. One line saying the mutant check
-      was done is not a transcript — it is the part a reviewer cannot reconstruct from the logs
+- [ ] PR body links the green CI run instead of pasting its output — or, where the target runs no
+      checks on a pull request, records the local gate as `.claude/rules/task-flow.md` prescribes.
+      One line saying the mutant check was done is not a transcript — it is the part a reviewer
+      cannot reconstruct from the logs
 - [ ] Plan promoted or archived if this PR completes it
 - [ ] No `.env`, credentials, or generated files staged

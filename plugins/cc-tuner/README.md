@@ -122,15 +122,18 @@ batch, proves each slice
 RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
 ticks it off in the committed file, then commits a candidate, runs the Matt Pocock review once,
 adds `cc-tuner:deep-review` only for large or sensitive changes, and obtains Codex's required review
-at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green required CI on the same commit and
-`--match-head-commit` pinning it. Independent code-writing units alone may fan out into isolated
-worktrees; the parent owns integration and every later gate.
+at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green CI on that same
+commit — under the mode the spec declared — and `--match-head-commit` pinning it. Implementation may
+be handed to subagents the run dispatches itself, one per slice; the parent owns integration, the
+proof, the review and every later gate.
 
 Without `--auto`, `/run` works local slice commits without interruption, then stops before the first
 push/PR, for a real unresolved decision or waiver, and before merge. With `--auto`, it runs unattended
 only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
-evidence, failed tests, stale review, unresolved `[eyes]`, missing current-SHA CI, or scope beyond the
-spec. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
+evidence, failed tests, stale review, unresolved `[eyes]`, CI that ran and did not pass, or scope
+beyond the spec. Where a repository runs no CI at all, the spec has to say so in advance and the local
+result that stood in for it is published on the candidate — a merge with nothing on the record is
+still refused. After merge it may reconcile only the task lifecycle; deploy, publish, and migration remain
 forbidden.
 
 These replace `/cc-tuner:execute-task`, which tried to do both jobs in one pipeline and could do
@@ -147,10 +150,13 @@ there. A genuinely new session — `startup` or `/clear` — starts with an empt
 their blocking edges and every finished slice they still depend on. It asks: a command hook cannot
 call `TaskCreate`, so recovery is advisory in exactly the way the plan itself is.
 
-One thing checks rather than advises. `scripts/merge.sh <pr> <squash|merge> <candidate-sha>
-[review-thread]` re-reads the companion's exact-candidate approval, the public verdict, required CI
-and the head SHA, refuses unless they agree at that commit, and pins the head with
-`--match-head-commit` so it cannot move between the check and the merge. On a pull request that
+One thing checks rather than advises. `scripts/merge.sh [--ci <mode>] <pr> <squash|merge>
+<candidate-sha> [review-thread]` re-reads the companion's exact-candidate approval, the public verdict,
+CI and the head SHA, refuses unless they agree at that commit, and pins the head with
+`--match-head-commit` so it cannot move between the check and the merge. `--ci` says which checks
+answer for CI — GitHub's required ones by default, every reported one where a repository has no branch
+protection, or none at all where it runs none, and that last one only alongside a published local
+result on the same SHA. No mode lets a check that ran and failed through. On a pull request that
 carries no cc-tuner plan it merges straight through: the plugin must not seize work that is not its own.
 
 `/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:

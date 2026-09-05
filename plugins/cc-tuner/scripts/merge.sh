@@ -51,6 +51,11 @@ done
 PR="${1:-}"; STRATEGY="${2:-}"; SHA="${3:-}"; REVIEW_THREAD="${4:-}"
 [ -n "$PR" ] && [ -n "$STRATEGY" ] && [ -n "$SHA" ] \
   || die "usage: merge.sh [--check-only] [--ci required|any|none:<reason>] <pr> <squash|merge> <candidate-sha> [review-thread]"
+# Options are read before the positionals, so a flag written after them is not a flag. Silently taking
+# `--ci` as the review-thread name refuses for a reason that names the wrong problem: the operator is
+# then told the thread is wrong when the thread was never passed at all.
+[ "$#" -le 4 ] || die "too many arguments: '$5' came after the positional ones. Flags go first: merge.sh [--check-only] [--ci <mode>] <pr> <strategy> <sha> [thread]"
+case "$REVIEW_THREAD" in --*) die "'$REVIEW_THREAD' looks like a flag, but it is in the review-thread position — flags go before <pr>" ;; esac
 # squash and merge only, matching what a spec is allowed to declare. rebase was accepted here and by
 # /run for one revision, offering a strategy no spec can ask for.
 case "$STRATEGY" in squash|merge) ;; *) die "strategy must be squash or merge" ;; esac
@@ -160,11 +165,17 @@ ME="$("$GH" api user --jq .login 2>/dev/null)" || die "cannot identify the authe
 # the right reason, so the refusal looked correct and the diagnostics were noise.
 # The embedded SHA is the exact GitHub head, not a second 7-to-40-hex grammar that could disagree with
 # the comparison above.
+#
+# Select by GRAMMAR, then take the latest — not the latest and then test its grammar. There is now a
+# second marker kind (`cc-tuner-local-ci:`, below) that can be posted on the same commit, and under
+# "latest wins" posting it after the verdict made the verdict invisible: the gate would have refused a
+# properly approved candidate for the reason "not reviewed at this commit".
 VERDICT="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
-  [ .reviews[]? | select((.commit.oid // "") == $sha and (.author.login // "") == $me) ]
-  | sort_by(.submittedAt) | last | .body // ""
-  | (split("\n")[0] // "") | sub("[ \t\r]+$"; "")
-  | if test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$") then . else "" end')"
+  [ .reviews[]?
+    | select((.commit.oid // "") == $sha and (.author.login // "") == $me)
+    | . + {first: ((.body // "") | (split("\n")[0] // "") | sub("[ \t\r]+$"; ""))}
+    | select(.first | test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$")) ]
+  | sort_by(.submittedAt) | last | .first // ""')"
 case "$VERDICT" in
   "cc-tuner-verdict: APPROVE $HEAD_SHA") ;;
   "") die "no cc-tuner verdict from $ME on $HEAD_SHA — the candidate has not been reviewed at this commit" ;;
@@ -215,10 +226,31 @@ if [ "$CI_MODE" = none ]; then
   # The waiver's whole safety is this comparison. Anything reported — passing, failing or pending —
   # means CI exists here and gets to decide, so the waiver is refused rather than allowed to outrank it.
   { [ -n "$NONE_REPORTED" ] || [ "${TOTAL:-0}" -eq 0 ]; } 2>/dev/null \
-    || die "--ci none was passed, but $TOTAL check(s) are reported on $HEAD_SHA — a waiver covers CI that does not exist, never CI that ran. Drop the waiver and let those checks decide."
+    || die "the spec declares 'ci: none' but $TOTAL check(s) are reported on $HEAD_SHA — a waiver covers CI that does not exist, never CI that ran. The spec is wrong about this repository: correct its ci: mode and let those checks decide."
+
+  # "No checks reported" is not evidence in a repository whose policy is to report none. Without this,
+  # the waiver's own precondition would be satisfied by the very policy it waives, and `none` would be
+  # a permanent, self-justifying licence to merge unverified -- a reason string as the only artifact.
+  #
+  # So the substitute verification has to leave the same kind of record the verdict does: bound to this
+  # commit, published where a human reads it, in one grammar this can check. Same account, same SHA,
+  # first line, for the same reason the verdict marker has those rules.
+  LOCAL_CI="$(printf '%s' "$PRJSON" | jq -r --arg sha "$HEAD_SHA" --arg me "$ME" '
+    [ .reviews[]?
+      | select((.commit.oid // "") == $sha and (.author.login // "") == $me)
+      | . + {first: ((.body // "") | (split("\n")[0] // "") | sub("[ \t\r]+$"; ""))}
+      | select(.first | test("^cc-tuner-local-ci: " + $sha + " \\S.*$")) ]
+    | sort_by(.submittedAt) | last | .first // ""')"
+  [ -n "$LOCAL_CI" ] \
+    || die "'ci: none' waives CI on $HEAD_SHA, so what stood in for it has to be on the record. Publish the local result on the candidate, then merge:
+  gh pr review $PR --comment --body \"cc-tuner-local-ci: $HEAD_SHA <the command that ran, and what it returned>\""
   printf 'cc-tuner merge: no CI reported on %s; merging under a recorded waiver: %s\n' "$HEAD_SHA" "$CI_REASON" >&2
+  printf 'cc-tuner merge: local verification of record: %s\n' "$LOCAL_CI" >&2
 else
-  [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || die "no $CI_LABEL CI checks ran on $HEAD_SHA — absent CI is unproven CI. Configure a required check, or pass --ci any if this repository runs CI without branch protection, or --ci 'none:<reason>' to merge under a recorded waiver."
+  # Names the fix without offering a menu. The mode is the spec's declaration, not a choice made at the
+  # merge boundary, and a die message listing the other two modes invites exactly the substitution
+  # `/run` forbids -- the message in front of the model wins over the rule in a skill file.
+  [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null || die "no $CI_LABEL CI checks ran on $HEAD_SHA — absent CI is unproven CI. Either make CI run on this commit, or correct the spec's 'ci:' mode to match how this repository actually verifies a candidate, and re-run with the mode the spec then declares."
   BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"
   [ "${BAD:-1}" -eq 0 ] 2>/dev/null || die "$BAD of $TOTAL $CI_LABEL CI checks on $HEAD_SHA are not passing"
 fi
