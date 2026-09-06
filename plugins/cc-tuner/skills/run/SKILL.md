@@ -74,11 +74,12 @@ nothing about the loop changes.
 Three things this adds to the obvious:
 
 - **Tick the plan file and commit it.** When every acceptance criterion of a slice is met, change its
-  `- [ ]` to `- [x]` in the plan file and commit. **Tick the spec's acceptance criteria in the same
-  commit**, for whichever of them that slice made true: they are the contract's own record, they are
-  provable here, and a spec left at zero ticks beside a plan at twenty is how a finished run reads as
-  a failed one. The spec's Definition of Done is not ticked here — see step 9. The task list does not survive the session; the file does.
-  A ticked file with no matching task is recoverable, a completed task with an unticked file is lost.
+  `- [ ]` to `- [x]` in the plan file and commit. The task list does not survive the session; the file
+  does. A ticked file with no matching task is recoverable, a completed task with an unticked file is
+  lost. **Tick the spec's acceptance criteria in the same commit**, for whichever of them that slice
+  made true: they are the contract's own record and they are provable here, and a spec left at zero
+  ticks beside a plan at twenty is how a finished run reads as a failed one. Its Definition of Done is
+  not ticked here — those items are only true after the merge, and step 9 records them.
   **Commit message format, including any attribution trailers, comes from the repository's
   conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
   recent history rather than the harness default.
