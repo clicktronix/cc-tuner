@@ -56,6 +56,11 @@ session permanently without the three lifecycle tasks. Create in two passes, `Ta
   **deliver**, blocked by review. A chain, not three siblings: they happen in that order, and three
   tasks going ready at once says the opposite.
 
+Then **carry the plan's ticks across**: a slice whose criteria are all `- [x]` is `completed`, and a
+restored session must say so before it starts working. The implementation loop reaches only open
+slices, so a finished slice left `pending` in the list is one nothing will ever close — and after the
+last slice, that is the whole list.
+
 Mark them as you reach them — a list that says everything is done while the candidate is unreviewed is
 worse than no list. If the tools are not there, skip this and say so once; the run proceeds either way.
 

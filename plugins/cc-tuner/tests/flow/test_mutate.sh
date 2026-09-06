@@ -89,7 +89,7 @@ equals "repository-bytecode-cache-is-not-rewritten" "$CACHE_BEFORE" "$(shasum -a
 OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
 check "ledger-names-the-file"      "calc.py"  "$OUT"
 check "ledger-names-the-mutation"  "n < -1"   "$OUT"
-check "ledger-records-the-baseline"     "green before, red after" "$OUT"
+check "ledger-records-the-baseline"     "green before, red on the mutant, green again once restored" "$OUT"
 
 # --- the backup survives a test command that sweeps temp space ------------------------------------
 # The first attempt to mutate this script with its own suite as the test command ended in RESTORE
@@ -305,16 +305,36 @@ E_MUT="sed 's/VALUE = 0/VALUE = 1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTA
 
 rm -f "$E/.ran"
 OUT="$(run --expect 'AssertionError' "$E/t.py" "$E/flaky.sh" "$E_MUT")"
-check  "unexpected-reason-refused" "UNEXPECTED" "$OUT"
-check  "unexpected-reason-exits-2" "rc=2"       "$OUT"
-check  "unexpected-shows-the-output" "ConnectionError" "$OUT"
-absent "unexpected-not-killed"     "KILLED"     "$OUT"
+check  "env-failure-not-proved"      "NOTPROVED"       "$OUT"
+check  "env-failure-exits-2"         "rc=2"            "$OUT"
+check  "env-failure-shows-the-cause" "ConnectionError" "$OUT"
+check  "env-failure-shows-control"   "control run"     "$OUT"
+absent "env-failure-not-killed"      "KILLED"          "$OUT"
 
-# ...and the same run without --expect still grades KILLED, but says the reason went unchecked, so a
-# reader of the ledger line can tell the difference.
+# The control run is what decides, so the same environment failure is refused with no --expect at all.
 rm -f "$E/.ran"
 OUT="$(run "$E/t.py" "$E/flaky.sh" "$E_MUT")"
-check "no-expect-says-reason-unchecked" "REASON was not checked" "$OUT"
+check  "env-failure-refused-without-expect" "NOTPROVED" "$OUT"
+absent "env-failure-no-false-kill"          "KILLED"    "$OUT"
+
+# A pattern that a traceback merely echoes must not buy a kill either: matching text is a filter, not
+# a proof, which is why the control run exists.
+cat > "$E/echoing.sh" <<'EOF'
+#!/bin/sh
+cd "$(dirname "$0")"
+if [ -f .ran ]; then
+  printf 'Traceback:\n  self.assertTrue(allowed(x), "guard must allow small value")\nConnectionError: db gone\nFAILED (errors=1)\n'
+  exit 1
+fi
+touch .ran
+grep -q 'VALUE = 0' t.py && exit 0
+exit 1
+EOF
+chmod +x "$E/echoing.sh"
+rm -f "$E/.ran"
+OUT="$(run --expect 'guard must allow small value' "$E/t.py" "$E/echoing.sh" "$E_MUT")"
+check  "echoed-pattern-not-a-kill" "NOTPROVED" "$OUT"
+absent "echoed-pattern-no-kill"    "KILLED"    "$OUT"
 
 # An honest kill with the expected reason passes and says so.
 cat > "$E/honest.sh" <<'EOF'
@@ -325,8 +345,15 @@ echo "AssertionError: VALUE changed"; exit 1
 EOF
 chmod +x "$E/honest.sh"
 OUT="$(run --expect 'AssertionError' "$E/t.py" "$E/honest.sh" "$E_MUT")"
-check "expected-reason-killed"  "red for the expected reason" "$OUT"
-check "expected-reason-exits-0" "rc=0"                        "$OUT"
+check "honest-kill-confirmed"  "green again once restored" "$OUT"
+check "honest-kill-exits-0"    "rc=0"                      "$OUT"
+
+# ...and a kill whose text does not match the pattern is reported as such, without pretending the
+# mutant was innocent: the control was green, so the mutant did break it.
+OUT="$(run --expect 'NoSuchMessage' "$E/t.py" "$E/honest.sh" "$E_MUT")"
+check  "wrong-pattern-is-unexpected" "UNEXPECTED"     "$OUT"
+check  "wrong-pattern-says-mutant-broke-it" "did break the test" "$OUT"
+absent "wrong-pattern-not-killed"    "KILLED"         "$OUT"
 
 # ...and an ordinary failing test is still a kill: the reserved range must not swallow the verdict.
 OUT="$(run "$S/f.sh" "bash -c 'grep -q x=1 \"$S/f.sh\"'" "$SIGNAL_MUT")"

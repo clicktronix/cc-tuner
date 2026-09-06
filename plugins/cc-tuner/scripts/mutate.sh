@@ -10,6 +10,8 @@
 #   * the test must be GREEN before the mutation, or a red suite grades every mutant as killed;
 #   * a test that was killed or never ran (signal, timeout, missing command) is not a test the
 #     mutant failed, and the reserved exit codes for that are refused rather than graded;
+#   * every kill is confirmed by re-running the test on the RESTORED file: red there too means
+#     something other than the mutant is breaking it, and no text match can establish that;
 #   * the mutation command must exit 0 and change the file — a half-applied patch that errors out is
 #     not a mutant, and a patch that no-ops and then "survives" is the defect that started this;
 #   * the mutant must parse, and if this cannot tell whether it parses it refuses rather than
@@ -44,10 +46,16 @@ usage: mutate.sh [--expect <ere>] <file> <test-command> <mutation-command> [synt
   [syntax-command]    how to check the mutant parses. Inferred for .sh/.py/.json when the checker
                       is installed; required otherwise, because an unchecked mutant that fails the
                       test is indistinguishable from a broken file that fails everything.
-  --expect <ere>      what the killed test must SAY. Exit 1 is what a suite returns for a failed
-                      assertion and for a fixture that could not reach the database alike, so without
-                      this a broken environment grades as a killed mutant. Give the assertion message
-                      the mutation should produce. The mutant's output is printed either way.
+  --expect <ere>      an OPTIONAL extra filter on what the killed test says. It is not the proof and
+                      cannot be: a traceback echoes the failing source line, so the text you are
+                      matching appears even on a run where the assertion never executed. A KILLED
+                      verdict is earned by the control run below, not by this.
+
+Every KILLED is confirmed by a CONTROL RUN: the file is restored and the same test runs again. Only a
+green control shows the mutant was the difference. Exit 1 is what a suite returns for a failed
+assertion and for a fixture that could not reach its database alike, and the control tells them apart
+without knowing anything about the runner. It costs a third run of the test command, on the KILLED
+path only. Both runs' full logs are kept and their paths printed.
 
 Refuses before touching anything, because restoring puts a fresh inode at the path:
   * a symlink, dangling or not, a hard-linked file, a directory — the path must be a plain file with
@@ -74,8 +82,9 @@ Prints one ledger line — paste it, do not retype it.
   NOTRUN     exit 2   the test was killed or never ran (signal, timeout, missing or non-executable
                       command) rather than failed: grading that KILLED credits the mutant with a red
                       suite something else produced
-  UNEXPECTED exit 2   the test went red, but not for the reason --expect named: something other than
-                      the mutant may have broken it, so nothing about the guard was shown
+  NOTPROVED  exit 2   the test is red on the RESTORED file too, so something other than the mutant is
+                      breaking it and the kill was not earned
+  UNEXPECTED exit 2   the mutant did break the test, but not with the text --expect named
 USAGE
 }
 
@@ -215,6 +224,13 @@ restore() {
 # anyway -- on a mutant that could not be overwritten that lost the original outright.
 trap 'trap - INT TERM; [ -z "$TEST_CACHE_DIR" ] || rmdir "$TEST_CACHE_DIR" 2>/dev/null || true; restore; exit 2' INT TERM
 
+# Log files are allocated here, while the tree is still clean. They were created after the mutation for
+# one revision, and a failure there exits through `die`, which does not restore -- leaving the mutant in
+# the working file with the original only in the backup. Nothing that runs after the mutation may fail
+# on a resource it could have reserved first.
+MUT_OUT="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-mutant.XXXXXX")" || die "cannot create a temporary file"
+CONTROL_OUT="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-control.XXXXXX")" || { rm -f "$MUT_OUT"; die "cannot create a temporary file"; }
+
 # 2. The mutation itself has to succeed and to change something.
 MUTATE_FILE="$FILE" sh -c "$MUT_CMD" >/dev/null 2>&1
 mrc=$?
@@ -237,7 +253,6 @@ if ! MUTATE_FILE="$FILE" sh -c "$SYNTAX_CMD" >/dev/null 2>&1; then
 fi
 
 # 4. Now the grade means something.
-MUT_OUT="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-mutout.XXXXXX")" || die "cannot create a temporary file"
 run_test_capturing "$MUT_OUT"
 rc=$?
 restore
@@ -258,42 +273,62 @@ case "$rc" in
   127) why="the test command was not found" ;;
   *) if [ "$rc" -ge 128 ] 2>/dev/null; then why="the test was killed by signal $((rc - 128))"; else why=""; fi ;;
 esac
-# The mutant's own words, always. Three lines is enough to see an assertion message or a stack trace's
-# first frame, and it is the only part of this that says WHY the test went red.
-show_mutant_output() {
-  [ -s "$MUT_OUT" ] || { printf '           (the mutant test printed nothing)\n'; return; }
-  sed -e 's/^/           | /' "$MUT_OUT" | tail -3
+# The mutant's own words, and the whole of them. An earlier revision printed three lines and deleted
+# the file, which is exactly enough to show `FAILED (errors=1)` and hide the ConnectionError above it.
+show_log() { # $1=label $2=file
+  if [ -s "$2" ]; then
+    printf '           %s (full log: %s)\n' "$1" "$2"
+    sed -e 's/^/           | /' "$2" | tail -12
+  else
+    printf '           %s: the command printed nothing (log: %s)\n' "$1" "$2"
+  fi
 }
 
 if [ -n "$why" ]; then
   printf 'NOTRUN     %s  rc=%s  %s, so it did not fail because of the mutant — nothing was graded  %s\n' \
     "$FILE" "$rc" "$why" "$MUT_CMD"
-  show_mutant_output
-  rm -f "$MUT_OUT"
+  show_log "mutant run" "$MUT_OUT"
+  rm -f "$CONTROL_OUT"
   exit 2
 fi
 
 if [ "$rc" -ne 0 ]; then
-  # A failing exit status says the suite went red; it does not say the assertion fired. A fixture that
-  # cannot reach its database fails in setUp with the same 1, and every mutant then grades as killed
-  # while nothing about the guard was ever exercised. Where the caller said what a correct kill looks
-  # like, that is checked; where it did not, the verdict says the reason was not checked.
-  if [ -n "$EXPECT" ] && ! grep -Eq -- "$EXPECT" "$MUT_OUT" 2>/dev/null; then
-    printf 'UNEXPECTED %s  rc=%s  the test went red, but not for the reason given to --expect — the mutant was not shown to be what broke it  %s\n' \
-      "$FILE" "$rc" "$MUT_CMD"
-    show_mutant_output
-    rm -f "$MUT_OUT"
+  # THE CONTROL RUN, and it is what makes the verdict mean anything. A failing exit status says the
+  # suite went red; it does not say the MUTANT is why. A fixture that stops reaching its database
+  # between the baseline and the mutant produces the same red, and every mutant then grades as killed
+  # while nothing about the guard was exercised.
+  #
+  # Matching text cannot settle this and was tried: `--expect 'guard must allow small value'` matched a
+  # Python traceback that merely ECHOED the failing source line, on a run where the assertion never
+  # executed at all. The pattern was present, the assertion was not.
+  #
+  # So the file is restored, the same test runs again, and only a green control proves the mutant was
+  # the difference. It costs a third run of the test command, on the KILLED path only -- a SURVIVED
+  # verdict is green twice over and needs no control.
+  run_test_capturing "$CONTROL_OUT"
+  crc=$?
+  if [ "$crc" -ne 0 ]; then
+    printf 'NOTPROVED  %s  rc=%s  the test is red on the RESTORED file too (rc=%s), so something other than the mutant broke it  %s\n' \
+      "$FILE" "$rc" "$crc" "$MUT_CMD"
+    show_log "mutant run" "$MUT_OUT"
+    show_log "control run, original file restored" "$CONTROL_OUT"
     exit 2
   fi
-  if [ -n "$EXPECT" ]; then
-    printf 'KILLED     %s  rc=%s  green before, red after, and red for the expected reason  %s\n' "$FILE" "$rc" "$MUT_CMD"
-  else
-    printf 'KILLED     %s  rc=%s  green before, red after; the REASON was not checked (pass --expect)  %s\n' "$FILE" "$rc" "$MUT_CMD"
+
+  # An optional extra filter, never the proof: a traceback can echo the text you are matching, which is
+  # why the control run above decides and this only narrows.
+  if [ -n "$EXPECT" ] && ! grep -Eq -- "$EXPECT" "$MUT_OUT" 2>/dev/null; then
+    printf 'UNEXPECTED %s  rc=%s  the control run is green, so the mutant did break the test — but not with the text --expect named  %s\n' \
+      "$FILE" "$rc" "$MUT_CMD"
+    show_log "mutant run" "$MUT_OUT"
+    exit 2
   fi
-  show_mutant_output
-  rm -f "$MUT_OUT"
+
+  printf 'KILLED     %s  rc=%s  green before, red on the mutant, green again once restored  %s\n' "$FILE" "$rc" "$MUT_CMD"
+  show_log "mutant run" "$MUT_OUT"
+  rm -f "$CONTROL_OUT"
   exit 0
 fi
-rm -f "$MUT_OUT"
+rm -f "$MUT_OUT" "$CONTROL_OUT"
 printf 'SURVIVED   %s  rc=0  green before and after  %s\n' "$FILE" "$MUT_CMD"
 exit 1

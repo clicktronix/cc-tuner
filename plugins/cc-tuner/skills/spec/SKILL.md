@@ -160,10 +160,12 @@ convention.
 When the native task tools are available, publish the visible plan before any implementation edit:
 
 1. `TaskCreate` once per slice, in number order; include delivery and acceptance criteria.
-2. `TaskCreate` three more, after the slices and blocked by all of them: **verify the feature**,
-   **review the candidate**, **deliver**. Without them the list reads as finished the moment the last
-   slice is ticked, while the work that decides whether any of it ships has not started — and a
-   watcher seeing "all done" beside an unreviewed candidate is being told something false.
+2. `TaskCreate` three more, as a **chain**: **verify the feature**, blocked by every slice; **review
+   the candidate**, blocked by verify; **deliver**, blocked by review. Without them the list reads as
+   finished the moment the last slice is ticked, while the work that decides whether any of it ships
+   has not started — and a watcher seeing "all done" beside an unreviewed candidate is being told
+   something false. Blocked by the slices alone they would all go ready at once, which says they can
+   happen in any order; they cannot.
 3. `TaskUpdate` with `addBlockedBy` once per dependency edge.
 4. `TaskList` and verify that every edge matches the committed plan.
 
