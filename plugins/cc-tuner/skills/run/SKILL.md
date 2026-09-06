@@ -188,17 +188,19 @@ revision of this skill said only "work it, complete it", which is not a discipli
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" --help   # the verdicts, the exit codes, the refusals
   ```
 
-  **Always pass `--expect`, with the reason the spec named.** Exit 1 is what a suite returns for a
-  failed assertion and for a fixture that could not reach its database alike, so without it a broken
-  environment grades as a killed mutant — and the run has then proved nothing while printing KILLED.
-  The script says so in the verdict when the pattern is absent.
+  **Read the mutant log it prints; a KILLED line is not the whole answer.** The script confirms a kill
+  by restoring the file and running the test again, which rules out an environment that stayed broken —
+  but not one that failed only during the mutant run and recovered. That shape is indistinguishable
+  from a kill to any generic helper, and the log is where it is visible: a `ConnectionError` where an
+  assertion message should be. `--expect` narrows a confirmed kill and is worth passing, but it cannot
+  settle this either, because a traceback echoes the source line it was matching.
 
   It grades the mutation instead of taking your account of it, and it refuses rather than guessing —
   `--help` is the contract, and it cannot drift from the code the way a paragraph here can.
 
   **A regression test for a shipped defect needs no mutation.** You watched it fail on the pre-fix code
   and pass after: that observation *is* the mutation result, obtained at no extra cost, and running the
-  script as well buys a second copy of the same fact for two more builds. Say so and move on. What
+  script as well buys a second copy of the same fact for three more runs of the test command. Say so and move on. What
   earns a mutation is a guard whose failure mode nobody has ever seen — a fail-closed check, a
   validator, a budget — where green proves nothing until something is deliberately broken.
 

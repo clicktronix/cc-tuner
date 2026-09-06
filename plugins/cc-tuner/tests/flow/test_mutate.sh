@@ -336,6 +336,18 @@ OUT="$(run --expect 'guard must allow small value' "$E/t.py" "$E/echoing.sh" "$E
 check  "echoed-pattern-not-a-kill" "NOTPROVED" "$OUT"
 absent "echoed-pattern-no-kill"    "KILLED"    "$OUT"
 
+# Every exit path after the backup exists must put the file back. A failure unrelated to the mutation --
+# the isolated Python cache, a log file -- used to leave the mutant in the working file and the original
+# only in the backup, and the next run then refused to start because that backup was in the way.
+D="$(flow_workdir)"; printf 'x=1\n' > "$D/f.sh"; mkdir -p "$D/tmpd"
+OUT="$( TMPDIR="$D/tmpd" bash "$MUTATE" "$D/f.sh" "true" \
+  "sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE; chmod 500 '$D/tmpd'" 2>&1; printf 'rc=%s\n' "$?" )"
+chmod 755 "$D/tmpd" 2>/dev/null
+check  "cache-failure-refused"        "cannot create an isolated Python bytecode cache" "$OUT"
+check  "cache-failure-rc2"            "rc=2"    "$OUT"
+equals "cache-failure-restores-file"  "x=1"     "$(cat "$D/f.sh")"
+absent "cache-failure-leaves-no-backup" "premutation" "$(ls "$D")"
+
 # An honest kill with the expected reason passes and says so.
 cat > "$E/honest.sh" <<'EOF'
 #!/bin/sh
