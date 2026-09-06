@@ -45,11 +45,19 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printe
   --spec <the spec path from arguments> --branch "$(git branch --show-current)"
 ```
 
-If the task tools are there and `TaskList` is empty, publish the plan's slices and the three
-lifecycle tasks after them — verify, review, deliver — in two passes, `TaskCreate` then
-`TaskUpdate addBlockedBy`. Mark those three as you reach them: a list that says everything is done
-while the candidate is unreviewed is worse than no list. A fresh session's `SessionStart` context already asks for
-this. If they are not there, skip this and say so once; the run proceeds either way.
+If the task tools are there, **reconcile the list against the plan** — create what is missing, do not
+skip because something is there. The `SessionStart` hook restores slices only, because slices are all
+the plan file records; a run that publishes only when `TaskList` is empty therefore leaves a restored
+session permanently without the three lifecycle tasks. Create in two passes, `TaskCreate` then
+`TaskUpdate addBlockedBy`:
+
+- one task per slice, with its edges from the plan;
+- then **verify the feature**, blocked by every slice; **review the candidate**, blocked by verify;
+  **deliver**, blocked by review. A chain, not three siblings: they happen in that order, and three
+  tasks going ready at once says the opposite.
+
+Mark them as you reach them — a list that says everything is done while the candidate is unreviewed is
+worse than no list. If the tools are not there, skip this and say so once; the run proceeds either way.
 
 ## The loop
 
@@ -170,9 +178,15 @@ revision of this skill said only "work it, complete it", which is not a discipli
   For a mutation, revert the behaviour the check guards and confirm the check goes RED:
 
   ```bash
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" <file> "<test command>" "<command that edits \$MUTATE_FILE>"
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" --expect '<what the killed test must say>' \
+    <file> "<test command>" "<command that edits \$MUTATE_FILE>"
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutate.sh" --help   # the verdicts, the exit codes, the refusals
   ```
+
+  **Always pass `--expect`, with the reason the spec named.** Exit 1 is what a suite returns for a
+  failed assertion and for a fixture that could not reach its database alike, so without it a broken
+  environment grades as a killed mutant — and the run has then proved nothing while printing KILLED.
+  The script says so in the verdict when the pattern is absent.
 
   It grades the mutation instead of taking your account of it, and it refuses rather than guessing —
   `--help` is the contract, and it cannot drift from the code the way a paragraph here can.

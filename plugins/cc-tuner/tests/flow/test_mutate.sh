@@ -287,6 +287,47 @@ for code in 124 125 126 127; do
   absent "notrun-$code-not-killed"       "KILLED" "$OUT"
 done
 
+# Exit 1 is what a suite returns for a failed assertion AND for a fixture that could not reach its
+# database. Without the expected reason, an environment failure appearing between baseline and mutant
+# grades as a killed mutant while nothing about the guard was exercised.
+E="$(flow_workdir)"; printf 'VALUE = 0\n' > "$E/t.py"
+cat > "$E/flaky.sh" <<'EOF'
+#!/bin/sh
+cd "$(dirname "$0")"
+# green on the first run, broken environment on every later one
+if [ -f .ran ]; then echo "ConnectionError: could not connect to db in setUp"; exit 1; fi
+touch .ran
+grep -q 'VALUE = 0' t.py && exit 0
+echo "AssertionError: VALUE changed"; exit 1
+EOF
+chmod +x "$E/flaky.sh"
+E_MUT="sed 's/VALUE = 0/VALUE = 1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE"
+
+rm -f "$E/.ran"
+OUT="$(run --expect 'AssertionError' "$E/t.py" "$E/flaky.sh" "$E_MUT")"
+check  "unexpected-reason-refused" "UNEXPECTED" "$OUT"
+check  "unexpected-reason-exits-2" "rc=2"       "$OUT"
+check  "unexpected-shows-the-output" "ConnectionError" "$OUT"
+absent "unexpected-not-killed"     "KILLED"     "$OUT"
+
+# ...and the same run without --expect still grades KILLED, but says the reason went unchecked, so a
+# reader of the ledger line can tell the difference.
+rm -f "$E/.ran"
+OUT="$(run "$E/t.py" "$E/flaky.sh" "$E_MUT")"
+check "no-expect-says-reason-unchecked" "REASON was not checked" "$OUT"
+
+# An honest kill with the expected reason passes and says so.
+cat > "$E/honest.sh" <<'EOF'
+#!/bin/sh
+cd "$(dirname "$0")"
+grep -q 'VALUE = 0' t.py && exit 0
+echo "AssertionError: VALUE changed"; exit 1
+EOF
+chmod +x "$E/honest.sh"
+OUT="$(run --expect 'AssertionError' "$E/t.py" "$E/honest.sh" "$E_MUT")"
+check "expected-reason-killed"  "red for the expected reason" "$OUT"
+check "expected-reason-exits-0" "rc=0"                        "$OUT"
+
 # ...and an ordinary failing test is still a kill: the reserved range must not swallow the verdict.
 OUT="$(run "$S/f.sh" "bash -c 'grep -q x=1 \"$S/f.sh\"'" "$SIGNAL_MUT")"
 check "ordinary-failure-still-killed" "KILLED" "$OUT"

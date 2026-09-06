@@ -22,7 +22,7 @@
 - Full regression: <exact command>
 - Static/build checks: <typecheck/lint/build commands or `not applicable — reason`>
 - Runtime/acceptance environment: <services, browser/device, fixtures, test data, credentials boundary>
-- Negative/mutation proof: <how the test is shown to fail without the fix>
+- Negative/mutation proof (name what the killed test must SAY, not only that it goes red): <how the test is shown to fail without the fix>
 
 ## Definition of Done
 - [ ] Regression check was observed failing for the expected reason before the fix

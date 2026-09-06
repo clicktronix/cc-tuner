@@ -89,8 +89,15 @@ place where that job is described, and the two would part company.
   ```
 
   Dispatch an ordinary (non-isolated) unit told to work in that directory. When it returns, bring its
-  commits over with `git cherry-pick <task-branch>..<slice-branch>`, then
-  `git worktree remove ../wt-<slice> && git branch -d <slice-branch>`. Disjoint Owned paths prove two
+  commits over with `git cherry-pick <task-branch>..<slice-branch>`, confirm the work actually landed —
+  the slice's deciding check passes here, and `git diff <slice-branch> -- <its Owned paths>` is empty —
+  then `git worktree remove ../wt-<slice> && git branch -D <slice-branch>`.
+
+  `-D`, not `-d`, and only after that confirmation. A cherry-pick copies changes into **new** commits,
+  so the slice branch is never an ancestor of this one and `-d` refuses it as "not fully merged" — a
+  correct integration ends with an error message that reads like a problem. Do not reach for `-D`
+  before the check: it is the flag that discards work when the pick did not land, which is exactly the
+  case `-d` was protecting you from. Disjoint Owned paths prove two
   units will not fight over a *file*; separate worktrees are what stop them committing into one index.
 - **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
   the transcript, not the output style, not what a review just said. Anything load-bearing goes into

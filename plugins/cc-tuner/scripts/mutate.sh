@@ -36,7 +36,7 @@ die() { printf 'mutate: %s\n' "$1" >&2; exit 2; }
 
 usage() {
   cat <<'USAGE'
-usage: mutate.sh <file> <test-command> <mutation-command> [syntax-command]
+usage: mutate.sh [--expect <ere>] <file> <test-command> <mutation-command> [syntax-command]
 
   <file>              the file to mutate; restored byte- and mode-identical before this exits
   <test-command>      must pass BEFORE the mutation, and is what the mutant has to break
@@ -44,6 +44,10 @@ usage: mutate.sh <file> <test-command> <mutation-command> [syntax-command]
   [syntax-command]    how to check the mutant parses. Inferred for .sh/.py/.json when the checker
                       is installed; required otherwise, because an unchecked mutant that fails the
                       test is indistinguishable from a broken file that fails everything.
+  --expect <ere>      what the killed test must SAY. Exit 1 is what a suite returns for a failed
+                      assertion and for a fixture that could not reach the database alike, so without
+                      this a broken environment grades as a killed mutant. Give the assertion message
+                      the mutation should produce. The mutant's output is printed either way.
 
 Refuses before touching anything, because restoring puts a fresh inode at the path:
   * a symlink, dangling or not, a hard-linked file, a directory — the path must be a plain file with
@@ -70,10 +74,22 @@ Prints one ledger line — paste it, do not retype it.
   NOTRUN     exit 2   the test was killed or never ran (signal, timeout, missing or non-executable
                       command) rather than failed: grading that KILLED credits the mutant with a red
                       suite something else produced
+  UNEXPECTED exit 2   the test went red, but not for the reason --expect named: something other than
+                      the mutant may have broken it, so nothing about the guard was shown
 USAGE
 }
 
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+# `--expect <ere>` is how the caller says WHY the test should go red. Without it, an exit status of 1
+# is all this can read, and 1 is what a suite returns whether an assertion fired or a fixture could
+# not reach the database -- an environment failure in setUp reads exactly like a killed mutant. The
+# reserved codes above catch a test that never ran; only the caller knows what a correctly killed test
+# says. So the mutant's output is always shown, and matched when a pattern is given.
+EXPECT=""
+if [ "${1:-}" = "--expect" ]; then
+  [ -n "${2:-}" ] || { printf 'mutate: --expect needs a pattern\n' >&2; exit 2; }
+  EXPECT="$2"; shift 2
+fi
 [ "$#" -ge 3 ] && [ "$#" -le 4 ] || { usage >&2; exit 2; }
 FILE="$1"; TEST_CMD="$2"; MUT_CMD="$3"; SYNTAX_CMD="${4:-}"
 # One precondition where there were five. Restoring puts a *fresh inode* at this path, so the path has
@@ -116,6 +132,19 @@ run_test() {
   TEST_CACHE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cc-tuner.pycache.XXXXXX" 2>/dev/null)" \
     || die "cannot create an isolated Python bytecode cache"
   PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$TEST_CACHE_DIR" sh -c "$TEST_CMD" >/dev/null 2>&1
+  rc=$?
+  rmdir "$TEST_CACHE_DIR" 2>/dev/null || true
+  TEST_CACHE_DIR=""
+  return "$rc"
+}
+
+# The mutant run keeps its output: it is the only evidence of WHY the test went red, and the exit
+# status cannot carry that.
+run_test_capturing() { # $1=output file
+  local rc
+  TEST_CACHE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cc-tuner.pycache.XXXXXX" 2>/dev/null)" \
+    || die "cannot create an isolated Python bytecode cache"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$TEST_CACHE_DIR" sh -c "$TEST_CMD" >"$1" 2>&1
   rc=$?
   rmdir "$TEST_CACHE_DIR" 2>/dev/null || true
   TEST_CACHE_DIR=""
@@ -208,7 +237,8 @@ if ! MUTATE_FILE="$FILE" sh -c "$SYNTAX_CMD" >/dev/null 2>&1; then
 fi
 
 # 4. Now the grade means something.
-run_test
+MUT_OUT="$(mktemp "${TMPDIR:-/tmp}/cc-tuner-mutout.XXXXXX")" || die "cannot create a temporary file"
+run_test_capturing "$MUT_OUT"
 rc=$?
 restore
 
@@ -228,15 +258,42 @@ case "$rc" in
   127) why="the test command was not found" ;;
   *) if [ "$rc" -ge 128 ] 2>/dev/null; then why="the test was killed by signal $((rc - 128))"; else why=""; fi ;;
 esac
+# The mutant's own words, always. Three lines is enough to see an assertion message or a stack trace's
+# first frame, and it is the only part of this that says WHY the test went red.
+show_mutant_output() {
+  [ -s "$MUT_OUT" ] || { printf '           (the mutant test printed nothing)\n'; return; }
+  sed -e 's/^/           | /' "$MUT_OUT" | tail -3
+}
+
 if [ -n "$why" ]; then
   printf 'NOTRUN     %s  rc=%s  %s, so it did not fail because of the mutant — nothing was graded  %s\n' \
     "$FILE" "$rc" "$why" "$MUT_CMD"
+  show_mutant_output
+  rm -f "$MUT_OUT"
   exit 2
 fi
 
 if [ "$rc" -ne 0 ]; then
-  printf 'KILLED     %s  rc=%s  green before, red after  %s\n' "$FILE" "$rc" "$MUT_CMD"
+  # A failing exit status says the suite went red; it does not say the assertion fired. A fixture that
+  # cannot reach its database fails in setUp with the same 1, and every mutant then grades as killed
+  # while nothing about the guard was ever exercised. Where the caller said what a correct kill looks
+  # like, that is checked; where it did not, the verdict says the reason was not checked.
+  if [ -n "$EXPECT" ] && ! grep -Eq -- "$EXPECT" "$MUT_OUT" 2>/dev/null; then
+    printf 'UNEXPECTED %s  rc=%s  the test went red, but not for the reason given to --expect — the mutant was not shown to be what broke it  %s\n' \
+      "$FILE" "$rc" "$MUT_CMD"
+    show_mutant_output
+    rm -f "$MUT_OUT"
+    exit 2
+  fi
+  if [ -n "$EXPECT" ]; then
+    printf 'KILLED     %s  rc=%s  green before, red after, and red for the expected reason  %s\n' "$FILE" "$rc" "$MUT_CMD"
+  else
+    printf 'KILLED     %s  rc=%s  green before, red after; the REASON was not checked (pass --expect)  %s\n' "$FILE" "$rc" "$MUT_CMD"
+  fi
+  show_mutant_output
+  rm -f "$MUT_OUT"
   exit 0
 fi
+rm -f "$MUT_OUT"
 printf 'SURVIVED   %s  rc=0  green before and after  %s\n' "$FILE" "$MUT_CMD"
 exit 1

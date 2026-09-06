@@ -99,7 +99,10 @@ produces the same fact**: fail-closed guards, validators and parsers, recovery p
 failure mode nobody has watched. Do **not** assign one to a regression test for a shipped defect: that
 test is watched failing on the pre-fix code, which is the same evidence for free. Elsewhere a baseline
 or diff check is enough. Where the test command is a full build, say so in the spec — the proof then
-costs two builds and is worth assigning only if the guard is worth that. `/run` executes the proof named here; it does not invent another.
+costs two builds and is worth assigning only if the guard is worth that. A mutation assignment also
+names **what the killed test must say**, the way the first failing check names its expected failure:
+`/run` passes it to `--expect`, and without it a test that goes red because the environment broke is
+indistinguishable from one the mutant killed. `/run` executes the proof named here; it does not invent another.
 
 `ci` names both the **mode** and the checks. `required` is the default and assumes GitHub branch
 protection; `any` is for a repository that runs CI without it. Prefer `any` wherever a workflow can be
