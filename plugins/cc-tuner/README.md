@@ -142,7 +142,10 @@ CI and the head SHA, refuses unless they agree at that commit, and pins the head
 `--match-head-commit` so it cannot move between the check and the merge. `--ci` says which checks
 answer for CI — GitHub's required ones by default, every reported one where a repository has no branch
 protection, or none at all where it runs none, and that last one only alongside a PR comment
-recording the local result for the same commit. No mode lets a check that ran and failed through. On a pull request that
+recording the local result for the same commit. No mode lets a check it reads fail — and each mode
+says which checks it reads: `required` asks GitHub for the required ones and does not look at the
+rest, so a failing optional check does not block a merge under it. Where an optional check matters,
+require it on the branch or declare `any`. On a pull request that
 carries no cc-tuner plan it merges straight through: the plugin must not seize work that is not its own.
 
 `/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:

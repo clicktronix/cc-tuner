@@ -57,10 +57,11 @@ place where that job is described, and the two would part company.
   lens; `Explore` only to locate things, because it reads excerpts and does not audit what it finds.
   Both are built in. If the host offers neither, do the work yourself rather than guessing at a type
   that may not exist.
-- **Model and effort.** `sonnet` at medium effort for implementation from a clear brief — that is
-  where the saving is, and a brief that needs more than that is a brief that is not finished. A strong
-  model at high effort for what is a judgement: an architectural choice, and a final review whose
-  findings are contested. `haiku` only for mechanical retrieval where being wrong is visible
+- **Model.** `sonnet` for implementation from a clear brief — that is where the saving is, and a brief
+  that needs more than that is a brief that is not finished. The session's own model for what is a
+  judgement: an architectural choice, or a final review whose findings are contested. Reasoning effort
+  is **not** settable on a dynamic dispatch — the Agent tool takes a model, not an effort, and a
+  subagent inherits the session's. Do not write an effort into a brief and count it as configured. `haiku` only for mechanical retrieval where being wrong is visible
   immediately. The orchestrator stays on the session's own model, because what it does is decide.
   Escalate on evidence, not on feeling: a unit failing the same deciding check twice is re-dispatched
   once on a stronger model with the failure text attached, and after that the orchestrator takes the
@@ -69,16 +70,28 @@ place where that job is described, and the two would part company.
   not have to rediscover the task; a long brief plus a verification pass can cost more than doing the
   slice. Say the expected saving when proposing a fan-out, and count builds separately from agents —
   two units are two agents and, on a repository with a heavy build, two full builds.
+- **One heavy check at a time.** A full build, a full suite, a container start: run those in sequence
+  even when the units writing the code run in parallel, and cap a batch at two units on a repository
+  where the deciding check is a build. Machines run out of memory before they run out of agents, and a
+  run killed for memory grades nothing — it only spends.
 - **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
   That is the whole difference, and it is easy to lose by narrating between calls.
-- **Isolation.** A single unit while you wait works in this checkout and needs nothing. Give
-  `isolation: "worktree"` to every unit in a **parallel** batch: disjoint Owned paths prove two units
-  will not fight over a *file*, and do not stop two units committing into one index.
-- **Getting a worktree unit's commits back.** A worktree is a different checkout of the same
-  repository, so its commits exist in this object store but not on the task branch. Tell the unit to
-  work on a branch named for its slice and to report that branch name; when it returns, bring its
-  commits over with `git cherry-pick <task-branch>..<slice-branch>` and delete the branch. Say this in
-  the brief — a unit that commits onto a detached HEAD leaves work only a reflog can find.
+- **Isolation.** A single unit while you wait works in this checkout and needs nothing.
+  **Do not use the Agent tool's `isolation: "worktree"` for slice work.** It branches from the
+  repository's *default branch*, not from this session's HEAD, so the unit would open a tree with no
+  spec, no plan and none of the slices already landed — and its shell is fenced inside that tree, so it
+  cannot reach this one to find them. It is right for a throwaway experiment and wrong for a slice.
+- **Parallel units, when a batch has more than one.** Make the worktrees yourself, from the task
+  branch, and hand each unit a path:
+
+  ```bash
+  git worktree add -b <slice-branch> ../wt-<slice> HEAD
+  ```
+
+  Dispatch an ordinary (non-isolated) unit told to work in that directory. When it returns, bring its
+  commits over with `git cherry-pick <task-branch>..<slice-branch>`, then
+  `git worktree remove ../wt-<slice> && git branch -d <slice-branch>`. Disjoint Owned paths prove two
+  units will not fight over a *file*; separate worktrees are what stop them committing into one index.
 - **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
   the transcript, not the output style, not what a review just said. Anything load-bearing goes into
   the brief as literal text or as a path it is told to read.

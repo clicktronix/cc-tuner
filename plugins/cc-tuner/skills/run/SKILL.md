@@ -45,8 +45,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printe
   --spec <the spec path from arguments> --branch "$(git branch --show-current)"
 ```
 
-If the task tools are there and `TaskList` is empty, publish the plan's slices — two passes,
-`TaskCreate` then `TaskUpdate addBlockedBy`. A fresh session's `SessionStart` context already asks for
+If the task tools are there and `TaskList` is empty, publish the plan's slices and the three
+lifecycle tasks after them — verify, review, deliver — in two passes, `TaskCreate` then
+`TaskUpdate addBlockedBy`. Mark those three as you reach them: a list that says everything is done
+while the candidate is unreviewed is worse than no list. A fresh session's `SessionStart` context already asks for
 this. If they are not there, skip this and say so once; the run proceeds either way.
 
 ## The loop
@@ -175,6 +177,12 @@ revision of this skill said only "work it, complete it", which is not a discipli
   It grades the mutation instead of taking your account of it, and it refuses rather than guessing —
   `--help` is the contract, and it cannot drift from the code the way a paragraph here can.
 
+  **A regression test for a shipped defect needs no mutation.** You watched it fail on the pre-fix code
+  and pass after: that observation *is* the mutation result, obtained at no extra cost, and running the
+  script as well buys a second copy of the same fact for two more builds. Say so and move on. What
+  earns a mutation is a guard whose failure mode nobody has ever seen — a fail-closed check, a
+  validator, a budget — where green proves nothing until something is deliberately broken.
+
   **Run it once for the guard it covers.** The proof belongs to a guard, not to a commit: re-run it
   only if the guard's own code or its test changed. A live run spent ten builds re-proving one budget
   after edits nowhere near it, because "the SHA moved" was read as "the proof expired". A new SHA
@@ -268,10 +276,11 @@ or require restarting every advisory review from zero.
    candidate has not changed, so re-run the required review on the same SHA. Manufacturing an empty
    commit to move the SHA would be inventing evidence, which is the opposite of the point.
 7. **Check the Definition of Done from the spec** before merging. Every item, named, with what
-   satisfied it. **Report it; do not commit anything here.** A commit at this point moves the head, and
-   the head is what the approval and the CI were earned on — the merge step would then refuse the
-   candidate it just approved. The spec's Definition of Done is ticked in step 9, once those items are
-   actually true.
+   satisfied it — **written into the pull request**, as a comment or a section of the body, not into
+   the spec file. Two reasons, and each one alone is enough: a commit here moves the head the approval
+   and CI were earned on, so the merge step would refuse the candidate it just approved; and the items
+   are facts about delivery — a verdict, a CI run, a merge — which live where delivery lives and can be
+   read by someone with no checkout.
 8. **Merge, with the strategy the spec names** — `squash` or `merge`, not a default chosen here — and
    pin the head:
 
@@ -310,11 +319,9 @@ or require restarting every advisory review from zero.
    The script refuses a merge without the pin: the head can move between the check and the merge,
    and only GitHub can close that window.
 9. **Reconcile after the merge**, as the spec requires: sync the target, delete the branch, close the
-   issue, and **tick the spec's Definition of Done** on the synced target, naming the merge commit.
-   Only here are those items true, and only here does a commit cost nothing — before the merge it
-   would have invalidated the very approval the DoD is recording. Where the target refuses direct
-   pushes, carry the ticks in the next branch that touches the repository rather than opening a pull
-   request for five checkboxes.
+   issue. Do not commit to the integration target to record anything: `.claude/rules/task-flow.md`
+   forbids a direct commit there, and the Definition of Done was already recorded on the pull request
+   in step 7, which is where a reader looks for it.
 
 ## When the checked merge path denies
 

@@ -272,9 +272,23 @@ S="$(flow_workdir)"; printf 'x=1\n' > "$S/f.sh"
 SIGNAL_TEST="bash -c 'grep -q x=1 \"$S/f.sh\" || kill -TERM \$\$'"
 SIGNAL_MUT="sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE"
 OUT="$(run "$S/f.sh" "$SIGNAL_TEST" "$SIGNAL_MUT")"
-check  "signal-is-not-a-verdict" "SIGNAL"           "$OUT"
+check  "signal-is-not-a-verdict" "NOTRUN"           "$OUT"
 check  "signal-says-nothing-graded" "nothing was graded" "$OUT"
 check  "signal-exits-2"          "rc=2"             "$OUT"
 absent "signal-not-graded-as-killed" "KILLED"       "$OUT"
+
+# The same for every exit code that means the test never ran. 124 is what `timeout` returns and is the
+# commonest way a heavy mutation run ends; 126 and 127 mean the command was never executed at all. An
+# earlier revision excluded only 128+, so a timed-out suite still read as a kill.
+for code in 124 125 126 127; do
+  OUT="$(run "$S/f.sh" "bash -c 'grep -q x=1 \"$S/f.sh\" || exit $code'" "$SIGNAL_MUT")"
+  check  "notrun-$code-is-not-a-verdict" "NOTRUN" "$OUT"
+  check  "notrun-$code-exits-2"          "rc=2"   "$OUT"
+  absent "notrun-$code-not-killed"       "KILLED" "$OUT"
+done
+
+# ...and an ordinary failing test is still a kill: the reserved range must not swallow the verdict.
+OUT="$(run "$S/f.sh" "bash -c 'grep -q x=1 \"$S/f.sh\"'" "$SIGNAL_MUT")"
+check "ordinary-failure-still-killed" "KILLED" "$OUT"
 
 exit $fails

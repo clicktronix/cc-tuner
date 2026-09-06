@@ -330,9 +330,11 @@ workflow discipline against an agent's mistake and must not be described as anyt
   selection are modes of the plan linter, already one of the five: `/run` asks which slices may start
   together instead of deriving graph and path overlap by hand. That makes the Markdown-only fallback
   real and keeps parallelism fail-closed without adding another runtime piece.
-- The opt-in smoke-verification feature is a separate runtime surface: its registered fail-open
-  `Stop` hook, shared fingerprint library, and `mark.sh`. It is inert unless the repository opts in
-  with `.claude/smoke-verify.cfg`.
+- **Removed 2026-09-06.** The opt-in smoke-verification feature was a separate runtime surface: a
+  registered fail-open Stop hook that classified changed paths by regex and demanded a fixed proof
+  per class. It is gone, replaced by `cc-tuner:verify-feature`, a stage of `/run` that chooses the
+  instrument from the spec's acceptance criteria and the diff. The paragraph is kept because the
+  eval evidence below was recorded while that surface existed.
 - Setup-time checks are a separate category with a separate home, and now literally so: `scripts/setup/`
   holds `doctor.sh`, `prereq-check.sh` and `plugin-here.sh`. The last exists because "which install
   of a plugin applies here" was answered in two places that had already diverged twice over — doctor

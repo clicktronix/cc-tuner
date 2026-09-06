@@ -94,9 +94,12 @@ the repository already tracks.
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.
 
-Assign a mutation where a false green is otherwise indistinguishable: fail-closed guards, validators
-and parsers, recovery paths, and regressions for shipped defects. Elsewhere a baseline or diff check
-is enough. `/run` executes the proof named here; it does not invent another.
+Assign a mutation only where a false green is otherwise indistinguishable **and nothing cheaper
+produces the same fact**: fail-closed guards, validators and parsers, recovery paths — checks whose
+failure mode nobody has watched. Do **not** assign one to a regression test for a shipped defect: that
+test is watched failing on the pre-fix code, which is the same evidence for free. Elsewhere a baseline
+or diff check is enough. Where the test command is a full build, say so in the spec — the proof then
+costs two builds and is worth assigning only if the guard is worth that. `/run` executes the proof named here; it does not invent another.
 
 `ci` names both the **mode** and the checks. `required` is the default and assumes GitHub branch
 protection; `any` is for a repository that runs CI without it. Prefer `any` wherever a workflow can be
@@ -154,8 +157,12 @@ convention.
 When the native task tools are available, publish the visible plan before any implementation edit:
 
 1. `TaskCreate` once per slice, in number order; include delivery and acceptance criteria.
-2. `TaskUpdate` with `addBlockedBy` once per dependency edge.
-3. `TaskList` and verify that every edge matches the committed plan.
+2. `TaskCreate` three more, after the slices and blocked by all of them: **verify the feature**,
+   **review the candidate**, **deliver**. Without them the list reads as finished the moment the last
+   slice is ticked, while the work that decides whether any of it ships has not started — and a
+   watcher seeing "all done" beside an unreviewed candidate is being told something false.
+3. `TaskUpdate` with `addBlockedBy` once per dependency edge.
+4. `TaskList` and verify that every edge matches the committed plan.
 
 The task list is only a projection; the committed plan remains the source of truth. If the tools are
 absent, say once that only the visible list and its edges are lost, mention
