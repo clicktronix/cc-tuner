@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.10.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.12.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -62,6 +62,11 @@ a convention nobody chose.
 
 - `Closes #N` / `Fixes #N` only when the PR fully completes the issue; `Refs #N` for partial or
   stacked work. No issue → say why in the body.
+- **A review finding in a file this branch changed is work, not a follow-up.** `git diff --name-only
+  <base>...HEAD` decides, not whether the task's title mentions it. Filing an issue instead defers a
+  defect you are already holding open, and the deferral outlives the context that could have fixed it
+  cheaply. Where an issue is genuinely right, create it on the board in the same command
+  (`gh issue create … --project "<title>"`) — a board pass "afterwards" does not happen.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
   output into the body: it is already in the logs, and it buries the part a human has to read.
   **Where the target runs no checks on a pull request** — a repo whose workflows are `push`-only, or

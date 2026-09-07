@@ -76,8 +76,33 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
 **Card lifecycle:** In Progress when implementation opens after recording the prior status; Done after
 the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
-the card In Progress. One deferred review finding = one issue: an issue is trackable and outlives the PR, while a
-comment-thread list closes with the thread that held it.
+the card In Progress.
+
+**A review finding becomes an issue only after it fails two tests, in this order.**
+
+1. **Does the branch already touch that file?** `git diff --name-only <base>...HEAD` decides it, not
+   whether the finding was named by the task. A finding in code this branch rewrote is inside the blast
+   radius and is *work*, not a follow-up — filing it defers a defect the author is already holding open
+   in their editor. Substituting "no sub-issue mentions it" for this test is how eleven of seventeen
+   findings in one epic were filed against files that same branch had just rewritten.
+2. **Is it worth tracking at all?** A finding nobody would schedule is a comment, and one already fixed
+   by the work in flight is nothing. Check the merged code before filing, not after.
+
+What survives both is one issue each, created **on the board in the same command** — an issue is
+trackable and outlives the PR, while a comment-thread list closes with the thread that held it:
+
+```bash
+gh issue create --repo <owner>/<repo> --title "..." --project "<PROJECT TITLE>"
+```
+
+Not `gh issue create` and a board pass afterwards: the pass does not happen. In the epic above, 29 of
+38 issues were filed without `--project` and never reached the board at all, so nobody could see the
+pile growing.
+
+**Count them, and stop at five.** Nothing in a per-finding rule notices that the twentieth issue reads
+exactly like the first. Five deferrals from one task is not twenty small decisions, it is one piece of
+evidence that the scope boundary was drawn in the wrong place — say so to the user and ask, rather than
+filing the sixth.
 
 ## After the merge
 

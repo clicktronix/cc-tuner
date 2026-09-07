@@ -258,8 +258,13 @@ or require restarting every advisory review from zero.
    wins because the built-in review is capped; otherwise an explicitly requested built-in review may
    occupy the optional deep-review slot. Matt does not run again.
 
-   Address valid findings. Refute claims outside the spec or repository rules rather than promoting
-   every possible mutation, subclass behaviour or speculative extension into a new requirement. An
+   Address valid findings **here**, and check that word against the diff rather than against the task's
+   own title: a finding in a file this branch already rewrote is inside the blast radius and is work,
+   not a follow-up to file. `git diff --name-only <base>...HEAD` settles it. Deferring one is a
+   decision about the user's backlog, taken on their behalf — `cc-tuner:task-flow` says what that
+   costs, and stops you at five. Refute claims outside the spec or repository rules rather than
+   promoting every possible mutation, subclass behaviour or speculative extension into a new
+   requirement. An
    advisory note that explicitly reports no violation and offers only optional style or a judgement
    call is not a reason to move the candidate. After a fix, verify the affected finding and proceed
    to the authoritative review; do not fan out the advisory reviews again. They discover issues but
