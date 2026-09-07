@@ -63,10 +63,14 @@ a convention nobody chose.
 - `Closes #N` / `Fixes #N` only when the PR fully completes the issue; `Refs #N` for partial or
   stacked work. No issue → say why in the body.
 - **A review finding in a file this branch changed is work, not a follow-up.** `git diff --name-only
-  <base>...HEAD` decides, not whether the task's title mentions it. Filing an issue instead defers a
-  defect you are already holding open, and the deferral outlives the context that could have fixed it
-  cheaply. Where an issue is genuinely right, create it on the board in the same command
-  (`gh issue create … --project "<title>"`) — a board pass "afterwards" does not happen.
+  <base>...HEAD` decides it, not whether the task's title mentions the file. Filing an issue instead
+  defers a defect you are already holding open, and the deferral outlives the context that would have
+  fixed it in a minute.
+- **Stop at the fifth deferral from one task and ask.** Five is not twenty small decisions; it is
+  evidence that the scope boundary was drawn in the wrong place, and nothing in a per-finding rule can
+  notice that on its own — the twentieth issue reads exactly like the first.
+- **An issue that is not on the board is not tracked.** Put it there in the command that creates it;
+  a board pass "afterwards" does not happen, and the pile is invisible while it grows.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
   output into the body: it is already in the logs, and it buries the part a human has to read.
   **Where the target runs no checks on a pull request** — a repo whose workflows are `push`-only, or
