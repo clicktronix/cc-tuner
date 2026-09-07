@@ -226,12 +226,19 @@ restore_failed() {
   exit 2
 }
 restore() {
-  # Idempotent on purpose. The trap can fire during the control run, when the file is already back and
-  # the backup already gone, and re-entering the copy below printed RESTORE FAILED for a tree that was
-  # in perfect shape -- naming a backup path that no longer existed.
+  # Idempotent on purpose: the trap can fire during the control run, when the file is already back, and
+  # re-entering the copy below printed RESTORE FAILED for a tree in perfect shape. But the no-op is
+  # keyed on BACKUP_LIVE -- the flag this sets when it finishes -- and NOT on whether the backup file is
+  # still there. Those are different questions, and answering the second was a silent data defect: a
+  # test command that runs `git clean` deletes the untracked backup, and "the backup is gone" then read
+  # as "already restored". The mutant stayed in the working file, the control ran against it, and the
+  # verdict said "the RESTORED file". A vanished backup is a restore that cannot happen, and it has to
+  # say so.
+  [ -n "$BACKUP_LIVE" ] || return 0
   if [ ! -f "$BACKUP" ]; then
-    BACKUP_LIVE=""
-    return 0
+    printf 'mutate: RESTORE IMPOSSIBLE for %s — the backup at %s is gone (a test or mutation command deleted it; `git clean` over untracked files does this). The mutant is still in the tree; recover the file from git or your editor.\n' \
+      "$FILE" "$BACKUP" >&2
+    exit 2
   fi
   # mktemp, not a name built from $$: the mutation command is arbitrary shell, it can read $PPID, and a
   # symlink planted at a predictable staging path would have this `cp` write through it into whatever

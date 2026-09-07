@@ -348,6 +348,20 @@ check  "cache-failure-rc2"            "rc=2"    "$OUT"
 equals "cache-failure-restores-file"  "x=1"     "$(cat "$D/f.sh")"
 absent "cache-failure-leaves-no-backup" "premutation" "$(ls "$D")"
 
+# "The backup is gone" is not "the restore already happened". A test command that runs `git clean`
+# deletes the untracked backup; keying the no-op on the file rather than on the flag made that read as
+# a completed restore, so the mutant stayed in the working file, the control ran against it, and the
+# verdict said "the RESTORED file".
+G="$(flow_workdir)"
+( cd "$G" && git init -q -b main && git config user.email a@b.c && git config user.name t \
+  && printf 'x=1\n' > subject.sh && git add subject.sh && git commit -qm base ) >/dev/null 2>&1
+OUT="$( cd "$G" && bash "$MUTATE" subject.sh "git clean -fdq && grep -q x=1 subject.sh" \
+  "sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE" 2>&1; printf 'rc=%s\n' "$?" )"
+check  "vanished-backup-reported" "RESTORE IMPOSSIBLE" "$OUT"
+check  "vanished-backup-rc2"      "rc=2"               "$OUT"
+absent "vanished-backup-claims-no-restore" "RESTORED file" "$OUT"
+absent "vanished-backup-no-verdict"        "NOTPROVED"     "$OUT"
+
 # An honest kill with the expected reason passes and says so.
 cat > "$E/honest.sh" <<'EOF'
 #!/bin/sh
