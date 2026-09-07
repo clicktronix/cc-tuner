@@ -40,6 +40,9 @@
 branch: <current task branch>
 target: <integration branch>
 merge: squash|merge
+second-repo: <path or owner/name>, branch <name> — <what changes there, and which side merges
+    first and why>. Omit when the task touches one repository. Coupled repositories are one
+    task, not two: a migration and its readers merged in the wrong order is a broken deploy.
 auto_ready: yes|no — <reason when no>
 ci: <mode> — <the checks, and how to observe them>
     mode is one of:

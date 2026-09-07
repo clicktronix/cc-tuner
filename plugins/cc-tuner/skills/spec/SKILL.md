@@ -76,8 +76,12 @@ Tag every criterion:
 Every `[eyes]` criterion records its human step, machine replacement (or `none`), and dated waiver (or
 `none`). Without a replacement or waiver, set `auto_ready: no`; `/run --auto` must refuse it.
 
-More than one PR, more than one repo, or independently reviewed phases require an epic with native
-sub-issues and one spec per sub-issue. Otherwise use one issue and one task branch.
+Independently reviewed phases, or genuinely separate pieces of work, require an epic with native
+sub-issues and one spec per sub-issue. **Two repositories do not, by themselves.** Where the change is
+one thing that happens to span repositories — a migration and the code that reads it, a contract and
+its consumers — it is one task with two branches: fill `second-repo` with the path, the branch name
+and which side merges first. Splitting a coupled pair into two specs is how one half ships without the
+other. Otherwise use one issue and one task branch.
 
 ## 5. Draft the executable contract
 

@@ -335,6 +335,11 @@ or require restarting every advisory review from zero.
    If the spec declares `none` and checks turn out to exist, the spec is wrong about the repository:
    fix the spec, do not drop the flag. The script refuses that combination anyway.
 
+   **Where the spec names a `second-repo`, merge in the order it gives.** That order is not a
+   preference: a migration merged after the code that reads it, or a contract after its consumer, is
+   red in production for the window between them. Merge the far side, confirm its checks, then this
+   one — and if its branch is not ready, this candidate is not ready either.
+
    It re-runs the companion's exact-candidate check, re-reads the public verdict, required checks and
    head, and pins the head, so nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:
    arbitrary shell and web/API merges are outside the boundary this local workflow can enforce.
