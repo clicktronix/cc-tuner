@@ -82,21 +82,28 @@ the card In Progress.
 at all, and is loaded in every session; this says *how* to do it once it may be. Do not decide the
 question from here — a rule paraphrased in two files is a rule that will be two rules.
 
-Run the test that file names, before writing anything: `git diff --name-only <base>...HEAD`. Inside that list, fix it
-here. Outside it, ask two more questions — is it already fixed by the work in flight (check the merged
-code, not the issue's age), and would anyone ever schedule it (if not, it is a comment). What survives
-gets **one issue each**, created on the board in the same command — one issue rather than a list in a
-comment thread, because the thread closes with the pull request and takes the list with it:
+The diff is evidence, not the verdict. `git diff --name-only <base>...HEAD` answers "did I touch this
+file", which is worth knowing and is not the same question as "did I cause this" — a file can be long
+enough that touching one function says nothing about a finding elsewhere in it, and a change can break
+something in a file it never opened. Use it to notice that a finding you were about to call
+out-of-scope is sitting in your own diff; do not use it to rule one out.
+
+When a deferral is genuinely right, it gets one issue, created on the board in the same command — one
+issue rather than a list in a comment thread, because the thread closes with the pull request and takes
+the list with it:
 
 ```bash
 gh issue create --repo <owner>/<repo> --title "..." --project "<PROJECT TITLE>"
 ```
 
+Before filing, two questions that make issues disappear: is it already fixed by the work in flight
+(check the merged code, not the issue's age), and would anyone ever schedule it (if not, it is a
+comment).
+
 The failure this is written against, measured in one epic: 42 issues over four days, 29 filed without
 `--project` and so never on the board, at least two already fixed by the merge they were filed against,
-and eleven of seventeen naming files that same branch had just rewritten. That last number is the
-substitution to watch for — "no sub-issue mentions this file" was used in place of the diff, and it is
-how a defect held open in the editor becomes someone's backlog.
+and eleven of seventeen naming files that same branch had just rewritten. Every one of those was a
+defensible decision on its own; the sum was not, and nothing in a per-finding rule can see a sum.
 
 ## After the merge
 

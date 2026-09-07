@@ -259,10 +259,9 @@ or require restarting every advisory review from zero.
    occupy the optional deep-review slot. Matt does not run again.
 
    Address valid findings **here**. Deferring one into an issue is a decision about the user's backlog
-   taken on their behalf, and `.claude/rules/task-flow.md` states when it is allowed at all — the diff
-   decides, and the fifth deferral stops the run to ask. Refute claims outside the spec or repository
-   rules rather than promoting every possible mutation, subclass behaviour or speculative extension
-   into a new requirement. An
+   taken on their behalf, and `.claude/rules/task-flow.md` says when that is allowed; nothing about it
+   pauses the run. Refute claims outside the spec or repository rules rather than promoting every
+   possible mutation, subclass behaviour or speculative extension into a new requirement. An
    advisory note that explicitly reports no violation and offers only optional style or a judgement
    call is not a reason to move the candidate. After a fix, verify the affected finding and proceed
    to the authoritative review; do not fan out the advisory reviews again. They discover issues but
