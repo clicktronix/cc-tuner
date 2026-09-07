@@ -78,11 +78,11 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
 the card In Progress.
 
-**Deferring a review finding.** `.claude/rules/task-flow.md` holds the three invariants — the diff
-decides what is work, the fifth deferral stops you, an issue off the board is not tracked. This is how
-to satisfy them.
+**Deferring a review finding.** `.claude/rules/task-flow.md` says *whether* a finding may be deferred
+at all, and is loaded in every session; this says *how* to do it once it may be. Do not decide the
+question from here — a rule paraphrased in two files is a rule that will be two rules.
 
-Run the test before writing anything: `git diff --name-only <base>...HEAD`. Inside that list, fix it
+Run the test that file names, before writing anything: `git diff --name-only <base>...HEAD`. Inside that list, fix it
 here. Outside it, ask two more questions — is it already fixed by the work in flight (check the merged
 code, not the issue's age), and would anyone ever schedule it (if not, it is a comment). What survives
 gets **one issue each**, created on the board in the same command — one issue rather than a list in a
