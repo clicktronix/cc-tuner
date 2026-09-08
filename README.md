@@ -9,7 +9,7 @@ Skills:
 - **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed. It replaced a Stop-hook gate that classified changes by file path: paths do not know what a change does, and a fixed proof per extension asks for the wrong evidence as often as the right one.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus a `/cc-tuner:task-flow-setup` installer that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
-Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and prints only the user-run installer commands this repo needs. `check` reports; `install` may wire the board after those installers run.
+Start with **`/cc-tuner:setup`** — it checks the environment the other commands assume (CLI tools, the `gh` token's `project` scope, companion plugins, optionally MCP servers) and reports the installer commands this repo needs. `check` reports without writes; `install` adds repository rule loading and may wire the board after the user-run installers finish.
 
 The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
@@ -17,6 +17,20 @@ The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates
 ## Why this exists
 
 The same `claude-md-writer` skill had been hand-copied into ~10 project folders and silently diverged — different size numbers, a wrong import depth (5 vs the documented 4), a "user-level rules never load" claim that's backwards, `paths:` frontmatter implied on CLAUDE.md (it only works on `.claude/rules/`), and a botched find-replace port. Centralizing it as a plugin kills the drift: one source of truth, doc-verified, updated in one place.
+
+## Repository rules
+
+[Research and design](docs/2026-09-09-agent-rules-research.md).
+
+`agent-rules` loads the target repository's applicable instructions, modular rules, and linked
+contracts before a review or change, including when a task crosses into another repository.
+The plugin supplies one generic skill; project rules stay in their existing canonical files.
+
+Run `/cc-tuner:setup install agent-rules` to add a short loading instruction to the repository's root
+`AGENTS.md` (or the effective `AGENTS.override.md`). Use `check` instead of `install` for a
+read-only status and diff. Repeated installation is a no-op. Conflicting managed blocks and
+symlinks require inspection and are not overwritten. No rule index or per-repo skill is copied.
+The instruction remains usable without the plugin; it is guidance, not an enforcement hook.
 
 ## Install
 
