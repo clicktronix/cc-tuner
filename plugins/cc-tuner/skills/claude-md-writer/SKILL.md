@@ -130,8 +130,9 @@ about everywhere else.
 read; Codex must classify the task, invoke the skill, and follow its routing.
 Keep critical prohibitions as short root invariants or static checks.
 
-**Generate or parity-check the pointer table.** Hand-maintained copies of the
-rule's `paths:`, the pointer table, and the skill router drift independently.
+**Keep explicit routes consistent with their rules.** Use an existing repository
+generator or validator when available; otherwise inspect the routes during the
+audit. [audit.md](audit.md#5b-check-a-rule-against-its-own-paths) covers scope and routing.
 
 ### Codex's project-instruction budget
 
