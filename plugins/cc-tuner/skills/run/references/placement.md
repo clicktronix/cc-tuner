@@ -47,6 +47,22 @@ the fix for finding 14.
 `plan-lint.sh ready-batches` decides which ready slices have proven-disjoint Owned paths. This
 reference only places the batch it returned; do not recalculate or widen that batch from plan prose.
 
+## Implementation brief and return
+
+The orchestrator builds the brief from committed files, not session history. Include the local spec
+path with an instruction to read it, the slice verbatim (title, Owned paths, Deciding check, Delivers,
+criteria), and any shared-task prerequisites. Give the unit these constraints:
+
+- Write only inside Owned paths; make the deciding check pass after observing its expected failure.
+- Do not delegate further. Nested delegation previously spawned dozens of unrequested agents.
+- Report commands, results, what was not verified, and any incorrect assumptions in the slice.
+- Commit using repository conventions; do not push, open/comment on a PR, merge or claim approval.
+- Return findings to the orchestrator; do not create issues or own the task list.
+
+On return, the orchestrator reads the diff, checks Owned paths and runs the deciding check itself.
+The unit's report does not establish completion. The orchestrator owns mutation-log interpretation,
+slice completion, full regression, runtime acceptance, review verdict, DoD and delivery.
+
 ## How a unit is dispatched
 
 Units are **dispatched dynamically with the Agent tool**, not selected from a roster of named agents.

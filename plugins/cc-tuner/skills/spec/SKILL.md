@@ -76,16 +76,10 @@ Tag every criterion:
 Every `[eyes]` criterion records its human step, machine replacement (or `none`), and dated waiver (or
 `none`). Without a replacement or waiver, set `auto_ready: no`; `/run --auto` must refuse it.
 
-Independently reviewed phases, or genuinely separate pieces of work, require an epic with native
-sub-issues and one spec per sub-issue. **Two repositories do not, by themselves.** Where the change is
-one thing that happens to span repositories — a migration and the code that reads it, a contract and
-its consumers — keep one task and issue. Each repository still needs its own branch, PR, local spec
-and plan for the existing resolver and review gates. The primary spec owns the shared outcome,
-cross-repository prerequisites, combined acceptance checks and merge order; fill `second-repo` with
-the companion checkout, branch and local spec path. The companion spec links back through
-`shared-task` and records its local contribution and run config, not an independently shippable task.
-Review them as one contract. Distinguish merge order from rollout prerequisites: merging a migration
-does not prove it was applied. Do not authorise deployment or migration implicitly.
+Independently deliverable work or phases requiring separate scope decisions use an epic with native
+sub-issues and one spec per sub-issue. Multiple repositories alone do not require an epic.
+For coupled work, read [shared-task.md](../run/references/shared-task.md) before drafting the spec;
+its spec/plan and task-list sections apply here, under the same approval.
 
 ## 5. Draft the executable contract
 
@@ -122,7 +116,6 @@ and it refuses it again unless a comment on the pull request carries `cc-tuner-l
 ran, and what it returned>` for that exact commit. `/run` passes the mode verbatim; both refusals are the
 script's, not advice. `auto_ready: yes` requires a defined PR per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
-For a shared task, every local spec must be ready and the combined checks and prerequisites explicit.
 Only `/run --auto` requests unattended execution.
 
 Set `tracker: gh` in the draft. Do not create or update the issue before the approval in section 6.
@@ -165,16 +158,7 @@ the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intenti
 and explain any other unexplained file. Commit the reviewed set together using the repository's
 convention.
 
-For a shared task, prepare and validate the companion's local spec and plan on its task branch too,
-under the same contract approval. Keep Owned paths relative to that plan's repository; do not encode
-another checkout as `../...`. Name cross-repository prerequisites in the primary spec's test plan and
-in the affected slice's deciding check. Commit a plan in each PR so both enter checked delivery.
-
 ## 7. Publish and hand off
-
-For a shared task, publish one combined list after preparing both repositories. Qualify each slice
-with its repository and include cross-repository prerequisite edges from the primary spec. Keep one
-verify/review/deliver chain for the whole task; do not start a second lifecycle for the companion.
 
 When the native task tools are available, publish the visible plan before any implementation edit:
 

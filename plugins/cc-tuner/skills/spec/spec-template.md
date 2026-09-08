@@ -44,7 +44,7 @@ second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <cont
     prerequisites, merge order and why>. Omit for one repository. The companion's local spec
     records its own target, merge and CI policy; the primary test plan owns combined acceptance.
 shared-task: <primary repository, branch and spec path>. Only in the companion spec; read that
-    primary contract too. This local contribution does not complete the shared issue by itself.
+    primary spec too. This local contribution does not complete the shared issue by itself.
 auto_ready: yes|no — <reason when no>
 ci: <mode> — <the checks, and how to observe them>
     mode is one of:
