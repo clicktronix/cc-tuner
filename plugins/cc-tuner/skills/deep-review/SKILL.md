@@ -16,8 +16,10 @@ Require literal values for:
 - base commit or target ref;
 - committed spec path, when the task has one.
 
-Refuse to review when `HEAD` is not the candidate SHA, the worktree is dirty, the base cannot be
-resolved, or the candidate is not a descendant of the base. A later commit invalidates this result.
+Resolve a supplied target ref to a literal base SHA. If the target has advanced beyond the candidate,
+return that fact to the caller for branch synchronization before review; do not rebase or merge in
+this read-only skill. Refuse a dirty/mismatched candidate or an unresolved/unrelated base. A later
+commit invalidates this result. `/run` prepares and synchronizes the candidate before invoking review.
 
 ## Build the review packet
 
@@ -36,6 +38,14 @@ Do not infer correctness from green CI, a plan checkbox, another review, or the 
 Run every applicable lens independently and fan them out against the immutable candidate. `/run`
 owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
 into a second lightweight review.
+
+Dispatch each lens as its own read-only `general-purpose` subagent with the Agent tool, all in one
+message so they run concurrently, on `sonnet`; escalate a lens the way `placement.md` escalates any
+unit — on a returned result you can point at, not on a feeling about the codebase. A lens is a
+reading job over a tree nobody is changing, which is why it may fan out at all — and each one must be
+given the literal candidate SHA, base ref, spec path and read-only constraint in its own brief,
+because a subagent sees none of this session. What must not fan out is the aggregation below: one
+owner reads every lens's findings and produces one verdict.
 
 Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
 candidate, spec, and read-only constraint.
@@ -62,9 +72,10 @@ The owning reviewer reads every candidate finding and checks it against live sou
 SHA. Deduplicate only when two findings have the same root cause and remediation. Keep distinct
 symptoms when they require different fixes or prove different impact.
 
-Reject a candidate finding when it is speculative, pre-existing outside the task diff, contradicted
-by repository policy, or unsupported by a concrete failure path. Preserve valid findings even when
-another reviewer missed them.
+Reject speculative or unsupported findings and independent improvements outside the agreed outcome.
+Apply the scope contract in `.claude/rules/task-flow.md`: an older defect in an untouched dependency
+still matters when this task exposes it or needs its fix to meet acceptance. Preserve valid findings
+even when another reviewer missed them.
 
 For each validated finding report:
 
@@ -86,6 +97,12 @@ Priority meanings:
 - `P3`: non-blocking maintainability or clarity improvement with concrete future cost.
 
 ## Verdict
+
+This verdict is **advisory input to `/cc-tuner:run`, not a merge gate**, and it does not stop the run:
+`/run` owns every stop in a run it started. Only the authoritative review
+gates a merge, and only `merge.sh` enforces one. `REQUEST_CHANGES` here means the run must address or
+concretely refute the blocking findings before it takes the candidate to that review — it does not
+open a second approval loop of its own.
 
 Return exactly one verdict after the complete finding list:
 

@@ -1,7 +1,7 @@
 ---
 description: Turn an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run.
 argument-hint: '<issue number | URL | free-text description>'
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 disable-model-invocation: true
 ---
 
@@ -26,6 +26,15 @@ Read, in order:
 
 Do not ask for information already present in those sources.
 
+**Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
+subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
+with the Agent tool (`Explore` for search, `general-purpose` on `sonnet` for a question that needs
+running commands), all in a single message so they run at once. Each gets a literal question and the
+paths to look in; none of them decides anything. You read what comes back and write the spec. This is
+the cheapest part of the flow to parallelise, because discovery is read-only and the failure mode of a
+wrong answer is that you notice it while drafting. Do not delegate the grilling in section 3: the
+questions there change the draft, and a subagent cannot see the draft.
+
 ## 2. Create the task branch
 
 Resolve the integration target from repository policy, falling back to the remote default branch.
@@ -42,9 +51,11 @@ recent history rather than the harness default.
 
 ## 3. Grill the problem
 
-Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for vocabulary. Pull
-current dependency documentation through Context7 as questions arise. Ask one question at a time
-until the answer no longer changes the draft.
+Resolve only decisions not already settled by the request, repository or approved spec. Use
+`mattpocock-skills:grilling` for unresolved design choices and `mattpocock-skills:domain-modeling`
+when vocabulary needs work. Batch independent questions with recommendations; ask dependent ones
+after their prerequisites are answered. Pull current dependency documentation through Context7.
+These methods do not add a confirmation beyond section 6; a complete contract needs no new interview.
 
 Resolve before calling the task ready:
 
@@ -67,8 +78,10 @@ Tag every criterion:
 Every `[eyes]` criterion records its human step, machine replacement (or `none`), and dated waiver (or
 `none`). Without a replacement or waiver, set `auto_ready: no`; `/run --auto` must refuse it.
 
-More than one PR, more than one repo, or independently reviewed phases require an epic with native
-sub-issues and one spec per sub-issue. Otherwise use one issue and one task branch.
+Independently deliverable work or phases requiring separate scope decisions use an epic with native
+sub-issues and one spec per sub-issue. Multiple repositories alone do not require an epic.
+For coupled work, read [shared-task.md](../run/references/shared-task.md) before drafting the spec;
+its spec/plan and task-list sections apply here, under the same approval.
 
 ## 5. Draft the executable contract
 
@@ -76,14 +89,29 @@ Read `${CLAUDE_SKILL_DIR}/spec-template.md` and fill every field. Draft the resu
 do not write it before the approval in section 6. Its final path is
 `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise.
 
+**A directory that differs only in case is the same directory — use the one that exists.** macOS is
+case-insensitive and Linux is not, so a repository that already keeps specs in `docs/plans/` gets one
+folder on a laptop and two in CI if this writes `docs/PLANS/`. Check with
+`git ls-files 'docs/*lans*' 'wiki/*lans*'` before creating anything, and write into whatever spelling
+the repository already tracks.
+
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.
 
-Assign a mutation where a false green is otherwise indistinguishable: fail-closed guards, validators
-and parsers, recovery paths, and regressions for shipped defects. Elsewhere a baseline or diff check
-is enough. `/run` executes the proof named here; it does not invent another.
+Assign a mutation only where a false green is otherwise indistinguishable **and nothing cheaper
+produces the same fact**: fail-closed guards, validators and parsers, recovery paths — checks whose
+failure mode nobody has watched. Do **not** assign one to a regression test for a shipped defect: that
+test is watched failing on the pre-fix code, which is the same evidence for free. Elsewhere a baseline
+or diff check is enough. Where the test command is a full build, say so in the spec — the proof then costs **three** runs of it
+(baseline, mutant, and the control that confirms the kill) and is worth assigning only if the guard is
+worth that. A mutation assignment also
+names **what the killed test must say**, the way the first failing check names its expected failure:
+`/run` passes it to `--expect` as a diagnostic filter and inspects the failure log; a text match alone
+does not prove the mutation caused the failure. `/run` executes this proof without inventing another.
 
-`ci` names checks the target branch requires. `auto_ready: yes` requires one PR, complete DoR,
+Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
+and how to observe them on the candidate. `/run` passes the mode verbatim.
+`auto_ready: yes` requires a defined PR per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
 
@@ -123,21 +151,26 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
-the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intentionally created; stop
-and explain any other unexplained file. Commit the reviewed set together using the repository's
-convention.
+the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intentionally created.
+Preserve unrelated WIP without staging, reverting or pausing for it. If another change overlaps
+this work or makes its verification unreliable, resolve ownership for that part and continue
+independent work. Commit the reviewed set together using the repository's convention.
 
 ## 7. Publish and hand off
 
 When the native task tools are available, publish the visible plan before any implementation edit:
 
 1. `TaskCreate` once per slice, in number order; include delivery and acceptance criteria.
-2. `TaskUpdate` with `addBlockedBy` once per dependency edge.
-3. `TaskList` and verify that every edge matches the committed plan.
+2. `TaskCreate` three more, as a **chain**: **verify the feature**, blocked by every slice; **review
+   the candidate**, blocked by verify; **deliver**, blocked by review. Slice completion alone does
+   not mean the candidate is verified or delivered.
+3. `TaskUpdate` with `addBlockedBy` once per dependency edge.
+4. `TaskList` and verify that every edge matches the committed plan.
 
 The task list is only a projection; the committed plan remains the source of truth. If the tools are
 absent, say once that only the visible list and its edges are lost, mention
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` or `--allowedTools TaskCreate` for a future session, and continue to
+`{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` — the form that
+survives the next session — or `--allowedTools TaskCreate` for this one, and continue to
 the handoff. Do not add a second confirmation after the approved contract and slices.
 
 Print the spec and plan paths, branch, target, and the next command. The command takes the committed

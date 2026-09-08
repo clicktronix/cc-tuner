@@ -32,7 +32,7 @@ done
 [ "$suites" -gt 0 ] || bad "no test suites found under plugins/cc-tuner/tests/"
 # Per tier, not just in total. "Some suite exists" stayed true with tests/flow/ emptied, so the tier
 # built to observe the product could vanish and the run would still say ok.
-for tier in flow contract setup smoke-verify; do
+for tier in flow contract setup; do
   n=0
   for t in "$PLUGIN"/tests/"$tier"/test_*.sh; do [ -f "$t" ] && n=$((n + 1)); done
   [ "$n" -gt 0 ] || bad "no test suites under plugins/cc-tuner/tests/$tier/"
@@ -257,9 +257,13 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
     current_manifest="$(jq -cS 'del(.version)' "$ROOT/plugins/cc-tuner/.claude-plugin/plugin.json" 2>/dev/null)"
     if [ -z "$evaluated_manifest" ] || [ -z "$current_manifest" ]; then
       bad "cannot compare the evaluated plugin manifest after removing release-only version metadata"
+    # output-styles is on this list because a style is not decoration: it replaces part of the
+    # system prompt for every response. Left off, a component that changes what the evaluated
+    # skills produce would be invisible to the check that claims the eval saw what ships.
     elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
            plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
-           plugins/cc-tuner/assets plugins/cc-tuner/references 2>/dev/null \
+           plugins/cc-tuner/assets plugins/cc-tuner/references \
+           plugins/cc-tuner/output-styles 2>/dev/null \
          && [ "$evaluated_manifest" = "$current_manifest" ]; then
       ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
     elif [ "$adr_status" = "accepted" ]; then

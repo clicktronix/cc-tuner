@@ -3,10 +3,11 @@
 **Date:** 2026-08-13
 **Status:** proposed
 
-<!-- Was accepted against ba7e1ee. This PR edits three files of the production surface
-     (claude-md-writer SKILL.md and reference.md), so by tests/run.sh §6a2 the verdict has to be
-     re-earned: re-run the frozen-worktree eval, update EVALUATED_SHA, and set this back to
-     accepted. Nothing about the lifecycle decision itself changed. -->
+<!-- Deliberately "proposed", not a slipped update. tests/run.sh §6a2 refuses "accepted" while the
+     production surface differs from EVALUATED_SHA, and every change to skills, scripts, hooks,
+     assets or output-styles moves that surface. Set it back to accepted only together with a fresh
+     frozen-worktree eval and a new EVALUATED_SHA. Nothing about the lifecycle decision itself has
+     changed. -->
 
 Task 8 Step 7 is complete. The eval README owns the observations and provenance: run 7 is the
 operator-grandfathered frozen end-to-end smoke, and run 8 is the predeclared focused probe of the
@@ -198,8 +199,8 @@ recorded under **Consequences**.
 - **The committed Markdown plan as the single readable store** — owned paths, acceptance, deciding
   checks, `Blocked by`, and `- [ ]` progress. Two independent measurements force this: `metadata`
   written through `TaskCreate` cannot be read back, and nothing survives a new session.
-- Candidate SHA before review; three reviews run against that SHA — one of them checkable by the script,
-  the other two mandatory steps of the flow; current-head CI; DoD before merge.
+- Candidate SHA before review; one risk-selected advisory workflow, then the authoritative review
+  checked by the script; current-head CI and DoD before merge.
 - Method placement — by ordering the branch, not by overriding the skills.
 
 ### Deleted
@@ -282,12 +283,13 @@ state but does not post a GitHub review, so `/run` publishes each returned verdi
 reviewed before changing that candidate. The merge boundary reads the final approval and companion
 state instead of asking one to stand in for the other.
 
-**Author review is advisory and each applicable layer runs at most once.** The `mattpocock` review
-runs first for every task. After its findings are addressed, deep-review is added only for a sensitive,
-cross-boundary or large candidate (15 production files, 500 production lines, or a major architectural
-boundary). Claude Code's capped `/code-review` never stacks with a matched deep-review. Later fixes
-re-run only the affected checks and the authoritative exact-SHA review; restarting every advisory lens
-produced 22 reviewer agents on a small eval fixture without improving the merge boundary.
+**Author review is advisory; select one workflow per candidate risk.** Ordinary tasks use Matt's
+Spec/Standards review. A sensitive, cross-boundary or large candidate goes directly to deep-review,
+which already includes those axes. The official Claude Code `/code-review` plugin may substitute
+for the ordinary pass when requested. Fixes that newly trigger deep-review may escalate once;
+otherwise later rounds refresh affected evidence and authoritative approval, not advisory lenses.
+The earlier route stacked Matt before deep-review; removing that duplication preserves the coverage
+while avoiding a second Spec/Standards pass. A historical eval spawned 22 reviewers on a small fixture.
 
 Under `--auto`, `/run` is instructed to refuse a task whose `blockedBy` is non-empty — the one thing
 the platform stores but does not enforce. **This is an instruction, not a gate.** It was described
@@ -329,9 +331,11 @@ workflow discipline against an agent's mistake and must not be described as anyt
   selection are modes of the plan linter, already one of the five: `/run` asks which slices may start
   together instead of deriving graph and path overlap by hand. That makes the Markdown-only fallback
   real and keeps parallelism fail-closed without adding another runtime piece.
-- The opt-in smoke-verification feature is a separate runtime surface: its registered fail-open
-  `Stop` hook, shared fingerprint library, and `mark.sh`. It is inert unless the repository opts in
-  with `.claude/smoke-verify.cfg`.
+- **Removed 2026-09-06.** The opt-in smoke-verification feature was a separate runtime surface: a
+  registered fail-open Stop hook that classified changed paths by regex and demanded a fixed proof
+  per class. It is gone, replaced by `cc-tuner:verify-feature`, a stage of `/run` that chooses the
+  instrument from the spec's acceptance criteria and the diff. The paragraph is kept because the
+  eval evidence below was recorded while that surface existed.
 - Setup-time checks are a separate category with a separate home, and now literally so: `scripts/setup/`
   holds `doctor.sh`, `prereq-check.sh` and `plugin-here.sh`. The last exists because "which install
   of a plugin applies here" was answered in two places that had already diverged twice over — doctor

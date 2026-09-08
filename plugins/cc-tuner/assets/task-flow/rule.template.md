@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.10.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.12.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -62,11 +62,20 @@ a convention nobody chose.
 
 - `Closes #N` / `Fixes #N` only when the PR fully completes the issue; `Refs #N` for partial or
   stacked work. No issue → say why in the body.
+- **Fix this task's bugs, regressions and missing acceptance criteria**, including missing work they
+  depend on. File location, repository, severity, size and finding count do not decide scope. Update
+  the plan when a fix needs more work; a reviewer's independent improvement is not a new requirement.
+- **Tracking a defect does not resolve it.** An unmet acceptance criterion remains open until proved
+  or explicitly waived by the user. If access or a user decision blocks it, continue available work
+  and report the dependency; do not claim completion. Recording independent future work does not
+  pause the run or require a new confirmation for work already authorised.
+- **Use the configured board for tracked work.** Add new issues when creating them and confirm reused
+  issues are on it. With `board: none`, use issues without project commands or project permissions.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
   output into the body: it is already in the logs, and it buries the part a human has to read.
-  **Where the target runs no checks on a pull request** — a repo whose workflows are `push`-only, or
-  a paused runner — there is no such link, and dispatching CI on the branch to manufacture one is
-  not the answer. Record the local gate instead: which commands ran, on what, and what came back.
-  Put that repo's format in `task-flow.local.md`.
+  Use the spec's CI mode and the checks actually attached to its candidate, including push/manual
+  runs. A paused or pending check is not absent CI. When no hosted checks are available, the declared
+  `none:<reason>` mode requires a local evidence record for that SHA. `cc-tuner:task-flow` links the
+  CI policy; repository-specific commands and evidence formats belong in `task-flow.local.md`.
 - Match the body's length to the change. Say what changed, why, and what is still open. A one-file
   fix does not need sections.

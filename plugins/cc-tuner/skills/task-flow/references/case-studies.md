@@ -37,13 +37,33 @@ file provenance does not.
 ## Autofix trusted blindly
 
 Also in PR #399, `eslint --fix` moved value imports into `import type`, and formatting moved a comment
-past a bare `return`. Both tools reported success; typecheck exposed both failures. Read an autofix
-diff and re-run typecheck and lint.
+past a bare `return`. Both tools reported success; typecheck exposed both failures. Those checks
+needed to cover the code after autofix, not an earlier green state. Read the resulting diff and use
+checks relevant to the affected criteria; this TypeScript incident does not prescribe every tool
+for every repository.
 
 ## Issue omitted from the board
 
 On 2026-06-05, nine issues created with bare `gh issue create` missed the project board until a later
 manual request. Create with `--project` and set Status and Priority.
+
+## Review findings turned into backlog
+
+In stokli/backend, a tool-call audit of 2026-08-31 through 2026-09-04 matched 42 created issues:
+33 from the orchestrator and nine from implementation workers. Forty-one creation commands omitted
+`--project`; only one included it. Separately, 29 review issues were later added to the board.
+These are different measures: a missing flag does not prove missing board membership, because the
+project also had an auto-add workflow. Its historical configuration was not established by the audit.
+
+The larger failure was treating an issue as resolution. [#527](https://github.com/stokli/backend/issues/527)
+described a missing acceptance criterion while the run reported its findings closed after filing it.
+Several findings named changed files, but that alone cannot establish scope: the file-provenance
+case above already shows why causality matters. Required work must remain in the run; workers return
+findings to its orchestrator, and independent future work is grouped or added to an existing issue.
+
+The initial remedy used file membership and a five-deferral threshold. Neither identifies why a
+defect must be fixed. The threshold was removed, and the rule now distinguishes unresolved acceptance
+from independent future work. The counts belong to this dated audit, not to a runtime decision rule.
 
 ## Tiny documentation PR
 
@@ -58,3 +78,12 @@ still ship alone.
 - Name branches by feature, not the prompt's first words.
 - Work left only in a branch/worktree is unfinished until it has a PR; remove worktrees only after the
   branch is proven merged.
+
+
+## Review and delegation ordering (2026-08-21)
+
+A blanket ban on parallel review contradicted deep-review's independent read-only lenses. A later
+wording, "parallelism lives in the writing and nowhere else", accidentally forbade units their own
+tests. The boundary is the shared candidate decision: independent reads and isolated implementation
+may fan out, while one orchestrator integrates the work, verifies it and owns delivery. Keep that
+boundary explicit without copying the incident into every dispatch brief.

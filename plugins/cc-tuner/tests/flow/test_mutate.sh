@@ -89,7 +89,7 @@ equals "repository-bytecode-cache-is-not-rewritten" "$CACHE_BEFORE" "$(shasum -a
 OUT="$(run "$W/calc.py" "bash $W/check.sh" "$MUTATE_GUARD")"
 check "ledger-names-the-file"      "calc.py"  "$OUT"
 check "ledger-names-the-mutation"  "n < -1"   "$OUT"
-check "ledger-records-the-baseline"     "green before, red after" "$OUT"
+check "ledger-records-the-baseline"     "green before, red on the mutant, green again once restored" "$OUT"
 
 # --- the backup survives a test command that sweeps temp space ------------------------------------
 # The first attempt to mutate this script with its own suite as the test command ended in RESTORE
@@ -262,5 +262,127 @@ check "missing-file-rc2"     "rc=2"         "$OUT"
 
 OUT="$(run "$W/calc.py" "true")"
 check "wrong-arity-refused" "usage:" "$OUT"
+
+# A test that DIED is not a test that failed. A shell reports a signal as 128+n, so an OOM kill or a
+# timeout arrived here as a non-zero status and was graded KILLED -- the mutant credited with a red
+# suite it never caused, which is the exact class of false KILLED this script exists to refuse.
+S="$(flow_workdir)"; printf 'x=1\n' > "$S/f.sh"
+# The test passes on the original and, on the mutant, kills itself with SIGTERM instead of returning
+# a failing status -- the shape an OOM kill or a timeout has.
+SIGNAL_TEST="bash -c 'grep -q x=1 \"$S/f.sh\" || kill -TERM \$\$'"
+SIGNAL_MUT="sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE"
+OUT="$(run "$S/f.sh" "$SIGNAL_TEST" "$SIGNAL_MUT")"
+check  "signal-is-not-a-verdict" "NOTRUN"           "$OUT"
+check  "signal-says-nothing-graded" "nothing was graded" "$OUT"
+check  "signal-exits-2"          "rc=2"             "$OUT"
+absent "signal-not-graded-as-killed" "KILLED"       "$OUT"
+
+# The same for every exit code that means the test never ran. 124 is what `timeout` returns and is the
+# commonest way a heavy mutation run ends; 126 and 127 mean the command was never executed at all. An
+# earlier revision excluded only 128+, so a timed-out suite still read as a kill.
+for code in 124 125 126 127; do
+  OUT="$(run "$S/f.sh" "bash -c 'grep -q x=1 \"$S/f.sh\" || exit $code'" "$SIGNAL_MUT")"
+  check  "notrun-$code-is-not-a-verdict" "NOTRUN" "$OUT"
+  check  "notrun-$code-exits-2"          "rc=2"   "$OUT"
+  absent "notrun-$code-not-killed"       "KILLED" "$OUT"
+done
+
+# Exit 1 is what a suite returns for a failed assertion AND for a fixture that could not reach its
+# database. Without the expected reason, an environment failure appearing between baseline and mutant
+# grades as a killed mutant while nothing about the guard was exercised.
+E="$(flow_workdir)"; printf 'VALUE = 0\n' > "$E/t.py"
+cat > "$E/flaky.sh" <<'EOF'
+#!/bin/sh
+cd "$(dirname "$0")"
+# green on the first run, broken environment on every later one
+if [ -f .ran ]; then echo "ConnectionError: could not connect to db in setUp"; exit 1; fi
+touch .ran
+grep -q 'VALUE = 0' t.py && exit 0
+echo "AssertionError: VALUE changed"; exit 1
+EOF
+chmod +x "$E/flaky.sh"
+E_MUT="sed 's/VALUE = 0/VALUE = 1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE"
+
+rm -f "$E/.ran"
+OUT="$(run --expect 'AssertionError' "$E/t.py" "$E/flaky.sh" "$E_MUT")"
+check  "env-failure-not-proved"      "NOTPROVED"       "$OUT"
+check  "env-failure-exits-2"         "rc=2"            "$OUT"
+check  "env-failure-shows-the-cause" "ConnectionError" "$OUT"
+check  "env-failure-shows-control"   "control run"     "$OUT"
+absent "env-failure-not-killed"      "KILLED"          "$OUT"
+
+# The control run is what decides, so the same environment failure is refused with no --expect at all.
+rm -f "$E/.ran"
+OUT="$(run "$E/t.py" "$E/flaky.sh" "$E_MUT")"
+check  "env-failure-refused-without-expect" "NOTPROVED" "$OUT"
+absent "env-failure-no-false-kill"          "KILLED"    "$OUT"
+
+# A pattern that a traceback merely echoes must not buy a kill either: matching text is a filter, not
+# a proof, which is why the control run exists.
+cat > "$E/echoing.sh" <<'EOF'
+#!/bin/sh
+cd "$(dirname "$0")"
+if [ -f .ran ]; then
+  printf 'Traceback:\n  self.assertTrue(allowed(x), "guard must allow small value")\nConnectionError: db gone\nFAILED (errors=1)\n'
+  exit 1
+fi
+touch .ran
+grep -q 'VALUE = 0' t.py && exit 0
+exit 1
+EOF
+chmod +x "$E/echoing.sh"
+rm -f "$E/.ran"
+OUT="$(run --expect 'guard must allow small value' "$E/t.py" "$E/echoing.sh" "$E_MUT")"
+check  "echoed-pattern-not-a-kill" "NOTPROVED" "$OUT"
+absent "echoed-pattern-no-kill"    "KILLED"    "$OUT"
+
+# Every exit path after the backup exists must put the file back. A failure unrelated to the mutation --
+# the isolated Python cache, a log file -- used to leave the mutant in the working file and the original
+# only in the backup, and the next run then refused to start because that backup was in the way.
+D="$(flow_workdir)"; printf 'x=1\n' > "$D/f.sh"; mkdir -p "$D/tmpd"
+OUT="$( TMPDIR="$D/tmpd" bash "$MUTATE" "$D/f.sh" "true" \
+  "sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE; chmod 500 '$D/tmpd'" 2>&1; printf 'rc=%s\n' "$?" )"
+chmod 755 "$D/tmpd" 2>/dev/null
+check  "cache-failure-refused"        "cannot create an isolated Python bytecode cache" "$OUT"
+check  "cache-failure-rc2"            "rc=2"    "$OUT"
+equals "cache-failure-restores-file"  "x=1"     "$(cat "$D/f.sh")"
+absent "cache-failure-leaves-no-backup" "premutation" "$(ls "$D")"
+
+# "The backup is gone" is not "the restore already happened". A test command that runs `git clean`
+# deletes the untracked backup; keying the no-op on the file rather than on the flag made that read as
+# a completed restore, so the mutant stayed in the working file, the control ran against it, and the
+# verdict said "the RESTORED file".
+G="$(flow_workdir)"
+( cd "$G" && git init -q -b main && git config user.email a@b.c && git config user.name t \
+  && printf 'x=1\n' > subject.sh && git add subject.sh && git commit -qm base ) >/dev/null 2>&1
+OUT="$( cd "$G" && bash "$MUTATE" subject.sh "git clean -fdq && grep -q x=1 subject.sh" \
+  "sed 's/x=1/x=2/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE" 2>&1; printf 'rc=%s\n' "$?" )"
+check  "vanished-backup-reported" "RESTORE IMPOSSIBLE" "$OUT"
+check  "vanished-backup-rc2"      "rc=2"               "$OUT"
+absent "vanished-backup-claims-no-restore" "RESTORED file" "$OUT"
+absent "vanished-backup-no-verdict"        "NOTPROVED"     "$OUT"
+
+# An honest kill with the expected reason passes and says so.
+cat > "$E/honest.sh" <<'EOF'
+#!/bin/sh
+cd "$(dirname "$0")"
+grep -q 'VALUE = 0' t.py && exit 0
+echo "AssertionError: VALUE changed"; exit 1
+EOF
+chmod +x "$E/honest.sh"
+OUT="$(run --expect 'AssertionError' "$E/t.py" "$E/honest.sh" "$E_MUT")"
+check "honest-kill-confirmed"  "green again once restored" "$OUT"
+check "honest-kill-exits-0"    "rc=0"                      "$OUT"
+
+# ...and a kill whose text does not match the pattern is reported as such, without pretending the
+# mutant was innocent: the control was green, so the mutant did break it.
+OUT="$(run --expect 'NoSuchMessage' "$E/t.py" "$E/honest.sh" "$E_MUT")"
+check  "wrong-pattern-is-unexpected" "UNEXPECTED"     "$OUT"
+check  "wrong-pattern-says-mutant-broke-it" "did break the test" "$OUT"
+absent "wrong-pattern-not-killed"    "KILLED"         "$OUT"
+
+# ...and an ordinary failing test is still a kill: the reserved range must not swallow the verdict.
+OUT="$(run "$S/f.sh" "bash -c 'grep -q x=1 \"$S/f.sh\"'" "$SIGNAL_MUT")"
+check "ordinary-failure-still-killed" "KILLED" "$OUT"
 
 exit $fails

@@ -31,13 +31,17 @@ gh api graphql -f query='query{repository(owner:"<o>",name:"<r>"){issue(number:<
   subIssuesSummary{total completed percentCompleted} subIssues(first:50){nodes{number title state}}}}}'
 ```
 
-When to reach for an epic: the work needs more than one PR, or spans more than one repo, or has
-phases a human will want to review separately. Below that, a plain issue.
+Use an epic for independently deliverable work or phases needing separate scope decisions. A coupled
+change across repositories can share one issue; multiple PRs alone do not require an epic. Use `Refs`
+on partial PRs and close the shared issue only after the whole result is verified and delivered.
 
 The branch and PR attach to the **sub-issue**. The epic closes when its children close — never link
 `Closes <epic>` from a child's PR.
 
 ## Board recipes (GitHub Projects)
+
+Use these recipes only when the repository has a configured board. With `board: none`, omit
+`--project` from issue creation and skip project commands, fields and project-scope setup.
 
 **Create an issue directly on the board (preferred):**
 
@@ -76,8 +80,18 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
 **Card lifecycle:** In Progress when implementation opens after recording the prior status; Done after
 the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
-the card In Progress. One deferred review finding = one issue: an issue is trackable and outlives the PR, while a
-comment-thread list closes with the thread that held it.
+the card In Progress.
+
+**Recording independent future work.** `.claude/rules/task-flow.md` defines what must be fixed in the
+current task and what remains an open blocker. This procedure records work outside that obligation.
+
+For independent future work, check current code and work in flight, then search existing issues and
+epics for the same cause or deliverable. Add evidence and remaining work to a matching item; group
+related findings into one schedulable change. Create a new issue only for a distinct piece of work
+that is still needed. An optional suggestion with no planned outcome can remain a review note.
+
+Include the observed problem, the intended result and its source review. Follow the board recipes
+above when a board is configured; otherwise create or update the issue without project commands.
 
 ## After the merge
 
@@ -138,26 +152,38 @@ are a different artifact with a different path (`task-plans/`) and a different l
    when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
    Minimum header: `Goal:`, `Issue:`, and `Architecture:`. Slices, owned paths, and blockers live in
    the separate execution plan that links back to this spec.
-3. First paragraph links the tracking issue; the issue body links the plan back.
-4. Completed → move to `<plans-root>/ARCHIVE/PLANS/` **in the same PR that completes the work** —
-   never as a standalone doc PR.
+3. When an issue exists, the first paragraph links it and the issue body links the spec back.
+4. A PR completing the task moves the spec to `<plans-root>/ARCHIVE/PLANS/` before its first
+   candidate review, following Prepare the candidate below — never as a standalone doc PR.
 
 ## Anti-patterns (case studies)
 
 For diagnosis examples and their evidence, read the [case studies](references/case-studies.md). The
 operative rules are the procedures and checklist in this file; the examples explain why they exist.
 
+## Prepare the candidate
+
+Before the first candidate verification/review, follow this checklist and the
+[CI policy](../run/references/local-ci.md). In a PR completing the task, archive its spec, update the execution
+plan's `Spec:` header and all live links, then commit these artifacts with the implementation.
+Keep acceptance open until proved; archive placement does not certify completion. Use the new spec
+path for the rest of the run and report it for resume. Keep that path stable throughout required
+review; record later DoD evidence on the PR. For shared tasks, update companion links together.
+
 ## Pre-PR checklist
 
 - [ ] Branch is based on current `origin/<target>` (check, do not assume) and its PR is not already merged
 - [ ] Commits follow Conventional Commits, `!`/`BREAKING CHANGE:` where applicable
-- [ ] Issue exists and is linked (`Closes #N` / `Refs #N`); the card has Status and Priority
-- [ ] **Nothing is trusted on its own success report** — a new regression test was shown red against
-      the pre-fix code, and any `--fix`/formatter run was followed by typecheck *and* lint plus a read
-      of the diff it produced
-- [ ] Nothing deferred as "pre-existing" without `git diff <base>...HEAD` showing the branch does not
-      cause it
-- [ ] PR body links the green CI run instead of pasting its output. One line saying the mutant check
-      was done is not a transcript — it is the part a reviewer cannot reconstruct from the logs
+- [ ] Issue is linked (`Closes #N` / `Refs #N`), or the PR explains why none is needed; when a board
+      is configured, the card has Status and Priority
+- [ ] A new regression check was observed failing as specified, or the approved non-code baseline
+      was recorded. Read formatter/autofix diffs. If checked inputs changed, verify affected criteria
+      with relevant checks on the resulting state; reuse an existing result only if it was obtained
+      after those edits. A no-op or unaffected check can reuse earlier evidence. Do not require
+      typecheck and lint universally.
+- [ ] Findings follow the scope contract in `.claude/rules/task-flow.md`, including regressions
+      and older dependencies needed for acceptance; independent improvements remain optional
+- [ ] PR links the candidate's green CI under its declared mode, or records the exact-SHA local
+      result for `none:<reason>` as the CI policy above requires
 - [ ] Plan promoted or archived if this PR completes it
-- [ ] No `.env`, credentials, or generated files staged
+- [ ] No credentials, unrelated WIP or unintended generated files staged

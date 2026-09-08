@@ -11,6 +11,7 @@ do not decide what the repository should say.
 3. [Measure sections](#3-measure-sections)
 4. [Find duplicated identifiers](#4-find-duplicated-identifiers)
 5. [Compare copied lists with their owner](#5-compare-copied-lists-with-their-owner)
+   - [Check rule scope and routing](#5b-check-a-rule-against-its-own-paths)
 6. [Classify the remaining content](#6-classify-the-remaining-content)
 7. [Rebuild](#7-rebuild)
 8. [Verify the result and its references](#8-verify-the-result-and-its-references)
@@ -160,58 +161,17 @@ silent on every migration. The same rule documented `src/infrastructure/**` owne
 absent from its frontmatter.
 
 This one resists a one-liner — a rule may legitimately *mention* a neighbour it does not govern, and
-only a reader can tell a mention from a rule. Do it by hand, once per rule: list the directories the
-body gives instructions about, list the directories the frontmatter matches, and account for every
-difference. A rule for area X whose body legislates area Y either grows a glob or loses the section.
+only a reader can tell a mention from a rule. Use representative tasks and actual files the body
+governs, including prompts, migrations and configuration. Account for every applicable rule,
+including overlapping scopes. A mismatch needs an applicable route or a narrower rule body.
 
-**A pointer table that has drifted from the frontmatter.** Where `AGENTS.md` lists rule → glob for
-the agents that do not autoload rules, that table is a hand copy, and one session was enough for a
-glob to vanish from it while the rule kept matching. This one is mechanical, so it belongs in the
-repository's gate rather than in an audit that ends:
-
-```python
-# audit-pointer-table-parity — сверяет колонку глобов в AGENTS.md с paths: правил
-import ast, pathlib, re, sys
-
-def expand(glob):
-    m = re.search(r'\{([^}]*)\}', glob)
-    if not m:
-        return [glob]
-    return [g for opt in m.group(1).split(',')
-              for g in expand(glob[:m.start()] + opt.strip() + glob[m.end():])]
-
-def prefixes(globs):
-    return {re.sub(r'/?\*.*$', '', e).rstrip('/') for g in globs for e in expand(g)} - {''}
-
-table = pathlib.Path('AGENTS.md').read_text().splitlines()
-issues = []
-for rule in sorted(pathlib.Path('.claude/rules').glob('*.md')):
-    txt = rule.read_text()
-    declared = []
-    if txt.startswith('---') and 'paths:' in txt.split('---')[1]:
-        declared = ast.literal_eval(txt.split('---')[1].split('paths:', 1)[1].strip())
-    row = next((l for l in table if l.startswith(f'| `.claude/rules/{rule.name}`')), None)
-    if row is None:
-        issues.append(f'{rule.name}: no row in the pointer table')
-        continue
-    cell = row.split('|')[2]
-    if not declared:
-        if 'always' not in cell:
-            issues.append(f'{rule.name}: has no paths:, but the table does not say "always"')
-        continue
-    listed = prefixes(re.findall(r'`([^`]+)`', cell))
-    for miss in sorted(prefixes(declared) - listed):
-        issues.append(f'{rule.name}: table is missing {miss}')
-    for extra in sorted(listed - prefixes(declared)):
-        issues.append(f'{rule.name}: table claims {extra}, frontmatter does not')
-
-print('\n'.join(issues) if issues else 'pointer table matches every rule frontmatter')
-sys.exit(1 if issues else 0)
-```
-
-Run it before trusting the table, and again after editing either side. It reports a missing glob, a
-glob the table invented, a rule with no row, and a `paths:`-less rule the table does not mark as
-always-loaded.
+**A pointer or router that has drifted from the rules.** Where other agents rely on explicit
+routes, compare those routes with the current rules, including nested and unconditional rules.
+Use the repository's existing generator or validator if it owns an explicit schema; otherwise
+inspect the routes directly. Preserve the repository's format rather than introducing a new
+table convention or mandatory gate. Compare complete patterns: a shared directory prefix does
+not establish matching extensions, depth or alternatives. A consistent table establishes a
+route, not actual loading or model adherence; verify those separately as described in Step 8.
 
 ## 6. Classify the remaining content
 

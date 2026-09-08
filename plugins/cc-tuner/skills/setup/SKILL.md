@@ -48,16 +48,24 @@ is worse than not offering it, because nothing later contradicts the claim.
   which is nearly all of them. Also offer it when doctor reported a legacy `git-flow.md`: that path
   migrates the deltas file, and the cached board field IDs inside it, before anything overwrites it.
   Print `/cc-tuner:task-flow-setup install`.
-- **`/cc-tuner:smoke-verify-setup`** — user-run only. Decide whether the repo wants it: only one with
-  a frontend worth exercising does, so check first (`package.json`, an `app/` or `src/components`
-  tree). A backend-only repo should not have it; say so rather than offering a gate that will never
-  fire. When it does want it, print the command for the user to run:
-
-  ```
-  /cc-tuner:smoke-verify-setup install
-  ```
+- **Nothing to install for verification.** It is a stage of `/run` (`cc-tuner:verify-feature`), which
+  reads the spec's criteria and picks the instrument per behaviour. What is worth reporting is what
+  this repository can drive — a dev server, a database, a browser tool — because that decides what a
+  run is able to prove. Say what you found; do not offer an installer.
+- **The native task tools**, when doctor reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset. This one is
+  a settings edit, not an installer, so in `install` mode offer to make it: add
+  `"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}` to `~/.claude/settings.json`, preserving the rest of
+  the file, after the user agrees. Say that it takes effect in the next session. Without it
+  `/cc-tuner:spec` commits the plan and publishes no visible task list, which reads as the plugin not
+  working.
 - **`/cc-tuner:statusline-setup`** — user-level, not repo-level. Offer its command once; if doctor
   already reported the script installed, skip silently. Print `/cc-tuner:statusline-setup install`.
+- **The `Mechanism First` output style** — the plugin ships it, so there is nothing to install and
+  no installer to print. Mention it once, as a preference rather than a fix: it makes answers lead
+  with the mechanism, draw ASCII diagrams for boundaries and pipelines, and translate without
+  transliterating. To use it: `/config` → Output style → `Mechanism First`, then `/clear`, because
+  the style is read once at session start. Never select it for the user — a style rewrites part of
+  the system prompt for every response, and that choice is theirs.
 
 ## 4. Board wiring (`install` only, and only when `gh` is authorised)
 
