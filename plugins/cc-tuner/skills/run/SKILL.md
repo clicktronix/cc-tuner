@@ -147,7 +147,7 @@ Delivers, criteria), and these standing constraints:
 - commit in this repository's convention; do not push, do not open or comment on a pull request, do
   not merge, and do not claim any review or approval;
 - report what changed, the commands run with their results, and anything the slice's text turned out
-  to be wrong about.
+  to be wrong about; return review findings to the orchestrator, do not create issues for them.
 
 **What never leaves you.** Reading `mutate.sh` output; deciding a slice is done; the full regression
 before the candidate; the review verdict; the Definition of Done; and everything under Delivery. A
@@ -258,10 +258,13 @@ or require restarting every advisory review from zero.
    wins because the built-in review is capped; otherwise an explicitly requested built-in review may
    occupy the optional deep-review slot. Matt does not run again.
 
-   Address valid findings **here**. Deferring one into an issue is a decision about the user's backlog
-   taken on their behalf, and `.claude/rules/task-flow.md` says when that is allowed; nothing about it
-   pauses the run. Refute claims outside the spec or repository rules rather than promoting every
-   possible mutation, subclass behaviour or speculative extension into a new requirement. An
+   Apply `.claude/rules/task-flow.md` to the findings. Confirm each claim against the agreed outcome,
+   repository rules and evidence; group related fixes by their cause and update the current plan.
+   Keep them in the existing implementation/review tasks unless they need a distinct work unit;
+   a review comment does not automatically create a native task or a GitHub issue. Use
+   `cc-tuner:task-flow` only to record independent future work. Refute claims outside the spec or
+   repository rules rather than promoting every possible mutation, subclass behaviour or speculative
+   extension into a new requirement. An
    advisory note that explicitly reports no violation and offers only optional style or a judgement
    call is not a reason to move the candidate. After a fix, verify the affected finding and proceed
    to the authoritative review; do not fan out the advisory reviews again. They discover issues but

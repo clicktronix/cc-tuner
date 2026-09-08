@@ -62,18 +62,14 @@ a convention nobody chose.
 
 - `Closes #N` / `Fixes #N` only when the PR fully completes the issue; `Refs #N` for partial or
   stacked work. No issue → say why in the body.
-- **A review finding is work you fix here.** Deferring one is the exception and needs a reason you can
-  say out loud: it needs a decision only the user can make, or it is big enough to need its own spec.
-  "This task's title does not mention it" is not such a reason — the title says what you set out to
-  do, not the boundary of what you disturbed.
-- **Another repository is not a reason to defer.** Coupled repositories are one change: a migration
-  and the code that reads it, a contract and its consumers. Deferring the far half ships a broken
-  pair. Open the companion branch in the same task, name it and its merge order in the spec, and merge
-  in that order. Only work that is genuinely unrelated is a follow-up, and then the reason is
-  "unrelated", not "elsewhere".
-- **After the fifth deferral from one task, stop deferring and fix the rest here.** Five is not twenty
-  small decisions; it is evidence the boundary was drawn in the wrong place. Say once in the pull
-  request that it happened. Do not stop to ask: the count changes what you do, not whether you carry on.
+- **Fix confirmed defects of the agreed outcome in this task**, including regressions and the
+  dependencies needed to meet acceptance. File location, repository, severity, size and the number of
+  findings do not decide scope. Replan necessary work within the agreed outcome; independent
+  improvements do not become requirements just because a reviewer suggested them.
+- **Tracking a defect does not resolve it.** An unmet acceptance criterion remains open until proved
+  or explicitly waived by the user. If access or a user decision blocks it, continue available work
+  and report the dependency; do not claim completion. Recording independent future work does not
+  pause the run or require a new confirmation for work already authorised.
 - **An issue that is not on the board is not tracked.** Put it there in the command that creates it;
   a board pass "afterwards" does not happen, and the pile is invisible while it grows.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
