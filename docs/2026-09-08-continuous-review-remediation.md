@@ -137,6 +137,6 @@ The official command's narrow pre-existing-issue filter is unsuitable as cc-tune
   updated plan validation and resolver-based resume all passed. The installed cc-codex-triage 0.11.0
   checker accepted the archived spec before the first round and a later target merge with the same
   pinned review contract. Only local state claims ran; no paid review or approval was fabricated.
-- Text size: run 177 → 208 lines, spec 190 → 185, placement 140 → 127. The run growth names previously
+- Text size: run 177 → 208 lines, spec 190 → 185, placement 140 → 128. The run growth names previously
   missing synchronization/archive steps; conditional details stay in references. Token/dollar savings
   are not measured. The live model eval and installed-cache propagation remain open.
