@@ -16,8 +16,10 @@ Require literal values for:
 - base commit or target ref;
 - committed spec path, when the task has one.
 
-Refuse to review when `HEAD` is not the candidate SHA, the worktree is dirty, the base cannot be
-resolved, or the candidate is not a descendant of the base. A later commit invalidates this result.
+Resolve a supplied target ref to a literal base SHA. If the target has advanced beyond the candidate,
+return that fact to the caller for branch synchronization before review; do not rebase or merge in
+this read-only skill. Refuse a dirty/mismatched candidate or an unresolved/unrelated base. A later
+commit invalidates this result. `/run` prepares and synchronizes the candidate before invoking review.
 
 ## Build the review packet
 
@@ -70,9 +72,10 @@ The owning reviewer reads every candidate finding and checks it against live sou
 SHA. Deduplicate only when two findings have the same root cause and remediation. Keep distinct
 symptoms when they require different fixes or prove different impact.
 
-Reject a candidate finding when it is speculative, pre-existing outside the task diff, contradicted
-by repository policy, or unsupported by a concrete failure path. Preserve valid findings even when
-another reviewer missed them.
+Reject speculative or unsupported findings and independent improvements outside the agreed outcome.
+Apply the scope contract in `.claude/rules/task-flow.md`: an older defect in an untouched dependency
+still matters when this task exposes it or needs its fix to meet acceptance. Preserve valid findings
+even when another reviewer missed them.
 
 For each validated finding report:
 

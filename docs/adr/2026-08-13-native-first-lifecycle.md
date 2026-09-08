@@ -283,12 +283,13 @@ state but does not post a GitHub review, so `/run` publishes each returned verdi
 reviewed before changing that candidate. The merge boundary reads the final approval and companion
 state instead of asking one to stand in for the other.
 
-**Author review is advisory and each applicable layer runs at most once.** The `mattpocock` review
-runs first for every task. After its findings are addressed, deep-review is added only for a sensitive,
-cross-boundary or large candidate (15 production files, 500 production lines, or a major architectural
-boundary). Claude Code's capped `/code-review` never stacks with a matched deep-review. Later fixes
-re-run only the affected checks and the authoritative exact-SHA review; restarting every advisory lens
-produced 22 reviewer agents on a small eval fixture without improving the merge boundary.
+**Author review is advisory; select one workflow per candidate risk.** Ordinary tasks use Matt's
+Spec/Standards review. A sensitive, cross-boundary or large candidate goes directly to deep-review,
+which already includes those axes. The official Claude Code `/code-review` plugin may substitute
+for the ordinary pass when requested. Fixes that newly trigger deep-review may escalate once;
+otherwise later rounds refresh affected evidence and authoritative approval, not advisory lenses.
+The earlier route stacked Matt before deep-review; removing that duplication preserves the coverage
+while avoiding a second Spec/Standards pass. A historical eval spawned 22 reviewers on a small fixture.
 
 Under `--auto`, `/run` is instructed to refuse a task whose `blockedBy` is non-empty — the one thing
 the platform stores but does not enforce. **This is an instruction, not a gate.** It was described

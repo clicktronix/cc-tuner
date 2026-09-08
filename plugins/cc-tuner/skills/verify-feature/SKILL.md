@@ -6,14 +6,9 @@ allowed-tools: Bash, Read, Glob, Grep, Skill, WebFetch
 
 # Verify Feature
 
-Prove the behaviour, not the build. A green suite says the checks that exist still pass; it says
-nothing about the behaviour just written, because that behaviour had no check five minutes ago.
-
-This skill answers one question — **what would show this working, and did it?** — and answers it from
-the change in front of you rather than from a table of file extensions. An earlier design classified
-changes by path (`*.tsx` is a screen, `migrations/` is a migration) and demanded a fixed proof per
-class. Paths do not know what a change does: a `.tsx` file can be a pure formatter, a `.sql` file can
-be a comment, and the interesting change is often in neither.
+Prove the agreed outcome with evidence that directly tests each acceptance criterion. Select checks
+from the behaviour and repository capabilities, not file extensions. Existing tests can prove a
+criterion when they exercise it; a green suite alone does not establish unrelated behaviour.
 
 ## 1. Read what has to be true
 
@@ -26,8 +21,8 @@ be a comment, and the interesting change is often in neither.
   find the machine check that retires one. A criterion that says "the inversion reads as an inversion"
   may be provable by asserting the series order in the built chart option.
 
-If the spec named exact commands, they are the floor, not the ceiling: they were chosen before the
-code existed.
+Use the spec's checks and add only what closes an identified acceptance gap. Do not create a new
+requirement merely because another tool or test is available.
 
 ## 2. Find what this repository already has
 
@@ -45,8 +40,13 @@ changes the plan; pretending otherwise produces a verification nobody ran.
 
 ## 3. Choose the proof, per behaviour
 
-One proof per acceptance criterion, chosen for what that criterion claims. The shape of the change
-suggests the instrument:
+Map every criterion to direct evidence; one run may prove several criteria. Inspect earlier results
+before running anything: reuse them when the checked code, dependencies, configuration and
+environment still match. Record the source run/commit and why it covers this candidate. Re-run
+affected checks after relevant changes, missing evidence or uncertainty; honour required fresh runs.
+Do not repeat a worker's or `/run`'s check just because this stage has a different name.
+
+Choose the instrument for the claim:
 
 | what changed | what would show it working |
 |---|---|
@@ -57,6 +57,7 @@ suggests the instrument:
 | a pure function or a calculation | the exact inputs that used to be wrong, and the output now |
 | a build or bundling guard | build, then read the artefact the guard measures |
 | a CLI | run it with the arguments a user would, and read stdout and the exit code |
+| documentation, formatting or a mechanical edit | the agreed baseline/diff, links, lint or generated artifact check that directly decides the criterion |
 
 Where a criterion cannot be proved with what exists, say so and name what would be needed. That is a
 result, not a failure to produce one.
@@ -66,9 +67,10 @@ result, not a failure to produce one.
 Record, per criterion: the command or the interaction, and **what came back** — the status code, the
 row count, the screenshot, the printed value. Not "works as expected".
 
-Never record a criterion as proved on the strength of a typecheck, a lint pass, a suite that was
-already green before the change, a diff that looks correct, or a re-reading of the code. Those are
-worth running and prove something else.
+Match evidence to the claim: typecheck/lint can prove a typing/formatting criterion, and an approved
+non-code baseline/diff check can prove a documentation edit. They do not prove runtime behaviour.
+For behavioural changes use observations through the affected path, including an existing test
+that directly exercises it. A plausible diff or an unrelated green suite is not that observation.
 
 ## 5. Hand back
 

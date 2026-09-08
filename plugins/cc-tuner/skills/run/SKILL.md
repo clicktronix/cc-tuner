@@ -69,8 +69,8 @@ This skill owns the lifecycle. Invoked skills supply methods and findings; their
 confirmation prompts, gates or completion messages do not interrupt work already approved here.
 Acceptance criteria, review findings and candidate evidence remain strict.
 
-Without `--auto`, keep local slice commits moving; stop before the first outward action (push/PR)
-and before merge. In either mode, a real user decision, waiver or unproved acceptance may require
+Without `--auto`, keep local slice commits moving; ask before push/PR unless already authorized,
+and hand the verified candidate to the user for merge. Do not merge it yourself in this mode. In either mode, a real user decision, waiver or unproved acceptance may require
 input. Batch related pending decisions into one concise request and continue available work; do not
 wait for a finding count or claim the blocked outcome complete. Routine checks and successful reviews
 do not require another confirmation. Honour the validation refusals and required-review cap below.
@@ -94,9 +94,33 @@ their own read-only agent type/model; where silent, placement decides.
   Do not invent mutations. A shipped-bug regression observed RED before the fix needs no extra one.
   **If the spec assigns a mutation**, read [mutation-proof.md](references/mutation-proof.md) before
   running `mutate.sh`; the orchestrator must inspect its failure evidence, not just the verdict.
-- Run the spec's targeted checks during implementation and full regression before the candidate.
+- Run the spec's targeted checks during implementation and full regression on the assembled result.
+  Reuse observed results when the checked code, dependencies, configuration and environment still
+  match; identify the source result and why it applies. Re-run affected checks when those inputs
+  change or the evidence is missing/unreliable. Honour explicitly required fresh runs. A new commit
+  alone does not require another identical local build; review and CI still bind the final SHA.
 - Re-check unresolved `[eyes]` criteria even if a stale plan reached `--auto`: stop for the required
   human step or a user waiver recorded with who and when.
+
+## Prepare the candidate
+
+After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
+archiving and update plan/spec links before the first required review; continue with the new spec
+path. Validate the updated plan with the same resolver/linter contract used at startup.
+
+Fetch the integration target before the first candidate and before delivery. If it advanced beyond
+this branch, notify the user and integrate it, resolving conflicts within the agreed task. Prefer
+merge on published branches or after required review began; rebase only unpublished work before the
+first required round when repository policy allows it. Do not force-push to synchronize. Preserve
+unrelated WIP; use a separate clean task checkout when necessary and retain it for required review
+and merge. Reverify the integrated result. A conflict needing a product decision blocks only its
+dependent work. Do not ask again for routine conflict resolution.
+
+Pass a literal synchronized target SHA as the initial review base; keep it and the spec path fixed
+for that thread. Later target updates are merged without changing that base. If target advances
+after approval, integrate, refresh affected evidence and obtain approval for the new candidate.
+On resume, read the existing PR and review state; reuse valid progress, and reconcile an already
+merged PR instead of opening or merging it again.
 
 ## Verifying the feature
 
@@ -109,23 +133,25 @@ residual risk if the user already accepted it. Put the returned evidence record 
 
 ## Delivery
 
-A new commit invalidates exact-candidate evidence: testing, acceptance, authoritative review, CI and
-DoD must cover the new SHA. It does not erase findings already read or restart every advisory review.
+A new commit needs fresh authoritative approval and CI, with acceptance and DoD evidence covering
+the resulting candidate. Local checks follow the evidence-reuse rule above. Previously read findings
+and completed advisory passes remain useful; a new SHA does not restart them.
 Shared-task delivery also covers the complete repository/SHA set defined in the loaded reference.
 
 1. **Push and open the PR.** The candidate is its exact head SHA, with a clean working tree.
-2. **Run each applicable advisory review at most once.** Run `mattpocock-skills:code-review` on the
-   first clean candidate, address valid findings, then classify the resulting candidate. Add
-   `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
+2. **Choose one advisory workflow for the first clean candidate.** Use `deep-review`
+   for a sensitive surface, at least 15 production files or 500 production lines,
    multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
    authentication/authorization/secrets/cryptography; migrations or destructive data operations;
    public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
    infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
    fixtures and configuration count when they decide behaviour on these surfaces.
 
-   Do not stack built-in `/code-review` with `deep-review`. A matched deep-review trigger wins;
-   otherwise an explicitly requested built-in review may occupy that optional slot. Matt does not
-   run again. These advisory reviews discover findings; they are not merge gates.
+   Otherwise use `mattpocock-skills:code-review`, or the official Claude Code `/code-review` plugin
+   when explicitly requested. Pass the base, candidate and spec; run in read-only mode without
+   publishing findings automatically. Deep review already covers Spec and Standards: do not stack
+   Matt or the official plugin on top. If fixes newly meet a deep-review trigger, escalate once;
+   otherwise verify the findings without restarting advisory passes. These are not merge gates.
 
    Apply `.claude/rules/task-flow.md`: validate findings against the agreed outcome, repository rules
    and evidence; group related fixes by cause and update the current plan. Keep them in existing
@@ -150,14 +176,16 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    re-run the required review on the same SHA and publish its verdict. Do not manufacture an empty
    commit to move the candidate, or treat an earlier approval as forbidding a later review.
 6. **On `REQUEST_CHANGES`, repeat authoritative review only.** Validate claims against the committed
-   spec, repository rules and concrete failures. Fix valid findings, run affected checks and full
-   regression, commit and re-review the new SHA. Do not restart Matt, deep-review or built-in review.
-   Stop at the configured cap; do not reset the thread to seek a more favourable verdict.
+   spec, repository rules and concrete failures. Fix valid findings, refresh affected checks and
+   full-regression evidence under the reuse rule, commit and re-review the new SHA. Do not restart
+   advisory review unless fixes newly require deep review. At the cap, stop paid review attempts
+   and delivery, continue safe remaining fixes, and report the missing approval in one request.
+   Do not reset the thread to seek a more favourable verdict.
 7. **Record the spec's DoD before merge.** Name each item and its evidence in a PR comment or body
    section. Do not commit this record to the spec: that moves the reviewed SHA, and later writing it
    directly to the integration target violates repository rules.
-8. **Merge through the checked script.** Use the spec's strategy and CI mode, with the pinned head
-   and the same review thread:
+8. **Deliver through the checked script.** Recheck target advancement as described above. Under
+   `--auto`, merge with the spec's strategy, CI mode, pinned head and same review thread:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] <pr> <squash|merge> <candidate-sha> <review-thread>
@@ -168,6 +196,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    before this step and record the exact candidate's local evidence as it requires.
    For a shared task, complete the reference's preflight of **all** candidates before any merge,
    then follow its declared-order and partial-delivery recovery instructions.
+
+   Without `--auto`, run this command with `--check-only` and hand the passing candidate and merge
+   command to the user. Keep deliver pending until the merge is observed.
 
    The script rechecks required-review state, public verdict, the selected CI checks and PR head.
    Fix any refusal; do not substitute raw CLI/web/API merge or direct push. The head pin prevents

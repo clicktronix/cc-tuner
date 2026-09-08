@@ -51,9 +51,11 @@ recent history rather than the harness default.
 
 ## 3. Grill the problem
 
-Invoke `mattpocock-skills:grilling`, using `mattpocock-skills:domain-modeling` for vocabulary. Pull
-current dependency documentation through Context7 as questions arise. Ask one question at a time
-until the answer no longer changes the draft.
+Resolve only decisions not already settled by the request, repository or approved spec. Use
+`mattpocock-skills:grilling` for unresolved design choices and `mattpocock-skills:domain-modeling`
+when vocabulary needs work. Batch independent questions with recommendations; ask dependent ones
+after their prerequisites are answered. Pull current dependency documentation through Context7.
+These methods do not add a confirmation beyond section 6; a complete contract needs no new interview.
 
 Resolve before calling the task ready:
 
@@ -104,17 +106,12 @@ or diff check is enough. Where the test command is a full build, say so in the s
 (baseline, mutant, and the control that confirms the kill) and is worth assigning only if the guard is
 worth that. A mutation assignment also
 names **what the killed test must say**, the way the first failing check names its expected failure:
-`/run` passes it to `--expect`, and without it a test that goes red because the environment broke is
-indistinguishable from one the mutant killed. `/run` executes the proof named here; it does not invent another.
+`/run` passes it to `--expect` as a diagnostic filter and inspects the failure log; a text match alone
+does not prove the mutation caused the failure. `/run` executes this proof without inventing another.
 
-`ci` names both the **mode** and the checks. `required` is the default and assumes GitHub branch
-protection; `any` is for a repository that runs CI without it. Prefer `any` wherever a workflow can be
-dispatched by hand: a manual run still attaches its result to the head commit, so the checks answer
-for themselves. `none:<reason>` is only for a repository that runs no CI on a pull request at all, and
-it carries **two** obligations, not one: the merge script refuses it whenever GitHub reports any check,
-and it refuses it again unless a comment on the pull request carries `cc-tuner-local-ci: <sha> <what
-ran, and what it returned>` for that exact commit. `/run` passes the mode verbatim; both refusals are the
-script's, not advice. `auto_ready: yes` requires a defined PR per participating repository, complete DoR,
+Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
+and how to observe them on the candidate. `/run` passes the mode verbatim.
+`auto_ready: yes` requires a defined PR per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
 
@@ -154,9 +151,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
-the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intentionally created; stop
-and explain any other unexplained file. Commit the reviewed set together using the repository's
-convention.
+the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intentionally created.
+Preserve unrelated WIP without staging, reverting or pausing for it. If another change overlaps
+this work or makes its verification unreliable, resolve ownership for that part and continue
+independent work. Commit the reviewed set together using the repository's convention.
 
 ## 7. Publish and hand off
 
@@ -164,11 +162,8 @@ When the native task tools are available, publish the visible plan before any im
 
 1. `TaskCreate` once per slice, in number order; include delivery and acceptance criteria.
 2. `TaskCreate` three more, as a **chain**: **verify the feature**, blocked by every slice; **review
-   the candidate**, blocked by verify; **deliver**, blocked by review. Without them the list reads as
-   finished the moment the last slice is ticked, while the work that decides whether any of it ships
-   has not started — and a watcher seeing "all done" beside an unreviewed candidate is being told
-   something false. Blocked by the slices alone they would all go ready at once, which says they can
-   happen in any order; they cannot.
+   the candidate**, blocked by verify; **deliver**, blocked by review. Slice completion alone does
+   not mean the candidate is verified or delivered.
 3. `TaskUpdate` with `addBlockedBy` once per dependency edge.
 4. `TaskList` and verify that every edge matches the committed plan.
 

@@ -59,7 +59,8 @@ and optional cleanup of legacy hand-copied rule files.
 
 A read-only exhaustive review for large, cross-boundary, or sensitive candidates. It fans out six
 independent lenses against one immutable SHA, then validates and deduplicates their output without a
-top-ten cap. Ordinary changes use the Matt Pocock review and the final Codex gate instead.
+top-ten cap. It replaces the ordinary Matt Pocock advisory pass for these candidates. Both routes
+then use the required Codex review of the final SHA.
 
 ### `verify-feature`
 
@@ -74,9 +75,10 @@ would show this change working, and did it? — from the change in front of it:
    a calculation gets the inputs that used to be wrong;
 4. run it and record **what was observed**, not that it works.
 
-It never records a criterion as proved on a typecheck, a lint pass, an already-green suite, or a diff
-that looks correct. What it cannot prove it reports as unproved, with what would be needed; `/run`
-decides what that means for delivery.
+Evidence must directly decide the criterion: lint can prove formatting, an approved non-code diff
+check can prove a documentation edit, and an existing test can prove the behaviour it exercises.
+Reuse valid observations rather than repeating the same command at every stage. Unrelated static
+checks do not prove runtime behaviour; unproved criteria return to `/run` for handling.
 
 This replaced an opt-in Stop-hook gate that classified changes by file path and demanded a fixed proof
 per class. Paths do not know what a change does — a `.tsx` file can be a pure formatter and a `.sql`
@@ -92,8 +94,8 @@ available — publishes the slices as native tasks. `/cc-tuner:run` works that p
 request; `--auto` removes its delivery stops when the spec is auto-ready.
 
 `/cc-tuner:spec <issue | description>` does all the discovery and planning. It reads the repo, issue, architecture,
-code, tests, and consumers, grills requirements via `mattpocock-skills:grilling` plus
-`mattpocock-skills:domain-modeling`, and drafts an executable contract. Its DoR names the observed
+code, tests, and consumers, resolves open decisions with `mattpocock-skills:grilling` and uses
+`mattpocock-skills:domain-modeling` when vocabulary needs work. It drafts an executable contract. Its DoR names the observed
 baseline, first failing check and expected failure, targeted/full checks, environment and data. Every
 acceptance criterion names its deciding machine or human step; every `[eyes]` item records a machine
 replacement or waiver. Its DoD binds verification, reviews, PR head, and CI to the same candidate.
@@ -104,15 +106,17 @@ takes no dependency argument.
 `/cc-tuner:run [--auto] <spec>` works that plan. It asks the plan linter for the first safe ready
 batch, proves each slice
 RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
-ticks it off in the committed file, then commits a candidate, runs the Matt Pocock review once,
-adds `cc-tuner:deep-review` only for large or sensitive changes, and obtains Codex's required review
+ticks it off in the committed file, synchronizes an advanced target and archives the spec before
+candidate review. It chooses Matt Pocock review for ordinary changes or `cc-tuner:deep-review` for
+large or sensitive changes, then obtains Codex's required review
 at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green CI on that same
 commit — under the mode the spec declared — and `--match-head-commit` pinning it. Implementation may
 be handed to subagents the run dispatches itself, one per slice; the parent owns integration, the
 proof, the review and every later gate.
 
 Without `--auto`, `/run` works local slice commits without interruption, then stops before the first
-push/PR, for a real unresolved decision or waiver, and before merge. With `--auto`, it runs unattended
+push/PR unless already authorized; merge belongs to the user after checked preflight. Real unresolved
+decisions or waivers block only dependent work. With `--auto`, it runs unattended
 only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
 evidence, failed tests, stale review, unresolved `[eyes]`, CI that ran and did not pass, or scope
 beyond the spec. Where a repository runs no CI at all, the spec has to say so in advance and a pull-request comment has

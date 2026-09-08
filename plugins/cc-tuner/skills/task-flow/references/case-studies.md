@@ -76,3 +76,12 @@ still ship alone.
 - Name branches by feature, not the prompt's first words.
 - Work left only in a branch/worktree is unfinished until it has a PR; remove worktrees only after the
   branch is proven merged.
+
+
+## Review and delegation ordering (2026-08-21)
+
+A blanket ban on parallel review contradicted deep-review's independent read-only lenses. A later
+wording, "parallelism lives in the writing and nowhere else", accidentally forbade units their own
+tests. The boundary is the shared candidate decision: independent reads and isolated implementation
+may fan out, while one orchestrator integrates the work, verifies it and owns delivery. Keep that
+boundary explicit without copying the incident into every dispatch brief.

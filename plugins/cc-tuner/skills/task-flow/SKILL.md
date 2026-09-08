@@ -153,22 +153,32 @@ are a different artifact with a different path (`task-plans/`) and a different l
    Minimum header: `Goal:`, `Issue:`, and `Architecture:`. Slices, owned paths, and blockers live in
    the separate execution plan that links back to this spec.
 3. First paragraph links the tracking issue; the issue body links the plan back.
-4. Completed → move to `<plans-root>/ARCHIVE/PLANS/` **in the same PR that completes the work** —
-   never as a standalone doc PR.
+4. A PR completing the task moves the spec to `<plans-root>/ARCHIVE/PLANS/` before its first
+   candidate review, following Prepare the candidate below — never as a standalone doc PR.
 
 ## Anti-patterns (case studies)
 
 For diagnosis examples and their evidence, read the [case studies](references/case-studies.md). The
 operative rules are the procedures and checklist in this file; the examples explain why they exist.
 
+## Prepare the candidate
+
+Before the first candidate verification/review, follow this checklist and the
+[CI policy](../run/references/local-ci.md). In a PR completing the task, archive its spec, update the execution
+plan's `Spec:` header and all live links, then commit these artifacts with the implementation.
+Keep acceptance open until proved; archive placement does not certify completion. Use the new spec
+path for the rest of the run and report it for resume. Keep that path stable throughout required
+review; record later DoD evidence on the PR. For shared tasks, update companion links together.
+
 ## Pre-PR checklist
 
 - [ ] Branch is based on current `origin/<target>` (check, do not assume) and its PR is not already merged
 - [ ] Commits follow Conventional Commits, `!`/`BREAKING CHANGE:` where applicable
-- [ ] Issue exists and is linked (`Closes #N` / `Refs #N`); the card has Status and Priority
-- [ ] **Nothing is trusted on its own success report** — a new regression test was shown red against
-      the pre-fix code, and any `--fix`/formatter run was followed by typecheck *and* lint plus a read
-      of the diff it produced
+- [ ] Issue is linked (`Closes #N` / `Refs #N`), or the PR explains why none is needed; when a board
+      is configured, the card has Status and Priority
+- [ ] A new regression check was observed failing as specified, or the approved non-code baseline
+      was recorded. Read formatter/autofix diffs and verify their effect with the repository's
+      relevant checks; reuse valid evidence rather than requiring typecheck and lint universally
 - [ ] Nothing deferred as "pre-existing" without `git diff <base>...HEAD` showing the branch does not
       cause it
 - [ ] PR body links the green CI run instead of pasting its output — or, where the target runs no
@@ -176,4 +186,4 @@ operative rules are the procedures and checklist in this file; the examples expl
       One line saying the mutant check was done is not a transcript — it is the part a reviewer
       cannot reconstruct from the logs
 - [ ] Plan promoted or archived if this PR completes it
-- [ ] No `.env`, credentials, or generated files staged
+- [ ] No credentials, unrelated WIP or unintended generated files staged

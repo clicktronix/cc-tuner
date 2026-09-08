@@ -46,7 +46,9 @@ standalone verification does not initiate review, merge or deployment.
 
 ## Review and delivery
 
-Perform `/run` Delivery steps 1–7 for each repository before the first merge. Give each required
+Prepare all candidates through `/run` before combined verification: synchronize each target and
+archive specs/update cross-repository links before any required thread is pinned. Complete Delivery
+steps 1–7 for each repository before the first merge. Give each required
 review its local spec, the primary spec, companion diffs and SHAs. Record each repository's PR,
 candidate SHA, review thread and CI policy in the primary PR. A changed participant requires
 rechecking combined acceptance and refreshing affected reviews against the new set of commits.
@@ -56,7 +58,10 @@ candidate's checkout, using its own PR, SHA, strategy, CI mode and review thread
 A PR without a committed plan is refused: prepare its local plan and re-earn candidate evidence;
 never use the unchecked path for unrelated PRs to deliver a companion.
 
-Then merge in the primary spec's declared order with the checked command in each repository.
+Under `--auto`, merge in the primary spec's declared order with the checked command in each repository.
+Otherwise hand the passing candidates and ordered merge commands to the user; observe merges before
+reconciliation. If a target advances meanwhile, follow `/run` synchronization, refresh affected
+evidence and repeat all remaining participants' preflight before the next merge.
 Confirm each merge and its stated rollout prerequisites before the dependent merge. If a necessary
 deploy or migration is not authorised, report the blocker and continue independent work without
 claiming delivery. After a partial merge, retain its record and resume only the remaining work;

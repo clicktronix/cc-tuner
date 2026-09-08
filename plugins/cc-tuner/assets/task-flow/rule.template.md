@@ -73,9 +73,9 @@ a convention nobody chose.
   issues are on it. With `board: none`, use issues without project commands or project permissions.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
   output into the body: it is already in the logs, and it buries the part a human has to read.
-  **Where the target runs no checks on a pull request** — a repo whose workflows are `push`-only, or
-  a paused runner — there is no such link, and dispatching CI on the branch to manufacture one is
-  not the answer. Record the local gate instead: which commands ran, on what, and what came back.
-  Put that repo's format in `task-flow.local.md`.
+  Use the spec's CI mode and the checks actually attached to its candidate, including push/manual
+  runs. A paused or pending check is not absent CI. When no hosted checks are available, the declared
+  `none:<reason>` mode requires a local evidence record for that SHA. `cc-tuner:task-flow` links the
+  CI policy; repository-specific commands and evidence formats belong in `task-flow.local.md`.
 - Match the body's length to the change. Say what changed, why, and what is still open. A one-file
   fix does not need sections.

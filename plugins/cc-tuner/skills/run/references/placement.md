@@ -21,10 +21,6 @@ to them, because they read a tree nobody is changing. What must not fan out is t
 owner merges the lenses into one verdict, and every step of the lifecycle around the review stays
 sequential.
 
-Until 2026-08-21 this paragraph said "never parallelise review" flat, which contradicted
-`deep-review/SKILL.md` inside the same plugin. Run 3 caught both rules quoted in one session, and a
-model handed two opposite rules follows the cheaper one.
-
 **A fanned-out unit hands back commits, never a pull request.** Whoever fanned the work out is the
 one owner: they take the units' commits into **one candidate per repository**, run the authoritative
 tests and review for each candidate, and verify the shared outcome against that set of commits. A
@@ -39,11 +35,6 @@ One orchestrator and shared outcome; each repository has its own plan, candidate
 Dispatch and integrate a unit only in its named repository. Local ready batches do not establish
 cross-repository readiness: the orchestrator checks the shared spec's prerequisites before dispatch.
 
-An earlier revision of this paragraph ended "the parallelism lives in the writing and nowhere else",
-which reads as forbidding a unit its own tests while the rule two paragraphs up forbids only a
-parallel *testing decision*. One plugin, two readings — the same defect as finding 14, introduced by
-the fix for finding 14.
-
 `plan-lint.sh ready-batches` decides which ready slices have proven-disjoint Owned paths. This
 reference only places the batch it returned; do not recalculate or widen that batch from plan prose.
 
@@ -53,14 +44,15 @@ The orchestrator builds the brief from committed files, not session history. Inc
 path with an instruction to read it, the slice verbatim (title, Owned paths, Deciding check, Delivers,
 criteria), and any shared-task prerequisites. Give the unit these constraints:
 
-- Write only inside Owned paths; make the deciding check pass after observing its expected failure.
+- Write only inside Owned paths; prove the deciding check with its expected RED or approved non-code baseline.
 - Do not delegate further. Nested delegation previously spawned dozens of unrequested agents.
 - Report commands, results, what was not verified, and any incorrect assumptions in the slice.
 - Commit using repository conventions; do not push, open/comment on a PR, merge or claim approval.
 - Return findings to the orchestrator; do not create issues or own the task list.
 
-On return, the orchestrator reads the diff, checks Owned paths and runs the deciding check itself.
-The unit's report does not establish completion. The orchestrator owns mutation-log interpretation,
+On return, the orchestrator reads the diff, checks Owned paths and inspects the actual check output
+and tested inputs. Reuse evidence only when it still covers the integrated result; otherwise run
+the deciding check here. An unsupported success summary does not establish completion. The orchestrator owns mutation-log interpretation,
 slice completion, full regression, runtime acceptance, review verdict, DoD and delivery.
 
 ## How a unit is dispatched
@@ -107,15 +99,13 @@ place where that job is described, and the two would part company.
 
   Dispatch an ordinary (non-isolated) unit told to work in that directory. When it returns, bring its
   commits over with `git cherry-pick <task-branch>..<slice-branch>`, confirm the work actually landed —
-  the slice's deciding check passes here, and `git diff <slice-branch> -- <its Owned paths>` is empty —
+  the deciding check covers the integrated result under the evidence rule above, and
+  `git diff <slice-branch> -- <its Owned paths>` is empty —
   then `git worktree remove ../wt-<slice> && git branch -D <slice-branch>`.
 
-  `-D`, not `-d`, and only after that confirmation. A cherry-pick copies changes into **new** commits,
-  so the slice branch is never an ancestor of this one and `-d` refuses it as "not fully merged" — a
-  correct integration ends with an error message that reads like a problem. Do not reach for `-D`
-  before the check: it is the flag that discards work when the pick did not land, which is exactly the
-  case `-d` was protecting you from. Disjoint Owned paths prove two
-  units will not fight over a *file*; separate worktrees are what stop them committing into one index.
+  Cherry-pick can leave the source branch outside the target's ancestry, so `-d` may refuse it.
+  Use `-D` only after verifying integration and removing the clean worktree; never discard unlanded
+  work. Disjoint paths prevent file overlap; worktrees prevent a shared index.
 - **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
   the transcript, not the output style, not what a review just said. Anything load-bearing goes into
   the brief as literal text or as a path it is told to read.
@@ -134,7 +124,7 @@ The axis is what a method **persists**, not whether it feels exploratory.
 | `diagnosing-bugs`, probe edits | a disposable workspace — instrumentation and bisect stubs are experiments, and an experiment that lands is a regression waiting |
 | `code-review`, deep-review | the candidate SHA |
 
-`/cc-tuner:spec` created the task branch before any of this, because its own grilling phase **may**
-write `CONTEXT.md` and ADRs — `domain-modeling` creates those lazily, only when there is something to
-write, and "may" is enough to force the branch first: the ordering has to hold for the runs where it
-does write.
+`/cc-tuner:spec` creates the task branch before methods that may write design artifacts.
+
+The prior ordering failures and their evidence live in
+[case studies](../../task-flow/references/case-studies.md).
