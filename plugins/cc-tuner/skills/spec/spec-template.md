@@ -9,7 +9,7 @@
 - [x] Scope: <owned modules and consumers>; out of scope: <boundaries>
 - [x] Acceptance: every criterion below has a deciding check
 - [x] Test plan: commands, expected first failure, environment, and data are explicit
-- [x] Delivery: one branch, one PR, target, tracker, and CI source are explicit
+- [x] Delivery: each repository's branch, PR, target, tracker, and CI source are explicit
 
 ## Acceptance criteria
 - [ ] [machine] <criterion> — checked by: <exact command or MCP step>
@@ -40,9 +40,11 @@
 branch: <current task branch>
 target: <integration branch>
 merge: squash|merge
-second-repo: <path or owner/name>, branch <name> — <what changes there, and which side merges
-    first and why>. Omit when the task touches one repository. Coupled repositories are one
-    task, not two: a migration and its readers merged in the wrong order is a broken deploy.
+second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <contribution,
+    prerequisites, merge order and why>. Omit for one repository. The companion's local spec
+    records its own target, merge and CI policy; the primary test plan owns combined acceptance.
+shared-task: <primary repository, branch and spec path>. Only in the companion spec; read that
+    primary contract too. This local contribution does not complete the shared issue by itself.
 auto_ready: yes|no — <reason when no>
 ci: <mode> — <the checks, and how to observe them>
     mode is one of:

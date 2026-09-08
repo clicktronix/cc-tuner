@@ -25,6 +25,12 @@ there, and a run that never opened it is a run following defaults nobody chose.
 
 If `auto_ready` is not `yes`, `--auto` is refused — say which unmet condition blocks it.
 
+**For a shared task**, read the primary spec and every companion local spec it names. If invoked
+from a companion's `shared-task`, use the named primary as the coordinator. Perform the following
+plan resolution and validation in each repository's task checkout with its local spec. Every local
+spec must allow `--auto` when requested. Keep one run and task list; repository-specific commands,
+commits and review state always run in the checkout they describe.
+
 Then ask for the plan path and read it out of the output — a shell variable does not survive to the
 next tool call, so every command below names the file literally:
 
@@ -51,7 +57,8 @@ the plan file records; a run that publishes only when `TaskList` is empty theref
 session permanently without the three lifecycle tasks. Create in two passes, `TaskCreate` then
 `TaskUpdate addBlockedBy`:
 
-- one task per slice, with its edges from the plan;
+- one task per slice, with its edges from the plan; for a shared task qualify slice names by repository
+  and add the cross-repository prerequisite edges from the primary spec;
 - then **verify the feature**, blocked by every slice; **review the candidate**, blocked by verify;
   **deliver**, blocked by review. A chain, not three siblings: they happen in that order, and three
   tasks going ready at once says the opposite.
@@ -77,6 +84,11 @@ every slice is done. A parallel batch contains only ready slices whose literal O
 validator proved pairwise disjoint; otherwise it returns the lowest ready slice alone. Work that
 batch, tick what landed, and ask again. The placement reference owns how a parallel batch is handed
 out, not whether its paths overlap.
+
+For a shared task, read each repository's frontier in its own checkout and select work whose shared
+prerequisites are satisfied. Local `ready-batches` proves only local readiness. Keep the primary
+spec's cross-repository prerequisites in the affected deciding checks; do not start dependent work
+just because its local batch is ready. Update those prerequisites if a review changes the plan.
 
 Ask the program rather than reading the graph yourself. The rule is one line to state and easy to get
 wrong under `--auto`, and getting it wrong means starting a slice something else was supposed to
@@ -227,6 +239,9 @@ When every slice is done and before the candidate is offered to any review, invo
 repository already provides (commands, fixtures, runbooks, a browser tool, a database), chooses the
 instrument per behaviour, runs it, and returns what was observed.
 
+For a shared task, include every repository's diff and the combined acceptance checks from the
+primary spec. Record the repository/SHA set tested together; local checks alone do not prove the pair.
+
 This is the stage that decides an `[eyes]` criterion. A criterion written as human-only sometimes has
 a machine representative once the code exists — the built chart option can be asserted where "the
 inversion reads as an inversion" cannot — and finding it is part of the stage, not a licence to
@@ -237,6 +252,12 @@ it as a named residual risk when the user has already accepted it. Paste its rec
 and the pull-request body — it is the part a reviewer cannot reconstruct from the diff.
 
 ## Delivery
+
+For a shared task, perform steps 1–7 for every repository before the first merge. Give each required
+review its local spec plus the primary contract, companion diffs and SHAs; record each repository's
+PR, candidate SHA, review thread and CI policy in the primary PR. A change to any participant requires
+rechecking combined acceptance and refreshing affected reviews against the new set of commits.
+Step 8 coordinates their merges; step 9 reconciles the whole task. Partial PRs use `Refs`, not `Closes`.
 
 **A new commit invalidates exact-candidate evidence** — testing, acceptance, the authoritative review,
 CI and the Definition of Done. Re-earn those on the new SHA. It does not erase findings already read
@@ -338,10 +359,18 @@ or require restarting every advisory review from zero.
    If the spec declares `none` and checks turn out to exist, the spec is wrong about the repository:
    fix the spec, do not drop the flag. The script refuses that combination anyway.
 
-   **Where the spec names a `second-repo`, merge in the order it gives.** That order is not a
-   preference: a migration merged after the code that reads it, or a contract after its consumer, is
-   red in production for the window between them. Merge the far side, confirm its checks, then this
-   one — and if its branch is not ready, this candidate is not ready either.
+   **For a shared task, check every participant before merging any of them.** In each candidate's
+   checkout, run the same `merge.sh` invocation above with `--check-only` and that repository's own
+   PR, SHA, strategy, CI mode and review thread. Every check must pass. A PR without a committed plan
+   is refused by this mode: prepare its local plan and re-earn its candidate evidence; never fall
+   through to the script's unchecked path for unrelated PRs.
+
+   Then merge in the primary spec's declared order, using the checked command in each repository.
+   Confirm each merge and any stated rollout prerequisite before its dependent merge. A merged
+   migration is not an applied migration; use actual environment evidence. If a necessary deploy or
+   migration is not authorised, report that blocker and continue independent work without declaring
+   the task delivered. A failure after a partial merge leaves the shared issue open; retain the
+   completed-merge record and resume the remaining work without re-merging or resetting history.
 
    It re-runs the companion's exact-candidate check, re-reads the public verdict, required checks and
    head, and pins the head, so nothing here has to be carried forward correctly. Do not replace it with a raw `gh pr merge`:
@@ -349,8 +378,10 @@ or require restarting every advisory review from zero.
 
    The script refuses a merge without the pin: the head can move between the check and the merge,
    and only GitHub can close that window.
-9. **Reconcile after the merge**, as the spec requires: sync the target, delete the branch, close the
-   issue. Do not commit to the integration target to record anything: `.claude/rules/task-flow.md`
+9. **Reconcile after the merge**, as the spec requires: sync the target and clean up the task branch
+   in each repository. Close the issue only when the whole agreed outcome is complete, including
+   the shared task's acceptance and delivery prerequisites. Do not commit to the integration target
+   to record anything: `.claude/rules/task-flow.md`
    forbids a direct commit there, and the Definition of Done was already recorded on the pull request
    in step 7, which is where a reader looks for it.
 

@@ -26,17 +26,18 @@ Until 2026-08-21 this paragraph said "never parallelise review" flat, which cont
 model handed two opposite rules follows the cheaper one.
 
 **A fanned-out unit hands back commits, never a pull request.** Whoever fanned the work out is the
-one owner: they take the units' commits into a **single candidate**, run the authoritative tests on
-that candidate, carry it through one review to one verdict, and open the one pull request that
-merges. A unit does not open its own PR, does not merge, and does not claim its own approval — two
-candidates reviewed apart are two things nobody reviewed together.
+one owner: they take the units' commits into **one candidate per repository**, run the authoritative
+tests and review for each candidate, and verify the shared outcome against that set of commits. A
+unit does not open its own PR, does not merge, and does not claim its own approval.
 
 **A unit runs whatever checks it needs while it writes** — those are part of writing, not a second
 opinion about the candidate. What never fans out is the **decision**: whether the assembled candidate
-passes, what the review verdict is, and every step of delivery. Those read one candidate and belong to
+passes, what the review verdict is, and every step of delivery. Those read the assembled work and belong to
 one owner.
 
-One plan, one candidate, one verdict, one merge.
+One orchestrator and shared outcome; each repository has its own plan, candidate, verdict and merge.
+Dispatch and integrate a unit only in its named repository. Local ready batches do not establish
+cross-repository readiness: the orchestrator checks the shared spec's prerequisites before dispatch.
 
 An earlier revision of this paragraph ended "the parallelism lives in the writing and nowhere else",
 which reads as forbidding a unit its own tests while the rule two paragraphs up forbids only a

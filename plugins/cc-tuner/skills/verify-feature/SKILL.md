@@ -19,6 +19,8 @@ be a comment, and the interesting change is often in neither.
 
 - the spec's **acceptance criteria** — each one names a behaviour and how it is decided;
 - the **diff**, in full, and what calls the changed code;
+- for a shared task, the primary contract and every participating repository's diff and candidate
+  SHA; exercise their combined behaviour and record the exact set of commits under test;
 - `[eyes]` criteria specifically: they were written as human-only, and part of this skill's job is to
   find the machine check that retires one. A criterion that says "the inversion reads as an inversion"
   may be provable by asserting the series order in the built chart option.

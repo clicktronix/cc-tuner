@@ -31,8 +31,9 @@ gh api graphql -f query='query{repository(owner:"<o>",name:"<r>"){issue(number:<
   subIssuesSummary{total completed percentCompleted} subIssues(first:50){nodes{number title state}}}}}'
 ```
 
-When to reach for an epic: the work needs more than one PR, or spans more than one repo, or has
-phases a human will want to review separately. Below that, a plain issue.
+Use an epic for independently deliverable work or phases needing separate scope decisions. A coupled
+change across repositories can share one issue; multiple PRs alone do not require an epic. Use `Refs`
+on partial PRs and close the shared issue only after the whole result is verified and delivered.
 
 The branch and PR attach to the **sub-issue**. The epic closes when its children close — never link
 `Closes <epic>` from a child's PR.
