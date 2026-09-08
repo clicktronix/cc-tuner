@@ -62,3 +62,33 @@ No live model eval was run: `EVALUATED_SHA` remains unchanged and the ADR remain
 Testing-runbook setup, actual Task-tool availability probing and measured delegation cost remain
 open. Installed plugin caches and repository rules were not updated by these source commits; an
 active session may still contain the old instructions.
+
+## Editorial follow-up to `cbb2abe`
+
+The accepted follow-up keeps the same continuous lifecycle and removes conditional detail from
+the default reading path. It introduces no runtime script, hook, counter or approval gate.
+
+| Commit | Change |
+|---|---|
+| `a897324` | Clarify the scope contract and future-work introduction; preserve the dated Stokli incident in the existing case studies |
+| `65e52f6` | Load shared-task, mutation and local-CI procedures when applicable; move delegation details into the existing placement reference; standardize `primary spec` |
+| `80af216` | Remove exact-prose assertions for run policy while retaining helper invocation, machine-marker and executable checks |
+
+`run/SKILL.md` shrank from 391 to 177 lines (4,246 to 1,578 words). Including all of its
+references, the directory shrank from 515 to 421 lines (5,725 to 4,205 words). These are text
+measurements, not measured token or dollar savings. `spec` and standalone `verify-feature` have
+their own shared-task loaders; each entry point reads the reference before the relevant work.
+Related decisions needing user input are grouped while independent work continues. There is no
+finding-count threshold.
+
+Independent Standards and Spec reviews compared the complete old and new flow, including the
+references: no confirmed loss of requirements or new findings. Both also reviewed the test change.
+The first full suite at `65e52f6` failed 18 assertions tied to old wording; the other ten shell
+suites passed. `80af216` removes 19 prose assertions, including one that still passed, rather than
+substituting new wording regexes. This removes an automatic signal for literal policy-text deletion;
+semantic preservation for this change was checked by review, not established by those assertions.
+
+`bash tests/run.sh` at `80af216` passed: exit 0, 23 checks over 11 shell suites. All six directly
+linked local references from the changed entry points resolve. Hosted CI checks the final published
+head separately. The live model eval and installed-version propagation remain unverified; this
+editorial pass does not close the outstanding items above.
