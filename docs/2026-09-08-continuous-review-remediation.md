@@ -92,3 +92,51 @@ semantic preservation for this change was checked by review, not established by 
 linked local references from the changed entry points resolve. Hosted CI checks the final published
 head separately. The live model eval and installed-version propagation remain unverified; this
 editorial pass does not close the outstanding items above.
+
+
+## Continuous execution corrections after `0960386`
+
+The user retained manual merge without `--auto` and chose actual target synchronization over merely
+reviewing against a merge-base. The remaining findings were corrected within the same PR:
+
+- `6fdf9eb`: notify and merge/rebase an advanced target, resolve conflicts before candidate evidence;
+  keep published history and the required thread's base stable. Prepare archive paths and links before
+  the first review. Preserve independent WIP and continue work not blocked by a real decision.
+- Direct non-code checks and existing tests may prove their own acceptance criteria. Reuse observed
+  evidence only when its inputs still match the integrated result; changed or uncertain inputs need
+  new checks. Final authoritative approval and CI remain bound to the candidate SHA.
+- One CI policy covers candidate checks, including push/manual workflows. The existing merge helper
+  still rejects missing approval, failing checks and `none` over reported checks.
+- One advisory workflow: ordinary Matt review or sensitive/large deep-review, followed by required
+  Codex review. Escalate once if a fix introduces a deep-review trigger. At the required cap, paid
+  reviews and delivery stop; safe remaining fixes may continue without inventing approval.
+- Grilling addresses unresolved decisions in batches. Typecheck/lint are no longer mandatory after
+  every formatter, and unsupported claims are distinguished from reusable observed evidence.
+- `019de7e`: align the remaining scope/CI checklist, allow Matt's read-only parallel lenses and remove
+  the ADR's obsolete three-review requirement. Issue linking remains conditional on an issue existing.
+
+Both independent review axes approved the final instruction changes with no remaining findings.
+Standards initially found four residual contradictions; Spec also noted the CI wording. These were
+fixed additively in `019de7e`, then re-reviewed. Runtime scripts and their tests were unchanged.
+
+### Official Claude Code review comparison
+
+Checked the [official command source at `db8834ba`](https://github.com/anthropics/claude-code/blob/db8834ba1d72e9a26fba30ac85f3bc4316bb0689/plugins/code-review/commands/code-review.md),
+alongside Context7 documentation. It is an official plugin, not cc-tuner's authoritative gate.
+It dispatches four main reviewers plus finding validators, focuses on diff bugs and CLAUDE.md
+compliance, skips some PRs, and publishes only with `--comment`. Deep-review uses six applicable
+lenses spanning the spec, callers, architecture, security and verification; its owner validates the
+findings and returns an advisory verdict. Both use independent agents, but their scope differs.
+The official command's narrow pre-existing-issue filter is unsuitable as cc-tuner's task-scope rule.
+
+### Verification and limits
+
+- Full `bash tests/run.sh` at `6fdf9eb`: exit 0, 23 checks over 11 shell suites.
+- Static contract suite and `git diff --check` passed after `019de7e`; hosted CI checks the final head.
+- Temporary real Git fixture: conflict-producing target merge, explicit resolution, archive relocation,
+  updated plan validation and resolver-based resume all passed. The installed cc-codex-triage 0.11.0
+  checker accepted the archived spec before the first round and a later target merge with the same
+  pinned review contract. Only local state claims ran; no paid review or approval was fabricated.
+- Text size: run 177 → 208 lines, spec 190 → 185, placement 140 → 127. The run growth names previously
+  missing synchronization/archive steps; conditional details stay in references. Token/dollar savings
+  are not measured. The live model eval and installed-cache propagation remain open.
