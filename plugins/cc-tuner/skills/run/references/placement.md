@@ -15,11 +15,9 @@ Fan out **only across independent code-writing units**, one isolated git worktre
 parallelise a testing decision or any step of delivery: those read a state that the other branch is
 still changing, and two answers about one candidate is not twice the confidence.
 
-**Review is the exception, and only in one direction.** Independent read-only lenses over one
-*immutable* candidate may fan out when `/run` selects `deep-review`. The reason above does not apply
-to them, because they read a tree nobody is changing. What must not fan out is the **decision**: one
-owner merges the lenses into one verdict, and every step of the lifecycle around the review stays
-sequential.
+**Review is the exception.** Independent read-only lenses of the selected advisory workflow may
+fan out over one immutable candidate, including Matt's Spec/Standards pair. One owner aggregates
+findings; candidate changes and delivery remain sequential.
 
 **A fanned-out unit hands back commits, never a pull request.** Whoever fanned the work out is the
 one owner: they take the units' commits into **one candidate per repository**, run the authoritative

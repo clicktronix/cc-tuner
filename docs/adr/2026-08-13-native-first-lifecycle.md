@@ -199,8 +199,8 @@ recorded under **Consequences**.
 - **The committed Markdown plan as the single readable store** — owned paths, acceptance, deciding
   checks, `Blocked by`, and `- [ ]` progress. Two independent measurements force this: `metadata`
   written through `TaskCreate` cannot be read back, and nothing survives a new session.
-- Candidate SHA before review; three reviews run against that SHA — one of them checkable by the script,
-  the other two mandatory steps of the flow; current-head CI; DoD before merge.
+- Candidate SHA before review; one risk-selected advisory workflow, then the authoritative review
+  checked by the script; current-head CI and DoD before merge.
 - Method placement — by ordering the branch, not by overriding the skills.
 
 ### Deleted

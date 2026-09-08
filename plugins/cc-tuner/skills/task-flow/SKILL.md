@@ -152,7 +152,7 @@ are a different artifact with a different path (`task-plans/`) and a different l
    when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
    Minimum header: `Goal:`, `Issue:`, and `Architecture:`. Slices, owned paths, and blockers live in
    the separate execution plan that links back to this spec.
-3. First paragraph links the tracking issue; the issue body links the plan back.
+3. When an issue exists, the first paragraph links it and the issue body links the spec back.
 4. A PR completing the task moves the spec to `<plans-root>/ARCHIVE/PLANS/` before its first
    candidate review, following Prepare the candidate below — never as a standalone doc PR.
 
@@ -179,11 +179,9 @@ review; record later DoD evidence on the PR. For shared tasks, update companion 
 - [ ] A new regression check was observed failing as specified, or the approved non-code baseline
       was recorded. Read formatter/autofix diffs and verify their effect with the repository's
       relevant checks; reuse valid evidence rather than requiring typecheck and lint universally
-- [ ] Nothing deferred as "pre-existing" without `git diff <base>...HEAD` showing the branch does not
-      cause it
-- [ ] PR body links the green CI run instead of pasting its output — or, where the target runs no
-      checks on a pull request, records the local gate as `.claude/rules/task-flow.md` prescribes.
-      One line saying the mutant check was done is not a transcript — it is the part a reviewer
-      cannot reconstruct from the logs
+- [ ] Findings follow the scope contract in `.claude/rules/task-flow.md`, including regressions
+      and older dependencies needed for acceptance; independent improvements remain optional
+- [ ] PR links the candidate's green CI under its declared mode, or records the exact-SHA local
+      result for `none:<reason>` as the CI policy above requires
 - [ ] Plan promoted or archived if this PR completes it
 - [ ] No credentials, unrelated WIP or unintended generated files staged
