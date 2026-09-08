@@ -177,8 +177,10 @@ review; record later DoD evidence on the PR. For shared tasks, update companion 
 - [ ] Issue is linked (`Closes #N` / `Refs #N`), or the PR explains why none is needed; when a board
       is configured, the card has Status and Priority
 - [ ] A new regression check was observed failing as specified, or the approved non-code baseline
-      was recorded. Read formatter/autofix diffs and verify their effect with the repository's
-      relevant checks; reuse valid evidence rather than requiring typecheck and lint universally
+      was recorded. Read formatter/autofix diffs. If checked inputs changed, verify affected criteria
+      with relevant checks on the resulting state; reuse an existing result only if it was obtained
+      after those edits. A no-op or unaffected check can reuse earlier evidence. Do not require
+      typecheck and lint universally.
 - [ ] Findings follow the scope contract in `.claude/rules/task-flow.md`, including regressions
       and older dependencies needed for acceptance; independent improvements remain optional
 - [ ] PR links the candidate's green CI under its declared mode, or records the exact-SHA local

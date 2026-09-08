@@ -37,8 +37,10 @@ file provenance does not.
 ## Autofix trusted blindly
 
 Also in PR #399, `eslint --fix` moved value imports into `import type`, and formatting moved a comment
-past a bare `return`. Both tools reported success; typecheck exposed both failures. Read an autofix
-diff and re-run typecheck and lint.
+past a bare `return`. Both tools reported success; typecheck exposed both failures. Those checks
+needed to cover the code after autofix, not an earlier green state. Read the resulting diff and use
+checks relevant to the affected criteria; this TypeScript incident does not prescribe every tool
+for every repository.
 
 ## Issue omitted from the board
 

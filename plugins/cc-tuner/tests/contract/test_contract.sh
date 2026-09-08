@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Static wiring checks for shipped instructions, templates and release configuration.
-# These do not prove model behaviour. /run's policy is checked by semantic review and model eval;
-# exact helper commands and machine-consumed markers remain checked here. Legacy wording assertions
-# for other skills are retained, but should not be mistaken for behavioural evidence either.
+# These do not prove model behaviour. /run policy changes receive semantic review; model eval is
+# historical unless EVALUATED_SHA covers them. Exact helper commands and machine-consumed markers
+# remain checked here. Legacy wording assertions for other skills are not behavioural evidence.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
@@ -80,7 +80,8 @@ need "run-codex-required-review"    '--required' "$RUN"
 # Sentence matching used to grade task recovery, review routing, deferral and publication order.
 # Rephrasing those instructions broke the tests without changing those decisions; retaining the
 # expected sentence in a contradictory paragraph would pass. Do not repair that by pinning the new
-# wording. Review/eval covers the policy; tests/flow covers the helpers' executable behaviour.
+# wording. Semantic review covers instruction changes; model-eval provenance is tracked separately
+# in EVALUATED_SHA. tests/flow exercises the helpers, not the model's choice to invoke them.
 # The classes belong to /spec, which assigns the proof; /run only executes what is already committed.
 # Pinned there, not here — an earlier revision pinned them in /run, which is advice arriving after the
 # decision it is about.

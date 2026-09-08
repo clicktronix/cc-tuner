@@ -140,3 +140,23 @@ The official command's narrow pre-existing-issue filter is unsuitable as cc-tune
 - Text size: run 177 → 208 lines, spec 190 → 185, placement 140 → 128. The run growth names previously
   missing synchronization/archive steps; conditional details stay in references. Token/dollar savings
   are not measured. The live model eval and installed-cache propagation remain open.
+
+
+## Autofix evidence and coverage clarification after `32e93a3`
+
+The standalone task-flow checklist now explicitly requires evidence from after an autofix that
+changes checked inputs. A result already obtained on that resulting state can be reused; no-op and
+unaffected checks do not demand another build. Run and verify-feature already carried this input
+validity rule. The historical TypeScript incident is preserved without making its toolchain universal.
+
+The claim that policy coverage became zero is too broad. Executable merge tests still cover head
+pinning, stale/missing approval and a superseding REQUEST_CHANGES; plan-lint tests cover blocked
+frontiers. Wiring assertions still check the selected helpers and machine markers. They do not prove
+that a model obeys native dependencies or publishes a truthful verdict. Nineteen exact-prose
+assertions were removed in `80af216`; their deletion-detection signal is not restored here. It cannot
+substitute for current model evidence. Both test comments now distinguish semantic review from the
+historical eval. DoD already uses one abbreviation throughout run, so no terminology edit was needed.
+
+Independent Standards and Spec reviews found no substantive defect; Spec's lower-comment wording
+note was also corrected. Targeted contract, merge and plan-lint suites passed (exit 0). No executable
+assertion or runtime helper changed in this clarification; hosted CI validates the published head.
