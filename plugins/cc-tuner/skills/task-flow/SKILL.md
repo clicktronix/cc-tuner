@@ -82,9 +82,8 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge keeps
 the card In Progress.
 
-**Deferring a review finding.** `.claude/rules/task-flow.md` says *whether* a finding may be deferred
-at all, and is loaded in every session; this says *how* to do it once it may be. Do not decide the
-question from here — a rule paraphrased in two files is a rule that will be two rules.
+**Recording independent future work.** `.claude/rules/task-flow.md` defines what must be fixed in the
+current task and what remains an open blocker. This procedure records work outside that obligation.
 
 For independent future work, check current code and work in flight, then search existing issues and
 epics for the same cause or deliverable. Add evidence and remaining work to a matching item; group

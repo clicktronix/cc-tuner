@@ -62,10 +62,9 @@ a convention nobody chose.
 
 - `Closes #N` / `Fixes #N` only when the PR fully completes the issue; `Refs #N` for partial or
   stacked work. No issue → say why in the body.
-- **Fix confirmed defects of the agreed outcome in this task**, including regressions and the
-  dependencies needed to meet acceptance. File location, repository, severity, size and the number of
-  findings do not decide scope. Replan necessary work within the agreed outcome; independent
-  improvements do not become requirements just because a reviewer suggested them.
+- **Fix this task's bugs, regressions and missing acceptance criteria**, including missing work they
+  depend on. File location, repository, severity, size and finding count do not decide scope. Update
+  the plan when a fix needs more work; a reviewer's independent improvement is not a new requirement.
 - **Tracking a defect does not resolve it.** An unmet acceptance criterion remains open until proved
   or explicitly waived by the user. If access or a user decision blocks it, continue available work
   and report the dependency; do not claim completion. Recording independent future work does not

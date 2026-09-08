@@ -45,6 +45,24 @@ diff and re-run typecheck and lint.
 On 2026-06-05, nine issues created with bare `gh issue create` missed the project board until a later
 manual request. Create with `--project` and set Status and Priority.
 
+## Review findings turned into backlog
+
+In stokli/backend, a tool-call audit of 2026-08-31 through 2026-09-04 matched 42 created issues:
+33 from the orchestrator and nine from implementation workers. Forty-one creation commands omitted
+`--project`; only one included it. Separately, 29 review issues were later added to the board.
+These are different measures: a missing flag does not prove missing board membership, because the
+project also had an auto-add workflow. Its historical configuration was not established by the audit.
+
+The larger failure was treating an issue as resolution. [#527](https://github.com/stokli/backend/issues/527)
+described a missing acceptance criterion while the run reported its findings closed after filing it.
+Several findings named changed files, but that alone cannot establish scope: the file-provenance
+case above already shows why causality matters. Required work must remain in the run; workers return
+findings to its orchestrator, and independent future work is grouped or added to an existing issue.
+
+The initial remedy used file membership and a five-deferral threshold. Neither identifies why a
+defect must be fixed. The threshold was removed, and the rule now distinguishes unresolved acceptance
+from independent future work. The counts belong to this dated audit, not to a runtime decision rule.
+
 ## Tiny documentation PR
 
 On 2026-06-05, marqa-tech/analyzer PR #23 contained three wording fixes in one file and incurred more
