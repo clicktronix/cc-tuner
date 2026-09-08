@@ -70,8 +70,8 @@ a convention nobody chose.
   or explicitly waived by the user. If access or a user decision blocks it, continue available work
   and report the dependency; do not claim completion. Recording independent future work does not
   pause the run or require a new confirmation for work already authorised.
-- **An issue that is not on the board is not tracked.** Put it there in the command that creates it;
-  a board pass "afterwards" does not happen, and the pile is invisible while it grows.
+- **Use the configured board for tracked work.** Add new issues when creating them and confirm reused
+  issues are on it. With `board: none`, use issues without project commands or project permissions.
 - **Verification is a link, not a transcript.** Point at the green CI run. Do not paste command
   output into the body: it is already in the logs, and it buries the part a human has to read.
   **Where the target runs no checks on a pull request** — a repo whose workflows are `push`-only, or

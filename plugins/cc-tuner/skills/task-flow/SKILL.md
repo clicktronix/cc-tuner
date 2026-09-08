@@ -39,6 +39,9 @@ The branch and PR attach to the **sub-issue**. The epic closes when its children
 
 ## Board recipes (GitHub Projects)
 
+Use these recipes only when the repository has a configured board. With `board: none`, omit
+`--project` from issue creation and skip project commands, fields and project-scope setup.
+
 **Create an issue directly on the board (preferred):**
 
 ```bash
@@ -82,28 +85,13 @@ the card In Progress.
 at all, and is loaded in every session; this says *how* to do it once it may be. Do not decide the
 question from here — a rule paraphrased in two files is a rule that will be two rules.
 
-The diff is evidence, not the verdict. `git diff --name-only <base>...HEAD` answers "did I touch this
-file", which is worth knowing and is not the same question as "did I cause this" — a file can be long
-enough that touching one function says nothing about a finding elsewhere in it, and a change can break
-something in a file it never opened. Use it to notice that a finding you were about to call
-out-of-scope is sitting in your own diff; do not use it to rule one out.
+For independent future work, check current code and work in flight, then search existing issues and
+epics for the same cause or deliverable. Add evidence and remaining work to a matching item; group
+related findings into one schedulable change. Create a new issue only for a distinct piece of work
+that is still needed. An optional suggestion with no planned outcome can remain a review note.
 
-When a deferral is genuinely right, it gets one issue, created on the board in the same command — one
-issue rather than a list in a comment thread, because the thread closes with the pull request and takes
-the list with it:
-
-```bash
-gh issue create --repo <owner>/<repo> --title "..." --project "<PROJECT TITLE>"
-```
-
-Before filing, two questions that make issues disappear: is it already fixed by the work in flight
-(check the merged code, not the issue's age), and would anyone ever schedule it (if not, it is a
-comment).
-
-The failure this is written against, measured in one epic: 42 issues over four days, 29 filed without
-`--project` and so never on the board, at least two already fixed by the merge they were filed against,
-and eleven of seventeen naming files that same branch had just rewritten. Every one of those was a
-defensible decision on its own; the sum was not, and nothing in a per-finding rule can see a sum.
+Include the observed problem, the intended result and its source review. Follow the board recipes
+above when a board is configured; otherwise create or update the issue without project commands.
 
 ## After the merge
 
