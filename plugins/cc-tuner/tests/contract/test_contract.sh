@@ -33,6 +33,15 @@ need() {
 }
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
+# A second provider's research is optional and decided before discovery, so it overlaps the reading;
+# asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
+need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"
+need "spec-opinions-before-discovery"     'before the reading, so it has' "$SPEC"
+need "spec-opinions-are-evidence"         'never a decision' "$SPEC"
+OPINIONS="$ROOT/plugins/cc-tuner/skills/spec/references/optional-opinions.md"
+need "opinions-no-mandatory-chain"        'no chain of `ask` → `research` → `debate` exists' "$OPINIONS"
+need "opinions-debate-is-owner-initiated" 'without a fresh' "$OPINIONS"
+need "opinions-never-approval"            'never an approval' "$OPINIONS"
 need "spec-loads-template" 'spec-template.md' "$SPEC"
 need "spec-eyes-schema" 'checked by: <human step>; machine replacement: <exact check|none>; waiver: <user/date|none>' "$SPEC_TEMPLATE"
 need "spec-dor" '## Definition of Ready' "$SPEC_TEMPLATE"
