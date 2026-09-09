@@ -1,16 +1,43 @@
 ---
 description: One user-run entry point for checking cc-tuner prerequisites and routing to the installers a repo needs. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
-argument-hint: '[check|install]'
+argument-hint: '[check|install] [agent-rules]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion
 disable-model-invocation: true
 ---
 
 # /cc-tuner:setup
 
-The three `*-setup` commands each install one thing and assume the environment around them is fine.
-This command is the layer above: it finds out what is missing **before** anything is installed, then
-prints only the installer commands this repo needs. `check` (default) reports and changes nothing;
-`install` may wire the board after the user runs the suggested installers.
+This command checks local repository rule loading and the environment needed by the other setup
+commands. `check` (default) reports and changes nothing. `install` adds the rule-loading instruction;
+other installers remain user-run, and board wiring follows only when applicable.
+
+## 0. Repository rule loading
+
+This setup owns the portable rule-loading instruction and requires Python 3. If unavailable,
+report this step as unavailable; the other environment diagnostics can still run. Run:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agent-rules-setup.py" check --repo .
+```
+
+Use `install` instead of `check` only in install mode. An explicit setup install request authorizes
+this additive edit; no extra confirmation is needed. The helper reports a diff, preserves existing
+prose and all rule files, and honours a non-empty root `AGENTS.override.md`. Empty overrides
+stay empty so they do not hide `AGENTS.md`. It installs no per-repo skill:
+`cc-tuner:agent-rules` is supplied by the plugin. The instruction also works without the plugin.
+
+Exit 1 in check mode means the file needs an edit, and the last line says which: `MISSING` when no
+block is installed, `PRESENT BUT NOT FIRST` when one is installed below prose that the instruction
+budget can truncate. Report that distinction; a late block is not a missing one. Exit 2 means a
+conflicting block, symlink, or operational error — inspect it rather than overwriting it or
+claiming success. In install mode the last line reads `INSTALLED` or `MOVED` accordingly.
+When the optional second argument is `agent-rules`, stop after this step and rule discovery below;
+no GitHub token, companion plugin, or board is needed for local rule setup.
+
+Use `cc-tuner:agent-rules` to read the applicable bodies and follow relevant documentation links.
+An installed block does not prove all references exist or that an agent obeys them. Claude Code's
+native rule loading remains in place; the helper does not change CLAUDE.md or user settings.
+Start a fresh Codex session to pick up changed startup instructions.
 
 ## 1. Diagnose
 
@@ -39,8 +66,8 @@ In `check` mode, stop here regardless.
 
 ## 3. Install what this repo needs
 
-Each of these is judgement, not a fixed list. Decide, say why, then print the exact command for the
-user. Every installer is user-invoked and owns its own idempotency and confirmation prompts; never
+Beyond the rule-loading step above, each of these is judgement, not a fixed list.
+Decide, say why, then print the exact command for the user. Every installer is user-invoked and owns its own idempotency and confirmation prompts; never
 invoke it from this skill or reimplement its steps. Reporting an install that could not have happened
 is worse than not offering it, because nothing later contradicts the claim.
 

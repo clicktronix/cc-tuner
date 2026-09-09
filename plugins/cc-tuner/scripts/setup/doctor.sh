@@ -34,7 +34,7 @@ bad()  { say "MISS $1"; miss=1; }
 if command -v git     >/dev/null 2>&1; then ok "git";     else bad "git — required for every command here"; fi
 if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — statusline-setup refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
 if command -v gh      >/dev/null 2>&1; then ok "gh";      else warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"; fi
-if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — the statusline's usage segment degrades without it"; fi
+if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — agent-rules setup requires it; the statusline's usage segment also degrades without it"; fi
 
 # --- 1b. the native task tools -------------------------------------------------------------------
 # `/cc-tuner:spec` publishes the visible plan through TaskCreate and wires its edges with

@@ -4,6 +4,17 @@ Skills that tune Claude Code's own configuration. One install, no per-project co
 
 ## Skills
 
+### `agent-rules`
+
+Read the applicable repository rules and linked contracts before reviewing or changing code.
+The skill follows the project's index and checks the actual rule inventory so newly added rules
+are not hidden by an outdated table. `/cc-tuner:setup install agent-rules` adds a short portable
+loading instruction at the start of the root AGENTS.md (or AGENTS.override.md), without copying
+rules or generating per-repository skills. The block precedes the file's own heading so the
+instruction budget cannot truncate it. `check` is read-only and separates a missing block from a
+late one; repeated installation is a no-op.
+
+
 ### `claude-md-writer`
 
 Create, refactor, and audit **CLAUDE.md** and **`.claude/rules/`** memory files for Claude Code, following the official memory docs (<https://code.claude.com/docs/en/memory>). Triggers when you create/trim/split a CLAUDE.md, organize instructions into `.claude/rules/`, or decide what belongs in CLAUDE.md vs rules vs `CLAUDE.local.md` vs tool config.
