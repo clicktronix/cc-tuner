@@ -14,8 +14,13 @@ This command owns discovery and readiness; `/run` owns delivery.
 
 ```bash
 git rev-parse --show-toplevel || { echo "not a git repo"; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh" \
+  || echo "prerequisites missing — /spec continues; /cc-tuner:run needs them before delivery"
 ```
+
+The prerequisite check names what `/run` will need — the Codex required-review contract, the
+review skills. A miss there is recorded in the spec's Delivery section for `/run` to act on; it does
+not block spec work, and an absent bridge only means the optional research below is unavailable.
 
 **Decide once, now, whether a second provider reads alongside you.** When `cc-codex-triage` is
 installed and the task has an unfamiliar dependency, a current-facts question or two defensible
@@ -147,8 +152,9 @@ Present the spec decisions and proposed slices as one concise review: title, del
 and blockers. Ask once whether the contract, granularity, and edges are right; revise until approved.
 This is the only approval before implementation.
 
-After approval, create or update the issue so it and the spec link to each other, write the approved
-spec to its final path, then ask the repository for the plan path:
+After approval — with `tracker: gh`, create or update the issue so it and the spec link to each
+other; with `tracker: none`, skip that and let the spec be the record — write the approved spec to
+its final path, then ask the repository for the plan path:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create

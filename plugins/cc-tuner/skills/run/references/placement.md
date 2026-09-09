@@ -81,9 +81,12 @@ place where that job is described, and the two would part company.
   slice. Say the expected saving when proposing a fan-out, and count builds separately from agents —
   two units are two agents and, on a repository with a heavy build, two full builds.
 - **One heavy check at a time.** A full build, a full suite, a container start: run those in sequence
-  even when the units writing the code run in parallel, and cap a batch at two units on a repository
-  where the deciding check is a build. Machines run out of memory before they run out of agents, and a
-  run killed for memory grades nothing — it only spends.
+  even when the units writing the code run in parallel. **The concurrency cap counts running units,
+  not the batch.** With rolling dispatch a new batch joins units still working, so on a repository
+  where the deciding check is a build, hold the *active set* — running plus about-to-start — at two,
+  and dispatch from a returned batch only up to that ceiling; the rest waits for a unit to return.
+  Machines run out of memory before they run out of agents, and a run killed for memory grades
+  nothing — it only spends.
 - **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
   That is the whole difference, and it is easy to lose by narrating between calls.
 - **Isolation.** A single unit while you wait works in this checkout and needs nothing.

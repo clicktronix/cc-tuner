@@ -116,14 +116,15 @@ the matching CLAUDE.md and carries over its MCP servers, commands, subagents and
 seed a file, then keep `@AGENTS.md` as the live link — a one-time copy is the drift this skill warns
 about everywhere else.
 
-**`.claude/rules/` is Claude-only.** Codex does not read it. So moving rules out of `AGENTS.md` into `.claude/rules/` makes them invisible to every other agent on the repo — bridge it with a pointer section plus a skill under `.agents/skills/` (see below).
+**`.claude/rules/` is Claude-only.** Codex does not read it. So moving rules out of `AGENTS.md` into `.claude/rules/` makes them invisible to every other agent on the repo — bridge it. **If the repository carries the `agent-rules` block** (the `<!-- agent-rules:begin -->` marker in the root `AGENTS.md`, installed by `/cc-tuner:setup`), that block plus the plugin-supplied `agent-rules` skill *is* the bridge: do not generate a per-repository skill or a pointer table beside it, they would be a second copy of the same route. Only a repository without that block needs the hand-built bridge below.
 
 **Codex has no lazy loading at all, and nested `AGENTS.md` is not a substitute for `paths:`.** Codex builds its instruction chain **once per run, at startup**, walking from the project root down to `cwd` and appending each `AGENTS.md` it passes. Reading or editing a file in a subdirectory does **not** pull in that subdirectory's file. "Nearest wins" describes precedence — the closer file lands later in the combined prompt — not deferred loading. A nested file *below* `cwd` is never read. So nested `AGENTS.md` only works under an operational contract: every Codex session starts inside the package it is working on.
 
 | Repo driven by | Lever |
 |---|---|
 | Claude Code only | `.claude/rules/*.md` with `paths:` — genuinely lazy, fires on a matching read |
-| Claude Code **and** Codex | keep `.claude/rules/` for Claude, and bridge Codex: a pointer table in `AGENTS.md` naming rule → glob → purpose, plus a skill in `.agents/skills/` mapping work area → files to read. Advisory, not automatic — see the reliability note below |
+| Claude Code **and** Codex, `agent-rules` block installed | keep `.claude/rules/` for Claude; the installed block and the plugin's `agent-rules` skill route Codex to the rules. Add nothing per repository |
+| Claude Code **and** Codex, no `agent-rules` block | keep `.claude/rules/` for Claude, and bridge Codex by hand: a pointer table in `AGENTS.md` naming rule → glob → purpose, plus a skill in `.agents/skills/` mapping work area → files to read. Advisory, not automatic — see the reliability note below. Prefer installing the block |
 | A package with a hard ownership boundary, and a launcher that controls `cwd` | nested `AGENTS.md` + one-line `CLAUDE.md` beside it |
 
 **The bridge is weaker than the loader.** Claude's path rule fires on a matching

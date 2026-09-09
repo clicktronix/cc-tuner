@@ -33,6 +33,13 @@ need() {
 }
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
+need "spec-prereq-does-not-block-spec" '/spec continues' "$SPEC"
+need "spec-tracker-none-skips-issue"    'with `tracker: none`, skip that' "$SPEC"
+need "writer-honours-installed-agent-rules" 'do not generate a per-repository skill or a pointer table' "$CLAUDE_MD_WRITER"
+need "setup-has-a-remove-for-statusline" '/cc-tuner:setup remove statusline' "$SETUP"
+need "setup-detects-task-tools-now" 'is `TaskCreate` in this session' "$SETUP"
+need "setup-reports-the-testing-runbook" 'Testing runbook' "$SETUP"
+need "placement-caps-the-active-set" 'counts running units' "$PLACEMENT"
 # A second provider's research is optional and decided before discovery, so it overlaps the reading;
 # asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
 need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"
