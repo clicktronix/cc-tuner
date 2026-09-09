@@ -13,7 +13,8 @@ other installers remain user-run, and board wiring follows only when applicable.
 
 ## 0. Repository rule loading
 
-This setup owns the portable rule-loading instruction. Run:
+This setup owns the portable rule-loading instruction and requires Python 3. If unavailable,
+report this step as unavailable; the other environment diagnostics can still run. Run:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agent-rules-setup.py" check --repo .
@@ -21,7 +22,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agent-rules-setup.py" check --repo .
 
 Use `install` instead of `check` only in install mode. An explicit setup install request authorizes
 this additive edit; no extra confirmation is needed. The helper reports a diff, preserves existing
-prose and all rule files, and honours a root `AGENTS.override.md`. It installs no per-repo skill:
+prose and all rule files, and honours a non-empty root `AGENTS.override.md`. Empty overrides
+stay empty so they do not hide `AGENTS.md`. It installs no per-repo skill:
 `cc-tuner:agent-rules` is supplied by the plugin. The instruction also works without the plugin.
 
 Exit 1 in check mode means the file needs an edit, and the last line says which: `MISSING` when no

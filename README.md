@@ -33,7 +33,7 @@ file. Repeated installation is a no-op. Conflicting managed blocks and symlinks 
 and are not overwritten. No rule index or per-repo skill is copied. The block goes at the very top,
 ahead of the file's own heading, because Codex stops adding project instructions once the chain
 reaches `project_doc_max_bytes` (32 KiB by default) — prose is preserved byte for byte, its order is
-not.
+not. Empty overrides stay empty so `AGENTS.md` remains active.
 The instruction remains usable without the plugin; it is guidance, not an enforcement hook.
 
 ## Install

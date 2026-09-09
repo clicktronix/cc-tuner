@@ -83,11 +83,11 @@ class SetupTests(unittest.TestCase):
     def test_non_repo_names_the_cause(self):
         outside = Path(self.tmp.name)
         self.assertIn(
-            "not inside a Git repository",
+            "Git repository",
             self.run_setup("check", where=outside, code=2),
         )
         self.assertIn(
-            "not inside a Git repository",
+            "directory does not exist",
             self.run_setup("check", where=outside / "absent", code=2),
         )
 
@@ -101,6 +101,18 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(self.target.read_text().startswith(block))
         self.assertIn(original, self.target.read_text())
         self.assertEqual(self.target.read_text().count("<!-- agent-rules:begin -->"), 1)
+
+    def test_check_reports_late_block_without_writing(self):
+        self.run_setup()
+        block = self.target.read_bytes()
+        original = b"# Owner\n\nKeep this instruction.\n" + block
+        self.target.write_bytes(original)
+        before = self.target.stat().st_mtime_ns
+        output = self.run_setup("check", code=1)
+        self.assertIn("PRESENT BUT NOT FIRST", output)
+        self.assertNotIn("MISSING", output)
+        self.assertEqual(self.target.read_bytes(), original)
+        self.assertEqual(self.target.stat().st_mtime_ns, before)
 
     def test_repeated_install_and_check_do_not_write(self):
         self.run_setup()
@@ -120,12 +132,16 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(override.read_text().endswith("Override"))
         self.assertIn("agent-rules:begin", override.read_text())
 
-    def test_empty_override_is_populated(self):
+    def test_empty_override_does_not_hide_existing_agents(self):
         override = self.repo / "AGENTS.override.md"
         override.touch()
+        original = "# Project\nKeep the owner's instructions.\n"
+        self.target.write_text(original)
         self.run_setup()
-        self.assertIn("agent-rules:begin", override.read_text())
-        self.assertFalse(self.target.exists())
+        self.assertEqual(override.read_bytes(), b"")
+        self.assertTrue(self.target.read_text().endswith(original))
+        self.assertIn("agent-rules:begin", self.target.read_text())
+        self.assertIn(str(self.target), self.run_setup("check"))
 
     def test_modified_block_is_not_overwritten(self):
         self.run_setup()
@@ -169,8 +185,37 @@ class SetupTests(unittest.TestCase):
         self.assertFalse((nested / "AGENTS.md").exists())
 
     def test_non_repo_has_no_writes(self):
-        self.run_setup(where=Path(self.tmp.name), code=2)
+        output = self.run_setup(where=Path(self.tmp.name), code=2)
+        self.assertIn("Git repository", output)
+        self.assertIn("--repo", output)
         self.assertFalse((Path(self.tmp.name) / "AGENTS.md").exists())
+
+    def test_missing_repository_path_is_actionable(self):
+        missing = Path(self.tmp.name) / "missing"
+        output = self.run_setup(where=missing, code=2)
+        self.assertIn("directory does not exist", output)
+        self.assertIn("--repo", output)
+        self.assertFalse(missing.exists())
+
+    def test_invalid_utf8_is_reported_without_writes(self):
+        original = b"# Owner\n\xff"
+        self.target.write_bytes(original)
+        output = self.run_setup(code=2)
+        self.assertIn("not UTF-8", output)
+        self.assertIn(str(self.target), output)
+        self.assertEqual(self.target.read_bytes(), original)
+
+    def test_directory_instruction_path_is_reported_without_writes(self):
+        self.target.mkdir()
+        sentinel = self.target / "owner.txt"
+        sentinel.write_text("Keep")
+        output = self.run_setup(code=2)
+        self.assertIn("not a regular file", output)
+        self.assertIn(str(self.target), output)
+        self.assertEqual(sentinel.read_text(), "Keep")
+        self.assertEqual(
+            sorted(p.name for p in self.repo.iterdir()), [".git", "AGENTS.md"]
+        )
 
     def test_worktree_changes_only_worktree(self):
         subprocess.run(

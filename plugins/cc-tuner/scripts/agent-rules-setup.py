@@ -12,6 +12,25 @@ BEGIN = "<!-- agent-rules:begin -->"
 END = "<!-- agent-rules:end -->"
 
 
+def read_instruction(target):
+    if target.is_symlink():
+        raise ValueError(
+            f"instruction file is a symlink: {target}; inspect its owner before editing; nothing written"
+        )
+    if not target.exists():
+        return ""
+    if not target.is_file():
+        raise ValueError(
+            f"instruction path is not a regular file: {target}; inspect it before setup; nothing written"
+        )
+    try:
+        return target.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"instruction file is not UTF-8: {target}; review its encoding before setup; nothing written"
+        ) from exc
+
+
 def proposed(current, block):
     if BEGIN not in current and END not in current:
         return block + ("\n" + current if current else "")
@@ -44,28 +63,31 @@ def main():
         "--repo", default=".", help="Repository or a directory inside it"
     )
     args = parser.parse_args()
-    # git's own 128 says "not a repository" and "no such directory" in the same
-    # breath, and its argv repr tells the operator nothing about either.
-    try:
-        toplevel = subprocess.check_output(
-            ["git", "-C", args.repo, "rev-parse", "--show-toplevel"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except subprocess.CalledProcessError:
+    if not Path(args.repo).is_dir():
         raise ValueError(
-            f"{args.repo} is not inside a Git repository, or does not exist; "
-            "run this from a repository or pass --repo; nothing written"
-        ) from None
-    repo = Path(toplevel).resolve()
-    target = repo / "AGENTS.override.md"
-    if not target.exists() and not target.is_symlink():
-        target = repo / "AGENTS.md"
-    if target.is_symlink():
-        raise ValueError(
-            "instruction file is a symlink; inspect its owner before editing; nothing written"
+            f"repository directory does not exist or is not a directory: {args.repo}; "
+            "pass --repo <existing-directory>; nothing written"
         )
-    current = target.read_bytes().decode("utf-8") if target.exists() else ""
+    try:
+        repo = Path(
+            subprocess.check_output(
+                ["git", "-C", args.repo, "rev-parse", "--show-toplevel"],
+                text=True,
+                stderr=subprocess.PIPE,
+            ).strip()
+        ).resolve()
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(
+            f"cannot locate a Git repository at {args.repo}; run inside a Git worktree "
+            "or pass --repo <repository-directory>; check Git access if the path is correct; "
+            f"nothing written\nGit: {exc.stderr.strip()}"
+        ) from exc
+    target = repo / "AGENTS.override.md"
+    current = read_instruction(target)
+    # Codex skips empty overrides. Populating one would hide the owner's AGENTS.md.
+    if not current:
+        target = repo / "AGENTS.md"
+        current = read_instruction(target)
     block = (
         Path(__file__).resolve().parent.parent / "assets/agent-rules/instruction.md"
     ).read_text()
