@@ -5,8 +5,14 @@ All notable changes to this project are documented in this file.
 ## [0.12.0](https://github.com/clicktronix/cc-tuner/compare/v0.11.0...v0.12.0) (2026-09-09)
 
 
+### ⚠ BREAKING CHANGES
+
+* The smoke-verify Stop hook is removed, together with its per-repo config, its attestation writer, its installer and the `smoke-verify-setup` skill. Verification is now the `verify-feature` stage of `/cc-tuner:run`, which picks the proof from the behaviour instead of the changed file's path. Outside a run, nothing blocks a turn that never exercised its change. After upgrading, remove any leftover smoke-verify hook entry and per-repo config ([#25](https://github.com/clicktronix/cc-tuner/issues/25)) ([29ca584](https://github.com/clicktronix/cc-tuner/commit/29ca584efc6b0543c3fc40b2f82c9eb6c47fe5ef))
+
+
 ### Features
 
+* Fit the merge gate, the verification gate and the run loop to other repositories: `merge.sh` takes `--ci required|any|none:<reason>` instead of assuming branch protection, `/cc-tuner:run` delegates each slice to a dynamic subagent while keeping every stop, and `/cc-tuner:setup` offers the `CLAUDE_CODE_ENABLE_TODO_TOOLS` settings line ([#25](https://github.com/clicktronix/cc-tuner/issues/25)) ([29ca584](https://github.com/clicktronix/cc-tuner/commit/29ca584efc6b0543c3fc40b2f82c9eb6c47fe5ef))
 * add agent-rules and repository setup ([#29](https://github.com/clicktronix/cc-tuner/issues/29)) ([67cf44a](https://github.com/clicktronix/cc-tuner/commit/67cf44a2cf34ce4b78aebffafc707edaae9e8077))
 
 
