@@ -565,6 +565,76 @@ check "filled-template-passes-lint" "rc=0" "$(lint check "$FILLED_TPL")"
 equals "template-has-an-edge" "1" \
   "$(bash "$LINT" slices "$FILLED_TPL" | awk -F'\t' '$1=="SLICE" && $2==2 {print $4}')"
 
+# --- the active set: the plan knows open/done, only the caller knows running -----------------------
+# A ready slice already handed to a unit is still "open", so a bare ready-batches would hand it out
+# again. --active names the running slices; the parser excludes them and, for ready-batches, anything
+# whose Owned paths overlap theirs. Slice 4 shares a prefix with running slice 2 on purpose.
+ACTIVE_PLAN='# Rolling
+
+## Slice 1 — A, fast, done
+Blocked by: none
+Owned paths: src/a/
+Deciding check: true
+Delivers: a.
+
+- [x] a1
+
+## Slice 2 — B, slow, running
+Blocked by: none
+Owned paths: src/b/
+Deciding check: true
+Delivers: b.
+
+- [ ] b1
+
+## Slice 3 — C, needs only A
+Blocked by: 1
+Owned paths: src/c/
+Deciding check: true
+Delivers: c.
+
+- [ ] c1
+
+## Slice 4 — D, needs A, overlaps B
+Blocked by: 1
+Owned paths: src/b/sub/
+Deciding check: true
+Delivers: d.
+
+- [ ] d1
+'
+P="$(plan active "$ACTIVE_PLAN")"
+# Without --active the parser cannot know 2 is running, so it returns it again: the defect the flag exists for.
+equals "without-active-relaunches-the-running-slice" "BATCH	2,3	parallel	owned paths proven disjoint" \
+  "$(bash "$LINT" ready-batches "$P" | sed -n '1p')"
+# With --active 2: 2 is excluded, 4 is excluded because its paths overlap 2's, 3 alone remains.
+equals "active-excludes-running-and-its-path-neighbours" "BATCH	3	serial	no second ready slice has proven-disjoint owned paths" \
+  "$(bash "$LINT" ready-batches "$P" --active 2 | sed -n '1p')"
+equals "active-batch-lists-only-the-safe-slice" "1" \
+  "$(bash "$LINT" ready-batches "$P" --active 2 | grep -c '^SLICE')"
+# Everything ready is running or path-blocked: empty stdout, rc 0, and a stderr line saying it is not completion.
+OUT="$(lint ready-batches "$P" --active 2,3)"
+check "all-active-is-not-completion-message" "this is not completion" "$OUT"
+check "all-active-rc0"                       "rc=0"                   "$OUT"
+equals "all-active-emits-no-batch" "0" "$(bash "$LINT" ready-batches "$P" --active 2,3 2>/dev/null | grep -c '^BATCH')"
+# frontier honours the exclusion but never proved paths, so 4 comes back there and not from ready-batches.
+equals "frontier-active-excludes-but-does-not-path-check" "3,4" \
+  "$(bash "$LINT" frontier "$P" --active 2 | awk -F'\t' '$1=="SLICE"{print $2}' | paste -sd, -)"
+# A stale active set is the state that launches a duplicate writer, so it is refused, never ignored.
+OUT="$(lint ready-batches "$P" --active 9)"
+check "unknown-active-slice-message" "active slice 9 does not exist" "$OUT"
+check "unknown-active-slice-rc1"     "rc=1"                          "$OUT"
+OUT="$(lint ready-batches "$P" --active 1)"
+check "done-active-slice-message" "active slice 1 is already done" "$OUT"
+check "done-active-slice-rc1"     "rc=1"                            "$OUT"
+OUT="$(lint ready-batches "$P" --active 2,,3)"
+check "malformed-active-list-message" "slice numbers separated by commas" "$OUT"
+check "malformed-active-list-rc1"     "rc=1"                              "$OUT"
+OUT="$(lint check "$P" --active 2)"
+check "active-refused-outside-readiness-modes" "applies to frontier and ready-batches only" "$OUT"
+check "active-refused-rc1"                     "rc=1"                                       "$OUT"
+check "help-names-the-active-set" "An empty result with --active does not mean the plan is done" "$(bash "$LINT" --help)"
+
 # --- refusals that are not about the format ------------------------------------------------------
 OUT="$(lint check "$W/does-not-exist.md")"
 check "missing-file-fails" "no such plan file" "$OUT"

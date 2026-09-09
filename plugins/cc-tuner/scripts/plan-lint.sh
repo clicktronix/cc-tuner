@@ -42,15 +42,21 @@ MODE="${1:-}"
 FILE="${2:-}"
 EXPECTED_SPEC=""
 EXPECTED_BRANCH=""
+ACTIVE=""
 
 die() { printf 'plan-lint: %s\n' "$1" >&2; exit 1; }
-usage() { die "usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>]"; }
+usage() { die "usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>] [--active <n,n,...>]"; }
 help() {
   printf '%s\n' \
-    'usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>]' \
+    'usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>] [--active <n,n,...>]' \
     '' \
     'Owned paths: comma-separated repo-relative literal paths or directory prefixes.' \
-    'No globs, absolute paths, spaces, dot components, or empty path components.'
+    'No globs, absolute paths, spaces, dot components, or empty path components.' \
+    '' \
+    '--active: slice numbers already running (frontier and ready-batches only). They are excluded' \
+    'from the result, and ready-batches also excludes any slice whose Owned paths overlap theirs.' \
+    'An empty result with --active does not mean the plan is done: open slices may all be active' \
+    'or path-blocked, and the caller must read the plan, not the batch, to tell.'
 }
 
 case "$MODE" in --help|-h) help; exit 0 ;; check|slices|frontier|ready-batches) ;; *) usage ;; esac
@@ -60,10 +66,17 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spec) [ $# -ge 2 ] && [ -n "$2" ] || die "--spec requires a non-empty path"; EXPECTED_SPEC="$2"; shift 2 ;;
     --branch) [ $# -ge 2 ] && [ -n "$2" ] || die "--branch requires a non-empty name"; EXPECTED_BRANCH="$2"; shift 2 ;;
+    --active)
+      [ $# -ge 2 ] && [ -n "$2" ] || die "--active requires a comma-separated list of slice numbers"
+      case "$2" in *[!0-9,]*|,*|*,|*,,*) die "--active must be slice numbers separated by commas, got '$2'" ;; esac
+      ACTIVE="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
 [ "$MODE" = check ] || { [ -z "$EXPECTED_SPEC$EXPECTED_BRANCH" ] || usage; }
+# The active set only means something to the two readiness modes. Accepting it elsewhere would let a
+# caller believe `check` or `slices` had honoured it.
+case "$MODE" in frontier|ready-batches) ;; *) [ -z "$ACTIVE" ] || die "--active applies to frontier and ready-batches only" ;; esac
 [ -f "$FILE" ] || die "no such plan file: $FILE"
 if [ -n "$EXPECTED_SPEC" ]; then
   case "$EXPECTED_SPEC" in /*|..|../*|*/../*) die "--spec must be a repo-relative path" ;; esac
@@ -76,7 +89,7 @@ fi
 
 # One awk pass produces the diagnostics and every record mode. Splitting them into separate programs
 # is how validation, recovery and execution would drift.
-awk -v mode="$MODE" -v expected_spec="$EXPECTED_SPEC" -v expected_branch="$EXPECTED_BRANCH" '
+awk -v mode="$MODE" -v expected_spec="$EXPECTED_SPEC" -v expected_branch="$EXPECTED_BRANCH" -v active_csv="$ACTIVE" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function literal_path(p) {
   if (p == "" || p ~ /^\// || p ~ /\/\//) return 0
@@ -274,10 +287,30 @@ END {
   # finishing the first. `frontier` exposes the whole ready set for recovery and diagnostics;
   # `ready-batches` narrows that set to one executable, path-safe batch.
   if (mode == "frontier" || mode == "ready-batches") {
+    # The plan knows open and done. It does not know RUNNING: a slice a unit is working on is still
+    # open, so without help the ready set would hand it out again. The caller is the only party that
+    # knows which slices it dispatched, so it names them; everything else about safety stays here,
+    # where the arithmetic lives. A named slice that does not exist, or is already done, is a stale
+    # active set, and a stale active set is exactly the state that launches a duplicate writer.
+    ac = 0
+    if (active_csv != "") {
+      ac = split(active_csv, aparts, ",")
+      for (ai = 1; ai <= ac; ai++) {
+        a = aparts[ai] + 0
+        if (!(a in seen)) { print "plan-lint: active slice " a " does not exist in this plan" > "/dev/stderr"; exit 1 }
+        if (total[a] > 0 && done[a] == total[a]) { print "plan-lint: active slice " a " is already done; refresh the active set" > "/dev/stderr"; exit 1 }
+        active[a] = 1
+        aset[ai] = a
+      }
+    }
+
     fc = 0
+    open_left = 0
     for (i = 1; i <= count; i++) {
       n = order[i]
       if (total[n] > 0 && done[n] == total[n]) continue
+      open_left++
+      if (n in active) continue
       ready = 1
       if (blocked[n] != "none") {
         m = split(blocked[n], parts, /[ \t]*,[ \t]*/)
@@ -296,14 +329,21 @@ END {
         if (rdy[fj] + 0 < rdy[fi] + 0) { ft = rdy[fi]; rdy[fi] = rdy[fj]; rdy[fj] = ft }
 
     if (mode == "ready-batches" && fc > 0) {
-      batch_count = 1
-      batch[1] = rdy[1]
-      for (fi = 2; fi <= fc; fi++) {
+      # A batch must be disjoint from what is already being written, not only within itself: a ready
+      # slice sharing a path prefix with a running one is the same collision one turn later.
+      batch_count = 0
+      for (fi = 1; fi <= fc; fi++) {
         n = rdy[fi]
         safe = 1
-        for (bj = 1; bj <= batch_count; bj++)
+        for (ai = 1; ai <= ac; ai++)
+          if (owned_overlap(n, aset[ai])) { safe = 0; break }
+        for (bj = 1; safe && bj <= batch_count; bj++)
           if (owned_overlap(n, batch[bj])) { safe = 0; break }
         if (safe) batch[++batch_count] = n
+      }
+      if (batch_count == 0) {
+        print "plan-lint: no ready slice outside the active set (" open_left " open, " ac " active); this is not completion" > "/dev/stderr"
+        exit 0
       }
       ids = batch[1]
       for (bi = 2; bi <= batch_count; bi++) ids = ids "," batch[bi]
@@ -316,6 +356,8 @@ END {
     }
 
     # The same normalised field `slices` emits, so one reader parses both modes.
+    if (fc == 0 && ac > 0 && open_left > 0)
+      print "plan-lint: no ready slice outside the active set (" open_left " open, " ac " active); this is not completion" > "/dev/stderr"
     for (fi = 1; fi <= fc; fi++) emit_open_slice(rdy[fi])
     exit 0
   }
