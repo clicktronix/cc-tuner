@@ -298,7 +298,7 @@ that does or does not establish. Leave the outcome blank until it is observed.
 ### Run 8 — 2026-08-29, focused positive `deep-review` route
 
 The product plugin remained frozen at `c69fd80109e8a907335643a9eec99d07bfca167e` in
-`/Users/clicktronix/Projects/ai/cc-tuner-frozen-11`. The public fixture repository
+`<checkouts>/cc-tuner-frozen-11`. The public fixture repository
 `clicktronix/cc-tuner-eval-23` used clean candidate
 `41a5bdd1416292819086e86524719217c2435f6f` on PR #3. Required `test` CI was green. The probe was
 started only after the impact record and its policy commit were in the branch.
@@ -321,7 +321,7 @@ grandfathered run 7 smoke, this closes Task 8 Step 7.
 ### Run 7 — 2026-08-29, attended path against `c69fd80`
 
 Frozen at `c69fd80109e8a907335643a9eec99d07bfca167e` in the detached worktree
-`/Users/clicktronix/Projects/ai/cc-tuner-frozen-11`; fresh public repository
+`<checkouts>/cc-tuner-frozen-11`; fresh public repository
 `clicktronix/cc-tuner-eval-23`; `CLAUDE_CODE_ENABLE_TODO_TOOLS=true`; installed cc-tuner disabled.
 The transcript contains frozen-plugin paths and no installed cc-tuner cache path. The session ran
 from `/spec` through merge in 29 minutes 9 seconds.
@@ -345,7 +345,7 @@ large or sensitive candidate invokes `deep-review`.
 ### Run 6 — 2026-08-29, review-routing probe against `868cda0`
 
 Frozen at `868cda0d6aacdad840dbfbea987e2e9366980336` in
-`/Users/clicktronix/Projects/ai/cc-tuner-frozen-10`; fresh private repository
+`<checkouts>/cc-tuner-frozen-10`; fresh private repository
 `clicktronix/cc-tuner-eval-22`; attended Claude Code session. The run stopped unmerged after about
 31 minutes. Unlike the earlier public fixtures, this repository was private: branch protection was
 unavailable on the account tier, and its metered Actions jobs did not start. Local CI's exact command
@@ -1331,7 +1331,7 @@ run established, only that it is not consistent.
 
 **Workaround applied:** `claude plugin disable cc-tuner@cc-tuner --scope local` inside both eval
 repositories, which writes `.claude/settings.local.json` there and leaves the user-scope install
-alone. Verified afterwards that `personal-os` and the `cc-tuner` checkout still report
+alone. Verified afterwards that the neighbouring checkouts still report
 `enabled=true`.
 
 **Later observation, and it corrects this finding.** The same thread log carries `  APPROVE---` at line 306 and a clean `  APPROVE` at line 388 — whether Codex terminates its reply **varies between rounds**. The gate was intermittent, not broken, which is why a fresh thread later attributed an approval with the defect still unfixed in the installed copy. An intermittent gate is worse to diagnose than a dead one: the same candidate, reviewed twice, is attributable once.
