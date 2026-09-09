@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.12.0](https://github.com/clicktronix/cc-tuner/compare/v0.11.0...v0.12.0) (2026-09-09)
+
+
+### Features
+
+* add agent-rules and repository setup ([#29](https://github.com/clicktronix/cc-tuner/issues/29)) ([67cf44a](https://github.com/clicktronix/cc-tuner/commit/67cf44a2cf34ce4b78aebffafc707edaae9e8077))
+
+
+### Bug Fixes
+
+* **claude-md-writer:** CLAUDE.md has a hard 4 MiB limit, not "any length" ([#26](https://github.com/clicktronix/cc-tuner/issues/26)) ([0eb0e32](https://github.com/clicktronix/cc-tuner/commit/0eb0e3242b53080f53b8b7e9e41c7f7846aeabfd))
+* **task-flow,claude-md-writer:** make the plugin's own advice followable and checkable ([#27](https://github.com/clicktronix/cc-tuner/issues/27)) ([72fef0b](https://github.com/clicktronix/cc-tuner/commit/72fef0bf1d08f066a9313d0336b0ddb8ebe7be3f))
+
 ## [0.11.0](https://github.com/clicktronix/cc-tuner/compare/v0.10.0...v0.11.0) (2026-08-29)
 
 
