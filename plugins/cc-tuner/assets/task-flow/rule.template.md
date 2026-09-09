@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.12.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.13.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -24,15 +24,18 @@ conflicts with this file, the local file wins.
   remote default branch, then branch first: `git switch -c <branch>`. On the target with uncommitted
   work: stash → branch → pop.
 
-## Branches
+## Branches and commits — repository policy first, then these defaults
 
-`<type>/<issue>-<kebab-slug>`, ≤50 chars. No issue → `<type>/<short-slug>`, and say why in the PR body.
+The repository's own convention wins: `task-flow.local.md`, `AGENTS.md`/`CLAUDE.md`, a
+`CONTRIBUTING.md`, or the shape of its recent history. What follows is what cc-tuner assumes only
+where the repository is silent. It is a default, not a contract, and a repository that names a
+different scheme is not out of compliance.
 
-Types: `feat | fix | refactor | perf | chore | docs | test | build | ci`.
-
+**Branch default:** `<type>/<issue>-<kebab-slug>`, ≤50 chars. No issue → `<type>/<short-slug>`, and
+say why in the PR body. Types: `feat | fix | refactor | perf | chore | docs | test | build | ci`.
 A branch and its PR attach to the **sub-issue** being implemented, never to its parent epic.
 
-## Commits — Conventional Commits v1.0.0
+**Commit default:** Conventional Commits v1.0.0.
 
 ```
 <type>[(<scope>)][!]: <imperative subject ≤72 chars, no period>
@@ -42,8 +45,9 @@ A branch and its PR attach to the **sub-issue** being implemented, never to its 
 [footers: BREAKING CHANGE: <migration note> / Closes #<N> / Refs #<N>]
 ```
 
-The format is not decoration: release notes are generated from it, so a commit outside the format is
-a commit missing from the changelog.
+Where release notes are generated from commit messages — release-please and similar — the format is
+load-bearing: a commit outside it is a commit missing from the changelog. Check whether this
+repository generates them before treating the format as required; many do not.
 
 Breaking change: `!` after type/scope plus a `BREAKING CHANGE:` footer carrying the migration note.
 
