@@ -10,7 +10,9 @@ Read the applicable repository rules and linked contracts before reviewing or ch
 The skill follows the project's index and checks the actual rule inventory so newly added rules
 are not hidden by an outdated table. `/cc-tuner:setup install agent-rules` adds a short portable
 loading instruction at the start of the root AGENTS.md (or AGENTS.override.md), without copying
-rules or generating per-repository skills. `check` is read-only; repeated installation is a no-op.
+rules or generating per-repository skills. The block precedes the file's own heading so the
+instruction budget cannot truncate it. `check` is read-only and separates a missing block from a
+late one; repeated installation is a no-op.
 
 
 ### `claude-md-writer`

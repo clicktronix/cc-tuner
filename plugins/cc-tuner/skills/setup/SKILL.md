@@ -24,8 +24,11 @@ this additive edit; no extra confirmation is needed. The helper reports a diff, 
 prose and all rule files, and honours a root `AGENTS.override.md`. It installs no per-repo skill:
 `cc-tuner:agent-rules` is supplied by the plugin. The instruction also works without the plugin.
 
-Exit 1 means missing in check mode; exit 2 means a conflicting block, symlink, or operational error.
-Report the exact result and inspect the conflict rather than overwriting it or claiming success.
+Exit 1 in check mode means the file needs an edit, and the last line says which: `MISSING` when no
+block is installed, `PRESENT BUT NOT FIRST` when one is installed below prose that the instruction
+budget can truncate. Report that distinction; a late block is not a missing one. Exit 2 means a
+conflicting block, symlink, or operational error — inspect it rather than overwriting it or
+claiming success. In install mode the last line reads `INSTALLED` or `MOVED` accordingly.
 When the optional second argument is `agent-rules`, stop after this step and rule discovery below;
 no GitHub token, companion plugin, or board is needed for local rule setup.
 

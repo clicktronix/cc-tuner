@@ -27,6 +27,11 @@ def proposed(current, block):
         )
     if start == 0:
         return current
+    # Consume the newline that terminated the block's last line, mirroring the
+    # separator this function adds when it inserts one. Without it, moving the
+    # block leaves the separators on both of its former sides adjacent.
+    if current[stop : stop + 1] == "\n":
+        stop += 1
     return block + "\n" + current[:start] + current[stop:]
 
 
@@ -39,11 +44,20 @@ def main():
         "--repo", default=".", help="Repository or a directory inside it"
     )
     args = parser.parse_args()
-    repo = Path(
-        subprocess.check_output(
-            ["git", "-C", args.repo, "rev-parse", "--show-toplevel"], text=True
+    # git's own 128 says "not a repository" and "no such directory" in the same
+    # breath, and its argv repr tells the operator nothing about either.
+    try:
+        toplevel = subprocess.check_output(
+            ["git", "-C", args.repo, "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
         ).strip()
-    ).resolve()
+    except subprocess.CalledProcessError:
+        raise ValueError(
+            f"{args.repo} is not inside a Git repository, or does not exist; "
+            "run this from a repository or pass --repo; nothing written"
+        ) from None
+    repo = Path(toplevel).resolve()
     target = repo / "AGENTS.override.md"
     if not target.exists() and not target.is_symlink():
         target = repo / "AGENTS.md"
@@ -58,6 +72,9 @@ def main():
     if not block.startswith(BEGIN) or not block.rstrip().endswith(END):
         raise ValueError("invalid bundled instruction; nothing written")
     result = proposed(current, block)
+    # proposed() has already refused a differing or ambiguous block, so a marker
+    # surviving here means the instruction is present verbatim.
+    present = BEGIN in current
     if len(result.encode("utf-8")) > 32768:
         print(
             "WARN root instructions exceed Codex default 32 KiB; verify your configured budget"
@@ -78,8 +95,18 @@ def main():
         ),
         end="",
     )
+    # "The file needs an edit" is not one state. A block that is present but not
+    # first needs a move, and reporting that as MISSING sends the operator
+    # looking for text that is already there.
     if args.mode == "check":
-        print("MISSING rule-loading instruction; check wrote nothing")
+        if present:
+            print(
+                "PRESENT BUT NOT FIRST: the rule-loading instruction is installed lower "
+                "in the file, where the instruction budget can truncate it; "
+                "install moves it to the top; check wrote nothing"
+            )
+        else:
+            print("MISSING rule-loading instruction; check wrote nothing")
         return 1
     # Keep bytes outside the block, permissions, and an intervening user's edit intact.
     temp_name = None
@@ -103,7 +130,8 @@ def main():
         if temp_name and Path(temp_name).exists():
             Path(temp_name).unlink()
     print(
-        f"INSTALLED {target}; start a fresh Codex session to load startup instructions"
+        f"{'MOVED' if present else 'INSTALLED'} {target}; "
+        "start a fresh Codex session to load startup instructions"
     )
     return 0
 

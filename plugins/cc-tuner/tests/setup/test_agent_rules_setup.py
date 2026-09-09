@@ -57,6 +57,40 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(result.startswith("<!-- agent-rules:begin -->"))
         self.assertTrue(result.endswith(original))
 
+    def test_check_separates_a_late_block_from_a_missing_one(self):
+        self.run_setup()
+        block = self.target.read_text()
+        prose = "# Owner\n\nKeep this instruction.\n"
+        self.target.write_text(prose + block)
+        late = self.run_setup("check", code=1)
+        self.assertIn("PRESENT BUT NOT FIRST", late)
+        self.assertNotIn("MISSING", late)
+        self.assertEqual(self.target.read_text(), prose + block)
+        self.target.write_text(prose)
+        self.assertIn("MISSING", self.run_setup("check", code=1))
+
+    def test_moved_block_lands_exactly_where_a_fresh_install_puts_it(self):
+        self.run_setup()
+        block = self.target.read_text()
+        prose = "# Owner\n\nKeep this instruction.\n"
+        self.target.write_text(prose)
+        self.run_setup()
+        fresh = self.target.read_text()
+        self.target.write_text(prose + block)
+        self.assertIn("MOVED", self.run_setup())
+        self.assertEqual(self.target.read_text(), fresh)
+
+    def test_non_repo_names_the_cause(self):
+        outside = Path(self.tmp.name)
+        self.assertIn(
+            "not inside a Git repository",
+            self.run_setup("check", where=outside, code=2),
+        )
+        self.assertIn(
+            "not inside a Git repository",
+            self.run_setup("check", where=outside / "absent", code=2),
+        )
+
     def test_existing_late_block_moves_before_large_prose(self):
         self.run_setup()
         block = self.target.read_text()

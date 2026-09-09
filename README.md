@@ -28,8 +28,12 @@ The plugin supplies one generic skill; project rules stay in their existing cano
 
 Run `/cc-tuner:setup install agent-rules` to add a short loading instruction to the repository's root
 `AGENTS.md` (or the effective `AGENTS.override.md`). Use `check` instead of `install` for a
-read-only status and diff. Repeated installation is a no-op. Conflicting managed blocks and
-symlinks require inspection and are not overwritten. No rule index or per-repo skill is copied.
+read-only status and diff, which distinguishes a missing block from one installed too low in the
+file. Repeated installation is a no-op. Conflicting managed blocks and symlinks require inspection
+and are not overwritten. No rule index or per-repo skill is copied. The block goes at the very top,
+ahead of the file's own heading, because Codex stops adding project instructions once the chain
+reaches `project_doc_max_bytes` (32 KiB by default) — prose is preserved byte for byte, its order is
+not.
 The instruction remains usable without the plugin; it is guidance, not an enforcement hook.
 
 ## Install
