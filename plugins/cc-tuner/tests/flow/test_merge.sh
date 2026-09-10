@@ -44,7 +44,11 @@ case "$1 $2" in
     case "$*" in *--paginate*) ;; *) exit 1 ;; esac
     [ ! -f "$D/api-fail" ] || exit 1
     serve api-files ;;
-  "pr view")   serve pr.json ;;
+  "pr view")
+    # A second pr.json, when a case provides one, is what the LATER reads see: the PR moving while
+    # merge.sh is busy consulting CI and the companion.
+    n=0; [ ! -f "$D/pr-view-count" ] || n="$(cat "$D/pr-view-count")"; n=$((n + 1)); printf '%s\n' "$n" > "$D/pr-view-count"
+    if [ "$n" -gt 1 ] && [ -f "$D/pr.json.2" ]; then serve pr.json.2; else serve pr.json; fi ;;
   "pr checks")
     # Real `gh pr checks` exits 1 and reports on stderr when there is nothing to report; it never
     # returns an empty array. A stub that returns [] tests a CLI that does not exist -- the behaviour
@@ -149,6 +153,26 @@ D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED" "" "$ADVANCED
 OUT="$(run "$D" 42 squash "$INTEGRATED")"
 check "integrated-candidate-merges"        "MERGED pr merge 42 --squash --match-head-commit $INTEGRATED" "$OUT"
 check "integrated-candidate-rc0"           "rc=0"                                      "$OUT"
+# The check is a cc-tuner rule and applies only to cc-tuner runs: a pull request with no plan file
+# is merged unchecked, pinned, however far its target has moved. Imposing the lifecycle on it was
+# the regression the first placement of this check introduced.
+D="$(world "$NO_PLAN_FILES" '[]' '[]' "" "" "$ADVANCED")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "out-of-scope-ignores-target-advance" "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check "out-of-scope-ignores-target-rc0"     "rc=0"                                                 "$OUT"
+# The base moves WHILE merge.sh is consulting CI and the companion: the first read saw the reviewed
+# base, later reads see the advanced one. Caught by the final re-read, in merge and in --check-only.
+D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED")"
+jq -c --arg base "$ADVANCED" '.baseRefOid = $base' "$D/pr.json" > "$D/pr.json.2"
+OUT="$(run "$D" 42 squash "$INTEGRATED")"
+check  "base-moved-during-check-refused"   "changed while merge readiness was checked" "$OUT"
+check  "base-moved-during-check-rc1"       "rc=1"                                      "$OUT"
+absent "base-moved-during-check-no-merge"  "MERGED"                                    "$OUT"
+D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED")"
+jq -c --arg base "$ADVANCED" '.baseRefOid = $base' "$D/pr.json" > "$D/pr.json.2"
+OUT="$(run "$D" --check-only 42 squash "$INTEGRATED")"
+check  "base-moved-during-check-only-refused" "changed while merge readiness was checked" "$OUT"
+absent "base-moved-during-check-only-no-would-merge" "would merge"                     "$OUT"
 
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run_without_thread "$D" 42 squash "$SHA")"
