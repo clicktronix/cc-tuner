@@ -1,14 +1,16 @@
 ---
 description: One user-run command that sets a repository up for cc-tuner and says exactly what it did — rule loading, the task-flow rule, task tools, an optional statusline, an optional board — as independent nodes that each detect, propose, apply and verify. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
-argument-hint: '[check|install] [agent-rules|task-flow|task-tools|statusline|board]'
+argument-hint: '[check|install|remove] [agent-rules|task-flow|task-tools|statusline|board]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Skill
 disable-model-invocation: true
 ---
 
 # /cc-tuner:setup
 
-Parse `$ARGUMENTS`: the mode is `check` (default) or `install`; an optional node name limits the
-run to that node and the nodes it depends on. `check` writes nothing anywhere. `install` applies
+Parse `$ARGUMENTS`: the mode is `check` (default), `install`, or `remove` — the last one only for
+the statusline, the one node that installs something user-global and therefore needs an undo; an
+optional node name limits the run to that node and the nodes it depends on. `check` writes nothing
+anywhere. `install` applies
 each node's change under one rule: an explicit install request authorises **additive** repository
 edits — a block between markers, a new file, a missing key — and nothing more. A rewrite of the
 repository's own instructions is not additive and has its own confirmation boundary in node 1.
@@ -23,8 +25,9 @@ stop the command because one node stopped.
 | # | node | depends on | writes |
 |---|---|---|---|
 | 0 | environment | — | nothing |
-| 1 | instruction cleanup | 0 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation |
-| 2 | agent-rules discovery | 1 | one marked block in the root `AGENTS.md` (or `AGENTS.override.md`) |
+| 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
+| 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
+| 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
 | 4 | task tools | 0 | `~/.claude/settings.json` — one `env` key |
 | 5 | statusline | 0; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
@@ -53,22 +56,22 @@ names a command that fails without it. Two fixes the user has to run themselves,
 
 A `MISS` does not end the command. Record which nodes it blocks and continue with the rest.
 
-### 1. Instruction cleanup
+### 0b. Testing runbook
 
-Read the repository's `AGENTS.md`, `CLAUDE.md` and `.claude/rules/*.md` and its stated policy.
-Healthy instructions are left alone: this node exists for the repository whose instruction files
-contradict each other, duplicate a rule the linter already enforces, or bury an always-on rule under
-prose that belongs in a skill. When that is the case, invoke `cc-tuner:claude-md-writer` in audit
-mode and let it produce the rebuilt files.
+Find what the repository already says about verifying itself — test commands and runners in
+`package.json`, `Makefile`, `pyproject.toml`, `justfile`; a `TESTING.md`, `SMOKE.md`,
+`CONTRIBUTING.md` or `docs/`/`wiki/` page describing how the project is exercised by hand; the
+services, fixtures and credentials a run needs. Compare that against what the runners actually
+define and what `cc-tuner:verify-feature` will need at run time: the command it cannot otherwise
+know, the service it cannot start, the environment limit it cannot guess.
 
-**This node rewrites canonical instructions, so the install rule above does not cover it.** Always
-show the full diff. Ask for confirmation only when the user's request did not already authorise a
-reorganisation, or when the diff resolves a contradiction between two rules by choosing one — a
-user who asked for the cleanup is not asked again because of the file's type. A declined diff
-leaves every file untouched; node 2 still runs. In `check` mode, report what the audit would change
-and write nothing.
+In `check` mode report **found: <files>**, or **none found**, plus the gaps. In `install` mode, when a
+runbook exists, append the missing commands, service requirements and environment limits to it as a
+diff — that is an additive edit to an existing document and is covered by the install request. When
+no runbook exists, report the gaps and stop: a new testing document has a human audience, and setup
+is not its author.
 
-### 2. Agent-rules discovery
+### 1. Agent-rules discovery
 
 Codex builds its instruction chain once at startup and does not load `.claude/rules` on a matching
 read the way Claude Code does, so the root instruction file has to say "read the applicable rules".
@@ -90,6 +93,26 @@ It needs a working Python 3; if node 0 reported none, report this node as unavai
 An installed block proves the loading instruction is present, not that an agent obeys it. Start a
 fresh Codex session to pick up changed startup instructions.
 
+This node runs **before** instruction cleanup on purpose: with the block already in place, the
+writer knows the Codex bridge exists and will not build a hand-made one beside it.
+
+### 2. Instruction cleanup
+
+Read the repository's `AGENTS.md`, `CLAUDE.md` and `.claude/rules/*.md` and its stated policy.
+Healthy instructions are left alone: this node exists for the repository whose instruction files
+contradict each other, duplicate a rule the linter already enforces, or bury an always-on rule under
+prose that belongs in a skill. When that is the case, invoke `cc-tuner:claude-md-writer` in audit
+mode and let it produce the rebuilt files. Tell it the `agent-rules` block from node 1 is the Codex
+bridge — it keeps the block first, byte for byte, and generates no per-repository skill or pointer
+table.
+
+**This node rewrites canonical instructions, so the install rule above does not cover it.** Always
+show the full diff. Ask for confirmation only when the user's request did not already authorise a
+reorganisation, or when the diff resolves a contradiction between two rules by choosing one — a
+user who asked for the cleanup is not asked again because of the file's type. A declined diff
+leaves every file untouched; the later nodes still run. In `check` mode, report what the audit would
+change and write nothing.
+
 ### 3. Task-flow rule
 
 Read [references/task-flow-rule.md](references/task-flow-rule.md) and run it in the current mode.
@@ -107,17 +130,28 @@ publishes no visible task list, which reads as the plugin not working. When node
 `"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}` to `~/.claude/settings.json`, preserving the rest of
 the file, after the user agrees once.
 
+Detect has two halves, and they can disagree. First, **now**: is `TaskCreate` in this session's
+tool list? You can answer that directly — it is your own tool list. Second, the env: is the key in
+`~/.claude/settings.json`? Four states follow. Tools present → nothing to do, whatever the env says.
+Env set, tools absent → the setting has not taken effect yet (this session predates it) or this
+model does not offer the tools; report which, and that a restart decides. Env unset, tools absent →
+the install case above. Env unset, tools present → the host enabled them another way; leave the
+env alone and say so.
+
 An env edit is configuration for a later session, not proof the tools loaded. This command cannot
-observe the next session, so its verify column reads **"written; takes effect after restart"**,
-and it names the check the user makes there: in the new session, `TaskCreate` is in the tool list
-or it is not. Do not report this node as verified from inside the session that wrote it.
+observe the next session, so after writing the key its verify column reads
+**"written; takes effect after restart"**, and it names the check the user makes there: in the new
+session, `TaskCreate` is in the tool list or it is not. Do not report this node as verified from
+inside the session that wrote it.
 
 ### 5. Statusline
 
 User-global, not repository-scoped, and offered rather than assumed: mention it once, and apply
 it in install mode only after the user says yes in this run. Read
 [references/statusline.md](references/statusline.md) for the copy, the guarded `settings.json`
-patch, `remove` and the restart note. Serialise it after node 4 for the shared-file reason above.
+patch and the restart note. Serialise it after node 4 for the shared-file reason above.
+`/cc-tuner:setup remove statusline` runs the reference's **remove** section — the only `remove` this
+command has, because this is the only node that installs something outside the repository.
 
 The `Mechanism First` output style is in the same category — the plugin ships it, so there is
 nothing to install. Mention it once, as a preference: `/config` → Output style → `Mechanism

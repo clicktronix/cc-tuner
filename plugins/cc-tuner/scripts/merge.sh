@@ -87,13 +87,17 @@ fi
 # companion's exact-candidate state below. Nothing is accepted merely because the caller repeats it.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
 # second call to the same endpoint -- a whole network round trip per merge for nothing.
-PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews,comments 2>/dev/null)" \
+PRJSON="$("$GH" pr view "$PR" --json headRefOid,baseRefName,baseRefOid,reviews,comments 2>/dev/null)" \
   || die "cannot resolve pull request '$PR'"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
 [ -n "$HEAD_SHA" ] || die "pull request $PR reports no head commit"
 [ "$HEAD_SHA" = "$SHA" ] \
   || die "the head of $PR is $HEAD_SHA, not the $SHA you asked to merge — the branch moved"
+
+BASE_REF="$(printf '%s' "$PRJSON" | jq -r '.baseRefName // empty')"
+BASE_OID="$(printf '%s' "$PRJSON" | jq -r '.baseRefOid // empty')"
+[ -n "$BASE_OID" ] || die "pull request $PR reports no base commit"
 
 # `gh pr view --json files` asks GraphQL for only the first 100 nodes. Scope is therefore read from
 # the paginated REST endpoint instead: a large PR must not become unchecked precisely when its plan
@@ -123,6 +127,19 @@ if [ "$IN_SCOPE" = "no" ]; then
   # an opinion about the contents, and passing the SHA the caller asked for is free.
   exec "$GH" pr merge "$PR" --"$STRATEGY" --match-head-commit "$HEAD_SHA"
 fi
+
+# In scope from here on. The target as it is NOW must be inside the candidate. --match-head-commit
+# pins the head, not the base: with the target advanced and the candidate not containing it, GitHub
+# merges a tree nobody reviewed. /run integrates the target and re-reviews before delivery; this
+# turns that rule into a check. It sits AFTER the scope decision on purpose: a pull request that is
+# not a cc-tuner run gets no cc-tuner lifecycle imposed on it, this rule included. The tip may not
+# be fetched yet, so fetch the base branch before asking git about it.
+MERGE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a Git repository"
+git -C "$MERGE_ROOT" cat-file -e "$BASE_OID^{commit}" 2>/dev/null \
+  || git -C "$MERGE_ROOT" fetch -q origin "$BASE_REF" 2>/dev/null \
+  || die "cannot resolve the current target tip $BASE_OID locally; fetch $BASE_REF and retry"
+git -C "$MERGE_ROOT" merge-base --is-ancestor "$BASE_OID" "$SHA" 2>/dev/null \
+  || die "the target advanced to $BASE_OID and candidate $SHA does not include it — integrate the target, re-verify affected evidence, obtain approval for the new candidate, then merge"
 
 # Re-read the required approval from the companion's own exact-candidate state. The GitHub verdict
 # below is the public record, but it is written by the same agent being reviewed and cannot prove the
@@ -267,6 +284,17 @@ else
   BAD="$(printf '%s' "$CHECKS" | jq -r '[.[] | select(.bucket != "pass")] | length')"
   [ "${BAD:-1}" -eq 0 ] 2>/dev/null || die "$BAD of $TOTAL $CI_LABEL CI checks on $HEAD_SHA are not passing"
 fi
+
+# Movement DURING this check: the reads above took time, and the head or the base can have moved
+# while CI and the companion were being consulted. Re-read both and compare with what this run first
+# saw. This catches drift inside the checker; it is not an atomic guard after the last read — only
+# --match-head-commit is, and only for the head.
+CURRENT_PRJSON="$("$GH" pr view "$PR" --json headRefOid,baseRefOid 2>/dev/null)" \
+  || die "cannot re-read pull request '$PR' after the checks"
+CURRENT_HEAD="$(printf '%s' "$CURRENT_PRJSON" | jq -r '.headRefOid // empty')"
+CURRENT_BASE="$(printf '%s' "$CURRENT_PRJSON" | jq -r '.baseRefOid // empty')"
+[ "$CURRENT_HEAD" = "$HEAD_SHA" ] && [ "$CURRENT_BASE" = "$BASE_OID" ] \
+  || die "PR head or base changed while merge readiness was checked (head ${HEAD_SHA} -> ${CURRENT_HEAD:-?}, base ${BASE_OID} -> ${CURRENT_BASE:-?}); re-run against the current state"
 
 # --match-head-commit closes the window between the checks above and the merge itself, on GitHub's
 # side, which nothing local can do.

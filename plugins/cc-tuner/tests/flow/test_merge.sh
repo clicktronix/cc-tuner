@@ -10,8 +10,27 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 MERGE="$FLOW_PLUGIN/scripts/merge.sh"
-SHA="abc1234def5678"
 OTHER_SHA="0000111122223333"
+
+# A real repository, because merge.sh asks git whether the target is inside the candidate and a
+# fake SHA cannot answer that. base -> candidate on main; `advanced` is one commit past base that
+# the candidate does NOT contain — the target moving on while the candidate was under review.
+FIX_REPO="$(flow_workdir)/repo"
+mkdir -p "$FIX_REPO"
+(
+  cd "$FIX_REPO"
+  git init -q -b main
+  git config user.email test@example.com
+  git config user.name test
+  printf 'base\n' > base.txt;      git add base.txt;      git commit -qm base
+  printf 'candidate\n' > cand.txt; git add cand.txt;      git commit -qm candidate
+  git checkout -q -b advanced HEAD^
+  printf 'advanced\n' > adv.txt;   git add adv.txt;       git commit -qm 'target advanced'
+  git checkout -q main
+)
+SHA="$(git -C "$FIX_REPO" rev-parse main)"
+BASE_SHA="$(git -C "$FIX_REPO" rev-parse main^)"
+ADVANCED="$(git -C "$FIX_REPO" rev-parse advanced)"
 
 gh_stub() {
   cat > "$1/gh" <<'EOF'
@@ -25,7 +44,11 @@ case "$1 $2" in
     case "$*" in *--paginate*) ;; *) exit 1 ;; esac
     [ ! -f "$D/api-fail" ] || exit 1
     serve api-files ;;
-  "pr view")   serve pr.json ;;
+  "pr view")
+    # A second pr.json, when a case provides one, is what the LATER reads see: the PR moving while
+    # merge.sh is busy consulting CI and the companion.
+    n=0; [ ! -f "$D/pr-view-count" ] || n="$(cat "$D/pr-view-count")"; n=$((n + 1)); printf '%s\n' "$n" > "$D/pr-view-count"
+    if [ "$n" -gt 1 ] && [ -f "$D/pr.json.2" ]; then serve pr.json.2; else serve pr.json; fi ;;
   "pr checks")
     # Real `gh pr checks` exits 1 and reports on stderr when there is nothing to report; it never
     # returns an empty array. A stub that returns [] tests a CLI that does not exist -- the behaviour
@@ -49,12 +72,12 @@ EOF
   chmod +x "$1/gh"
 }
 
-world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [local-ci comment body]
+world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [local-ci comment body] [base-sha]
   local d; d="$(flow_workdir)"; gh_stub "$d"
   local comments='[]'
   [ -n "${5:-}" ] && comments="$(jq -nc --arg b "$5" '[{author:{login:"agent-bot"}, body:$b}]')"
-  jq -nc --arg head "${4:-$SHA}" --argjson reviews "$2" --argjson comments "$comments" \
-    '{headRefOid: $head, reviews: $reviews, comments: $comments}' > "$d/pr.json"
+  jq -nc --arg head "${4:-$SHA}" --arg base "${6:-$BASE_SHA}" --argjson reviews "$2" --argjson comments "$comments" \
+    '{headRefOid: $head, baseRefName: "main", baseRefOid: $base, reviews: $reviews, comments: $comments}' > "$d/pr.json"
   printf '%s' "$1" | jq -r '.[]? | (.path // .filename // empty)' > "$d/api-files"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
@@ -89,12 +112,13 @@ run() {
   if [ "$#" -eq 3 ]; then set -- "$@" review-default
   elif [ "$#" -eq 4 ] && [ "$1" = --check-only ]; then set -- "$@" review-default
   fi
-  out="$(CC_TUNER_GH="$d/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $d/plugins.json" bash "$MERGE" "$@" 2>&1)"
+  # From inside the fixture repository: the target-inclusion check asks git about real commits.
+  out="$(cd "$FIX_REPO" && CC_TUNER_GH="$d/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $d/plugins.json" bash "$MERGE" "$@" 2>&1)"
   printf '%s\nrc=%s\n' "$out" "$?"
 }
 run_without_thread() {
   local d="$1"; shift
-  out="$(CC_TUNER_GH="$d/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $d/plugins.json" bash "$MERGE" "$@" 2>&1)"
+  out="$(cd "$FIX_REPO" && CC_TUNER_GH="$d/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $d/plugins.json" bash "$MERGE" "$@" 2>&1)"
   printf '%s\nrc=%s\n' "$out" "$?"
 }
 
@@ -106,6 +130,49 @@ check "attested-candidate-rc0"    "rc=0"                                        
 # The pin is not the caller's to omit: merge.sh always adds it, so the head cannot move underneath.
 check "always-pins-the-head" "--match-head-commit" "$OUT"
 check "required-review-check-runs" "check review-default" "$(cat "$D/codex-calls")"
+
+# --- the target moved on while the candidate was under review -------------------------------------
+# --match-head-commit protects the head, not the base. A candidate that does not contain the
+# advanced target would have GitHub merge a tree nobody reviewed, so it is refused by name; a base
+# git cannot resolve locally is a fetch problem, named as such; and once the workflow integrates the
+# target and the new head is approved, the merge proceeds — the path a base-equality check would
+# have made impossible.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "" "" "$ADVANCED")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "unintegrated-target-refused"        "does not include it"                       "$OUT"
+check "unintegrated-target-names-the-fix"  "integrate the target, re-verify"           "$OUT"
+check "unintegrated-target-rc1"            "rc=1"                                      "$OUT"
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "" "" "$OTHER_SHA")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "unresolvable-target-tip-named"      "cannot resolve the current target tip"     "$OUT"
+check "unresolvable-target-tip-rc1"        "rc=1"                                      "$OUT"
+( cd "$FIX_REPO" && git merge -q --no-edit advanced )
+INTEGRATED="$(git -C "$FIX_REPO" rev-parse main)"
+APPROVED_INT="$(review agent-bot "$INTEGRATED" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $INTEGRATED")"
+D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED" "" "$ADVANCED")"
+OUT="$(run "$D" 42 squash "$INTEGRATED")"
+check "integrated-candidate-merges"        "MERGED pr merge 42 --squash --match-head-commit $INTEGRATED" "$OUT"
+check "integrated-candidate-rc0"           "rc=0"                                      "$OUT"
+# The check is a cc-tuner rule and applies only to cc-tuner runs: a pull request with no plan file
+# is merged unchecked, pinned, however far its target has moved. Imposing the lifecycle on it was
+# the regression the first placement of this check introduced.
+D="$(world "$NO_PLAN_FILES" '[]' '[]' "" "" "$ADVANCED")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "out-of-scope-ignores-target-advance" "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check "out-of-scope-ignores-target-rc0"     "rc=0"                                                 "$OUT"
+# The base moves WHILE merge.sh is consulting CI and the companion: the first read saw the reviewed
+# base, later reads see the advanced one. Caught by the final re-read, in merge and in --check-only.
+D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED")"
+jq -c --arg base "$ADVANCED" '.baseRefOid = $base' "$D/pr.json" > "$D/pr.json.2"
+OUT="$(run "$D" 42 squash "$INTEGRATED")"
+check  "base-moved-during-check-refused"   "changed while merge readiness was checked" "$OUT"
+check  "base-moved-during-check-rc1"       "rc=1"                                      "$OUT"
+absent "base-moved-during-check-no-merge"  "MERGED"                                    "$OUT"
+D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED")"
+jq -c --arg base "$ADVANCED" '.baseRefOid = $base' "$D/pr.json" > "$D/pr.json.2"
+OUT="$(run "$D" --check-only 42 squash "$INTEGRATED")"
+check  "base-moved-during-check-only-refused" "changed while merge readiness was checked" "$OUT"
+absent "base-moved-during-check-only-no-would-merge" "would merge"                     "$OUT"
 
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run_without_thread "$D" 42 squash "$SHA")"
@@ -416,6 +483,9 @@ check "unknown-identity-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
 # The check reads the repository the script runs IN, so these cases run from a real repo on disk;
 # invoking from the cc-tuner checkout would only ever assert the absence of a file here.
 LEGACY_REPO="$(flow_repo)"
+# The target-inclusion check runs after the legacy check and asks THIS repository about the fixture's
+# commits, so give it the objects: the refusal cases never reach it, the cleared case does.
+git -C "$LEGACY_REPO" fetch -q "$FIX_REPO" main advanced
 mkdir -p "$LEGACY_REPO/.claude/execute-task-runs"
 printf '{"schema_version":1,"status":"active"}\n' > "$LEGACY_REPO/.claude/execute-task-runs/old.state.json"
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"

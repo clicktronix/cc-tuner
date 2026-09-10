@@ -59,7 +59,9 @@ slices have proven-disjoint literal Owned paths, disjoint also from every active
 one ready slice. Dispatch what it returns without re-deriving it.
 
 **Rolling dispatch.** A slice whose blockers are done starts as soon as a unit is free; do not wait
-for the rest of its batch. Ask again after every unit returns, with the active set refreshed from
+for the rest of its batch. "Free" is measured against placement's concurrency cap on the **active
+set**, not per batch: a returned batch of two joining one running unit is three, and on a
+build-heavy repository two is the ceiling, so one of them waits. Ask again after every unit returns, with the active set refreshed from
 native task status and your agent handles — including on resume, where the first thing to do is
 reconcile which units still exist before dispatching anything.
 
