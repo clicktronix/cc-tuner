@@ -167,6 +167,22 @@ else
   fails=1
 fi
 need "setup-auth-miss-is-login" '`gh auth login` — an interactive browser flow' "$SETUP"
+# One setup, run as nodes. The two old installers are forwarders for one release: they must still be
+# user-invoked (checked below) and must route to the node, never keep a workflow of their own.
+need "setup-routes-task-flow-node"   'references/task-flow-rule.md' "$SETUP"
+need "setup-routes-statusline-node"  'references/statusline.md' "$SETUP"
+need "setup-audit-row-never-silent"  'audit: skipped — bridge not installed' "$SETUP"
+need "setup-task-tools-not-verified-in-session" 'written; takes effect after restart' "$SETUP"
+need "setup-cleanup-has-its-own-boundary" 'the install rule above does not cover it' "$SETUP"
+need "task-flow-setup-forwards"      '/cc-tuner:setup install task-flow' "$TASK_FLOW_SETUP"
+need "statusline-setup-forwards"     '/cc-tuner:setup install statusline' "$STATUSLINE_SETUP"
+for forwarder in "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP"; do
+  if grep -qE 'mktemp|jq |cp "\$SRC"' "$forwarder"; then
+    echo "FAIL $(basename "$(dirname "$forwarder")")-kept-its-own-procedure"; fails=1
+  else
+    echo "PASS $(basename "$(dirname "$forwarder")")-is-a-forwarder"
+  fi
+done
 for setup_skill in "$SETUP" "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP"; do
   need "$(basename "$(dirname "$setup_skill")")-is-user-invoked" 'disable-model-invocation: true' "$setup_skill"
 done

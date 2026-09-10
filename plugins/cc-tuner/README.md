@@ -43,11 +43,11 @@ staged/modified/untracked counts, model + reasoning effort, and session duration
 green → yellow (≥50%) → red (≥80%). Cross-platform (macOS Keychain, Linux/Windows
 `~/.claude/.credentials.json`).
 
-Plugins can't register a statusline themselves, so a setup command wires it into the
-user's `settings.json`:
+Plugins can't register a statusline themselves, so the statusline node of `/cc-tuner:setup`
+wires it into the user's `settings.json` — offered, not assumed:
 
 ```
-/cc-tuner:statusline-setup            # install (also: update | remove | status)
+/cc-tuner:setup install statusline    # the node; /cc-tuner:statusline-setup forwards here for one release
 ```
 
 The 5h/7d data uses Claude Code's **unofficial** OAuth usage endpoint — it degrades
@@ -61,10 +61,10 @@ changes), PR verification gates, GitHub Projects board recipes (create-on-board,
 field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 `docs/` fallback), and anti-pattern case studies with dated incidents.
 
-The always-on core installs per repo via `/cc-tuner:task-flow-setup` (plugins
-can't ship `.claude/rules/*`): a versioned template with the plans root detected
-from the repo layout, repo-specific deltas in an untouched `task-flow.local.md`,
-and optional cleanup of legacy hand-copied rule files.
+The always-on core installs per repo via the task-flow node of `/cc-tuner:setup` (plugins
+can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in an untouched
+`task-flow.local.md`, migration of the legacy `git-flow*` files, and a diff-and-ask for a
+hand-maintained copy. `/cc-tuner:task-flow-setup` forwards to the node for one release.
 
 ### `deep-review`
 
@@ -193,9 +193,9 @@ not the plugin's.
 
 The `claude-md-writer`, `task-flow`, `deep-review` and `verify-feature` skills are model-invoked when
 their descriptions match; `deep-review` and `verify-feature` are also available directly. The
-installers and lifecycle playbooks remain explicit user commands: `/cc-tuner:statusline-setup`,
-`/cc-tuner:task-flow-setup` (the rule is installed only by this command), `/cc-tuner:spec` and
-`/cc-tuner:run`.
+setup and lifecycle playbooks remain explicit user commands: `/cc-tuner:setup` (every installer
+is a node of it; the old `task-flow-setup` and `statusline-setup` entry points forward for one
+release), `/cc-tuner:spec` and `/cc-tuner:run`.
 
 ## Scope
 
