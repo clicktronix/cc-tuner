@@ -115,7 +115,10 @@ and how to observe them on the candidate. `/run` passes the mode verbatim.
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
 
-Set `tracker: gh` in the draft. Do not create or update the issue before the approval in section 6.
+Set `tracker:` from repository policy, not from the default: `gh` when the repository tracks work in
+GitHub issues, `none` when it does not. With `tracker: none` the spec is the record and no issue is
+created or updated at any point; a missing tracker or board never blocks permitted spec work. With
+`gh`, do not create or update the issue before the approval in section 6.
 
 ## 6. Plan and confirm
 

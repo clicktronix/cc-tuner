@@ -56,5 +56,5 @@ ci: <mode> — <the checks, and how to observe them>
                         returned>`. Prefer `any` where a workflow can be dispatched by hand.
 target_test: <exact command>
 full_test: <exact command>
-tracker: gh
+tracker: gh|none — gh when the repository tracks work in GitHub issues; none makes this spec the record
 board: <project title + owner | none>
