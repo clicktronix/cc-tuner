@@ -25,9 +25,9 @@ stop the command because one node stopped.
 | # | node | depends on | writes |
 |---|---|---|---|
 | 0 | environment | — | nothing |
-| 0b | testing runbook | — | nothing — detect and report only |
-| 1 | instruction cleanup | 0 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation |
-| 2 | agent-rules discovery | 1 | one marked block in the root `AGENTS.md` (or `AGENTS.override.md`) |
+| 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
+| 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
+| 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
 | 4 | task tools | 0 | `~/.claude/settings.json` — one `env` key |
 | 5 | statusline | 0; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
@@ -58,30 +58,20 @@ A `MISS` does not end the command. Record which nodes it blocks and continue wit
 
 ### 0b. Testing runbook
 
-Detect only; this node never writes. Find what the repository already says about verifying itself —
-test commands and runners in `package.json`, `Makefile`, `pyproject.toml`, `justfile`; a
-`TESTING.md`, `SMOKE.md`, `CONTRIBUTING.md` or `docs/`/`wiki/` page describing how the project is
-exercised by hand; the services, fixtures and credentials a run needs. Report the row as
-**found: <files>** or **none found**, and name what `cc-tuner:verify-feature` will therefore be
-missing at run time — the command it cannot know, the service it cannot start. Do not generate a
-runbook: that is repository documentation with a human audience, and setup is not its author.
+Find what the repository already says about verifying itself — test commands and runners in
+`package.json`, `Makefile`, `pyproject.toml`, `justfile`; a `TESTING.md`, `SMOKE.md`,
+`CONTRIBUTING.md` or `docs/`/`wiki/` page describing how the project is exercised by hand; the
+services, fixtures and credentials a run needs. Compare that against what the runners actually
+define and what `cc-tuner:verify-feature` will need at run time: the command it cannot otherwise
+know, the service it cannot start, the environment limit it cannot guess.
 
-### 1. Instruction cleanup
+In `check` mode report **found: <files>**, or **none found**, plus the gaps. In `install` mode, when a
+runbook exists, append the missing commands, service requirements and environment limits to it as a
+diff — that is an additive edit to an existing document and is covered by the install request. When
+no runbook exists, report the gaps and stop: a new testing document has a human audience, and setup
+is not its author.
 
-Read the repository's `AGENTS.md`, `CLAUDE.md` and `.claude/rules/*.md` and its stated policy.
-Healthy instructions are left alone: this node exists for the repository whose instruction files
-contradict each other, duplicate a rule the linter already enforces, or bury an always-on rule under
-prose that belongs in a skill. When that is the case, invoke `cc-tuner:claude-md-writer` in audit
-mode and let it produce the rebuilt files.
-
-**This node rewrites canonical instructions, so the install rule above does not cover it.** Always
-show the full diff. Ask for confirmation only when the user's request did not already authorise a
-reorganisation, or when the diff resolves a contradiction between two rules by choosing one — a
-user who asked for the cleanup is not asked again because of the file's type. A declined diff
-leaves every file untouched; node 2 still runs. In `check` mode, report what the audit would change
-and write nothing.
-
-### 2. Agent-rules discovery
+### 1. Agent-rules discovery
 
 Codex builds its instruction chain once at startup and does not load `.claude/rules` on a matching
 read the way Claude Code does, so the root instruction file has to say "read the applicable rules".
@@ -102,6 +92,26 @@ It needs a working Python 3; if node 0 reported none, report this node as unavai
 
 An installed block proves the loading instruction is present, not that an agent obeys it. Start a
 fresh Codex session to pick up changed startup instructions.
+
+This node runs **before** instruction cleanup on purpose: with the block already in place, the
+writer knows the Codex bridge exists and will not build a hand-made one beside it.
+
+### 2. Instruction cleanup
+
+Read the repository's `AGENTS.md`, `CLAUDE.md` and `.claude/rules/*.md` and its stated policy.
+Healthy instructions are left alone: this node exists for the repository whose instruction files
+contradict each other, duplicate a rule the linter already enforces, or bury an always-on rule under
+prose that belongs in a skill. When that is the case, invoke `cc-tuner:claude-md-writer` in audit
+mode and let it produce the rebuilt files. Tell it the `agent-rules` block from node 1 is the Codex
+bridge — it keeps the block first, byte for byte, and generates no per-repository skill or pointer
+table.
+
+**This node rewrites canonical instructions, so the install rule above does not cover it.** Always
+show the full diff. Ask for confirmation only when the user's request did not already authorise a
+reorganisation, or when the diff resolves a contradiction between two rules by choosing one — a
+user who asked for the cleanup is not asked again because of the file's type. A declined diff
+leaves every file untouched; the later nodes still run. In `check` mode, report what the audit would
+change and write nothing.
 
 ### 3. Task-flow rule
 

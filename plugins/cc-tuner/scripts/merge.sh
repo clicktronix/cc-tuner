@@ -87,13 +87,27 @@ fi
 # companion's exact-candidate state below. Nothing is accepted merely because the caller repeats it.
 # One round trip. reviews is a field on the same query, and an earlier revision fetched it in a
 # second call to the same endpoint -- a whole network round trip per merge for nothing.
-PRJSON="$("$GH" pr view "$PR" --json headRefOid,reviews,comments 2>/dev/null)" \
+PRJSON="$("$GH" pr view "$PR" --json headRefOid,baseRefName,baseRefOid,reviews,comments 2>/dev/null)" \
   || die "cannot resolve pull request '$PR'"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
 [ -n "$HEAD_SHA" ] || die "pull request $PR reports no head commit"
 [ "$HEAD_SHA" = "$SHA" ] \
   || die "the head of $PR is $HEAD_SHA, not the $SHA you asked to merge — the branch moved"
+
+# The target as it is NOW must be inside the candidate. --match-head-commit pins the head, not the
+# base: with the target advanced and the candidate not containing it, GitHub merges a tree nobody
+# reviewed. /run integrates the target and re-reviews before delivery; this turns that rule into a
+# check. The tip may not be fetched yet, so fetch the base branch before asking git about it.
+BASE_REF="$(printf '%s' "$PRJSON" | jq -r '.baseRefName // empty')"
+BASE_OID="$(printf '%s' "$PRJSON" | jq -r '.baseRefOid // empty')"
+[ -n "$BASE_OID" ] || die "pull request $PR reports no base commit"
+MERGE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a Git repository"
+git -C "$MERGE_ROOT" cat-file -e "$BASE_OID^{commit}" 2>/dev/null \
+  || git -C "$MERGE_ROOT" fetch -q origin "$BASE_REF" 2>/dev/null \
+  || die "cannot resolve the current target tip $BASE_OID locally; fetch $BASE_REF and retry"
+git -C "$MERGE_ROOT" merge-base --is-ancestor "$BASE_OID" "$SHA" 2>/dev/null \
+  || die "the target advanced to $BASE_OID and candidate $SHA does not include it — integrate the target, re-verify affected evidence, obtain approval for the new candidate, then merge"
 
 # `gh pr view --json files` asks GraphQL for only the first 100 nodes. Scope is therefore read from
 # the paginated REST endpoint instead: a large PR must not become unchecked precisely when its plan
