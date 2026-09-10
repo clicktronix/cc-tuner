@@ -1,12 +1,12 @@
 ---
 name: task-flow
-description: Use when working a task end to end in the user's repos — creating branches, commits and PRs, managing epics and cards on a GitHub Projects board, cleaning up worktrees after a merge, syncing the target branch, choosing a merge strategy for stacked PRs, or generating release notes from commits. Companion to the .claude/rules/task-flow.md invariants installed by /cc-tuner:task-flow-setup.
+description: Use when working a task end to end in a repository — creating branches, commits and PRs, managing epics and cards on a GitHub Projects board when the repository uses one, cleaning up worktrees after a merge, syncing the target branch, choosing a merge strategy for stacked PRs, or generating release notes from commits. Companion to the .claude/rules/task-flow.md invariants installed by the task-flow node of /cc-tuner:setup.
 ---
 
 # Task Flow — procedures
 
 The invariants (prohibitions, branch and commit format, PR linking) live in the repo's
-`.claude/rules/task-flow.md`, installed by `/cc-tuner:task-flow-setup`. This skill carries the
+`.claude/rules/task-flow.md`, installed by the task-flow node of `/cc-tuner:setup`. This skill carries the
 procedures that do not need to sit in every session's context. Repo deltas — board name, labels,
 cached field IDs — go in `.claude/rules/task-flow.local.md`; check it first.
 

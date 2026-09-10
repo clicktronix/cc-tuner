@@ -1,7 +1,9 @@
 # Task-flow case studies
 
 These incidents explain the concise rules in the parent skill. Dates and concrete outcomes are kept so
-a future audit can check whether the failure still reproduces.
+a future audit can check whether the failure still reproduces. The source runs happened in private
+repositories: repository, PR and issue identifiers were removed on 2026-09-10, so a reader can check
+the mechanism against their own history but cannot open the original.
 
 ## Long-lived staging branch and squash
 
@@ -11,8 +13,8 @@ cherry-picked onto a fresh branch (PR #61). Use short branches directly against 
 
 ## Branch continued after its PR merged
 
-On 2026-07-26, stokli/backend PR #213 squash-merged `fix/portfolio-performance-correctness`, after
-which the same branch gained two unrelated `chore:` commits. Twelve days later it showed five commits
+On 2026-07-26, a private Python backend repository squash-merged a `fix/` branch's PR, after which
+the same branch gained two unrelated `chore:` commits. Twelve days later it showed five commits
 "ahead" and 35 behind `main`; three of those five were already merged under other SHAs. Rebasing
 conflicted in six files on the first old commit, while cherry-picking the two new commits onto a fresh
 branch applied cleanly.
@@ -22,7 +24,8 @@ subjects already exist on the target under other SHAs. Cherry-pick genuinely new
 
 ## Regression test that could never fail
 
-During marqa-tech/platform PR #399 review on 2026-07-28, a URL-race regression test built its second
+During the review of a private TypeScript platform repository's PR on 2026-07-28, a URL-race
+regression test built its second
 patch from already-merged state even though production handlers closed over a render snapshot. It
 passed against the broken implementation. Inlining the old implementation as a throwaway mutant
 showed red/green in under two minutes. A regression test needs evidence that it fails against the bug.
@@ -36,7 +39,7 @@ file provenance does not.
 
 ## Autofix trusted blindly
 
-Also in PR #399, `eslint --fix` moved value imports into `import type`, and formatting moved a comment
+In the same review, `eslint --fix` moved value imports into `import type`, and formatting moved a comment
 past a bare `return`. Both tools reported success; typecheck exposed both failures. Those checks
 needed to cover the code after autofix, not an earlier green state. Read the resulting diff and use
 checks relevant to the affected criteria; this TypeScript incident does not prescribe every tool
@@ -49,14 +52,14 @@ manual request. Create with `--project` and set Status and Priority.
 
 ## Review findings turned into backlog
 
-In stokli/backend, a tool-call audit of 2026-08-31 through 2026-09-04 matched 42 created issues:
+In the same backend repository, a tool-call audit of 2026-08-31 through 2026-09-04 matched 42 created issues:
 33 from the orchestrator and nine from implementation workers. Forty-one creation commands omitted
 `--project`; only one included it. Separately, 29 review issues were later added to the board.
 These are different measures: a missing flag does not prove missing board membership, because the
 project also had an auto-add workflow. Its historical configuration was not established by the audit.
 
-The larger failure was treating an issue as resolution. [#527](https://github.com/stokli/backend/issues/527)
-described a missing acceptance criterion while the run reported its findings closed after filing it.
+The larger failure was treating an issue as resolution. One of those issues described a missing
+acceptance criterion while the run reported its findings closed after filing it.
 Several findings named changed files, but that alone cannot establish scope: the file-provenance
 case above already shows why causality matters. Required work must remain in the run; workers return
 findings to its orchestrator, and independent future work is grouped or added to an existing issue.
@@ -67,8 +70,8 @@ from independent future work. The counts belong to this dated audit, not to a ru
 
 ## Tiny documentation PR
 
-On 2026-06-05, marqa-tech/analyzer PR #23 contained three wording fixes in one file and incurred more
-workflow cost than value. Usually fold a tiny doc fix into open work or batch it; an urgent fix may
+On 2026-06-05, a docs-only PR in a private analyzer repository contained three wording fixes in one
+file and incurred more workflow cost than value. Usually fold a tiny doc fix into open work or batch it; an urgent fix may
 still ship alone.
 
 ## Other loss patterns

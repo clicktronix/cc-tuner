@@ -212,6 +212,19 @@ release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" 
 # is covered by tests/flow/test_merge.sh against its actual argument boundary, which is a stronger
 # check than any of them were.
 
+# Instruction surfaces, the installed template, both READMEs, the scenarios and the eval notes are
+# what a stranger reads and what the model loads. A private repository name or a home-directory path
+# there is a citation nobody else can check. History (CHANGELOG.md, docs/adr, archived plans) is not
+# in this set on purpose: rewriting it to look public would be falsification, not portability.
+if grep -RnE 'stokli|marqa|smartcat|/Users/[a-z]+/' \
+     "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/assets" \
+     "$ROOT/plugins/cc-tuner/README.md" "$ROOT/README.md" \
+     "$ROOT/tests/scenarios" "$ROOT/plugins/cc-tuner/tests/eval/README.md" 2>/dev/null; then
+  echo "FAIL private-provenance-on-an-instruction-surface"; fails=1
+else
+  echo "PASS no-private-provenance-on-instruction-surfaces"
+fi
+
 if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"
   fails=1
