@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Tune Claude Code's own configuration. Skills that write and audit Claude Code's config files against the official docs — claude-md-writer for CLAUDE.md / .claude/rules/ memory, a usage statusline, task-flow conventions with a per-repo rule installer — plus a two-command lifecycle, /cc-tuner:spec then /cc-tuner:run, that drives a coding task from intake to merge, proving each behaviour with verify-feature and reviewing the candidate through deep-review before a checked merge.",
-    "version": "0.12.0"
+    "version": "0.13.0"
   },
   "plugins": [
     {
       "name": "cc-tuner",
       "source": "./plugins/cc-tuner",
       "description": "Check the environment and install what a repo needs (/cc-tuner:setup), audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (/cc-tuner:statusline-setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:spec, then /cc-tuner:run) — with verify-feature proving the behaviour and a checked merge that pins the head — plus canonical task-flow conventions installed per repo (/cc-tuner:task-flow-setup).",
-      "version": "0.12.0"
+      "version": "0.13.0"
     }
   ]
 }

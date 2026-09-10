@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.13.0](https://github.com/clicktronix/cc-tuner/compare/v0.12.0...v0.13.0) (2026-09-10)
+
+
+### Features
+
+* decide once, before discovery, whether Codex research reads alongside ([2d41106](https://github.com/clicktronix/cc-tuner/commit/2d41106f13a5f30fbe95945c719adaea026c7b40))
+* one setup command run as nodes ([e77f836](https://github.com/clicktronix/cc-tuner/commit/e77f836339ad86f9aae9f6b59724a6d3aa53b5f1))
+* read tracker from repository policy and present branch/commit rules as defaults ([e016c24](https://github.com/clicktronix/cc-tuner/commit/e016c24e4d5a4d559783055259714e293fbb31f6))
+* rolling dispatch with a parser-owned active set ([cc5676d](https://github.com/clicktronix/cc-tuner/commit/cc5676d32fffc2872817f9b049fd3a3afbd8a3e1))
+
+
+### Bug Fixes
+
+* drop private provenance from instruction, template, scenario and eval surfaces ([32f27c2](https://github.com/clicktronix/cc-tuner/commit/32f27c24d61f9bfdf35d5e4d43bb75997d384560))
+* spec no longer dies without the bridge; writer, setup and placement follow-ups ([4ba37fa](https://github.com/clicktronix/cc-tuner/commit/4ba37fa2472e44e843c340ffeebe48e8d7084353))
+
 ## [0.12.0](https://github.com/clicktronix/cc-tuner/compare/v0.11.0...v0.12.0) (2026-09-09)
 
 
