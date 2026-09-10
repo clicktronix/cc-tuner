@@ -47,16 +47,31 @@ native tools are absent, say so once and continue with the plan file as durable 
 
 ## The loop
 
-Ask the parser for the first safe batch; do not select slices by eye:
+Ask the parser for the next safe batch; do not select slices by eye. Name every slice a unit is
+still working on — the parser knows open and done, and only you know running:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" ready-batches <the resolved plan path>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" ready-batches <the resolved plan path> --active <n,n,...>
 ```
 
-It emits a `BATCH` and its `SLICE` records, or nothing when all slices are done. Parallel slices have
-proven-disjoint literal Owned paths; otherwise it returns one ready slice. Work the returned batch,
-prove each slice, tick what landed and ask again. Under `--auto`, refuse any task with nonempty
-`blockedBy`, including tasks reached outside this parser: native task tools do not enforce the edge.
+Omit `--active` when nothing is running. It emits a `BATCH` and its `SLICE` records: parallel
+slices have proven-disjoint literal Owned paths, disjoint also from every active slice; otherwise
+one ready slice. Dispatch what it returns without re-deriving it.
+
+**Rolling dispatch.** A slice whose blockers are done starts as soon as a unit is free; do not wait
+for the rest of its batch. Ask again after every unit returns, with the active set refreshed from
+native task status and your agent handles — including on resume, where the first thing to do is
+reconcile which units still exist before dispatching anything.
+
+**An empty batch is not completion.** With `--active` it is also what an all-busy or all-conflicting
+plan returns, and the parser says so on stderr. Decide by the plan, not the batch: open slices remain
+→ wait for an active unit or diagnose the block; no open slices → verify the feature. A unit's
+process ending is not acceptance either — a slice closes only after you have read its diff and its
+deciding-check evidence and integrated the commits. A `--active` id the parser does not know is an
+error, never ignored: refresh the set rather than guessing.
+
+Under `--auto`, refuse any task with nonempty `blockedBy`, including tasks reached outside this
+parser: native task tools do not enforce the edge.
 
 Mark tasks `in_progress` and `completed` as work advances. When a slice's criteria hold, tick the plan
 and whichever spec acceptance criteria it established **in the same commit**. DoD is recorded during
@@ -94,6 +109,11 @@ their own read-only agent type/model; where silent, placement decides.
   Do not invent mutations. A shipped-bug regression observed RED before the fix needs no extra one.
   **If the spec assigns a mutation**, read [mutation-proof.md](references/mutation-proof.md) before
   running `mutate.sh`; the orchestrator must inspect its failure evidence, not just the verdict.
+- **Record the deciding check's evidence in the plan**, under the slice, as one line the next reader
+  can re-run: `Evidence: <command> → <the deciding output line> @ <sha or worktree>`. The parser
+  ignores the line; it exists so completion is a recorded result, not a remembered one. One matching
+  line is not proof by itself — you still read the diff and check the criterion is covered — but it
+  is what makes reuse honest: evidence names the code it was taken from.
 - Run the spec's targeted checks during implementation and full regression on the assembled result.
   Reuse observed results when the checked code, dependencies, configuration and environment still
   match; identify the source result and why it applies. Re-run affected checks when those inputs

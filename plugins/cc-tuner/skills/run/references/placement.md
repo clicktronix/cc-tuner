@@ -33,8 +33,10 @@ One orchestrator and shared outcome; each repository has its own plan, candidate
 Dispatch and integrate a unit only in its named repository. Local ready batches do not establish
 cross-repository readiness: the orchestrator checks the shared spec's prerequisites before dispatch.
 
-`plan-lint.sh ready-batches` decides which ready slices have proven-disjoint Owned paths. This
-reference only places the batch it returned; do not recalculate or widen that batch from plan prose.
+`plan-lint.sh ready-batches --active <running slices>` decides which ready slices have Owned paths
+proven disjoint from each other and from every running one. This reference only places the batch it
+returned; do not recalculate or widen that batch from plan prose, and do not fall back to `frontier`
+for candidates — it carries no path proof.
 
 ## Implementation brief and return
 
@@ -64,15 +66,16 @@ place where that job is described, and the two would part company.
   lens; `Explore` only to locate things, because it reads excerpts and does not audit what it finds.
   Both are built in. If the host offers neither, do the work yourself rather than guessing at a type
   that may not exist.
-- **Model.** `sonnet` for implementation from a clear brief — that is where the saving is, and a brief
-  that needs more than that is a brief that is not finished. The session's own model for what is a
-  judgement: an architectural choice, or a final review whose findings are contested. Reasoning effort
-  is **not** settable on a dynamic dispatch — the Agent tool takes a model, not an effort, and a
-  subagent inherits the session's. Do not write an effort into a brief and count it as configured. `haiku` only for mechanical retrieval where being wrong is visible
-  immediately. The orchestrator stays on the session's own model, because what it does is decide.
-  Escalate on evidence, not on feeling: a unit failing the same deciding check twice is re-dispatched
-  once on a stronger model with the failure text attached, and after that the orchestrator takes the
-  slice. A third cheap attempt costs more than the expensive one would have.
+- **Model.** Choose by the difficulty of the slice, honestly: `sonnet` for implementation from a
+  clear brief, which is where the saving is; a stronger model when the slice itself is hard, not as a
+  sign the brief is unfinished. The session's own model for what is a judgement: an architectural
+  choice, or a final review whose findings are contested. Reasoning effort is **not** settable on a
+  dynamic dispatch — the Agent tool takes a model, not an effort, and a subagent inherits the
+  session's. Do not write an effort into a brief and count it as configured. `haiku` only for
+  mechanical retrieval where being wrong is visible immediately. The orchestrator stays on the
+  session's own model, because what it does is decide. Escalate on evidence, not on feeling: a unit
+  failing the same deciding check twice is re-dispatched once on a stronger model with the failure
+  text attached, and after that the orchestrator takes the slice.
 - **Cost is not automatic.** Delegation saves tokens only when the brief is short and the unit does
   not have to rediscover the task; a long brief plus a verification pass can cost more than doing the
   slice. Say the expected saving when proposing a fan-out, and count builds separately from agents —
@@ -84,10 +87,13 @@ place where that job is described, and the two would part company.
 - **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
   That is the whole difference, and it is easy to lose by narrating between calls.
 - **Isolation.** A single unit while you wait works in this checkout and needs nothing.
-  **Do not use the Agent tool's `isolation: "worktree"` for slice work.** It branches from the
-  repository's *default branch*, not from this session's HEAD, so the unit would open a tree with no
-  spec, no plan and none of the slices already landed — and its shell is fenced inside that tree, so it
-  cannot reach this one to find them. It is right for a throwaway experiment and wrong for a slice.
+  **For slice work the plugin makes the worktree itself and does not rely on the Agent tool's
+  `isolation: "worktree"`.** Native isolation branches from the repository's *default branch* unless
+  the user has set `worktree.baseRef: "head"` in their settings — a key the plugin cannot set per
+  dispatch and that accepts no branch name. A unit opened from the default branch has no spec, no
+  plan and none of the slices already landed, and its shell is fenced inside that tree. Native
+  isolation is right for a throwaway experiment; a slice needs the task branch, so it gets an
+  explicit worktree from `HEAD`, below.
 - **Parallel units, when a batch has more than one.** Make the worktrees yourself, from the task
   branch, and hand each unit a path:
 
