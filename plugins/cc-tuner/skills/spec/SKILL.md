@@ -17,6 +17,14 @@ git rev-parse --show-toplevel || { echo "not a git repo"; exit 1; }
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh"
 ```
 
+**Decide once, now, whether a second provider reads alongside you.** When `cc-codex-triage` is
+installed and the task has an unfamiliar dependency, a current-facts question or two defensible
+designs, read [optional-opinions.md](references/optional-opinions.md) and start
+`/cc-codex-triage:research` in the same turn as the fan-out below — before the reading, so it has
+something to overlap with. Ask the user once, in the opening question batch, only if the existing
+authorisation does not already cover a bounded call. Its answer is evidence for the Sources
+section, never a decision; without the bridge, nothing here changes.
+
 Read, in order:
 
 - `.claude/rules/task-flow.local.md` for repository board and branch deltas;
@@ -32,8 +40,9 @@ with the Agent tool (`Explore` for search, `general-purpose` on `sonnet` for a q
 running commands), all in a single message so they run at once. Each gets a literal question and the
 paths to look in; none of them decides anything. You read what comes back and write the spec. This is
 the cheapest part of the flow to parallelise, because discovery is read-only and the failure mode of a
-wrong answer is that you notice it while drafting. Do not delegate the grilling in section 3: the
-questions there change the draft, and a subagent cannot see the draft.
+wrong answer is that you notice it while drafting. Do not delegate the grilling in section 3: its
+questions change the draft, and their answers are decisions the owner keeps — an adviser can be
+handed the draft text, never the decision.
 
 ## 2. Create the task branch
 
