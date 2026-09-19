@@ -74,7 +74,8 @@ Ship a definition when the constraint repeats; write a brief when the task does.
   `cc-tuner:deep-review-lens`. If the host offers none of these, do the work yourself rather than
   guessing at a type that may not exist.
 - **Model.** Choose by the difficulty of the slice, honestly: `sonnet` for implementation from a
-  clear brief, which is where the saving is; a stronger model when the slice itself is hard, not as a
+  clear brief, which is where the saving is — it is also `cc-tuner:slice-unit`'s default, and a
+  `model` on the dispatch overrides the definition's; a stronger model when the slice itself is hard, not as a
   sign the brief is unfinished. The session's own model for what is a judgement: an architectural
   choice, or a final review whose findings are contested. Reasoning effort is **not** settable on a
   dynamic dispatch — the Agent tool takes a model, not an effort, and a subagent inherits the
@@ -160,7 +161,7 @@ cap exists to stop. A partial return is a run event, not a failure, and it is th
 Record it in the plan under the slice, one line the next reader can act on:
 
 ```text
-Partial: <unit id> at maxTurns; landed <commit shas>; redispatched once
+Partial: <unit> at maxTurns; landed <commits>; redispatched once
 ```
 
 The parser ignores the line, like `Evidence:`. It exists so a resumed session knows the slice has
