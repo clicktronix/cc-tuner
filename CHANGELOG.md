@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.14.0](https://github.com/clicktronix/cc-tuner/compare/v0.13.0...v0.14.0) (2026-09-19)
+
+
+### Features
+
+* enforce read-only lenses and spawn depth through the platform, not the brief ([#39](https://github.com/clicktronix/cc-tuner/issues/39)) ([cc6a42a](https://github.com/clicktronix/cc-tuner/commit/cc6a42a5fd5814f7a8e639da5ba621534bf7f35e))
+* **run:** cap slice units with a shipped agent definition and own the partial return ([#40](https://github.com/clicktronix/cc-tuner/issues/40)) ([afc4f62](https://github.com/clicktronix/cc-tuner/commit/afc4f6256cda0435b322212fc0ee005c6f176483))
+
 ## [0.13.0](https://github.com/clicktronix/cc-tuner/compare/v0.12.0...v0.13.0) (2026-09-10)
 
 
