@@ -170,7 +170,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    fixtures and configuration count when they decide behaviour on these surfaces.
 
    Otherwise use `mattpocock-skills:code-review`, or the official Claude Code `/code-review` plugin
-   when explicitly requested. Pass the base, candidate and spec; run in read-only mode without
+   when explicitly requested — and say what that costs before choosing it: at max effort it builds
+   an eleven-agent rig inside one background subagent and ran 40–160 minutes per invocation in
+   field transcripts, so it is a deep-review-sized spend, not a lighter alternative. Pass the base, candidate and spec; run in read-only mode without
    publishing findings automatically. Deep review already covers Spec and Standards: do not stack
    Matt or the official plugin on top. If fixes newly meet a deep-review trigger, escalate once;
    otherwise verify the findings without restarting advisory passes. These are not merge gates.

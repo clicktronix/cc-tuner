@@ -39,13 +39,32 @@ Run every applicable lens independently and fan them out against the immutable c
 owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
 into a second lightweight review.
 
-Dispatch each lens as its own read-only `general-purpose` subagent with the Agent tool, all in one
-message so they run concurrently, on `sonnet`; escalate a lens the way `placement.md` escalates any
-unit — on a returned result you can point at, not on a feeling about the codebase. A lens is a
-reading job over a tree nobody is changing, which is why it may fan out at all — and each one must be
-given the literal candidate SHA, base ref, spec path and read-only constraint in its own brief,
-because a subagent sees none of this session. What must not fan out is the aggregation below: one
-owner reads every lens's findings and produces one verdict.
+Before dispatching, write what every lens will read, once, into a scratch directory the briefs can
+name: the full diff (`git diff --find-renames <base>...<candidate> > <dir>/candidate.diff`) and the
+changed-file list (`git diff --name-status <base>...<candidate> > <dir>/changed-files.txt`). A lens
+has no shell, so this is the only way the diff reaches it; it also means six lenses read one file
+instead of generating the diff six times.
+
+Dispatch each lens as its own `cc-tuner:deep-review-lens` subagent with the Agent tool, all in one
+message. The agent definition (`agents/deep-review-lens.md`) is what makes a lens read-only: its
+tool list is `Read, Grep, Glob`, with `Bash`, `Edit`, `Write`, `NotebookEdit` and `Agent` withheld,
+so the constraint holds by the tool list and not by the brief, and it runs on `sonnet`. There is no
+fallback type: if the host does not list `cc-tuner:deep-review-lens`, the review is incomplete by
+construction, and the verdict below says so and returns `REQUEST_CHANGES` — a `general-purpose`
+reader would hold every tool the definition withholds, and putting the constraint back into prose
+is exactly what this definition replaced. One message for all six is also what lets their first
+requests share one cache prefix. Escalate a lens the way `placement.md` escalates any unit — on a
+returned result you can point at, not on a feeling about the codebase. A lens is a reading job over
+a tree nobody is changing, which is why it may fan out at all — and each brief still carries the
+literal candidate SHA, base ref, spec path, the two file paths and the finding format, because a
+subagent sees none of this session. What must not fan out is the aggregation
+below: one owner reads every lens's findings and produces one verdict.
+
+Say the cost when `/run` selects this route. Each lens is a fresh context: measured on one
+repository, a `general-purpose` spawn carried 34k–42k tokens of system prompt, tools and CLAUDE.md
+before reading a line of the diff, so six lenses are on the order of 200k tokens of overhead plus
+six reads of the diff and spec. That is the price of six independent readers, and it is why the
+trigger in `/run` is large or sensitive changes only.
 
 Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
 candidate, spec, and read-only constraint.

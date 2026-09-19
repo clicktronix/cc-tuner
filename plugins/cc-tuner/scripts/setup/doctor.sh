@@ -60,6 +60,22 @@ case "${CLAUDE_CODE_ENABLE_TODO_TOOLS:-}" in
   *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — on Opus 4.8 / Sonnet 5 and later the TaskCreate tools are off by default, so /cc-tuner:spec may commit the plan file and publish no visible task list; set it durably as {\"env\": {\"CLAUDE_CODE_ENABLE_TODO_TOOLS\": \"1\"}} in ~/.claude/settings.json, or export it before starting Claude Code, or pass --allowedTools TaskCreate. Only the session itself can tell whether they are there" ;;
 esac
 
+# --- 1c. nested delegation ---------------------------------------------------------------------
+# /cc-tuner:run hands slices to subagents and tells each one not to delegate further; deep-review
+# fans out six read-only lenses the same way. That instruction is prose. The platform default lets a
+# subagent spawn its own down to depth 3, and one run once produced dozens of unrequested agents that
+# way. CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 makes the rule a limit instead of a request: the
+# orchestrator still dispatches, its units cannot. A hint, not a blocker -- the prose still applies.
+# 1 = only the orchestrator dispatches. 2 = a unit may still run its own Explore lookups, but
+# nothing it spawns can spawn further -- the shape observed in practice, where units wanted a
+# lookup and never a rig. Both hold the invariant that matters: no unrequested third layer.
+case "${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH:-}" in
+  1) ok "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 — only the orchestrator can spawn; units and lenses cannot" ;;
+  2) ok "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2 — units may run their own lookups; nothing below them can spawn" ;;
+  "") warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set — subagents may nest to depth 3 by default, so a unit told not to delegate can still build a rig of its own; set {\"env\": {\"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH\": \"1\"}} (orchestrator only) or \"2\" (units may run lookups) in ~/.claude/settings.json" ;;
+  *) warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH} — a third layer of agents is possible; /cc-tuner:run expects 1 or 2" ;;
+esac
+
 # --- 2. gh auth and the project scope ------------------------------------------------------------
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
 # single most common reason an agent silently gives up on the board, so name it before it happens.

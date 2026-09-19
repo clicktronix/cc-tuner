@@ -69,8 +69,11 @@ hand-maintained copy. `/cc-tuner:task-flow-setup` forwards to the node for one r
 ### `deep-review`
 
 A read-only exhaustive review for large, cross-boundary, or sensitive candidates. It fans out six
-independent lenses against one immutable SHA, then validates and deduplicates their output without a
-top-ten cap. It replaces the ordinary Matt Pocock advisory pass for these candidates. Both routes
+independent lenses against one immutable SHA — each a `cc-tuner:deep-review-lens` subagent, the one
+agent definition the plugin ships, whose tool list is Read, Grep and Glob — no Bash, Edit, Write or
+Agent — so read-only holds by construction; the owner writes the diff to a file the lenses read — then validates and deduplicates their output without a top-ten cap. Six fresh
+contexts are the cost: on the order of 200k tokens of system prompt, tools and CLAUDE.md before the
+diff is read, which is why `/run` selects this route for large or sensitive changes only. It replaces the ordinary Matt Pocock advisory pass for these candidates. Both routes
 then use the required Codex review of the final SHA.
 
 ### `verify-feature`
