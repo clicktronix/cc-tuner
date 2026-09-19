@@ -176,13 +176,25 @@ rm -rf "$T"
 # /cc-tuner:spec publishes the visible plan through TaskCreate. From Claude Code 2.1.233 those tools
 # are off by default on Opus 4.8 / Sonnet 5 and later. Four eval sessions published no task list
 # because of it and the cause was misread as an MCP outage each time, which is why doctor now says it.
+# `env -u`: the variable leaks in from the developer's own session when settings.json exports it,
+# and the "unset" arm then tests the developer's machine instead of the doctor.
 mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
-OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" bash "$DOCTOR" quick 2>&1 )"
+OUT="$( cd "$R" && env -u CLAUDE_CODE_ENABLE_TODO_TOOLS -u CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH \
+        PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" bash "$DOCTOR" quick 2>&1 )"
 check "todo-tools-unset-warns" "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set" "$OUT"
+check "spawn-depth-unset-warns" "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set" "$OUT"
+absent "spawn-depth-unset-not-a-blocker" "MISS CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" "$OUT"
 absent "todo-tools-unset-not-a-blocker" "MISS CLAUDE_CODE_ENABLE_TODO_TOOLS" "$OUT"
 OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
-        CLAUDE_CODE_ENABLE_TODO_TOOLS=1 bash "$DOCTOR" quick 2>&1 )"
+        CLAUDE_CODE_ENABLE_TODO_TOOLS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 bash "$DOCTOR" quick 2>&1 )"
 check "todo-tools-set-ok" "ok   CLAUDE_CODE_ENABLE_TODO_TOOLS is set" "$OUT"
+check "spawn-depth-set-ok" "ok   CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1" "$OUT"
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+        CLAUDE_CODE_ENABLE_TODO_TOOLS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2 bash "$DOCTOR" quick 2>&1 )"
+check "spawn-depth-2-ok" "ok   CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2" "$OUT"
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+        CLAUDE_CODE_ENABLE_TODO_TOOLS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=3 bash "$DOCTOR" quick 2>&1 )"
+check "spawn-depth-3-warns" "WARN CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=3" "$OUT"
 rm -rf "$T"
 
 # --- "cannot tell" is not "not installed" --------------------------------------------------------

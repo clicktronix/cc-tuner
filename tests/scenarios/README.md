@@ -63,7 +63,10 @@ content, which is the argument for probing rather than reasoning about probes.
 Method caveat for that batch: the probe subagents inherited the host project's `AGENTS.md` and memory,
 so the RED arm is a stronger-than-neutral control. That corpus supplies none of the four behaviours
 under test, so the measured effects are lower bounds — but a clean-room harness would make the next
-batch trustworthy without the asterisk.
+batch trustworthy without the asterisk. That inheritance is documented platform behaviour, not an
+accident: a subagent receives every level of the CLAUDE.md hierarchy the parent loaded. Since Claude
+Code 2.1.271 an agent definition can set `omitClaudeMd: true`, which is the clean-room switch a
+probe agent should carry; the 2026-08-10 rows ran from `/tmp` to get the same effect by location.
 
 Use proportional evidence for future behavior changes: re-run a targeted scenario when a repeated
 failure justifies the token cost, and use the live Task 8 boundary for lifecycle acceptance. The

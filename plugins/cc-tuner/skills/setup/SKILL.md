@@ -29,7 +29,7 @@ stop the command because one node stopped.
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
-| 4 | task tools | 0 | `~/.claude/settings.json` — one `env` key |
+| 4 | session env | 0 | `~/.claude/settings.json` — up to two `env` keys |
 | 5 | statusline | 0; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
 | 7 | Codex audit | every applied node | nothing |
@@ -121,14 +121,25 @@ before anything creates the deltas file, and the legacy `git-flow.md` is removed
 rule is in place. A differing or legacy rule file is shown as a diff and asked about once; "keep"
 is a terminal state for this node only.
 
-### 4. Task tools
+### 4. Session env
 
-The native task tools (`TaskCreate`, `TaskUpdate`, `TaskList`) are opt-in on current models, and
-nothing the plugin ships can turn them on. Without them `/cc-tuner:spec` commits the plan and
-publishes no visible task list, which reads as the plugin not working. When node 0 reported
-`CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, in install mode add
-`"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}` to `~/.claude/settings.json`, preserving the rest of
-the file, after the user agrees once.
+Two keys, both user-global, both offered once and applied in install mode only after the user
+agrees; the `env` block is patched in one write, preserving the rest of the file.
+
+**Task tools.** The native task tools (`TaskCreate`, `TaskUpdate`, `TaskList`) are opt-in on
+current models, and nothing the plugin ships can turn them on. Without them `/cc-tuner:spec`
+commits the plan and publishes no visible task list, which reads as the plugin not working. When
+node 0 reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, add `"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"`.
+
+**Nesting.** `/cc-tuner:run` tells every unit not to delegate further and deep-review's lenses
+carry no Agent tool, but a `general-purpose` unit can still spawn down to depth 3 by the platform
+default, and one run once produced dozens of unrequested agents that way. When node 0 reported
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, offer two values and let the user pick: `"1"`
+means only the orchestrator dispatches; `"2"` lets a unit run its own `Explore` lookups while
+nothing below it can spawn. Field transcripts showed units wanting a lookup, never a rig, so `2`
+loses little; `1` is the strict form. Say what either changes outside cc-tuner — every session on
+this machine, including `/code-review` at max effort, which builds an eleven-agent rig from inside
+a subagent — because that is the user's call, not the plugin's.
 
 Detect has two halves, and they can disagree. First, **now**: is `TaskCreate` in this session's
 tool list? You can answer that directly — it is your own tool list. Second, the env: is the key in
@@ -139,7 +150,7 @@ the install case above. Env unset, tools present → the host enabled them anoth
 env alone and say so.
 
 An env edit is configuration for a later session, not proof the tools loaded. This command cannot
-observe the next session, so after writing the key its verify column reads
+observe the next session, so after writing either key its verify column reads
 **"written; takes effect after restart"**, and it names the check the user makes there: in the new
 session, `TaskCreate` is in the tool list or it is not. Do not report this node as verified from
 inside the session that wrote it.

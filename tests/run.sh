@@ -85,6 +85,21 @@ for s in "$PLUGIN"/skills/*/SKILL.md; do
 done
 ok "skill bodies within 500 lines"
 
+# --- 5a. agent definitions carry what the skills rely on ---------------------------------------
+# deep-review says read-only holds "by the tool list". That is only true while the definition still
+# has a tool list without Edit/Write/Agent; a later edit that drops `tools:` would silently hand the
+# lens every tool and the skill's claim would go on reading as true.
+for a in "$PLUGIN"/agents/*.md; do
+  [ -f "$a" ] || continue
+  rel="${a#$ROOT/}"
+  head -20 "$a" | grep -q '^name: ' || bad "$rel has no name: in its frontmatter"
+  head -20 "$a" | grep -q '^tools: ' || bad "$rel has no tools: list"
+  if head -20 "$a" | grep '^tools: ' | grep -qE '\b(Edit|Write|Agent)\b'; then
+    bad "$rel lists Edit, Write or Agent as a tool; deep-review relies on the lens being read-only"
+  fi
+done
+ok "agent definitions declare a read-only tool list"
+
 # --- 5b. release-please config points at fields that actually exist -----------------------------
 # release-please owns the version bump now. If one of its extra-file targets goes stale — a renamed
 # path, a restructured manifest — it bumps the others and silently skips that one, which is exactly

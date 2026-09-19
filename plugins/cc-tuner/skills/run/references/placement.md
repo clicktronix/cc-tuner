@@ -57,29 +57,39 @@ slice completion, full regression, runtime acceptance, review verdict, DoD and d
 
 ## How a unit is dispatched
 
-Units are **dispatched dynamically with the Agent tool**, not selected from a roster of named agents.
-The plugin ships no agent definitions on purpose: a slice's brief is different every time, and it is
-already written down — the committed spec plus the slice's own text. A named agent would add a second
-place where that job is described, and the two would part company.
+Units are **dispatched dynamically with the Agent tool**. The plugin ships one agent definition,
+`cc-tuner:deep-review-lens`, and no others, and the line between the two is what a definition can
+hold that a brief cannot: a tool list, a model, an effort. A slice's brief is different every time
+and is already written down — the committed spec plus the slice's own text — so a named
+implementation agent would only add a second place where that job is described. A read-only lens
+needs the opposite: the same constraint every time, enforced by the tool list rather than by prose.
+Ship a definition when the constraint repeats; write a brief when the task does.
 
-- **Type.** `general-purpose` for anything that writes code or forms a judgement, including a review
-  lens; `Explore` only to locate things, because it reads excerpts and does not audit what it finds.
-  Both are built in. If the host offers neither, do the work yourself rather than guessing at a type
-  that may not exist.
+- **Type.** `general-purpose` for anything that writes code or forms a judgement; `Explore` only to
+  locate things, because it reads excerpts and does not audit what it finds, and because it skips the
+  CLAUDE.md hierarchy, which is what makes it the cheap one. Review lenses use
+  `cc-tuner:deep-review-lens`. If the host offers none of these, do the work yourself rather than
+  guessing at a type that may not exist.
 - **Model.** Choose by the difficulty of the slice, honestly: `sonnet` for implementation from a
   clear brief, which is where the saving is; a stronger model when the slice itself is hard, not as a
   sign the brief is unfinished. The session's own model for what is a judgement: an architectural
   choice, or a final review whose findings are contested. Reasoning effort is **not** settable on a
   dynamic dispatch — the Agent tool takes a model, not an effort, and a subagent inherits the
-  session's. Do not write an effort into a brief and count it as configured. `haiku` only for
+  session's; only an agent definition's `effort` field changes it. Do not write an effort into a
+  brief and count it as configured. `haiku` only for
   mechanical retrieval where being wrong is visible immediately. The orchestrator stays on the
   session's own model, because what it does is decide. Escalate on evidence, not on feeling: a unit
   failing the same deciding check twice is re-dispatched once on a stronger model with the failure
   text attached, and after that the orchestrator takes the slice.
-- **Cost is not automatic.** Delegation saves tokens only when the brief is short and the unit does
-  not have to rediscover the task; a long brief plus a verification pass can cost more than doing the
-  slice. Say the expected saving when proposing a fan-out, and count builds separately from agents —
-  two units are two agents and, on a repository with a heavy build, two full builds.
+- **Cost is not automatic.** A fresh unit pays its own system prompt, tool list and the whole
+  CLAUDE.md hierarchy before it reads a line: measured on one repository, 34k–42k tokens per
+  `general-purpose` spawn against 57k for the parent's first request. Delegation pays when the unit
+  reads more than that on the parent's behalf, or when two units genuinely run at once; a slice
+  that fits in a handful of tool calls costs more delegated than done. A long brief plus a
+  verification pass can cost more than doing the slice. Say the expected saving when proposing a
+  fan-out, and count builds separately from agents — two units are two agents and, on a repository
+  with a heavy build, two full builds. Subagent cache entries live five minutes, so units of one
+  batch dispatched in one message share a prefix and a late joiner past that window rebuilds it.
 - **One heavy check at a time.** A full build, a full suite, a container start: run those in sequence
   even when the units writing the code run in parallel. **The concurrency cap counts running units,
   not the batch.** With rolling dispatch a new batch joins units still working, so on a repository
@@ -87,9 +97,16 @@ place where that job is described, and the two would part company.
   and dispatch from a returned batch only up to that ceiling; the rest waits for a unit to return.
   Machines run out of memory before they run out of agents, and a run killed for memory grades
   nothing — it only spends.
-- **Concurrency.** Several dispatches in one message run at once; one per message runs in sequence.
-  That is the whole difference, and it is easy to lose by narrating between calls.
-- **Isolation.** A single unit while you wait works in this checkout and needs nothing.
+- **Concurrency.** Every dispatch runs in the background: the Agent tool returns at once with a
+  handle, the unit's result arrives later as a task notification, and the orchestrator cannot ask
+  for a blocking foreground run. So the number of units in flight is the number dispatched and not
+  yet returned, whatever the message boundaries — one dispatch per message does **not** serialise
+  them. The cap above is therefore held by the orchestrator: dispatch up to the ceiling, then do
+  nothing that starts a unit until a notification returns one. Several dispatches in one message
+  still matter for one reason: same-prefix first requests share a cache. Do not delegate further
+  from inside a unit beyond a lookup; `/cc-tuner:setup` offers `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`
+  at `1` or `2`, which makes that a limit the platform enforces rather than a line in the brief.
+- **Isolation.** A single unit with nothing else in flight works in this checkout and needs nothing.
   **For slice work the plugin makes the worktree itself and does not rely on the Agent tool's
   `isolation: "worktree"`.** Native isolation branches from the repository's *default branch* unless
   the user has set `worktree.baseRef: "head"` in their settings — a key the plugin cannot set per
@@ -113,9 +130,11 @@ place where that job is described, and the two would part company.
   Cherry-pick can leave the source branch outside the target's ancestry, so `-d` may refuse it.
   Use `-D` only after verifying integration and removing the clean worktree; never discard unlanded
   work. Disjoint paths prevent file overlap; worktrees prevent a shared index.
-- **Context.** A subagent inherits the `CLAUDE.md` hierarchy and nothing else from this session — not
-  the transcript, not the output style, not what a review just said. Anything load-bearing goes into
-  the brief as literal text or as a path it is told to read.
+- **Context.** A subagent inherits the `CLAUDE.md` hierarchy, the MCP servers and the skill list, and
+  nothing else from this session — not the transcript, not files already read, not the output style,
+  not what a review just said. Only the final message comes back. Anything load-bearing goes into
+  the brief as literal text or as a path it is told to read; anything the orchestrator needs back
+  is a file the unit writes or a commit it makes, not a long report.
 
 ## Where each method runs
 
