@@ -46,8 +46,9 @@ criteria), and any shared-task prerequisites. Give the unit these constraints:
 
 - Write only inside Owned paths; prove the deciding check with its expected RED or approved non-code baseline.
 - Do not delegate the slice's own work further; a lookup that saves reading is fine. Nested
-  delegation previously spawned dozens of unrequested agents, and the spawn-depth setting from
-  `/cc-tuner:setup` is what holds this line, not the brief.
+  delegation previously spawned dozens of unrequested agents. The spawn-depth setting from
+  `/cc-tuner:setup` caps how many layers can exist below the orchestrator; what a unit may hand
+  down within that depth is this line, and only this line.
 - Report commands, results, what was not verified, and any incorrect assumptions in the slice.
 - Commit using repository conventions; do not push, open/comment on a PR, merge or claim approval.
 - Return findings to the orchestrator; do not create issues or own the task list.
