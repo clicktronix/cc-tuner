@@ -59,7 +59,10 @@ has_file() {
 }
 
 # The required-review contract, not merely the plugin: an installed cc-codex-triage predating it
-# would satisfy "is it there" and still be unable to answer for a delivery gate.
+# would satisfy "is it there" and still be unable to answer for a delivery gate. The contract is what
+# merge.sh consumes: review-state.sh answers `check` with the approval marker. review.md only has to
+# document `--required`; 0.13.1 stopped quoting the marker there, and requiring it reported a working
+# install as missing (#42).
 codex_contract() {
   local root review state
   root="$(root_of 'cc-codex-triage@cc-codex-triage')"
@@ -67,7 +70,6 @@ codex_contract() {
   review="$root/commands/review.md"; state="$root/scripts/review-state.sh"
   [ -f "$review" ] && [ -f "$state" ] \
     && grep -qF -- '--required' "$review" \
-    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$review" \
     && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state" \
     && grep -q '^  check)' "$state"
 }
