@@ -91,8 +91,14 @@ ok "skill bodies within 500 lines"
 # "by maxTurns". Both stay true only while the frontmatter still says so; an edit that drops the
 # field would leave the skill's claim reading as true while nothing enforces it. So the property
 # each consumer relies on is checked here, per definition, not "some frontmatter parses".
-agent_field() { # agent_field <file> <key>  -> the value, or empty
-  head -20 "$1" | sed -n "s/^$2: *//p" | head -1
+agent_field() { # agent_field <file> <key>  -> the value from the YAML frontmatter, or empty
+  # Only the block between the first two `---` lines counts. A `maxTurns: 200` in the Markdown body
+  # is prose Claude Code never reads; a check that accepted it would report a cap that is not set.
+  awk -v key="$2" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    NR > 1 && index($0, key ": ") == 1 { sub("^" key ": *", ""); print; exit }
+  ' "$1"
 }
 for a in "$PLUGIN"/agents/*.md; do
   [ -f "$a" ] || continue
@@ -103,8 +109,8 @@ LENS="$PLUGIN/agents/deep-review-lens.md"
 if [ -f "$LENS" ]; then
   tools="$(agent_field "$LENS" tools)"
   [ -n "$tools" ] || bad "${LENS#$ROOT/} has no tools: list"
-  if printf '%s' "$tools" | grep -qE '\b(Edit|Write|Agent)\b'; then
-    bad "${LENS#$ROOT/} lists Edit, Write or Agent as a tool; deep-review relies on the lens being read-only"
+  if printf '%s' "$tools" | grep -qE '\b(Bash|Edit|Write|Agent)\b'; then
+    bad "${LENS#$ROOT/} lists Bash, Edit, Write or Agent as a tool; deep-review relies on the lens being read-only, and Bash is a write path"
   fi
 else
   bad "plugins/cc-tuner/agents/deep-review-lens.md is missing; deep-review dispatches it by name"
@@ -297,7 +303,7 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
     # skills produce would be invisible to the check that claims the eval saw what ships.
     elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
            plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
-           plugins/cc-tuner/assets plugins/cc-tuner/references \
+           plugins/cc-tuner/agents plugins/cc-tuner/assets plugins/cc-tuner/references \
            plugins/cc-tuner/output-styles 2>/dev/null \
          && [ "$evaluated_manifest" = "$current_manifest" ]; then
       ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
