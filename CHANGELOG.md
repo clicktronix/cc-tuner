@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.14.1](https://github.com/clicktronix/cc-tuner/compare/v0.14.0...v0.14.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* **setup:** check the review contract where merge.sh reads it ([#43](https://github.com/clicktronix/cc-tuner/issues/43)) ([6f403db](https://github.com/clicktronix/cc-tuner/commit/6f403db717cf6e20e6f1a8e7a2a1497f740236ad)), closes [#42](https://github.com/clicktronix/cc-tuner/issues/42)
+
 ## [0.14.0](https://github.com/clicktronix/cc-tuner/compare/v0.13.0...v0.14.0) (2026-09-19)
 
 
