@@ -65,8 +65,11 @@ implementation agent would only add a second place where that job is described. 
 needs the opposite: the same constraint every time, enforced by the tool list rather than by prose.
 Ship a definition when the constraint repeats; write a brief when the task does.
 
-- **Type.** `general-purpose` for anything that writes code or forms a judgement; `Explore` only to
-  locate things, because it reads excerpts and does not audit what it finds, and because it skips the
+- **Type.** `cc-tuner:slice-unit` for an implementation slice: it is `general-purpose` with a
+  200-turn cap and `sonnet` as the default model, which is what makes a partial return possible at
+  all. `general-purpose` for any other judgement-forming work, and as the fallback when the host does
+  not list the unit type — same brief, no cap, say so in the run log. `Explore` only to locate
+  things, because it reads excerpts and does not audit what it finds, and because it skips the
   CLAUDE.md hierarchy, which is what makes it the cheap one. Review lenses use
   `cc-tuner:deep-review-lens`. If the host offers none of these, do the work yourself rather than
   guessing at a type that may not exist.
@@ -135,6 +138,33 @@ Ship a definition when the constraint repeats; write a brief when the task does.
   not what a review just said. Only the final message comes back. Anything load-bearing goes into
   the brief as literal text or as a path it is told to read; anything the orchestrator needs back
   is a file the unit writes or a commit it makes, not a long report.
+
+## Unit size and partial returns
+
+A `cc-tuner:slice-unit` stops at 200 turns and returns marked partial. That number comes from the
+field: across 399 observed units the median was 76 turns, 320 fit in 150, and the ones past 200
+were the ones whose context had grown past 300k and was being re-read on every turn — the cost the
+cap exists to stop. A partial return is a run event, not a failure, and it is the orchestrator's:
+
+1. **Read what landed.** The worktree's commits, its diff against the slice branch's base, and the
+   deciding-check output the unit reported. A criterion counts as proven only after you have read
+   its evidence; the unit's closing summary is not that.
+2. **Redispatch once, fresh.** A new `cc-tuner:slice-unit` with a brief that states what landed
+   (the commits, the proven criteria) and what remains. Fresh, because a new unit starts at the
+   spawn cost while resuming the old one through `SendMessage` continues the 300k–400k context the
+   cap just stopped.
+3. **Take the second partial yourself.** A slice that two capped units could not finish is not
+   going to fit a third; the orchestrator finishes the remainder, the way it already takes a slice
+   whose unit failed the deciding check twice.
+
+Record it in the plan under the slice, one line the next reader can act on:
+
+```text
+Partial: <unit id> at maxTurns; landed <commit shas>; redispatched once
+```
+
+The parser ignores the line, like `Evidence:`. It exists so a resumed session knows the slice has
+already spent its redispatch.
 
 ## Where each method runs
 

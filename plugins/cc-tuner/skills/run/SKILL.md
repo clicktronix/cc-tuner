@@ -95,8 +95,12 @@ do not require another confirmation. Honour the validation refusals and required
 ## Delegating a slice
 
 Delegate implementation when the work justifies the brief; under `--auto`, prefer delegation for
-substantial slices. The orchestrator retains the task list, slice completion, mutation interpretation,
-full regression, runtime acceptance, review verdict, DoD and delivery.
+substantial slices. Dispatch an implementation unit as `cc-tuner:slice-unit` — capped at 200 turns,
+so a slice that does not fit comes back marked partial instead of running on — and fall back to
+`general-purpose` with the same brief only when the host does not list that type. The orchestrator
+retains the task list, slice completion, mutation interpretation, full regression, runtime
+acceptance, review verdict, DoD and delivery, and it owns a partial return: placement's
+"Unit size and partial returns" says what happens next.
 
 Before dispatching any implementation unit, read [placement.md](references/placement.md): it defines
 the brief and return checks, model choice, isolation, concurrency and escalation. Read it also before

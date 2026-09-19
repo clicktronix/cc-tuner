@@ -36,13 +36,13 @@ told not to delegate delegated anyway).
       `maxTurns: 200` and `model: sonnet`, and `tests/run.sh` refuses a tree where that file lacks
       `maxTurns:` — checked by: `bash tests/run.sh` prints `ok   agent definitions declare what their
       consumers rely on` and exits 0
-- [ ] [machine] `/run` dispatches implementation units as `cc-tuner:slice-unit` with the
+- [x] [machine] `/run` dispatches implementation units as `cc-tuner:slice-unit` with the
       `general-purpose` fallback, and `placement.md` carries a section `## Unit size and partial
       returns` holding the partial-return rule and the `Partial:` plan line — checked by:
       `grep -c 'cc-tuner:slice-unit' plugins/cc-tuner/skills/run/SKILL.md` prints at least 1, and
       `bash tests/run.sh` resolves the scenario anchor
       `plugins/cc-tuner/skills/run/references/placement.md#unit-size-and-partial-returns`
-- [ ] [machine] `tests/scenarios/task-run/unit-runs-unbounded.json` records the field incident as its
+- [x] [machine] `tests/scenarios/task-run/unit-runs-unbounded.json` records the field incident as its
       RED, names `run` as its skill and the placement anchor as `tests_reference`, and
       `tests/scenarios/README.md` has its row; no GREEN is claimed — checked by: `bash tests/run.sh`
       prints `ok   scenario provenance is consistent`

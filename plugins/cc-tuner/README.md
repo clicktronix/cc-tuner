@@ -125,7 +125,9 @@ candidate review. It chooses Matt Pocock review for ordinary changes or `cc-tune
 large or sensitive changes, then obtains Codex's required review
 at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green CI on that same
 commit — under the mode the spec declared — and `--match-head-commit` pinning it. Implementation may
-be handed to subagents the run dispatches itself, one per slice; the parent owns integration, the
+be handed to subagents the run dispatches itself, one per slice, as `cc-tuner:slice-unit` — the
+plugin's second agent definition, whose `maxTurns: 200` is what turns an over-long slice into a
+partial return the orchestrator handles instead of a unit that runs on; the parent owns integration, the
 proof, the review and every later gate.
 
 Without `--auto`, `/run` works local slice commits without interruption, then stops before the first

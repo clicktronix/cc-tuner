@@ -39,6 +39,7 @@ row says so.
 | task-run/stale-review-after-fix | partial hold | historical GREEN | still proves approval for SHA A cannot authorize SHA B; its requirement to restart every advisory review was superseded by targeted finding verification plus a fresh authoritative review |
 | task-run/reviewer-unavailable-fails-closed | holds unaided | passes | not load-bearing in isolation; retained for machine-enforced reviewer/lens completeness |
 | task-run/current-sha-ci | holds unaided | passes | not load-bearing in isolation; retained for exact-SHA hosted-check enforcement |
+| task-run/unit-runs-unbounded | **production incident 2026-09-19** (269-turn unit, 420k context; RED in the field) | unmeasured | the cap itself is platform-enforced by `agents/slice-unit.md`; this row guards the orchestrator's partial-return rule and waits for a GREEN probe under the eval protocol |
 | task-flow/tiny-doc-pr-batching | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — policy encodes direct user feedback |
 | task-flow/issue-without-board-status | historical incident 2026-06-05 (RED in production) | flips 2/2 + ANTI clean | **load-bearing** — recipes + field-ID caching are the fix |
 | task-flow/autofix-trusted-blindly | **2/2 reproduced** — both arms run lint, neither runs typecheck | 2/2 + ANTI clean | **load-bearing in both framings** — the conjunction "typecheck AND lint" is the payload, not the call to verify |
