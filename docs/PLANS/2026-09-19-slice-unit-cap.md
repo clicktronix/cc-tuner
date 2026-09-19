@@ -83,8 +83,14 @@ target: main
 merge: squash
 auto_ready: no — the cc-codex-triage required-review contract is not installed (prereq-check on
     2026-09-19); install it before `/run` reaches candidate review. Stacked on
-    `feat/subagent-constraints` (commit 21dddff): open the PR against `main` only after that branch
-    merges, then rebase.
+    `feat/subagent-constraints` (PR #39): after #39 is squash-merged, retarget PR #40 to `main`,
+    fetch origin and merge `origin/main` into this published, reviewed branch. Do not rebase it.
+    Re-run `bash tests/run.sh`, publish the integrated candidate and wait for CI on its new SHA.
+    Obtain fresh authoritative approval for that full SHA in the same review thread and worktree,
+    then publish `cc-tuner-verdict: APPROVE <full-candidate-sha>` only if that review approved it.
+    Both `merge.sh --check-only` and merge require the installed companion contract, its matching
+    approval state, the public verdict and passing CI; check-only is not a fallback when the
+    contract is missing. Use `--ci any` and the same review thread for the final checked handoff.
 ci: any — `.github/workflows/validate.yml` runs `bash tests/run.sh` on ubuntu-latest and macos-latest
     for every pull request; no branch protection, so every reported check must pass; observe with
     `gh pr checks <pr>`.

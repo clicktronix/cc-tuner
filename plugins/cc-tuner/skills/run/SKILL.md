@@ -191,7 +191,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    Choose one task-specific `--thread <name>` and retain it for all rounds and `merge.sh`; the checker
    must run in the same candidate worktree.
 4. **Publish each completed required verdict immediately, before editing the candidate.** Read the
-   actual PR number and SHA in this turn and copy the returned verdict without changing it:
+   actual PR number and full `headRefOid` in this turn and copy the returned verdict without changing
+   it. Use that full SHA as `<candidate-sha>`; abbreviated SHAs do not match the merge gate:
 
    ```bash
    gh pr review <pr> --comment --body "cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <candidate-sha>"
@@ -226,7 +227,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    then follow its declared-order and partial-delivery recovery instructions.
 
    Without `--auto`, run this command with `--check-only` and hand the passing candidate and merge
-   command to the user. Keep deliver pending until the merge is observed.
+   command to the user. `--check-only` requires the same installed `cc-codex-triage`, review thread,
+   exact-candidate approval state and public verdict as a merge; it only skips the final merge action.
+   Keep deliver pending until the merge is observed.
 
    The script rechecks required-review state, public verdict, the selected CI checks and PR head.
    Fix any refusal; do not substitute raw CLI/web/API merge or direct push. The head pin prevents
