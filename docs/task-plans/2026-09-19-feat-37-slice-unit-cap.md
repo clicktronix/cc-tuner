@@ -21,7 +21,7 @@ Owned paths: plugins/cc-tuner/skills/run/SKILL.md,plugins/cc-tuner/skills/run/re
 Deciding check: bash tests/run.sh
 Delivers: a `/run` that names `cc-tuner:slice-unit` for implementation, reads what a partial unit landed, redispatches once with the landed state, then takes the slice itself, and records `Partial:` under the slice; a scenario that holds the field incident as RED
 
-- [x] `plugins/cc-tuner/skills/run/SKILL.md` "Delegating a slice" names `cc-tuner:slice-unit` and the `general-purpose` fallback
+- [x] `plugins/cc-tuner/skills/run/SKILL.md` "Delegating a slice" names `cc-tuner:slice-unit` and rules out an uncapped fallback
 - [x] `plugins/cc-tuner/skills/run/references/placement.md` has `## Unit size and partial returns` with the one-fresh-unit-then-orchestrator rule and the `Partial:` plan line
 - [x] `plugins/cc-tuner/README.md` mentions the unit definition and its cap next to the delegation paragraph
 - [x] `tests/scenarios/task-run/unit-runs-unbounded.json` records the 269-turn unit as RED with `skills: ["run"]` and `tests_reference` pointing at the placement anchor; `tests/scenarios/README.md` has its row and says GREEN is unmeasured

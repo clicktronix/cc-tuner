@@ -45,7 +45,9 @@ path with an instruction to read it, the slice verbatim (title, Owned paths, Dec
 criteria), and any shared-task prerequisites. Give the unit these constraints:
 
 - Write only inside Owned paths; prove the deciding check with its expected RED or approved non-code baseline.
-- Do not delegate further. Nested delegation previously spawned dozens of unrequested agents.
+- Do not delegate the slice's own work further; a lookup that saves reading is fine. Nested
+  delegation previously spawned dozens of unrequested agents, and the spawn-depth setting from
+  `/cc-tuner:setup` is what holds this line, not the brief.
 - Report commands, results, what was not verified, and any incorrect assumptions in the slice.
 - Commit using repository conventions; do not push, open/comment on a PR, merge or claim approval.
 - Return findings to the orchestrator; do not create issues or own the task list.
@@ -57,22 +59,24 @@ slice completion, full regression, runtime acceptance, review verdict, DoD and d
 
 ## How a unit is dispatched
 
-Units are **dispatched dynamically with the Agent tool**. The plugin ships one agent definition,
-`cc-tuner:deep-review-lens`, and no others, and the line between the two is what a definition can
-hold that a brief cannot: a tool list, a model, an effort. A slice's brief is different every time
-and is already written down — the committed spec plus the slice's own text — so a named
-implementation agent would only add a second place where that job is described. A read-only lens
-needs the opposite: the same constraint every time, enforced by the tool list rather than by prose.
-Ship a definition when the constraint repeats; write a brief when the task does.
+Units are **dispatched dynamically with the Agent tool**, and the plugin ships exactly two agent
+definitions: `cc-tuner:deep-review-lens` and `cc-tuner:slice-unit`. The line between a definition
+and a brief is what each can hold. A definition holds what repeats on every dispatch and cannot be
+set on a dynamic call — a tool list, a model, a turn cap, an effort. A brief holds the task, which is
+different every time and already written down in the committed spec and the slice's own text. So
+the lens definition carries the read-only tool list and the unit definition carries the cap, while
+neither describes a job; the job stays in the brief, in one place. Ship a definition when the
+constraint repeats; write a brief when the task does.
 
 - **Type.** `cc-tuner:slice-unit` for an implementation slice: it is `general-purpose` with a
   200-turn cap and `sonnet` as the default model, which is what makes a partial return possible at
-  all. `general-purpose` for any other judgement-forming work, and as the fallback when the host does
-  not list the unit type — same brief, no cap, say so in the run log. `Explore` only to locate
-  things, because it reads excerpts and does not audit what it finds, and because it skips the
-  CLAUDE.md hierarchy, which is what makes it the cheap one. Review lenses use
-  `cc-tuner:deep-review-lens`. If the host offers none of these, do the work yourself rather than
-  guessing at a type that may not exist.
+  all. There is no uncapped fallback: if the host does not list the unit type, the orchestrator does
+  the slice itself and says so in the run log, because an uncapped `general-purpose` unit is the
+  thing the definition exists to prevent. `general-purpose` for other judgement-forming work that is
+  not a slice. `Explore` only to locate things, because it reads excerpts and does not audit what it
+  finds, and because it skips the CLAUDE.md hierarchy, which is what makes it the cheap one. Review
+  lenses use `cc-tuner:deep-review-lens`, which has no fallback either. If the host offers none of
+  these, do the work yourself rather than guessing at a type that may not exist.
 - **Model.** Choose by the difficulty of the slice, honestly: `sonnet` for implementation from a
   clear brief, which is where the saving is — it is also `cc-tuner:slice-unit`'s default, and a
   `model` on the dispatch overrides the definition's; a stronger model when the slice itself is hard, not as a

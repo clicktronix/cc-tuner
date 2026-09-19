@@ -8,8 +8,10 @@ repeats on every implementation dispatch and cannot be expressed on a dynamic `A
 `maxTurns: 200`, `model: sonnet` as the default (a per-call `model` still overrides it), an
 unrestricted tool list because the unit writes code and, under the machine's spawn depth of 2, may
 run its own `Explore` lookup. The brief stays the committed spec plus the slice's own text. `/run`
-dispatches implementation as `cc-tuner:slice-unit`, falling back to `general-purpose` with the same
-brief when the host does not list the type. A partial return (the platform marks a unit that hit
+dispatches implementation as `cc-tuner:slice-unit`; there is no uncapped fallback — when the host
+does not list the type, the orchestrator does the slice itself and says so, because an uncapped
+`general-purpose` unit is what the definition exists to prevent (changed after Codex review of the
+first candidate, 2026-09-19). A partial return (the platform marks a unit that hit
 `maxTurns` as partial) is handled by the orchestrator: read what landed in the worktree, dispatch
 **one** fresh unit with a brief that states what is done and what remains, and take the slice itself
 on a second partial return — the same shape as the existing "failed the deciding check twice" rule.
@@ -36,8 +38,8 @@ told not to delegate delegated anyway).
       `maxTurns: 200` and `model: sonnet`, and `tests/run.sh` refuses a tree where that file lacks
       `maxTurns:` — checked by: `bash tests/run.sh` prints `ok   agent definitions declare what their
       consumers rely on` and exits 0
-- [x] [machine] `/run` dispatches implementation units as `cc-tuner:slice-unit` with the
-      `general-purpose` fallback, and `placement.md` carries a section `## Unit size and partial
+- [x] [machine] `/run` dispatches implementation units as `cc-tuner:slice-unit` with no uncapped
+      fallback (the orchestrator does the slice itself), and `placement.md` carries a section `## Unit size and partial
       returns` holding the partial-return rule and the `Partial:` plan line — checked by:
       `grep -c 'cc-tuner:slice-unit' plugins/cc-tuner/skills/run/SKILL.md` prints at least 1, and
       `bash tests/run.sh` resolves the scenario anchor
