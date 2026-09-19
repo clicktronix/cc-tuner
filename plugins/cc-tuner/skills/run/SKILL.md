@@ -95,8 +95,12 @@ do not require another confirmation. Honour the validation refusals and required
 ## Delegating a slice
 
 Delegate implementation when the work justifies the brief; under `--auto`, prefer delegation for
-substantial slices. The orchestrator retains the task list, slice completion, mutation interpretation,
-full regression, runtime acceptance, review verdict, DoD and delivery.
+substantial slices. Dispatch an implementation unit as `cc-tuner:slice-unit` — capped at 200 turns,
+so a slice that does not fit comes back marked partial instead of running on. There is no uncapped
+fallback: when the host does not list that type, do the slice yourself and say so. The orchestrator
+retains the task list, slice completion, mutation interpretation, full regression, runtime
+acceptance, review verdict, DoD and delivery, and it owns a partial return: placement's
+"Unit size and partial returns" says what happens next.
 
 Before dispatching any implementation unit, read [placement.md](references/placement.md): it defines
 the brief and return checks, model choice, isolation, concurrency and escalation. Read it also before
@@ -187,7 +191,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    Choose one task-specific `--thread <name>` and retain it for all rounds and `merge.sh`; the checker
    must run in the same candidate worktree.
 4. **Publish each completed required verdict immediately, before editing the candidate.** Read the
-   actual PR number and SHA in this turn and copy the returned verdict without changing it:
+   actual PR number and full `headRefOid` in this turn and copy the returned verdict without changing
+   it. Use that full SHA as `<candidate-sha>`; abbreviated SHAs do not match the merge gate:
 
    ```bash
    gh pr review <pr> --comment --body "cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <candidate-sha>"
@@ -222,7 +227,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    then follow its declared-order and partial-delivery recovery instructions.
 
    Without `--auto`, run this command with `--check-only` and hand the passing candidate and merge
-   command to the user. Keep deliver pending until the merge is observed.
+   command to the user. `--check-only` requires the same installed `cc-codex-triage`, review thread,
+   exact-candidate approval state and public verdict as a merge; it only skips the final merge action.
+   Keep deliver pending until the merge is observed.
 
    The script rechecks required-review state, public verdict, the selected CI checks and PR head.
    Fix any refusal; do not substitute raw CLI/web/API merge or direct push. The head pin prevents
