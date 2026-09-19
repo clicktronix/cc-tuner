@@ -94,8 +94,8 @@ for a in "$PLUGIN"/agents/*.md; do
   rel="${a#$ROOT/}"
   head -20 "$a" | grep -q '^name: ' || bad "$rel has no name: in its frontmatter"
   head -20 "$a" | grep -q '^tools: ' || bad "$rel has no tools: list"
-  if head -20 "$a" | grep '^tools: ' | grep -qE '\b(Edit|Write|Agent)\b'; then
-    bad "$rel lists Edit, Write or Agent as a tool; deep-review relies on the lens being read-only"
+  if head -20 "$a" | grep '^tools: ' | grep -qE '\b(Bash|Edit|Write|Agent)\b'; then
+    bad "$rel lists Bash, Edit, Write or Agent as a tool; deep-review relies on the lens being read-only, and Bash is a write path"
   fi
 done
 ok "agent definitions declare a read-only tool list"
@@ -277,7 +277,7 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
     # skills produce would be invisible to the check that claims the eval saw what ships.
     elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
            plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
-           plugins/cc-tuner/assets plugins/cc-tuner/references \
+           plugins/cc-tuner/agents plugins/cc-tuner/assets plugins/cc-tuner/references \
            plugins/cc-tuner/output-styles 2>/dev/null \
          && [ "$evaluated_manifest" = "$current_manifest" ]; then
       ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"
