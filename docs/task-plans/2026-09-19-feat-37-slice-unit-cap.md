@@ -9,9 +9,11 @@ Owned paths: plugins/cc-tuner/agents/slice-unit.md,tests/run.sh
 Deciding check: bash tests/run.sh
 Delivers: a `cc-tuner:slice-unit` type that a `/run` session can dispatch, with `maxTurns: 200`, and a suite that goes red if the cap is ever dropped from the definition
 
-- [ ] `tests/run.sh` section 5a requires `plugins/cc-tuner/agents/slice-unit.md` to exist and to carry `maxTurns:`; it was observed failing before the file existed
-- [ ] `plugins/cc-tuner/agents/slice-unit.md` has `name: slice-unit`, `maxTurns: 200`, `model: sonnet`, no `tools:` restriction, and a body that says what the unit hands back
-- [ ] `bash tests/run.sh` exits 0
+- [x] `tests/run.sh` section 5a requires `plugins/cc-tuner/agents/slice-unit.md` to exist and to carry `maxTurns:`; it was observed failing before the file existed
+- [x] `plugins/cc-tuner/agents/slice-unit.md` has `name: slice-unit`, `maxTurns: 200`, `model: sonnet`, no `tools:` restriction, and a body that says what the unit hands back
+- [x] `bash tests/run.sh` exits 0
+
+Evidence: bash tests/run.sh → `ok   agent definitions declare what their consumers rely on` @ worktree; RED before the file: `FAIL plugins/cc-tuner/agents/slice-unit.md is missing; /run dispatches it by name`; guard: renaming `maxTurns` → `FAIL ... has no numeric maxTurns:`
 
 ## Slice 2 — `/run` dispatches through the unit and treats a partial return as a run event
 Blocked by: none

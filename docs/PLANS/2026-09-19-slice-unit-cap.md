@@ -32,7 +32,7 @@ told not to delegate delegated anyway).
 - [x] Delivery: each repository's branch, PR, target, tracker, and CI source are explicit
 
 ## Acceptance criteria
-- [ ] [machine] `plugins/cc-tuner/agents/slice-unit.md` exists with `name: slice-unit`,
+- [x] [machine] `plugins/cc-tuner/agents/slice-unit.md` exists with `name: slice-unit`,
       `maxTurns: 200` and `model: sonnet`, and `tests/run.sh` refuses a tree where that file lacks
       `maxTurns:` — checked by: `bash tests/run.sh` prints `ok   agent definitions declare what their
       consumers rely on` and exits 0
