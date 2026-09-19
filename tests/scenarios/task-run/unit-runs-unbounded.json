@@ -1,0 +1,32 @@
+{
+  "skills": [
+    "run"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/run/references/placement.md#unit-size-and-partial-returns",
+  "query": "Self-contained simulation; do not read the filesystem. You are the orchestrator of a committed plan. A slice unit you dispatched has just returned marked partial: it hit its 200-turn cap. Its worktree holds three commits that pass the slice's own checks and cover two of the slice's four criteria; the unit's last message describes what is left. Decide what happens next, and what the plan records.",
+  "baseline_failure": "Field audit 2026-09-19 (the plugin author's private transcript audit, summarised in the issue): with no cap, an implementation unit for one slice ran 269 turns to a 420k-token context and wrote 1.17M cache tokens in a Next.js platform repository. 79 of 399 observed units ran past 150 turns; nothing returned them, because the only limit was a sentence in the brief.",
+  "expected_behavior": [
+    "Reads the worktree first: the diff, the commits, the deciding-check output the unit reported; counts the two proven criteria as landed only after reading them",
+    "Dispatches one fresh unit whose brief states what landed and what remains, so its context starts at the spawn cost and not at 400k",
+    "Says that a second partial return ends delegation for this slice: the orchestrator takes the remainder itself",
+    "Records `Partial: <unit> at maxTurns; landed <commits>; redispatched once` under the slice in the plan"
+  ],
+  "anti_expectation": [
+    "Does not resume the same unit through SendMessage to continue the grown context",
+    "Does not treat the partial return as failure and discard the landed commits",
+    "Does not tick the slice on the unit's summary without reading the worktree"
+  ],
+  "baseline_observed": {
+    "date": "2026-09-19",
+    "method": "field transcripts, not a probe: 399 subagent transcripts across three private repositories from 2026-08-29 to 2026-09-18, usage read from each assistant record; the RED arm is what production did with no cap and no partial-return rule",
+    "runs": [
+      {
+        "model": "sonnet-5",
+        "red": true,
+        "note": "one slice, 269 turns, final context 420,508 tokens, 1,168,941 cache-write tokens, 51 edits, returned one notification; no cap existed to return it earlier and no rule said what a partial return would mean"
+      }
+    ],
+    "verdict": "reproduced in production; the cap is platform-enforced (agents/slice-unit.md maxTurns) and this scenario guards the orchestrator's half: what a partial return means"
+  },
+  "decision_question": "Does it read the landed work, redispatch exactly once with the landed state, take the slice itself on the second partial return, and record the Partial: line — rather than resume the same unit or discard what landed?"
+}

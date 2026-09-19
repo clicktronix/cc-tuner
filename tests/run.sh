@@ -86,19 +86,45 @@ done
 ok "skill bodies within 500 lines"
 
 # --- 5a. agent definitions carry what the skills rely on ---------------------------------------
-# deep-review says read-only holds "by the tool list". That is only true while the definition still
-# has a tool list without Edit/Write/Agent; a later edit that drops `tools:` would silently hand the
-# lens every tool and the skill's claim would go on reading as true.
+# Each definition exists because a skill relies on one property of it that a brief cannot carry:
+# deep-review says read-only holds "by the tool list", and /run says a unit cannot run unbounded
+# "by maxTurns". Both stay true only while the frontmatter still says so; an edit that drops the
+# field would leave the skill's claim reading as true while nothing enforces it. So the property
+# each consumer relies on is checked here, per definition, not "some frontmatter parses".
+agent_field() { # agent_field <file> <key>  -> the value from the YAML frontmatter, or empty
+  # Only the block between the first two `---` lines counts. A `maxTurns: 200` in the Markdown body
+  # is prose Claude Code never reads; a check that accepted it would report a cap that is not set.
+  awk -v key="$2" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    NR > 1 && index($0, key ": ") == 1 { sub("^" key ": *", ""); print; exit }
+  ' "$1"
+}
 for a in "$PLUGIN"/agents/*.md; do
   [ -f "$a" ] || continue
   rel="${a#$ROOT/}"
-  head -20 "$a" | grep -q '^name: ' || bad "$rel has no name: in its frontmatter"
-  head -20 "$a" | grep -q '^tools: ' || bad "$rel has no tools: list"
-  if head -20 "$a" | grep '^tools: ' | grep -qE '\b(Edit|Write|Agent)\b'; then
-    bad "$rel lists Edit, Write or Agent as a tool; deep-review relies on the lens being read-only"
-  fi
+  [ -n "$(agent_field "$a" name)" ] || bad "$rel has no name: in its frontmatter"
 done
-ok "agent definitions declare a read-only tool list"
+LENS="$PLUGIN/agents/deep-review-lens.md"
+if [ -f "$LENS" ]; then
+  tools="$(agent_field "$LENS" tools)"
+  [ -n "$tools" ] || bad "${LENS#$ROOT/} has no tools: list"
+  if printf '%s' "$tools" | grep -qE '\b(Bash|Edit|Write|Agent)\b'; then
+    bad "${LENS#$ROOT/} lists Bash, Edit, Write or Agent as a tool; deep-review relies on the lens being read-only, and Bash is a write path"
+  fi
+else
+  bad "plugins/cc-tuner/agents/deep-review-lens.md is missing; deep-review dispatches it by name"
+fi
+UNIT="$PLUGIN/agents/slice-unit.md"
+if [ -f "$UNIT" ]; then
+  turns="$(agent_field "$UNIT" maxTurns)"
+  case "$turns" in
+    ''|*[!0-9]*) bad "${UNIT#$ROOT/} has no numeric maxTurns:; /run relies on the unit being capped" ;;
+  esac
+else
+  bad "plugins/cc-tuner/agents/slice-unit.md is missing; /run dispatches it by name"
+fi
+ok "agent definitions declare what their consumers rely on"
 
 # --- 5b. release-please config points at fields that actually exist -----------------------------
 # release-please owns the version bump now. If one of its extra-file targets goes stale — a renamed
@@ -277,7 +303,7 @@ if [ -f "$EVAL_SHA_FILE" ] && [ -f "$ADR" ]; then
     # skills produce would be invisible to the check that claims the eval saw what ships.
     elif git -C "$ROOT" diff --quiet "$eval_sha" -- \
            plugins/cc-tuner/skills plugins/cc-tuner/scripts plugins/cc-tuner/hooks \
-           plugins/cc-tuner/assets plugins/cc-tuner/references \
+           plugins/cc-tuner/agents plugins/cc-tuner/assets plugins/cc-tuner/references \
            plugins/cc-tuner/output-styles 2>/dev/null \
          && [ "$evaluated_manifest" = "$current_manifest" ]; then
       ok "the eval ran against the production surface that ships (${eval_sha%${eval_sha#???????}})"

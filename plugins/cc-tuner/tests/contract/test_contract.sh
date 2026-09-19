@@ -227,7 +227,7 @@ release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" 
 # there is a citation nobody else can check. History (CHANGELOG.md, docs/adr, archived plans) is not
 # in this set on purpose: rewriting it to look public would be falsification, not portability.
 if grep -RnE 'stokli|marqa|smartcat|/Users/[a-z]+/' \
-     "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/assets" \
+     "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/assets" "$ROOT/plugins/cc-tuner/agents" \
      "$ROOT/plugins/cc-tuner/README.md" "$ROOT/README.md" \
      "$ROOT/tests/scenarios" "$ROOT/plugins/cc-tuner/tests/eval/README.md" 2>/dev/null; then
   echo "FAIL private-provenance-on-an-instruction-surface"; fails=1

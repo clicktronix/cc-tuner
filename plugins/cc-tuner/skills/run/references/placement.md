@@ -45,7 +45,10 @@ path with an instruction to read it, the slice verbatim (title, Owned paths, Dec
 criteria), and any shared-task prerequisites. Give the unit these constraints:
 
 - Write only inside Owned paths; prove the deciding check with its expected RED or approved non-code baseline.
-- Do not delegate further. Nested delegation previously spawned dozens of unrequested agents.
+- Do not delegate the slice's own work further; a lookup that saves reading is fine. Nested
+  delegation previously spawned dozens of unrequested agents. The spawn-depth setting from
+  `/cc-tuner:setup` caps how many layers can exist below the orchestrator; what a unit may hand
+  down within that depth is this line, and only this line.
 - Report commands, results, what was not verified, and any incorrect assumptions in the slice.
 - Commit using repository conventions; do not push, open/comment on a PR, merge or claim approval.
 - Return findings to the orchestrator; do not create issues or own the task list.
@@ -57,21 +60,27 @@ slice completion, full regression, runtime acceptance, review verdict, DoD and d
 
 ## How a unit is dispatched
 
-Units are **dispatched dynamically with the Agent tool**. The plugin ships one agent definition,
-`cc-tuner:deep-review-lens`, and no others, and the line between the two is what a definition can
-hold that a brief cannot: a tool list, a model, an effort. A slice's brief is different every time
-and is already written down — the committed spec plus the slice's own text — so a named
-implementation agent would only add a second place where that job is described. A read-only lens
-needs the opposite: the same constraint every time, enforced by the tool list rather than by prose.
-Ship a definition when the constraint repeats; write a brief when the task does.
+Units are **dispatched dynamically with the Agent tool**, and the plugin ships exactly two agent
+definitions: `cc-tuner:deep-review-lens` and `cc-tuner:slice-unit`. The line between a definition
+and a brief is what each can hold. A definition holds what repeats on every dispatch and cannot be
+set on a dynamic call — a tool list, a model, a turn cap, an effort. A brief holds the task, which is
+different every time and already written down in the committed spec and the slice's own text. So
+the lens definition carries the read-only tool list and the unit definition carries the cap, while
+neither describes a job; the job stays in the brief, in one place. Ship a definition when the
+constraint repeats; write a brief when the task does.
 
-- **Type.** `general-purpose` for anything that writes code or forms a judgement; `Explore` only to
-  locate things, because it reads excerpts and does not audit what it finds, and because it skips the
-  CLAUDE.md hierarchy, which is what makes it the cheap one. Review lenses use
-  `cc-tuner:deep-review-lens`. If the host offers none of these, do the work yourself rather than
-  guessing at a type that may not exist.
+- **Type.** `cc-tuner:slice-unit` for an implementation slice: it is `general-purpose` with a
+  200-turn cap and `sonnet` as the default model, which is what makes a partial return possible at
+  all. There is no uncapped fallback: if the host does not list the unit type, the orchestrator does
+  the slice itself and says so in the run log, because an uncapped `general-purpose` unit is the
+  thing the definition exists to prevent. `general-purpose` for other judgement-forming work that is
+  not a slice. `Explore` only to locate things, because it reads excerpts and does not audit what it
+  finds, and because it skips the CLAUDE.md hierarchy, which is what makes it the cheap one. Review
+  lenses use `cc-tuner:deep-review-lens`, which has no fallback either. If the host offers none of
+  these, do the work yourself rather than guessing at a type that may not exist.
 - **Model.** Choose by the difficulty of the slice, honestly: `sonnet` for implementation from a
-  clear brief, which is where the saving is; a stronger model when the slice itself is hard, not as a
+  clear brief, which is where the saving is — it is also `cc-tuner:slice-unit`'s default, and a
+  `model` on the dispatch overrides the definition's; a stronger model when the slice itself is hard, not as a
   sign the brief is unfinished. The session's own model for what is a judgement: an architectural
   choice, or a final review whose findings are contested. Reasoning effort is **not** settable on a
   dynamic dispatch — the Agent tool takes a model, not an effort, and a subagent inherits the
@@ -135,6 +144,33 @@ Ship a definition when the constraint repeats; write a brief when the task does.
   not what a review just said. Only the final message comes back. Anything load-bearing goes into
   the brief as literal text or as a path it is told to read; anything the orchestrator needs back
   is a file the unit writes or a commit it makes, not a long report.
+
+## Unit size and partial returns
+
+A `cc-tuner:slice-unit` stops at 200 turns and returns marked partial. That number comes from the
+field: across 399 observed units the median was 76 turns, 320 fit in 150, and the ones past 200
+were the ones whose context had grown past 300k and was being re-read on every turn — the cost the
+cap exists to stop. A partial return is a run event, not a failure, and it is the orchestrator's:
+
+1. **Read what landed.** The worktree's commits, its diff against the slice branch's base, and the
+   deciding-check output the unit reported. A criterion counts as proven only after you have read
+   its evidence; the unit's closing summary is not that.
+2. **Redispatch once, fresh.** A new `cc-tuner:slice-unit` with a brief that states what landed
+   (the commits, the proven criteria) and what remains. Fresh, because a new unit starts at the
+   spawn cost while resuming the old one through `SendMessage` continues the 300k–400k context the
+   cap just stopped.
+3. **Take the second partial yourself.** A slice that two capped units could not finish is not
+   going to fit a third; the orchestrator finishes the remainder, the way it already takes a slice
+   whose unit failed the deciding check twice.
+
+Record it in the plan under the slice, one line the next reader can act on:
+
+```text
+Partial: <unit> at maxTurns; landed <commits>; redispatched once
+```
+
+The parser ignores the line, like `Evidence:`. It exists so a resumed session knows the slice has
+already spent its redispatch.
 
 ## Where each method runs
 
