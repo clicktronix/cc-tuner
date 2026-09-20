@@ -37,8 +37,10 @@ Owned paths: plugins/cc-tuner/skills/deep-review/SKILL.md,plugins/cc-tuner/skill
 Deciding check: bash tests/run.sh
 Delivers: a deep-review that runs `shard-diff.sh` before dispatch, writes `shard-<n>.diff` and `shard-<n>-files.txt` per shard next to `candidate.diff`, sends Correctness, Repository standards, Security and Tests once per shard on those files and Specification and Architecture once on the whole, aggregates across shards by cause, and a `/run` that states `shards × 4 + 2` agents when it selects the route
 
-- [ ] `plugins/cc-tuner/skills/deep-review/SKILL.md` has `## Sharding` with the script call, the per-shard diff and file list the owner writes from the `SHARD` path list, the four-and-two lens split, cross-shard dedupe and the agent count
-- [ ] `plugins/cc-tuner/skills/run/SKILL.md` states the agent count when selecting deep-review
-- [ ] `plugins/cc-tuner/README.md` deep-review paragraph mentions sharding and the cap of 4
-- [ ] `tests/scenarios/task-run/lens-cannot-hold-the-diff.json` holds the 1071-file incident as RED, `skills: ["deep-review"]`, `tests_reference` at the sharding anchor; `tests/scenarios/README.md` has its row and says GREEN is unmeasured
-- [ ] `bash tests/run.sh` exits 0
+- [x] `plugins/cc-tuner/skills/deep-review/SKILL.md` has `## Sharding` with the script call, the per-shard diff and file list the owner writes from the `SHARD` path list, the four-and-two lens split, cross-shard dedupe and the agent count
+- [x] `plugins/cc-tuner/skills/run/SKILL.md` states the agent count when selecting deep-review
+- [x] `plugins/cc-tuner/README.md` deep-review paragraph mentions sharding and the cap of 4
+- [x] `tests/scenarios/task-run/lens-cannot-hold-the-diff.json` holds the 1071-file incident as RED, `skills: ["deep-review"]`, `tests_reference` at the sharding anchor; `tests/scenarios/README.md` has its row and says GREEN is unmeasured
+- [x] `bash tests/run.sh` exits 0
+
+Evidence: bash tests/run.sh → `ok   scenario provenance is consistent (20 scenarios)`, `ok   markdown links resolve`, `cc-tuner validate ok`, exit 0 @ worktree; RED before the section, with the validator's own anchor logic: `FAIL tests/scenarios/task-run/lens-cannot-hold-the-diff.json references missing anchor #sharding in plugins/cc-tuner/skills/deep-review/SKILL.md`

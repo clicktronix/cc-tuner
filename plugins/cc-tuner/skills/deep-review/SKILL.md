@@ -66,6 +66,37 @@ before reading a line of the diff, so six lenses are on the order of 200k tokens
 six reads of the diff and spec. That is the price of six independent readers, and it is why the
 trigger in `/run` is large or sensitive changes only.
 
+## Sharding
+
+A lens cannot hold a large diff, and since 0.14.0 it cannot spawn help either, so the one that used to
+build a rig of its own would now read part of the candidate and report as if it had read all of it.
+The owner decides the cut, and the arithmetic is a script, not a sentence:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base> <candidate> --plan <plan> [--max 4] [--files 300] [--lines 10000]
+```
+
+It prints `SIZE`, `MODE	single|sharded` and, when sharded, one `SHARD	<n>	<key>	<path,...>` per
+shard: grouped by the plan's Owned paths through `plan-lint.sh owned` (unmatched files in `rest`), or
+by first path component without a plan, merged smallest-into-neighbour until at most four remain. A
+bad ref exits 1 with nothing on stdout; treat that as a refusal, not as `single`. Run it before any
+lens is dispatched. `MODE	single` means the dispatch above, unchanged.
+
+When sharded, write for every `SHARD` line, next to `candidate.diff`:
+`git diff --find-renames <base>...<candidate> -- <paths> > <dir>/shard-<n>.diff` and
+`git diff --name-status <base>...<candidate> -- <paths> > <dir>/shard-<n>-files.txt`, with the
+script's path list after `--`. Then dispatch **Correctness**, **Repository standards**, **Security**
+and **Tests and operability** once per shard, each brief naming that shard's two files and nothing
+else of the diff; dispatch **Specification and scope** and **Architecture** once, on the whole
+`candidate.diff` and `changed-files.txt`, because their question does not cut along paths. That is
+`shards × 4 + 2` agents; say the number and the spawn overhead (each lens is a fresh 34k–42k-token
+context) before the first dispatch, so the spend is chosen and not discovered. A lens never cuts its
+own shard and never delegates reading; the definition withholds `Agent` for that reason.
+
+Aggregation does not change shape: one owner reads every shard's findings and validates them below.
+Deduplicate across shards by cause — the same missing check reported from two shards is one finding
+with two evidence lines, not two findings.
+
 Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
 candidate, spec, and read-only constraint.
 

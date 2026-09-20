@@ -55,7 +55,7 @@ lens lost `Bash`.
       a plan groups by first path component; more than `--max` groups are merged down to `--max`; an
       unknown ref exits non-zero and prints nothing on stdout — checked by:
       `bash plugins/cc-tuner/tests/flow/test_shard_diff.sh` exits 0
-- [ ] [machine] `plugins/cc-tuner/skills/deep-review/SKILL.md` has a section `## Sharding` that names
+- [x] [machine] `plugins/cc-tuner/skills/deep-review/SKILL.md` has a section `## Sharding` that names
       the script call, the per-shard `shard-<n>.diff` and `shard-<n>-files.txt` the owner writes,
       which four lenses shard and which two do not, and the agent count formula;
       `run/SKILL.md` states the agent count when selecting deep-review; the README's deep-review

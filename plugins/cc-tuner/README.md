@@ -73,7 +73,11 @@ independent lenses against one immutable SHA — each a `cc-tuner:deep-review-le
 the two agent definitions the plugin ships, whose tool list is Read, Grep and Glob — no Bash, Edit, Write or
 Agent — so read-only holds by construction; the owner writes the diff to a file the lenses read — then validates and deduplicates their output without a top-ten cap. Six fresh
 contexts are the cost: on the order of 200k tokens of system prompt, tools and CLAUDE.md before the
-diff is read, which is why `/run` selects this route for large or sensitive changes only. It replaces the ordinary Matt Pocock advisory pass for these candidates. Both routes
+diff is read, which is why `/run` selects this route for large or sensitive changes only. A candidate
+of 300 files or 10,000 changed lines is sharded by `scripts/shard-diff.sh` along the plan's Owned
+paths, at most four shards: the four file-local lenses run once per shard on a per-shard diff file,
+Specification and Architecture once on the whole, so the count is `shards × 4 + 2` and `/run` says
+it before dispatch. It replaces the ordinary Matt Pocock advisory pass for these candidates. Both routes
 then use the required Codex review of the final SHA.
 
 ### `verify-feature`
