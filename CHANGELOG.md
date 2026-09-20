@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.15.0](https://github.com/clicktronix/cc-tuner/compare/v0.14.1...v0.15.0) (2026-09-20)
+
+
+### Features
+
+* **deep-review:** shard file-local lenses over a large candidate ([#45](https://github.com/clicktronix/cc-tuner/issues/45)) ([32c55de](https://github.com/clicktronix/cc-tuner/commit/32c55dee67368f82a968d31a014c912eaa07fb92))
+
 ## [0.14.1](https://github.com/clicktronix/cc-tuner/compare/v0.14.0...v0.14.1) (2026-09-19)
 
 
