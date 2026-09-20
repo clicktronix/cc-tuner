@@ -9,10 +9,12 @@ Owned paths: plugins/cc-tuner/scripts/plan-lint.sh,plugins/cc-tuner/tests/flow/t
 Deciding check: bash plugins/cc-tuner/tests/flow/test_plan_lint.sh
 Delivers: `plan-lint.sh owned <plan>` prints `OWNED\t<n>\t<path,...>` per slice in plan order, so a consumer never re-parses the Owned-paths grammar
 
-- [ ] `plan-lint.sh owned` was observed printing the usage line and exiting 1 before the mode existed
-- [ ] `owned` prints one line per slice, paths exactly as the plan wrote them, and fails on an invalid plan the way `check` does
-- [ ] `--help` names the new mode
-- [ ] `bash plugins/cc-tuner/tests/flow/test_plan_lint.sh` exits 0
+- [x] `plan-lint.sh owned` was observed printing the usage line and exiting 1 before the mode existed
+- [x] `owned` prints one line per slice, paths exactly as the plan wrote them, and fails on an invalid plan the way `check` does
+- [x] `--help` names the new mode
+- [x] `bash plugins/cc-tuner/tests/flow/test_plan_lint.sh` exits 0
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_plan_lint.sh → `PASS owned-one-line-per-slice-in-plan-order` … 101 PASS, rc 0 @ worktree; RED before the mode: `plan-lint: usage: plan-lint.sh check|slices|frontier|ready-batches <file> …`, rc 1
 
 ## Slice 2 — Shards are computed deterministically from the diff
 Blocked by: 1

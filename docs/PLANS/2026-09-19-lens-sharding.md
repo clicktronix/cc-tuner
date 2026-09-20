@@ -46,7 +46,7 @@ lens lost `Bash`.
 - [x] Delivery: each repository's branch, PR, target, tracker, and CI source are explicit
 
 ## Acceptance criteria
-- [ ] [machine] `plan-lint.sh owned <plan>` prints one `OWNED\t<n>\t<paths>` line per slice in plan
+- [x] [machine] `plan-lint.sh owned <plan>` prints one `OWNED\t<n>\t<paths>` line per slice in plan
       order and fails on an invalid plan the way `check` does — checked by:
       `bash plugins/cc-tuner/tests/flow/test_plan_lint.sh` exits 0 with the new `owned-*` checks passing
 - [ ] [machine] `shard-diff.sh` on a real git repository: below both thresholds prints `MODE\tsingle`;

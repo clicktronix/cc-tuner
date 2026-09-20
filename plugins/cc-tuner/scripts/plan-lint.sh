@@ -45,13 +45,16 @@ EXPECTED_BRANCH=""
 ACTIVE=""
 
 die() { printf 'plan-lint: %s\n' "$1" >&2; exit 1; }
-usage() { die "usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>] [--active <n,n,...>]"; }
+usage() { die "usage: plan-lint.sh check|slices|frontier|ready-batches|owned <file> [--spec <path> --branch <name>] [--active <n,n,...>]"; }
 help() {
   printf '%s\n' \
-    'usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>] [--active <n,n,...>]' \
+    'usage: plan-lint.sh check|slices|frontier|ready-batches|owned <file> [--spec <path> --branch <name>] [--active <n,n,...>]' \
     '' \
     'Owned paths: comma-separated repo-relative literal paths or directory prefixes.' \
     'No globs, absolute paths, spaces, dot components, or empty path components.' \
+    '' \
+    'owned: one OWNED<TAB><slice><TAB><path,...> line per slice in plan order, paths as the plan' \
+    'wrote them, so a consumer (shard-diff.sh) never re-parses the grammar. Refuses an invalid plan.' \
     '' \
     '--active: slice numbers already running (frontier and ready-batches only). They are excluded' \
     'from the result, and ready-batches also excludes any slice whose Owned paths overlap theirs.' \
@@ -59,7 +62,7 @@ help() {
     'or path-blocked, and the caller must read the plan, not the batch, to tell.'
 }
 
-case "$MODE" in --help|-h) help; exit 0 ;; check|slices|frontier|ready-batches) ;; *) usage ;; esac
+case "$MODE" in --help|-h) help; exit 0 ;; check|slices|frontier|ready-batches|owned) ;; *) usage ;; esac
 [ -n "$FILE" ] || usage
 shift 2 2>/dev/null || true
 while [ $# -gt 0 ]; do
@@ -359,6 +362,19 @@ END {
     if (fc == 0 && ac > 0 && open_left > 0)
       print "plan-lint: no ready slice outside the active set (" open_left " open, " ac " active); this is not completion" > "/dev/stderr"
     for (fi = 1; fi <= fc; fi++) emit_open_slice(rdy[fi])
+    exit 0
+  }
+
+  # `owned` hands the Owned paths to another script. shard-diff.sh groups a diff by them, and a
+  # second reader of the grammar is how a plan the linter accepted would shard differently from how
+  # it is scheduled. Trimmed per path, otherwise verbatim: the consumer applies the same prefix rule.
+  if (mode == "owned") {
+    for (i = 1; i <= count; i++) {
+      n = order[i]
+      opn = split(owned[n], oparts, /[ \t]*,[ \t]*/); ol = ""
+      for (oi = 1; oi <= opn; oi++) ol = (ol == "") ? trim(oparts[oi]) : ol "," trim(oparts[oi])
+      printf "OWNED\t%s\t%s\n", n, ol
+    }
     exit 0
   }
 
