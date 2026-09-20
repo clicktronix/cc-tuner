@@ -6,7 +6,7 @@
 #   plan-lint.sh frontier <file>   emit every slice that may start now, lowest number first
 #   plan-lint.sh ready-batches <file>   emit the first proven-safe ready batch
 #
-# Four modes, one parser, on purpose. If a caller grew its own reader, a plan the linter accepted
+# Five modes, one parser, on purpose. If a caller grew its own reader, a plan the linter accepted
 # could still restore or run wrongly, and nothing would say so. `frontier` exists because the rule
 # "lowest-numbered open slice whose blockers are all done" was prose in two skills and arithmetic the
 # model did by hand -- and doing it by hand is how a blocked slice gets started. `ready-batches`
@@ -45,13 +45,16 @@ EXPECTED_BRANCH=""
 ACTIVE=""
 
 die() { printf 'plan-lint: %s\n' "$1" >&2; exit 1; }
-usage() { die "usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>] [--active <n,n,...>]"; }
+usage() { die "usage: plan-lint.sh check|slices|frontier|ready-batches|owned <file> [--spec <path> --branch <name>] [--active <n,n,...>]"; }
 help() {
   printf '%s\n' \
-    'usage: plan-lint.sh check|slices|frontier|ready-batches <file> [--spec <path> --branch <name>] [--active <n,n,...>]' \
+    'usage: plan-lint.sh check|slices|frontier|ready-batches|owned <file> [--spec <path> --branch <name>] [--active <n,n,...>]' \
     '' \
     'Owned paths: comma-separated repo-relative literal paths or directory prefixes.' \
     'No globs, absolute paths, spaces, dot components, or empty path components.' \
+    '' \
+    'owned: one OWNED<TAB><slice><TAB><path,...> line per slice in plan order, paths as the plan' \
+    'wrote them, so a consumer (shard-diff.sh) never re-parses the grammar. Refuses an invalid plan.' \
     '' \
     '--active: slice numbers already running (frontier and ready-batches only). They are excluded' \
     'from the result, and ready-batches also excludes any slice whose Owned paths overlap theirs.' \
@@ -59,7 +62,7 @@ help() {
     'or path-blocked, and the caller must read the plan, not the batch, to tell.'
 }
 
-case "$MODE" in --help|-h) help; exit 0 ;; check|slices|frontier|ready-batches) ;; *) usage ;; esac
+case "$MODE" in --help|-h) help; exit 0 ;; check|slices|frontier|ready-batches|owned) ;; *) usage ;; esac
 [ -n "$FILE" ] || usage
 shift 2 2>/dev/null || true
 while [ $# -gt 0 ]; do
@@ -202,9 +205,10 @@ END {
   if (count == 0) err[++e] = "no slices found (expected headings like \"## Slice 1 — Title\")"
   # Header ownership is a delivery check. Read-only recovery must still understand plans written by
   # versions before these headers existed; `/run` always calls `check` before an executable mode.
-  if (mode == "check" && (spec_lines != 1 || plan_spec == ""))
+  # `owned` feeds a delivery-time consumer (shard-diff.sh), so it holds the plan to the same bar.
+  if ((mode == "check" || mode == "owned") && (spec_lines != 1 || plan_spec == ""))
     err[++e] = "plan needs one non-empty **Spec:** header before its slices"
-  if (mode == "check" && (branch_lines != 1 || plan_branch == ""))
+  if ((mode == "check" || mode == "owned") && (branch_lines != 1 || plan_branch == ""))
     err[++e] = "plan needs one non-empty **Branch:** header before its slices"
   if (expected_spec != "" && plan_spec != expected_spec)
     err[++e] = "plan names spec \"" plan_spec "\", expected \"" expected_spec "\""
@@ -359,6 +363,19 @@ END {
     if (fc == 0 && ac > 0 && open_left > 0)
       print "plan-lint: no ready slice outside the active set (" open_left " open, " ac " active); this is not completion" > "/dev/stderr"
     for (fi = 1; fi <= fc; fi++) emit_open_slice(rdy[fi])
+    exit 0
+  }
+
+  # `owned` hands the Owned paths to another script. shard-diff.sh groups a diff by them, and a
+  # second reader of the grammar is how a plan the linter accepted would shard differently from how
+  # it is scheduled. Trimmed per path, otherwise verbatim: the consumer applies the same prefix rule.
+  if (mode == "owned") {
+    for (i = 1; i <= count; i++) {
+      n = order[i]
+      opn = split(owned[n], oparts, /[ \t]*,[ \t]*/); ol = ""
+      for (oi = 1; oi <= opn; oi++) ol = (ol == "") ? trim(oparts[oi]) : ol "," trim(oparts[oi])
+      printf "OWNED\t%s\t%s\n", n, ol
+    }
     exit 0
   }
 

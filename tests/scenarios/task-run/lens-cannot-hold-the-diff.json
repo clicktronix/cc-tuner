@@ -1,0 +1,33 @@
+{
+  "skills": [
+    "deep-review"
+  ],
+  "tests_reference": "plugins/cc-tuner/skills/deep-review/SKILL.md#sharding",
+  "query": "Self-contained simulation; do not read the filesystem. You own a deep-review over an immutable candidate: 1071 changed files, +18070/-21919 lines, with a committed plan of four slices. Say exactly which agents you dispatch, what each one reads, and what you tell /run it will cost before anything is dispatched.",
+  "baseline_failure": "Field audit 2026-09-19 (the plugin author's private transcript audit, summarised in the issue): the Correctness lens over a 1071-file candidate could not hold the diff and spawned five Opus reviewers of its own; a lens over another large candidate spawned six. The threshold and the grouping lived in a sentence, so every lens re-derived them and most re-derived them as 'delegate'. Since 0.14.0 a lens cannot spawn, so the same candidate would make it read part of the diff and report as if it had read all of it.",
+  "expected_behavior": [
+    "Runs `shard-diff.sh <base> <candidate> --plan <plan>` first and reads MODE and the SHARD lines; does not decide the shard count by eye",
+    "Writes one `shard-<n>.diff` and `shard-<n>-files.txt` per SHARD next to `candidate.diff`, so a lens without a shell can read its shard",
+    "Dispatches Correctness, Repository standards, Security and Tests-and-operability once per shard on those two files, and Specification-and-scope and Architecture once on the whole diff",
+    "States the agent count as `shards x 4 + 2` and the spawn overhead before dispatch; aggregates across shards by cause"
+  ],
+  "anti_expectation": [
+    "Does not send the whole 1071-file diff to one Correctness lens",
+    "Does not shard Specification or Architecture, which need the cross-module view",
+    "Does not let a lens cut its own shard or delegate reading further",
+    "Does not exceed the cap of four shards by dispatching one lens set per slice"
+  ],
+  "baseline_observed": {
+    "date": "2026-09-19",
+    "method": "field transcripts, not a probe: subagent transcripts across three private repositories from 2026-08-29 to 2026-09-18; the RED arm is what a lens did with a diff it could not hold and no rule saying who shards",
+    "runs": [
+      {
+        "model": "opus-4.1",
+        "red": true,
+        "note": "Correctness lens over a 1071-file candidate (+18070/-21919) dispatched five Opus reviewers of its own; a lens over a 247-file candidate in another repository dispatched six; candidates of 57 and 247 files were read by one lens each with no statement of what was skipped"
+      }
+    ],
+    "verdict": "reproduced in production; the arithmetic now lives in scripts/shard-diff.sh and this scenario guards the owner's half: who shards, what each lens reads, and what is said before the spend"
+  },
+  "decision_question": "Does the owner run shard-diff.sh, write per-shard files, dispatch four lenses per shard and two whole, and state shards x 4 + 2 before spending — rather than hand one lens a diff it cannot hold?"
+}

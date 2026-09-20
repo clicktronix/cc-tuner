@@ -171,7 +171,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    authentication/authorization/secrets/cryptography; migrations or destructive data operations;
    public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
    infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
-   fixtures and configuration count when they decide behaviour on these surfaces.
+   fixtures and configuration count when they decide behaviour on these surfaces. When selecting
+   it, run `shard-diff.sh <base> <candidate> [--plan <plan>]` and say how many agents that is:
+   `shards × 4 + 2`, six for a single-shard candidate, at most eighteen — deep-review's Sharding
+   section owns the cut.
 
    Otherwise use `mattpocock-skills:code-review`, or the official Claude Code `/code-review` plugin
    when explicitly requested — and say what that costs before choosing it: at max effort it builds
