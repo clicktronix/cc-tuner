@@ -36,8 +36,10 @@ codex_root() {  # codex_root <dir> [broken: review|state]
   local r="$W/$1"; shift
   local broken="${1:-}"
   mkdir -p "$r/commands" "$r/scripts"
+  # Mirrors cc-codex-triage 0.13.1: review.md documents --required and no longer quotes the marker,
+  # which review-state.sh alone emits (#42).
   if [ "$broken" = "review" ]; then printf 'legacy review command\n' > "$r/commands/review.md"
-  else printf '%s\n' '--required' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/commands/review.md"; fi
+  else printf '%s\n' '--required' > "$r/commands/review.md"; fi
   if [ "$broken" = "state" ]; then printf 'legacy review state\n' > "$r/scripts/review-state.sh"
   else printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/scripts/review-state.sh"; fi
   printf '%s' "$r"
