@@ -13,15 +13,22 @@ plan's Owned paths when `--plan` is given — read through a new `plan-lint.sh o
 prints `OWNED\t<n>\t<path,...>`, so one parser owns the grammar — with files matching no slice in a
 `rest` shard; without a plan, by the first path component (`root` for top-level files). More groups
 than `--max` are merged smallest-into-neighbour until the cap holds. A bad ref exits non-zero with
-nothing printed. `deep-review` runs the script before dispatch. Correctness, Repository standards,
-Security and Tests-and-operability lenses are dispatched once per shard with that shard's path list;
-Specification-and-scope and Architecture lenses are dispatched once with the full changed-file list
-and the whole diff, because their question does not cut along paths. The owner aggregates as today,
+nothing printed. `deep-review` runs the script before dispatch. A lens has no shell (0.14.0,
+`agents/deep-review-lens.md`), so the owner already writes `<dir>/candidate.diff` and
+`<dir>/changed-files.txt` before any dispatch; sharding extends that: for each `SHARD` line the owner
+writes `<dir>/shard-<n>.diff` (`git diff --find-renames <base>...<candidate> -- <paths>`) and
+`<dir>/shard-<n>-files.txt`, and the script's path list is exactly what goes after `--`. Correctness,
+Repository standards, Security and Tests-and-operability lenses are dispatched once per shard and
+read that shard's two files; Specification-and-scope and Architecture lenses are dispatched once and
+read the whole `candidate.diff` and `changed-files.txt`, because their question does not cut along
+paths. The owner aggregates as today,
 deduplicating across shards by cause. `/run` says, when it selects deep-review, how many agents that
 will be (`shards × 4 + 2`). Rejected: threshold and grouping in prose (prose arithmetic is what failed
 in the field); sharding all six lenses (Specification and Architecture lose the cross-module view that
-is their only job); writing the diff to a file for lenses (same tokens read per lens, only git work
-saved).
+is their only job); letting a lens cut its own shard out of `candidate.diff` (a reader that could
+not hold the diff is the one being asked to slice it). Superseded on 2026-09-20: the first draft
+rejected the diff-through-file route as pure git savings; 0.14.0 made it the only route, because the
+lens lost `Bash`.
 
 ## Definition of Ready
 - [x] Problem/baseline: field audit (personal-os `docs/2026-09-19-cc-tuner-subagent-field-audit.md`
@@ -49,7 +56,8 @@ saved).
       unknown ref exits non-zero and prints nothing on stdout — checked by:
       `bash plugins/cc-tuner/tests/flow/test_shard_diff.sh` exits 0
 - [ ] [machine] `plugins/cc-tuner/skills/deep-review/SKILL.md` has a section `## Sharding` that names
-      the script call, which four lenses shard and which two do not, and the agent count formula;
+      the script call, the per-shard `shard-<n>.diff` and `shard-<n>-files.txt` the owner writes,
+      which four lenses shard and which two do not, and the agent count formula;
       `run/SKILL.md` states the agent count when selecting deep-review; the README's deep-review
       paragraph mentions sharding; `tests/scenarios/task-run/lens-cannot-hold-the-diff.json` records
       the field incident as RED with `skills: ["deep-review"]` and `tests_reference` at the sharding
@@ -93,10 +101,12 @@ saved).
 branch: feat/38-lens-sharding
 target: main
 merge: squash
-auto_ready: no — the cc-codex-triage required-review contract is not installed (prereq-check on
-    2026-09-19). Stacked on `feat/subagent-constraints` (commit 21dddff), parallel to
-    `feat/37-slice-unit-cap`; open the PR against `main` after the base merges, rebase after #37 if it
-    lands first (one small conflict in `skills/run/SKILL.md`).
+auto_ready: no — authoritative review is run by the user in Codex outside the cc-codex-triage
+    bridge, so `merge.sh` has no review thread to check; the orchestrator publishes
+    `cc-tuner-verdict: APPROVE <full-candidate-sha>` only after that review approved the exact SHA,
+    and hands the merge to the user. Based on `main` at 0.14.1 (`b566003`, which holds #39, #40 and
+    #43); the branch is published, so integrate later `main` movement by merging `origin/main`, never
+    by rebasing.
 ci: any — `.github/workflows/validate.yml` runs `bash tests/run.sh` on ubuntu-latest and macos-latest
     for every pull request; no branch protection, so every reported check must pass; observe with
     `gh pr checks <pr>`.
