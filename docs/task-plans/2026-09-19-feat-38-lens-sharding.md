@@ -45,3 +45,15 @@ Delivers: a deep-review that runs `shard-diff.sh` before dispatch, writes `shard
 - [x] `bash tests/run.sh` exits 0
 
 Evidence: bash tests/run.sh → `ok   scenario provenance is consistent (20 scenarios)`, `ok   markdown links resolve`, `cc-tuner validate ok`, exit 0 @ worktree; RED before the section, with the validator's own anchor logic: `FAIL tests/scenarios/task-run/lens-cannot-hold-the-diff.json references missing anchor #sharding in plugins/cc-tuner/skills/deep-review/SKILL.md`
+
+## Codex round 2 corrections
+
+The Git reader now preserves failures from either pipeline stage, rather than treating a failed
+`git diff` as a successful empty candidate. Oversized atomic changes refuse before any stdout;
+opening a fresh chunk does not waive its budget. Zero-line changes retain their actual line cost.
+The spec and packet example use the same literal-pathspec command as the skill.
+
+Regression evidence: before the fix, the new suite failed the singleton boundary (10000 lines),
+above-boundary plus small-file case, Git configuration failure and unrelated-root cases. A truly
+empty diff and an explicitly raised budget remain valid. Verification: `bash tests/run.sh`,
+`bash -n plugins/cc-tuner/scripts/shard-diff.sh`, and `git diff --check`.

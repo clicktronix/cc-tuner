@@ -20,10 +20,13 @@ candidate, 2026-09-20: a 1071-file diff inside one directory produced one shard)
 from `--numstat -z`, never from git's quoted text form, so a non-ASCII name reaches the lens as the
 name it has; a rename lists both of its paths so the packet shows it as a rename; a path the grammar
 cannot carry (comma, tab, newline) is refused. Packets are written with `--literal-pathspecs`,
-because `--` does not switch pathspec magic off. Every refusal exits non-zero with nothing printed. `deep-review` runs the script before dispatch. A lens has no shell (0.14.0,
+because `--` does not switch pathspec magic off. A Git read failure or an atomic change that itself
+reaches a threshold is refused too; a new chunk does not waive the budget. The owner can explicitly
+raise the threshold before retrying. Every refusal exits non-zero with nothing printed.
+`deep-review` runs the script before dispatch. A lens has no shell (0.14.0,
 `agents/deep-review-lens.md`), so the owner already writes `<dir>/candidate.diff` and
 `<dir>/changed-files.txt` before any dispatch; sharding extends that: for each `SHARD` line the owner
-writes `<dir>/shard-<n>.diff` (`git diff --find-renames <base>...<candidate> -- <paths>`) and
+writes `<dir>/shard-<n>.diff` (`git --literal-pathspecs diff --find-renames <base>...<candidate> -- <paths>`) and
 `<dir>/shard-<n>-files.txt`, and the script's path list is exactly what goes after `--`. Correctness,
 Repository standards, Security and Tests-and-operability lenses are dispatched once per shard and
 read that shard's two files; Specification-and-scope and Architecture lenses are dispatched once and
@@ -60,7 +63,8 @@ lens lost `Bash`.
       300 changed files prints `MODE\tsharded`; 10000 changed lines in few files prints
       `MODE\tsharded`; with `--plan` groups by Owned paths and puts unmatched files in `rest`; without
       a plan groups by first path component; more than `--max` groups are merged down to `--max`; a
-      group at the threshold is split into chunks below it; a cap that cannot hold, an unknown ref
+      group at the threshold is split into chunks below it; a Git read failure, an oversized atomic
+      change, a cap that cannot hold, an unknown ref
       and a path the grammar cannot carry each exit non-zero and print nothing on stdout; a rename
       lists both paths, a non-ASCII path is unquoted, and the documented packet command over a
       `SHARD` path list reproduces the change (rename as rename, magic-looking names kept) — checked by:

@@ -81,7 +81,8 @@ shard: grouped by the plan's Owned paths through `plan-lint.sh owned` (unmatched
 by first path component without a plan; a group that itself reaches a threshold is split into chunks
 below it (`src#1`, `src#2`), and groups are merged smallest-into-neighbour while the pair stays below
 the thresholds and more than four remain. A rename is listed with both of its paths. The script
-refuses, with exit 1 and nothing on stdout, a bad ref, a path its grammar cannot carry, and a
+refuses, with exit 1 and nothing on stdout, a Git read failure, a bad ref, a path its grammar cannot
+carry, an individual change that reaches a threshold, and a
 candidate that cannot be covered in four shards below the thresholds — the message says how many it
 needs, and raising `--max` is the owner's stated decision, not a default. Treat any refusal as a
 refusal, not as `single`. Run it before any lens is dispatched. `MODE	single` means the dispatch

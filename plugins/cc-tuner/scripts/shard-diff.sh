@@ -63,7 +63,10 @@ fi
 TAB="$(printf '\t')"; NL='
 '
 ROWS="$(
-  git diff --numstat -z --find-renames "$BASE...$CAND" 2>/dev/null | {
+  # An empty reader succeeds even when Git failed. Preserve failures from either side;
+  # a reader refusal still wins over an upstream SIGPIPE because it is the rightmost failure.
+  set -o pipefail
+  git diff --numstat -z --find-renames "$BASE...$CAND" | {
     while IFS= read -r -d '' rec; do
       ins="${rec%%$TAB*}"; rest="${rec#*$TAB}"; del="${rest%%$TAB*}"; path="${rest#*$TAB}"
       old=""
@@ -120,10 +123,18 @@ NF >= 3 && $3 != "" {
   files++
   w = ($1 == "-") ? 0 : $1 + $2
   lines += w
-  entries++; epath[entries] = $3; eold[entries] = $4; ew[entries] = (w > 0 ? w : 1); ekey[entries] = key_of($3)
+  entries++; epath[entries] = $3; eold[entries] = $4; ew[entries] = w; ekey[entries] = key_of($3)
 }
 END {
   if (files < files_t && lines < lines_t) { printf "SIZE\t%d\t%d\nMODE\tsingle\n", files, lines; exit 0 }
+  # Changes are atomic: a fresh chunk cannot make an oversized file fit. Refuse before
+  # emitting any result; the owner may explicitly raise the budget and retry.
+  for (i = 1; i <= entries; i++) {
+    if (1 >= files_t || ew[i] >= lines_t) {
+      printf "shard-diff: change %s (%d lines) cannot fit below --files %d and --lines %d; raise the thresholds knowingly\n", epath[i], ew[i], files_t, lines_t > "/dev/stderr"
+      exit 1
+    }
+  }
   # Sort changes by path so two runs over the same diff print the same shards; then group in that
   # order, groups ranked plan-first.
   for (i = 1; i <= entries; i++) idx[i] = i
@@ -137,7 +148,7 @@ END {
   for (i = 1; i <= gc; i++) ord[i] = i
   for (i = 2; i <= gc; i++) { v = ord[i]; j = i - 1; while (j > 0 && rank(gk[ord[j]]) > rank(gk[v])) { ord[j + 1] = ord[j]; j-- } ord[j + 1] = v }
   # Split any group that reaches a threshold into chunks below it. A chunk closes when adding the
-  # next change would reach either threshold; one change above --lines is a chunk of its own.
+  # next change would reach either threshold. Every atomic change was checked above.
   sc = 0
   for (oi = 1; oi <= gc; oi++) {
     g = ord[oi]

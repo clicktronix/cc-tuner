@@ -113,11 +113,26 @@ out="$(cd "$R" && bash "$SHARD" base HEAD --files 3 --max 2 2>"$R/err")"; rc=$?
 equals "cap-that-cannot-hold-rc1"          "1" "$rc"
 equals "cap-that-cannot-hold-empty-stdout" ""  "$out"
 check  "cap-that-cannot-hold-says-how-many" "need 4 shards below --files 3" "$(cat "$R/err")"
-R="$(flow_repo)"
-( cd "$R" && git tag base && awk 'BEGIN{for(i=1;i<=30;i++)print "l"i}' > big.txt && printf 'x\n' > small.txt && git add -A && git commit -q -m c )
-OUT="$(shard "$R" --lines 20 --max 8)"
-equals "one-change-above-lines-is-its-own-chunk" "SHARD	1	root#1	big.txt
-SHARD	2	root#2	small.txt" "$(lines_of "$OUT" SHARD)"
+# One atomic change must also fit; a fresh chunk does not waive its budget.
+for count in 10000 10001; do
+  R="$(flow_repo)"
+  ( cd "$R" && git tag base && awk -v n="$count" 'BEGIN{for(i=1;i<=n;i++)print "l"i}' > big.txt \
+    && { [ "$count" -eq 10000 ] || printf 'x\n' > small.txt; } && git add -A && git commit -q -m c )
+  out="$(cd "$R" && bash "$SHARD" base HEAD 2>"$R/err")"; rc=$?
+  equals "oversized-singleton-$count-rc1" "1" "$rc"
+  equals "oversized-singleton-$count-empty-stdout" "" "$out"
+  check "oversized-singleton-$count-names-file" "big.txt" "$(cat "$R/err")"
+  # The owner can explicitly change the budget after seeing the refusal.
+  OUT="$(shard "$R" --lines 20000)"
+  check "oversized-singleton-$count-explicit-budget" "MODE	single" "$OUT"
+done
+
+# Pure renames cost zero changed lines; file count still controls chunking.
+R="$(repo_with 3)"
+( cd "$R" && git tag -f base HEAD >/dev/null && git mv src dst && git commit -q -m renames )
+OUT="$(shard "$R" --files 2 --lines 1)"
+check "pure-renames-have-zero-line-cost" "SIZE	3	0" "$OUT"
+equals "pure-renames-fit-line-budget" "3" "$(lines_of "$OUT" SHARD | wc -l | tr -d ' ')"
 
 # --- merging never loses a file to a label collision ---------------------------------------------
 R="$(flow_repo)"
@@ -138,6 +153,24 @@ check  "comma-path-names-the-file" "cannot list a path containing a comma: a,b.t
 out="$(cd "$R" && bash "$SHARD" base no-such-ref 2>/dev/null)"; rc=$?
 equals "bad-ref-rc-nonzero" "1" "$rc"
 equals "bad-ref-empty-stdout" "" "$out"
+
+# --- Git errors must not look like a successfully read empty diff -------------------------------
+R="$(repo_with 1)"
+( cd "$R" && git config diff.algorithm not-an-algorithm )
+out="$(cd "$R" && bash "$SHARD" base HEAD 2>"$R/err")"; rc=$?
+equals "git-diff-failure-rc1" "1" "$rc"
+equals "git-diff-failure-empty-stdout" "" "$out"
+check "git-diff-failure-diagnostic" "could not read the diff" "$(cat "$R/err")"
+( cd "$R" && git config --unset diff.algorithm && git checkout -q --orphan unrelated \
+  && git commit -q -m 'unrelated root' )
+out="$(cd "$R" && bash "$SHARD" base HEAD 2>"$R/err")"; rc=$?
+equals "no-merge-base-rc1" "1" "$rc"
+equals "no-merge-base-empty-stdout" "" "$out"
+check "no-merge-base-diagnostic" "could not read the diff" "$(cat "$R/err")"
+out="$(cd "$R" && bash "$SHARD" HEAD HEAD 2>/dev/null)"; rc=$?
+equals "empty-diff-remains-successful" "0" "$rc"
+equals "empty-diff-is-single" "SIZE	0	0
+MODE	single" "$out"
 
 out="$(bash "$SHARD" 2>&1)"; rc=$?
 check  "usage-on-missing-args" "usage:" "$out"
