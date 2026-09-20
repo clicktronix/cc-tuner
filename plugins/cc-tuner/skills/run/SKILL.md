@@ -172,7 +172,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
    infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
    fixtures and configuration count when they decide behaviour on these surfaces. When selecting
-   it, run `shard-diff.sh <base> <candidate> --plan <plan>` and say how many agents that is:
+   it, run `shard-diff.sh <base> <candidate> [--plan <plan>]` and say how many agents that is:
    `shards × 4 + 2`, six for a single-shard candidate, at most eighteen — deep-review's Sharding
    section owns the cut.
 

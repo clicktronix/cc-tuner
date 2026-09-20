@@ -6,7 +6,7 @@
 #   plan-lint.sh frontier <file>   emit every slice that may start now, lowest number first
 #   plan-lint.sh ready-batches <file>   emit the first proven-safe ready batch
 #
-# Four modes, one parser, on purpose. If a caller grew its own reader, a plan the linter accepted
+# Five modes, one parser, on purpose. If a caller grew its own reader, a plan the linter accepted
 # could still restore or run wrongly, and nothing would say so. `frontier` exists because the rule
 # "lowest-numbered open slice whose blockers are all done" was prose in two skills and arithmetic the
 # model did by hand -- and doing it by hand is how a blocked slice gets started. `ready-batches`

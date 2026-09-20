@@ -73,7 +73,7 @@ build a rig of its own would now read part of the candidate and report as if it 
 The owner decides the cut, and the arithmetic is a script, not a sentence:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base> <candidate> --plan <plan> [--max 4] [--files 300] [--lines 10000]
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base> <candidate> [--plan <plan>] [--max 4] [--files 300] [--lines 10000]
 ```
 
 It prints `SIZE`, `MODE	single|sharded` and, when sharded, one `SHARD	<n>	<key>	<path,...>` per

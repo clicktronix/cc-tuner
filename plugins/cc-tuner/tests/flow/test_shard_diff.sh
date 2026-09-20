@@ -80,6 +80,14 @@ equals "cap-holds-at-max"     "2" "$(lines_of "$OUT" SHARD | wc -l | tr -d ' ')"
 equals "cap-keeps-every-file" "5" "$(lines_of "$OUT" SHARD | cut -f4 | tr ',' '\n' | wc -l | tr -d ' ')"
 check  "cap-names-merged-keys" "+" "$(lines_of "$OUT" SHARD)"
 
+# --- a path the grammar cannot carry is refused, not split ---------------------------------------
+R="$(flow_repo)"
+( cd "$R" && git tag base && printf 'x\n' > 'a,b.txt' && git add -A && git commit -q -m c )
+out="$(cd "$R" && bash "$SHARD" base HEAD 2>"$R/err")"; rc=$?
+equals "comma-path-rc1"          "1" "$rc"
+equals "comma-path-empty-stdout" ""  "$out"
+check  "comma-path-names-the-file" "cannot list a path containing a comma: a,b.txt" "$(cat "$R/err")"
+
 # --- a bad ref exits non-zero with an empty stdout -----------------------------------------------
 out="$(cd "$R" && bash "$SHARD" base no-such-ref 2>/dev/null)"; rc=$?
 equals "bad-ref-rc-nonzero" "1" "$rc"

@@ -72,12 +72,17 @@ $1 == "OWNED" { on++; onum[on] = $2; opaths[on] = $3; next }
 NF == 3 {
   files++
   # A rename prints `{old => new}` or `old => new`; the path that exists at the candidate is the
-  # one a lens reads, so keep the right-hand side.
+  # one a lens reads, so keep the right-hand side. Known edge: a file whose own name contains
+  # " => " is indistinguishable from a rename in this text format; the exact form needs -z, which
+  # BSD awk cannot split on.
   path = $3
   if (match(path, /\{[^}]* => [^}]*\}/)) {
     seg = substr(path, RSTART + 1, RLENGTH - 2); sub(/^[^=]* => /, "", seg)
     path = substr(path, 1, RSTART - 1) seg substr(path, RSTART + RLENGTH)
   } else if (index(path, " => ") > 0) { sub(/^.* => /, "", path) }
+  # The SHARD grammar joins paths with commas, and unlike Owned paths a diff path is not restricted
+  # to the literal grammar. A path that cannot be listed is refused, not silently split in two.
+  if (index(path, ",") > 0) { print "shard-diff: cannot list a path containing a comma: " path > "/dev/stderr"; refused = 1; exit 1 }
   w = ($1 == "-") ? 0 : $1 + $2
   lines += w
   k = key_of(path)
@@ -86,6 +91,7 @@ NF == 3 {
   gfiles[k] = (gfiles[k] == "") ? path : gfiles[k] "," path
 }
 END {
+  if (refused) exit 1
   printf "SIZE\t%d\t%d\n", files, lines
   if (files < files_t && lines < lines_t) { print "MODE\tsingle"; exit 0 }
   print "MODE\tsharded"
