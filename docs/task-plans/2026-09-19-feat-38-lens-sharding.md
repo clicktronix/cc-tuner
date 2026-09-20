@@ -10,7 +10,7 @@ Deciding check: bash plugins/cc-tuner/tests/flow/test_plan_lint.sh
 Delivers: `plan-lint.sh owned <plan>` prints `OWNED\t<n>\t<path,...>` per slice in plan order, so a consumer never re-parses the Owned-paths grammar
 
 - [x] `plan-lint.sh owned` was observed printing the usage line and exiting 1 before the mode existed
-- [x] `owned` prints one line per slice, paths exactly as the plan wrote them, and fails on an invalid plan the way `check` does
+- [x] `owned` prints one line per slice, paths exactly as the plan wrote them, and fails on an invalid plan the way `check` does, missing headers included
 - [x] `--help` names the new mode
 - [x] `bash plugins/cc-tuner/tests/flow/test_plan_lint.sh` exits 0
 
@@ -26,10 +26,11 @@ Delivers: `shard-diff.sh <base> <candidate> [--plan] [--max] [--files] [--lines]
 - [x] below both thresholds: `MODE\tsingle`; 300 files: `MODE\tsharded`; 10000 lines in few files: `MODE\tsharded`
 - [x] with `--plan`: groups follow `plan-lint.sh owned`, unmatched files land in `rest`; without: first path component, `root` for top-level files
 - [x] more groups than `--max` merge down to `--max`; unknown ref exits non-zero with empty stdout
+- [x] a group at a threshold splits into chunks below it; a cap that cannot hold refuses with the needed count; a rename lists both paths; non-ASCII and magic-looking names survive into the documented packet; comma/tab/newline paths are refused (Codex review 2026-09-20)
 - [x] the `-ge` → `-gt` mutation on the file threshold kills `threshold-300-files-shards`, run through `mutate.sh --expect`
 - [x] bash 3.2 clean: `bash plugins/cc-tuner/tests/flow/test_shard_diff.sh` exits 0
 
-Evidence: bash plugins/cc-tuner/tests/flow/test_shard_diff.sh → 18 PASS, rc 0 @ worktree; RED before the script: 15 FAIL, direct call `bash: plugins/cc-tuner/scripts/shard-diff.sh: No such file or directory`; mutation: the threshold lives in awk, so the assigned `-ge` → `-gt` is `files < files_t` → `files <= files_t`; `mutate.sh --expect 'FAIL threshold-300-files-shards'` → `KILLED … green before, red on the mutant, green again once restored`, mutant log: only `FAIL threshold-300-files-shards (want /MODE\tsharded/ in: SIZE\t300\t300 …)`, 17 PASS
+Evidence: bash plugins/cc-tuner/tests/flow/test_shard_diff.sh → 34 PASS, rc 0 @ worktree after Codex round 1 (18 PASS on the first candidate); RED before the script: 15 FAIL, direct call `bash: plugins/cc-tuner/scripts/shard-diff.sh: No such file or directory`; mutation: the threshold lives in awk, so the assigned `-ge` → `-gt` is `files < files_t` → `files <= files_t`; `mutate.sh --expect 'FAIL threshold-300-files-shards'` → `KILLED … green before, red on the mutant, green again once restored`, mutant log: only `FAIL threshold-300-files-shards`, re-run on the rewritten script with the same verdict
 
 ## Slice 3 — deep-review shards its file-local lenses and names the cost
 Blocked by: 2

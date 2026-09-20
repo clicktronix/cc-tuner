@@ -214,6 +214,16 @@ check  "owned-refuses-invalid"     "refusing to parse an invalid plan" "$OUT"
 check  "owned-refuses-invalid-rc1" "rc=1"                              "$OUT"
 absent "owned-emits-nothing-on-bad" "OWNED	1"                         "$OUT"
 check  "help-names-owned"          "owned: one OWNED"                  "$(bash "$LINT" --help)"
+OUT="$(lint owned "$(raw_plan owned-nohdr '## Slice 1 — A
+Blocked by: none
+Owned paths: src/
+Deciding check: true
+Delivers: a.
+
+- [ ] a
+')")"
+check  "owned-requires-headers-like-check" "refusing to parse an invalid plan" "$OUT"
+check  "owned-requires-headers-rc1"        "rc=1"             "$OUT"
 
 # --- the grammar is exact, and every near-miss is refused -----------------------------------------
 # Each of these was accepted at some point. Leniency here is not kindness: the writer is a model, and

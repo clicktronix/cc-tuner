@@ -205,9 +205,10 @@ END {
   if (count == 0) err[++e] = "no slices found (expected headings like \"## Slice 1 — Title\")"
   # Header ownership is a delivery check. Read-only recovery must still understand plans written by
   # versions before these headers existed; `/run` always calls `check` before an executable mode.
-  if (mode == "check" && (spec_lines != 1 || plan_spec == ""))
+  # `owned` feeds a delivery-time consumer (shard-diff.sh), so it holds the plan to the same bar.
+  if ((mode == "check" || mode == "owned") && (spec_lines != 1 || plan_spec == ""))
     err[++e] = "plan needs one non-empty **Spec:** header before its slices"
-  if (mode == "check" && (branch_lines != 1 || plan_branch == ""))
+  if ((mode == "check" || mode == "owned") && (branch_lines != 1 || plan_branch == ""))
     err[++e] = "plan needs one non-empty **Branch:** header before its slices"
   if (expected_spec != "" && plan_spec != expected_spec)
     err[++e] = "plan names spec \"" plan_spec "\", expected \"" expected_spec "\""

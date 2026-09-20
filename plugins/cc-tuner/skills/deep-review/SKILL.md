@@ -78,14 +78,21 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base> <candidate> [--plan <p
 
 It prints `SIZE`, `MODE	single|sharded` and, when sharded, one `SHARD	<n>	<key>	<path,...>` per
 shard: grouped by the plan's Owned paths through `plan-lint.sh owned` (unmatched files in `rest`), or
-by first path component without a plan, merged smallest-into-neighbour until at most four remain. A
-bad ref exits 1 with nothing on stdout; treat that as a refusal, not as `single`. Run it before any
-lens is dispatched. `MODE	single` means the dispatch above, unchanged.
+by first path component without a plan; a group that itself reaches a threshold is split into chunks
+below it (`src#1`, `src#2`), and groups are merged smallest-into-neighbour while the pair stays below
+the thresholds and more than four remain. A rename is listed with both of its paths. The script
+refuses, with exit 1 and nothing on stdout, a bad ref, a path its grammar cannot carry, and a
+candidate that cannot be covered in four shards below the thresholds — the message says how many it
+needs, and raising `--max` is the owner's stated decision, not a default. Treat any refusal as a
+refusal, not as `single`. Run it before any lens is dispatched. `MODE	single` means the dispatch
+above, unchanged.
 
 When sharded, write for every `SHARD` line, next to `candidate.diff`:
-`git diff --find-renames <base>...<candidate> -- <paths> > <dir>/shard-<n>.diff` and
-`git diff --name-status <base>...<candidate> -- <paths> > <dir>/shard-<n>-files.txt`, with the
-script's path list after `--`. Then dispatch **Correctness**, **Repository standards**, **Security**
+`git --literal-pathspecs diff --find-renames <base>...<candidate> -- <paths> > <dir>/shard-<n>.diff`
+and `git --literal-pathspecs diff --name-status <base>...<candidate> -- <paths> > <dir>/shard-<n>-files.txt`,
+with the script's path list after `--`. `--literal-pathspecs` is load-bearing: `--` stops option
+parsing but not pathspec magic, so a file named `:(exclude)x` would otherwise silently drop files
+from the packet. Then dispatch **Correctness**, **Repository standards**, **Security**
 and **Tests and operability** once per shard, each brief naming that shard's two files and nothing
 else of the diff; dispatch **Specification and scope** and **Architecture** once, on the whole
 `candidate.diff` and `changed-files.txt`, because their question does not cut along paths. That is

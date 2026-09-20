@@ -11,9 +11,16 @@ when sharded one `SHARD\t<n>\t<key>\t<path,...>` per shard. Sharding triggers wh
 count reaches `--files` **or** insertions plus deletions reach `--lines`. Files are grouped by the
 plan's Owned paths when `--plan` is given — read through a new `plan-lint.sh owned <plan>` mode that
 prints `OWNED\t<n>\t<path,...>`, so one parser owns the grammar — with files matching no slice in a
-`rest` shard; without a plan, by the first path component (`root` for top-level files). More groups
-than `--max` are merged smallest-into-neighbour until the cap holds. A bad ref exits non-zero with
-nothing printed. `deep-review` runs the script before dispatch. A lens has no shell (0.14.0,
+`rest` shard; without a plan, by the first path component (`root` for top-level files). A group that
+itself reaches a threshold is split into chunks below it (`<key>#1`, `#2`…), because a shard as
+large as the diff reviews nothing; groups are then merged smallest-into-neighbour while the merged
+pair stays below the thresholds and more than `--max` remain, and if the cap still cannot hold the
+script refuses and says how many shards the candidate needs (added after Codex review of the first
+candidate, 2026-09-20: a 1071-file diff inside one directory produced one shard). Paths are read
+from `--numstat -z`, never from git's quoted text form, so a non-ASCII name reaches the lens as the
+name it has; a rename lists both of its paths so the packet shows it as a rename; a path the grammar
+cannot carry (comma, tab, newline) is refused. Packets are written with `--literal-pathspecs`,
+because `--` does not switch pathspec magic off. Every refusal exits non-zero with nothing printed. `deep-review` runs the script before dispatch. A lens has no shell (0.14.0,
 `agents/deep-review-lens.md`), so the owner already writes `<dir>/candidate.diff` and
 `<dir>/changed-files.txt` before any dispatch; sharding extends that: for each `SHARD` line the owner
 writes `<dir>/shard-<n>.diff` (`git diff --find-renames <base>...<candidate> -- <paths>`) and
@@ -47,13 +54,16 @@ lens lost `Bash`.
 
 ## Acceptance criteria
 - [x] [machine] `plan-lint.sh owned <plan>` prints one `OWNED\t<n>\t<paths>` line per slice in plan
-      order and fails on an invalid plan the way `check` does — checked by:
+      order and fails on an invalid plan the way `check` does, missing headers included — checked by:
       `bash plugins/cc-tuner/tests/flow/test_plan_lint.sh` exits 0 with the new `owned-*` checks passing
 - [x] [machine] `shard-diff.sh` on a real git repository: below both thresholds prints `MODE\tsingle`;
       300 changed files prints `MODE\tsharded`; 10000 changed lines in few files prints
       `MODE\tsharded`; with `--plan` groups by Owned paths and puts unmatched files in `rest`; without
-      a plan groups by first path component; more than `--max` groups are merged down to `--max`; an
-      unknown ref exits non-zero and prints nothing on stdout — checked by:
+      a plan groups by first path component; more than `--max` groups are merged down to `--max`; a
+      group at the threshold is split into chunks below it; a cap that cannot hold, an unknown ref
+      and a path the grammar cannot carry each exit non-zero and print nothing on stdout; a rename
+      lists both paths, a non-ASCII path is unquoted, and the documented packet command over a
+      `SHARD` path list reproduces the change (rename as rename, magic-looking names kept) — checked by:
       `bash plugins/cc-tuner/tests/flow/test_shard_diff.sh` exits 0
 - [x] [machine] `plugins/cc-tuner/skills/deep-review/SKILL.md` has a section `## Sharding` that names
       the script call, the per-shard `shard-<n>.diff` and `shard-<n>-files.txt` the owner writes,
