@@ -49,7 +49,7 @@ lens lost `Bash`.
 - [x] [machine] `plan-lint.sh owned <plan>` prints one `OWNED\t<n>\t<paths>` line per slice in plan
       order and fails on an invalid plan the way `check` does — checked by:
       `bash plugins/cc-tuner/tests/flow/test_plan_lint.sh` exits 0 with the new `owned-*` checks passing
-- [ ] [machine] `shard-diff.sh` on a real git repository: below both thresholds prints `MODE\tsingle`;
+- [x] [machine] `shard-diff.sh` on a real git repository: below both thresholds prints `MODE\tsingle`;
       300 changed files prints `MODE\tsharded`; 10000 changed lines in few files prints
       `MODE\tsharded`; with `--plan` groups by Owned paths and puts unmatched files in `rest`; without
       a plan groups by first path component; more than `--max` groups are merged down to `--max`; an

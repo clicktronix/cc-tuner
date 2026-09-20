@@ -22,12 +22,14 @@ Owned paths: plugins/cc-tuner/scripts/shard-diff.sh,plugins/cc-tuner/tests/flow/
 Deciding check: bash plugins/cc-tuner/tests/flow/test_shard_diff.sh
 Delivers: `shard-diff.sh <base> <candidate> [--plan] [--max] [--files] [--lines]` prints `SIZE`, `MODE` and `SHARD` lines a skill can dispatch from, with the cap, the plan grouping, the directory fallback and the fail-closed ref check all proven on a real repository
 
-- [ ] `test_shard_diff.sh` was observed failing with `No such file or directory` before the script existed
-- [ ] below both thresholds: `MODE\tsingle`; 300 files: `MODE\tsharded`; 10000 lines in few files: `MODE\tsharded`
-- [ ] with `--plan`: groups follow `plan-lint.sh owned`, unmatched files land in `rest`; without: first path component, `root` for top-level files
-- [ ] more groups than `--max` merge down to `--max`; unknown ref exits non-zero with empty stdout
-- [ ] the `-ge` → `-gt` mutation on the file threshold kills `threshold-300-files-shards`, run through `mutate.sh --expect`
-- [ ] bash 3.2 clean: `bash plugins/cc-tuner/tests/flow/test_shard_diff.sh` exits 0
+- [x] `test_shard_diff.sh` was observed failing with `No such file or directory` before the script existed
+- [x] below both thresholds: `MODE\tsingle`; 300 files: `MODE\tsharded`; 10000 lines in few files: `MODE\tsharded`
+- [x] with `--plan`: groups follow `plan-lint.sh owned`, unmatched files land in `rest`; without: first path component, `root` for top-level files
+- [x] more groups than `--max` merge down to `--max`; unknown ref exits non-zero with empty stdout
+- [x] the `-ge` → `-gt` mutation on the file threshold kills `threshold-300-files-shards`, run through `mutate.sh --expect`
+- [x] bash 3.2 clean: `bash plugins/cc-tuner/tests/flow/test_shard_diff.sh` exits 0
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_shard_diff.sh → 18 PASS, rc 0 @ worktree; RED before the script: 15 FAIL, direct call `bash: plugins/cc-tuner/scripts/shard-diff.sh: No such file or directory`; mutation: the threshold lives in awk, so the assigned `-ge` → `-gt` is `files < files_t` → `files <= files_t`; `mutate.sh --expect 'FAIL threshold-300-files-shards'` → `KILLED … green before, red on the mutant, green again once restored`, mutant log: only `FAIL threshold-300-files-shards (want /MODE\tsharded/ in: SIZE\t300\t300 …)`, 17 PASS
 
 ## Slice 3 — deep-review shards its file-local lenses and names the cost
 Blocked by: 2
