@@ -47,7 +47,7 @@ Plugins can't register a statusline themselves, so the statusline node of `/cc-t
 wires it into the user's `settings.json` — offered, not assumed:
 
 ```
-/cc-tuner:setup install statusline    # the node; /cc-tuner:statusline-setup forwards here for one release
+/cc-tuner:setup install statusline
 ```
 
 The 5h/7d data uses Claude Code's **unofficial** OAuth usage endpoint — it degrades
@@ -64,21 +64,19 @@ field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 The always-on core installs per repo via the task-flow node of `/cc-tuner:setup` (plugins
 can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in an untouched
 `task-flow.local.md`, migration of the legacy `git-flow*` files, and a diff-and-ask for a
-hand-maintained copy. `/cc-tuner:task-flow-setup` forwards to the node for one release.
+hand-maintained copy.
 
 ### `deep-review`
 
-A read-only exhaustive review for large, cross-boundary, or sensitive candidates. It fans out six
-independent lenses against one immutable SHA — each a `cc-tuner:deep-review-lens` subagent, one of
-the two agent definitions the plugin ships, whose tool list is Read, Grep and Glob — no Bash, Edit, Write or
-Agent — so read-only holds by construction; the owner writes the diff to a file the lenses read — then validates and deduplicates their output without a top-ten cap. Six fresh
-contexts are the cost: on the order of 200k tokens of system prompt, tools and CLAUDE.md before the
-diff is read, which is why `/run` selects this route for large or sensitive changes only. A candidate
-of 300 files or 10,000 changed lines is sharded by `scripts/shard-diff.sh` along the plan's Owned
-paths, at most four shards: the four file-local lenses run once per shard on a per-shard diff file,
-Specification and Architecture once on the whole, so the count is `shards × 4 + 2` and `/run` says
-it before dispatch. It replaces the ordinary Matt Pocock advisory pass for these candidates. Both routes
-then use the required Codex review of the final SHA.
+A read-only review for large, cross-boundary or sensitive candidates, replacing the ordinary
+advisory pass. Restricted `cc-tuner:deep-review-lens` agents read owner-prepared diff files; one
+owner validates findings and coverage before required Codex review of the final SHA.
+
+The shared `review-diff.sh` reader keeps inventory and packets consistent. `shard-diff.sh` validates
+actual packet coverage and size before dispatch. Four file-local lenses run per shard; Specification
+and Architecture each cover the whole candidate. Four shards is the default cap, which the owner
+may explicitly raise. The [deep-review procedure](skills/deep-review/SKILL.md) owns the accepted
+partition, reviewer count and current cost estimate; historical spawn figures are not a price guarantee.
 
 ### `verify-feature`
 
@@ -126,16 +124,19 @@ batch, proves each slice
 RED→GREEN and runs the negative proof its spec assigned — a mutation where the spec asked for one —
 ticks it off in the committed file, synchronizes an advanced target and archives the spec before
 candidate review. It chooses Matt Pocock review for ordinary changes or `cc-tuner:deep-review` for
-large or sensitive changes, then obtains Codex's required review
-at the exact final SHA. It publishes the final approval as a pull-request review and merges only with green CI on that same
+large or sensitive changes, then obtains the required review the spec names — Codex's by default,
+or none with a recorded reason — at the exact final SHA. It publishes the verdict on the pull request,
+requires verify-feature's record for a commit the head contains, and merges only with green CI on that same
 commit — under the mode the spec declared — and `--match-head-commit` pinning it. Implementation may
 be handed to subagents the run dispatches itself, one per slice, as `cc-tuner:slice-unit` — the
-plugin's second agent definition, whose `maxTurns: 200` is what turns an over-long slice into a
+plugin's second agent definition, whose `maxTurns: 300` is what turns an over-long slice into a
 partial return the orchestrator handles instead of a unit that runs on; the parent owns integration, the
 proof, the review and every later gate.
 
-Without `--auto`, `/run` works local slice commits without interruption, then stops before the first
-push/PR unless already authorized; merge belongs to the user after checked preflight. Real unresolved
+Without `--auto`, `/run` works through slice commits, push and a draft PR without interruption and
+stops once, before the merge, which belongs to the user after checked preflight. Heavy checks (full
+suite, e2e, builds) go through `scripts/heavy.sh`, whose machine-wide slots
+(`CC_TUNER_HEAVY_SLOTS`, default 1) keep several sessions from running them at once. Real unresolved
 decisions or waivers block only dependent work. With `--auto`, it runs unattended
 only while every gate is green. `--auto` never waives incomplete DoR, missing RED→GREEN
 evidence, failed tests, stale review, unresolved `[eyes]`, CI that ran and did not pass, or scope
@@ -169,16 +170,21 @@ protection, or none at all where it runs none, and that last one only alongside 
 recording the local result for the same commit. No mode lets a check it reads fail — and each mode
 says which checks it reads: `required` asks GitHub for the required ones and does not look at the
 rest, so a failing optional check does not block a merge under it. Where an optional check matters,
-require it on the branch or declare `any`. On a pull request that
-carries no cc-tuner plan it merges straight through: the plugin must not seize work that is not its own.
+require it on the branch or declare `any`. A pull request with neither a plan nor a named review is
+refused; an ordinary pull request outside a run is merged with `--unmanaged`, which the script
+refuses for one that carries a plan or names a review. Drafts are refused until marked ready.
 
 `/run` invokes that script directly. cc-tuner does not register a global raw-command interceptor:
 earlier versions tried to judge arbitrary Bash text and alternated between bypasses and blocking
 unrelated merges. A raw CLI call, the merge button on github.com, `git push` and the REST API can all
 bypass this checked path. It is workflow discipline, not a local security boundary.
 
-Requires the **mattpocock-skills** and **cc-codex-triage** plugins (checked at runtime via prereq-check;
-cc-tuner installs and works standalone without them).
+Uses the **mattpocock-skills** plugin for grilling, domain modelling and ordinary review, and
+**cc-codex-triage** for the default `review: codex` gate (both checked at runtime via prereq-check).
+Without cc-codex-triage a spec declares `review: none:<reason>` and the run's owner publishes the
+verdict; cc-tuner installs and works standalone without either.
+Integration rounds outside the review cap and `renew` need cc-codex-triage 0.14+; with an older
+companion prereq-check prints a NOTE and `/run` uses a normal round and the companion's reset.
 
 ## Output style
 
@@ -202,9 +208,9 @@ not the plugin's.
 
 The `claude-md-writer`, `task-flow`, `deep-review` and `verify-feature` skills are model-invoked when
 their descriptions match; `deep-review` and `verify-feature` are also available directly. The
-setup and lifecycle playbooks remain explicit user commands: `/cc-tuner:setup` (every installer
-is a node of it; the old `task-flow-setup` and `statusline-setup` entry points forward for one
-release), `/cc-tuner:spec` and `/cc-tuner:run`.
+agent may also start `/cc-tuner:spec` and `/cc-tuner:run` itself when the user asks for a task to be
+planned or implemented; `--auto` stays the user's request. `/cc-tuner:setup` remains an explicit
+user command: it writes user-global settings.
 
 ## Scope
 

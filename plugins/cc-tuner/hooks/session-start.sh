@@ -72,6 +72,16 @@ if ! PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve 2>/dev/null)"; then
   exit 0
 fi
 
+# A plan whose exact content is already in the remote default branch belongs to work that landed;
+# a branch reused afterwards would otherwise be told to rebuild a finished task. Only identical
+# content counts: a landed plan this branch extended with new slices is still open work.
+DEFAULT_REF="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)"
+LANDED_BLOB="$( [ -z "$DEFAULT_REF" ] || git rev-parse -q --verify "$DEFAULT_REF:$PLAN" 2>/dev/null || true)"
+if [ -n "$LANDED_BLOB" ] && [ "$LANDED_BLOB" = "$(git hash-object -- "$PLAN" 2>/dev/null)" ]; then
+  [ -z "$LEGACY" ] || emit "$LEGACY"
+  exit 0
+fi
+
 if ! SLICES="$(bash "$SCRIPTS/plan-lint.sh" slices "$PLAN" 2>/dev/null)"; then
   # A committed plan that does not parse is not nothing, and staying quiet about it would let the
   # branch look like it has no plan at all.
@@ -127,8 +137,9 @@ if [ -z "$BODY" ]; then
   exit 0
 fi
 
-emit "${LEGACY}cc-tuner: this branch has a committed plan with unfinished slices, and a task list that does
-not carry them yet. Rebuild it from $PLAN before doing anything else.
+emit "${LEGACY}cc-tuner: this branch has a committed plan with unfinished slices: $PLAN.
+If this session continues that work, rebuild the task list from it first. Rebuild it from $PLAN
+as below; if the session is about something else, ignore this.
 
 Read TaskList first and create only what is missing -- this may run in a session that already has
 some of these. Then, in this order, because an edge cannot be added to a task that does not exist and

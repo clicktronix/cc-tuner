@@ -74,13 +74,18 @@ that directly exercises it. A plausible diff or an unrelated green suite is not 
 
 ## 5. Hand back
 
-Return a short record `/run` can paste into the run log and the pull request:
+Return a short record `/run` publishes as one PR comment. Its first line is what `merge.sh` looks
+for, so it names the full SHA the checks ran against:
 
 ```text
-verify-feature @ <sha or "worktree">
+cc-tuner-verified: <full sha>
   <criterion>  —  <what was run>  →  <what was observed>
   <criterion>  —  NOT PROVED: <what is missing, and what would be needed>
 ```
+
+Run e2e suites, full builds and other heavy checks through
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --label "<repo>: <what>" -- <command>`: the slots are
+shared with every other session on the machine.
 
 A criterion left unproved does not stop the run by itself. `/run` decides what an unproved criterion
 means for delivery — this skill establishes facts and does not own the lifecycle.

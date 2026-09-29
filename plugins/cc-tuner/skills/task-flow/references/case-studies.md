@@ -90,3 +90,26 @@ wording, "parallelism lives in the writing and nowhere else", accidentally forba
 tests. The boundary is the shared candidate decision: independent reads and isolated implementation
 may fan out, while one orchestrator integrates the work, verifies it and owns delivery. Keep that
 boundary explicit without copying the incident into every dispatch brief.
+
+## Delegation cost and context observations (recorded before 0.15.0)
+
+One repository's general-purpose spawns carried 34k–42k tokens before task reading, versus 57k for
+the parent's first request. A separate sample of 399 units had a median of 76 turns; 320 fit within
+150, and long-running units crossed 300k context tokens. These observations motivated the capped
+slice-unit and fresh partial-return policy. They do not measure today's restricted review lens,
+another repository's instruction load, or the current host's cache behavior.
+
+Field transcripts of Claude Code's built-in `/code-review` at max effort showed 21 and 42 agents
+(ten finder angles, a verifier per candidate, a sweep) and 110–152 minute invocations on a 775-file
+candidate; at `xhigh` it ran in one context in 15 minutes. This is historical evidence for checking
+the chosen workflow's cost, not a fixed runtime or price estimate for future invocations.
+
+Across 69 slice-units in 2026-09 sessions the median was 159 turns, 23 passed 200 and 12 passed 300,
+with context at 300k–600k tokens on the long tail. Every unit that hit the 200 cap was continued with
+`SendMessage` rather than redispatched, so the cap stopped nothing. The cap moved to 300 and units
+commit after every green step. Five concurrent sessions each running full suites and e2e froze the
+machine; heavy checks now queue through `heavy.sh`.
+
+The 1071-file candidate in #38 led one lens to spawn five more readers. Packet partitioning moved
+size arithmetic into a helper; disabling lens delegation alone did not establish complete reading.
+The owner still has to account for the review's coverage and validate returned findings.

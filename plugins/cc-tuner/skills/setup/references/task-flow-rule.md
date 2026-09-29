@@ -120,10 +120,10 @@ repo-specific.
 8. Remind: the rule carries invariants only (no hooks, by design). Procedures — epics, board
    recipes, post-merge cleanup, release notes — live in the `cc-tuner:task-flow` skill.
 
-**Retirement schedule.** `/cc-tuner:task-flow-setup` forwards here for one release and is then
-removed. The `git-flow*` detection in steps 1 and 7 is dropped one release after that forward
-disappears, and the release that drops it says in its notes how a user skipping several versions
-migrates by hand: rename `git-flow.local.md` to `task-flow.local.md`, then run this node.
+**Retirement schedule.** The `/cc-tuner:task-flow-setup` forward was removed after 0.15.0. The
+`git-flow*` detection in steps 1 and 7 is dropped in the next release, whose notes say how a user
+skipping several versions migrates by hand: rename `git-flow.local.md` to `task-flow.local.md`,
+then run this node.
 
 ## Verification
 

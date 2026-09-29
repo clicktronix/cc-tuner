@@ -41,7 +41,8 @@ codex_root() {  # codex_root <dir> [broken: review|state]
   if [ "$broken" = "review" ]; then printf 'legacy review command\n' > "$r/commands/review.md"
   else printf '%s\n' '--required' > "$r/commands/review.md"; fi
   if [ "$broken" = "state" ]; then printf 'legacy review state\n' > "$r/scripts/review-state.sh"
-  else printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/scripts/review-state.sh"; fi
+  elif [ "$broken" = "old" ]; then printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/scripts/review-state.sh"
+  else printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' '        --integration) INTEGRATION=true; shift ;;' '  renew)' > "$r/scripts/review-state.sh"; fi
   printf '%s' "$r"
 }
 
@@ -64,11 +65,22 @@ M="$(matt_root matt)"; C="$(codex_root codex)"
 # --- the positive path, first: a suite of refusals passes if the script refuses everything --------
 OUT="$(run_with "$(rows "$M" "$C")")"
 case "$OUT" in *"prereqs OK"*) pass "all-present" ;; *) fail "all-present ($OUT)" ;; esac
+case "$OUT" in *NOTE:*) fail "current-companion-has-no-note ($OUT)" ;; *) pass "current-companion-has-no-note" ;; esac
+OUT="$(run_with "$(rows "$(matt_root matt-old)" "$(codex_root codex-old old)")")"
+case "$OUT" in *"prereqs OK"*) pass "old-companion-still-passes" ;; *) fail "old-companion-still-passes ($OUT)" ;; esac
+case "$OUT" in *"predates integration rounds and renew"*) pass "old-companion-named-with-fallback" ;; *) fail "old-companion-named-with-fallback ($OUT)" ;; esac
 
 # --- each dependency, missing on its own ----------------------------------------------------------
 OUT="$(run_with "$(rows "$W/nope" "$C")")"
 case "$OUT" in *mattpocock-skills*) pass "mp-missing" ;; *) fail "mp-missing ($OUT)" ;; esac
 
+# A skill that moved to another category folder is still found by its name.
+MOVED="$W/matt-moved"
+for s in misc/grilling other/domain-modeling review/code-review; do
+  mkdir -p "$MOVED/skills/$s"; touch "$MOVED/skills/$s/SKILL.md"
+done
+OUT="$(run_with "$(rows "$MOVED" "$C")")"
+case "$OUT" in *"prereqs OK"*) pass "moved-skill-still-found" ;; *) fail "moved-skill-still-found ($OUT)" ;; esac
 OUT="$(run_with "$(rows "$(matt_root matt-nocr engineering/code-review)" "$C")")"
 case "$OUT" in *code-review*) pass "mp-codereview-missing" ;; *) fail "mp-codereview-missing ($OUT)" ;; esac
 

@@ -6,14 +6,19 @@
 #   line 1: ➜ <dir> git:(<branch>) S:.. M:.. U:..  | <model> | <session duration>
 #   line 2: 5h:NN%[bar]>HH:MM  7d:NN%[bar]>HH:MM | ctx:NN%[bar]
 #
-# The 5h / 7d figures come from Claude Code's OAuth usage endpoint, cached for
-# 5 minutes. This is an UNOFFICIAL/internal endpoint (api/oauth/usage,
-# anthropic-beta: oauth-2025-04-20) — it may change or stop working without
-# notice. Everything degrades gracefully: if the token or endpoint is
-# unavailable, the rate-limit segment is simply omitted.
+# The 5h / 7d figures come from Claude Code's own statusline payload
+# (`rate_limits.five_hour` / `rate_limits.seven_day`, each with `used_percentage` and
+# `resets_at`) when present — see https://code.claude.com/docs/en/statusline. That field
+# is only populated for eligible accounts and only after the session's first API
+# response, so this falls back to the OAuth usage endpoint (api/oauth/usage, an
+# UNOFFICIAL/internal endpoint that may change or stop working without notice) for
+# older clients that don't yet send it. The fallback is cached for 5 minutes.
+# Everything degrades gracefully: if neither source has data, the rate-limit segment is
+# simply omitted.
 #
 # Cross-platform: macOS (Keychain), Linux & Windows (~/.claude/.credentials.json,
-# honoring $CLAUDE_CONFIG_DIR). Requires: bash, jq, python3, git.
+# honoring $CLAUDE_CONFIG_DIR). Requires: bash, jq, git. The OAuth fallback also
+# requires python3.
 
 # --- ANSI colors ($'...' emits real ESC bytes) ---
 GREEN=$'\033[1;32m'
@@ -28,6 +33,11 @@ RESET=$'\033[0m'
 # Portable file mtime (epoch seconds): BSD/macOS `stat -f`, GNU/Linux `stat -c`.
 _mtime() {
   stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+}
+
+# Portable epoch-seconds -> local HH:MM: BSD/macOS `date -r`, GNU/Linux `date -d @`.
+_epoch_to_local() {
+  date -r "$1" +%H:%M 2>/dev/null || date -d "@$1" +%H:%M 2>/dev/null
 }
 
 # JSON from stdin (the statusline payload Claude Code pipes in)
@@ -90,36 +100,106 @@ if [ -n "$duration_ms" ] && [ "$duration_ms" != "0" ]; then
   duration_info=" ${DIM}|${RESET} ${DIM}${dur}${RESET}"
 fi
 
-# --- Rate-limit usage (5 min cache, mkdir lock so only one process refreshes) ---
-usage_info=""
-# Private per-user dir (700) so a shared /tmp on Linux can't leak one user's
-# usage response to another. Scoped by uid AND a hash of the effective Claude
-# config dir, so one user running multiple accounts (different CLAUDE_CONFIG_DIR)
-# doesn't reuse another account's cached usage.
-_cfg_id=$(printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | cksum | cut -d' ' -f1)
-USAGE_CACHE_DIR="${TMPDIR:-/tmp}/cc-tuner-statusline-$(id -u 2>/dev/null || echo 0)-${_cfg_id}"
-mkdir -p "$USAGE_CACHE_DIR" 2>/dev/null && chmod 700 "$USAGE_CACHE_DIR" 2>/dev/null
-USAGE_CACHE="$USAGE_CACHE_DIR/usage_cache"
-USAGE_CACHE_LOCK="$USAGE_CACHE_DIR/usage_cache.lock"
-USAGE_BACKOFF="$USAGE_CACHE_DIR/usage_backoff"   # epoch until which 429 suppresses refreshes
-USAGE_CACHE_TTL=300
-USAGE_MAX_STALE=1800   # stop showing rate-limit data once it is >30 min old
+# Progress bar helper. usage: make_bar <percent> <length> -> bar_result, bar_color
+make_bar() {
+  local pct=$1
+  local len=$2
 
-refresh_usage() {
-  # mkdir is atomic — only one process wins the lock and refreshes.
-  if ! mkdir "$USAGE_CACHE_LOCK" 2>/dev/null; then
-    # Drop a stale lock (a crashed process would leave it forever).
-    local lock_age=$(( $(date +%s) - $(_mtime "$USAGE_CACHE_LOCK") ))
-    [ "$lock_age" -gt 30 ] && rm -rf "$USAGE_CACHE_LOCK" || return 0
-    mkdir "$USAGE_CACHE_LOCK" 2>/dev/null || return 0
+  if [ "$pct" -ge 80 ]; then
+    bar_color="${RED}"
+  elif [ "$pct" -ge 50 ]; then
+    bar_color="${YELLOW}"
+  else
+    bar_color="${GREEN}"
   fi
-  trap 'rm -rf "$USAGE_CACHE_LOCK"' RETURN
 
-  local tmp="${USAGE_CACHE}.tmp.$$"
-  # Python does three things: find the OAuth token cross-platform, call the
-  # usage endpoint, and pre-compute local reset times (HH:MM) into the cached
-  # JSON so the per-render path needs no python at all.
-  python3 -c "
+  local filled=$(( pct * len / 100 ))
+  [ "$pct" -gt 0 ] && [ "$filled" -eq 0 ] && filled=1
+  [ "$filled" -gt "$len" ] && filled=$len
+  local empty_count=$(( len - filled ))
+
+  bar_result=""
+  [ "$filled" -gt 0 ] && bar_result=$(printf "%${filled}s" | tr ' ' '▓')
+  [ "$empty_count" -gt 0 ] && bar_result="${bar_result}$(printf "%${empty_count}s" | tr ' ' '░')"
+}
+
+# Coerce a "66.6"-style utilization into a safe integer percent.
+to_int_pct() {
+  local v=${1%.*}
+  case "$v" in
+    '' | *[!0-9]*) echo 0 ;;
+    *) echo "$v" ;;
+  esac
+}
+
+# Render one rate-limit window. usage: window_segment <label> <pct> <reset_local>
+window_segment() {
+  local label=$1 pct reset
+  pct=$(to_int_pct "$2")
+  reset=$3
+  make_bar "$pct" 8
+  local reset_str=""
+  [ -n "$reset" ] && reset_str="${DIM}>${reset}${RESET}"
+  # Format is '%s' — the literal % belongs in the data argument as a single %.
+  printf '%s' " ${bar_color}${label}:${pct}%${RESET}${DIM}[${RESET}${bar_color}${bar_result}${RESET}${DIM}]${RESET}${reset_str}"
+}
+
+# --- Rate-limit usage ---
+# Claude Code's own statusline payload carries `.rate_limits` (five_hour / seven_day,
+# each `used_percentage` + `resets_at` epoch seconds) once the account is eligible and
+# the session has had its first API response. When it's there, use it directly — no
+# credentials, cache, lock or network involved. Only fall back to the OAuth usage
+# endpoint when the field is entirely absent (older clients that don't send it yet).
+usage_info=""
+rate_limits_json=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
+
+if [ -n "$rate_limits_json" ] && [ "$rate_limits_json" != "null" ]; then
+  five_h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+  five_epoch=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+  seven_d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+  seven_epoch=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+
+  five_reset=""
+  case "$five_epoch" in ''|*[!0-9]*) ;; *) five_reset=$(_epoch_to_local "$five_epoch") ;; esac
+  seven_reset=""
+  case "$seven_epoch" in ''|*[!0-9]*) ;; *) seven_reset=$(_epoch_to_local "$seven_epoch") ;; esac
+
+  [ -n "$five_h" ] && usage_info="${usage_info} ${DIM}|${RESET}$(window_segment 5h "$five_h" "$five_reset")"
+  if [ -n "$seven_d" ]; then
+    [ -n "$usage_info" ] || usage_info=" ${DIM}|${RESET}"
+    usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+  fi
+else
+  # --- Fallback: OAuth usage endpoint (5 min cache, mkdir lock so only one process
+  # refreshes) ---
+  # Private per-user dir (700) so a shared /tmp on Linux can't leak one user's
+  # usage response to another. Scoped by uid AND a hash of the effective Claude
+  # config dir, so one user running multiple accounts (different CLAUDE_CONFIG_DIR)
+  # doesn't reuse another account's cached usage.
+  _cfg_id=$(printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | cksum | cut -d' ' -f1)
+  USAGE_CACHE_DIR="${TMPDIR:-/tmp}/cc-tuner-statusline-$(id -u 2>/dev/null || echo 0)-${_cfg_id}"
+  mkdir -p "$USAGE_CACHE_DIR" 2>/dev/null && chmod 700 "$USAGE_CACHE_DIR" 2>/dev/null
+  USAGE_CACHE="$USAGE_CACHE_DIR/usage_cache"
+  USAGE_CACHE_LOCK="$USAGE_CACHE_DIR/usage_cache.lock"
+  USAGE_BACKOFF="$USAGE_CACHE_DIR/usage_backoff"   # epoch until which 429 suppresses refreshes
+  USAGE_CACHE_TTL=300
+  USAGE_MAX_STALE=1800   # stop showing rate-limit data once it is >30 min old
+
+  refresh_usage() {
+    # mkdir is atomic — only one process wins the lock and refreshes.
+    if ! mkdir "$USAGE_CACHE_LOCK" 2>/dev/null; then
+      # Drop a stale lock (a crashed process would leave it forever).
+      local lock_age=$(( $(date +%s) - $(_mtime "$USAGE_CACHE_LOCK") ))
+      [ "$lock_age" -gt 30 ] && rm -rf "$USAGE_CACHE_LOCK" || return 0
+      mkdir "$USAGE_CACHE_LOCK" 2>/dev/null || return 0
+    fi
+    trap 'rm -rf "$USAGE_CACHE_LOCK"' RETURN
+
+    local tmp="${USAGE_CACHE}.tmp.$$"
+    # Python does three things: find the OAuth token cross-platform, call the
+    # usage endpoint, and pre-compute local reset times (HH:MM) into the cached
+    # JSON so the per-render path needs no python at all.
+    python3 -c "
 import json, urllib.request, urllib.error, sys, subprocess, re, codecs, os, shutil, time
 from datetime import datetime
 
@@ -189,104 +269,61 @@ for key in ('five_hour', 'seven_day'):
 data['fetched_at'] = int(time.time())  # consumed by the staleness gate below
 json.dump(data, sys.stdout)
 " > "$tmp" 2>/dev/null
-  local rc=$?
-  if [ "$rc" -eq 0 ] && [ -s "$tmp" ]; then
-    mv "$tmp" "$USAGE_CACHE"
-    rm -f "$USAGE_BACKOFF"
-  else
-    if [ "$rc" -eq 3 ] && [ -s "$tmp" ]; then
-      # 429: tmp holds the retry-after epoch — record it, don't discard it.
-      mv "$tmp" "$USAGE_BACKOFF"
+    local rc=$?
+    if [ "$rc" -eq 0 ] && [ -s "$tmp" ]; then
+      mv "$tmp" "$USAGE_CACHE"
+      rm -f "$USAGE_BACKOFF"
     else
-      rm -f "$tmp"
+      if [ "$rc" -eq 3 ] && [ -s "$tmp" ]; then
+        # 429: tmp holds the retry-after epoch — record it, don't discard it.
+        mv "$tmp" "$USAGE_BACKOFF"
+      else
+        rm -f "$tmp"
+      fi
+      # Suppress retries for one TTL even on a fresh install with a dead/slow
+      # endpoint — otherwise a missing cache means refresh (+5s timeout) on EVERY
+      # render. The staleness gate (fetched_at) still hides the 5h/7d segment.
+      if [ -f "$USAGE_CACHE" ]; then
+        touch "$USAGE_CACHE"
+      else
+        printf '{"fetched_at":0}' > "$USAGE_CACHE"
+      fi
     fi
-    # Suppress retries for one TTL even on a fresh install with a dead/slow
-    # endpoint — otherwise a missing cache means refresh (+5s timeout) on EVERY
-    # render. The staleness gate (fetched_at) still hides the 5h/7d segment.
-    if [ -f "$USAGE_CACHE" ]; then
-      touch "$USAGE_CACHE"
+  }
+
+  # Refresh when the cache is missing or older than the TTL — unless a 429
+  # backoff window is active (fixed-interval retries extend the throttle).
+  _now=$(date +%s)
+  _backoff_until=0
+  if [ -f "$USAGE_BACKOFF" ]; then
+    _backoff_until=$(cat "$USAGE_BACKOFF" 2>/dev/null)
+    case "$_backoff_until" in ''|*[!0-9]*) _backoff_until=0 ;; esac
+  fi
+  if [ "$_now" -ge "$_backoff_until" ]; then
+    if [ ! -f "$USAGE_CACHE" ]; then
+      refresh_usage
     else
-      printf '{"fetched_at":0}' > "$USAGE_CACHE"
+      cache_age=$(( _now - $(_mtime "$USAGE_CACHE") ))
+      [ "$cache_age" -gt "$USAGE_CACHE_TTL" ] && refresh_usage
     fi
   fi
-}
 
-# Refresh when the cache is missing or older than the TTL — unless a 429
-# backoff window is active (fixed-interval retries extend the throttle).
-_now=$(date +%s)
-_backoff_until=0
-if [ -f "$USAGE_BACKOFF" ]; then
-  _backoff_until=$(cat "$USAGE_BACKOFF" 2>/dev/null)
-  case "$_backoff_until" in ''|*[!0-9]*) _backoff_until=0 ;; esac
-fi
-if [ "$_now" -ge "$_backoff_until" ]; then
-  if [ ! -f "$USAGE_CACHE" ]; then
-    refresh_usage
-  else
-    cache_age=$(( _now - $(_mtime "$USAGE_CACHE") ))
-    [ "$cache_age" -gt "$USAGE_CACHE_TTL" ] && refresh_usage
-  fi
-fi
+  # Parse cache → 5h / 7d segments. Only render fresh data: a permanent fetch
+  # failure (revoked token, dead endpoint, missing python3) must drop the segment
+  # rather than show stale values forever. fetched_at is stamped on each success.
+  if [ -f "$USAGE_CACHE" ] && [ -s "$USAGE_CACHE" ]; then
+    fetched_at=$(jq -r '.fetched_at // 0' "$USAGE_CACHE" 2>/dev/null)
+    case "$fetched_at" in '' | *[!0-9]*) fetched_at=0 ;; esac
+    data_age=$(( $(date +%s) - fetched_at ))
+    if [ "$data_age" -le "$USAGE_MAX_STALE" ]; then
+      five_h=$(jq -r '.five_hour.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
+      five_reset=$(jq -r '.five_hour.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
+      seven_d=$(jq -r '.seven_day.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
+      seven_reset=$(jq -r '.seven_day.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
 
-# Progress bar helper. usage: make_bar <percent> <length> -> bar_result, bar_color
-make_bar() {
-  local pct=$1
-  local len=$2
-
-  if [ "$pct" -ge 80 ]; then
-    bar_color="${RED}"
-  elif [ "$pct" -ge 50 ]; then
-    bar_color="${YELLOW}"
-  else
-    bar_color="${GREEN}"
-  fi
-
-  local filled=$(( pct * len / 100 ))
-  [ "$pct" -gt 0 ] && [ "$filled" -eq 0 ] && filled=1
-  [ "$filled" -gt "$len" ] && filled=$len
-  local empty_count=$(( len - filled ))
-
-  bar_result=""
-  [ "$filled" -gt 0 ] && bar_result=$(printf "%${filled}s" | tr ' ' '▓')
-  [ "$empty_count" -gt 0 ] && bar_result="${bar_result}$(printf "%${empty_count}s" | tr ' ' '░')"
-}
-
-# Coerce a "66.6"-style utilization into a safe integer percent.
-to_int_pct() {
-  local v=${1%.*}
-  case "$v" in
-    '' | *[!0-9]*) echo 0 ;;
-    *) echo "$v" ;;
-  esac
-}
-
-# Render one rate-limit window. usage: window_segment <label> <pct> <reset_local>
-window_segment() {
-  local label=$1 pct reset
-  pct=$(to_int_pct "$2")
-  reset=$3
-  make_bar "$pct" 8
-  local reset_str=""
-  [ -n "$reset" ] && reset_str="${DIM}>${reset}${RESET}"
-  # Format is '%s' — the literal % belongs in the data argument as a single %.
-  printf '%s' " ${bar_color}${label}:${pct}%${RESET}${DIM}[${RESET}${bar_color}${bar_result}${RESET}${DIM}]${RESET}${reset_str}"
-}
-
-# Parse cache → 5h / 7d segments. Only render fresh data: a permanent fetch
-# failure (revoked token, dead endpoint, missing python3) must drop the segment
-# rather than show stale values forever. fetched_at is stamped on each success.
-if [ -f "$USAGE_CACHE" ] && [ -s "$USAGE_CACHE" ]; then
-  fetched_at=$(jq -r '.fetched_at // 0' "$USAGE_CACHE" 2>/dev/null)
-  case "$fetched_at" in '' | *[!0-9]*) fetched_at=0 ;; esac
-  data_age=$(( $(date +%s) - fetched_at ))
-  if [ "$data_age" -le "$USAGE_MAX_STALE" ]; then
-    five_h=$(jq -r '.five_hour.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
-    five_reset=$(jq -r '.five_hour.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
-    seven_d=$(jq -r '.seven_day.utilization // empty' "$USAGE_CACHE" 2>/dev/null)
-    seven_reset=$(jq -r '.seven_day.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
-
-    [ -n "$five_h" ] && usage_info="${usage_info} ${DIM}|${RESET}$(window_segment 5h "$five_h" "$five_reset")"
-    [ -n "$seven_d" ] && usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+      [ -n "$five_h" ] && usage_info="${usage_info} ${DIM}|${RESET}$(window_segment 5h "$five_h" "$five_reset")"
+      [ -n "$seven_d" ] && usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+    fi
   fi
 fi
 

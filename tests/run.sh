@@ -115,6 +115,12 @@ if [ -f "$LENS" ]; then
 else
   bad "plugins/cc-tuner/agents/deep-review-lens.md is missing; deep-review dispatches it by name"
 fi
+# Effort is inherited from the session unless the definition sets it, and a dispatch cannot set it:
+# without these fields a Fable or max-effort orchestrator runs every unit and lens at its own effort.
+for a in "$PLUGIN/agents/slice-unit.md" "$PLUGIN/agents/deep-review-lens.md"; do
+  [ ! -f "$a" ] || [ -n "$(agent_field "$a" effort)" ] \
+    || bad "${a#$ROOT/} has no effort:; units and lenses must not inherit the orchestrator's effort"
+done
 UNIT="$PLUGIN/agents/slice-unit.md"
 if [ -f "$UNIT" ]; then
   turns="$(agent_field "$UNIT" maxTurns)"
@@ -169,7 +175,8 @@ fi
 # unqualified mention is an instruction to run something that no longer exists. Only the latter fails.
 # This found config-init.sh telling users to "re-run /cc-tuner:execute-task" the first time it ran.
 removed_hits=0
-for pat in '/cc-tuner:execute-task' '/cc-tuner:delegate' 'assets/delegate' 'skills/smoke-verify/'; do
+for pat in '/cc-tuner:execute-task' '/cc-tuner:delegate' 'assets/delegate' 'skills/smoke-verify/' \
+           '/cc-tuner:task-flow-setup' '/cc-tuner:statusline-setup'; do
   for f in $(grep -rlF "$pat" "$PLUGIN" "$ROOT/README.md" 2>/dev/null || true); do
     if grep -F "$pat" "$f" | grep -qvE 'replace|removed|old |superseded|predates|no longer'; then
       bad "${f#$ROOT/} still instructs the use of '$pat' (removed)"

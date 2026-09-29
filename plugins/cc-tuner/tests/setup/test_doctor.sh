@@ -53,11 +53,15 @@ check   "baseline-exit0"      "doctor: no blockers" "$OUT"
 absent  "baseline-no-miss"    "MISS"                "$OUT"
 check   "baseline-version"    "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
 [ $rc -eq 0 ] || { echo "FAIL baseline-rc (rc=$rc)"; fails=1; }
+check   "matt-setup-missing-warned" "mattpocock-skills not configured for this repo" "$OUT"
+mkdir -p "$R/docs/agents" && : > "$R/docs/agents/issue-tracker.md"
+absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$(run)"
+rm -rf "$R/docs/agents"
 rm -rf "$T"
 
 # --- jq missing -> WARN, and it must NOT block ---------------------------------------------------
 # /cc-tuner:setup stops on a non-zero exit, so a MISS here halted setting up claude-md-writer, which
-# never calls jq. The two consumers that do need it -- statusline-setup and tests/run.sh -- refuse on
+# never calls jq. The two consumers that do need it -- the statusline node and tests/run.sh -- refuse on
 # their own, at the point of use.
 mkenv; tool git; tool python3; ghstub "'project'"; plugins_ok
 OUT="$(run)"; rc=$?

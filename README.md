@@ -9,9 +9,7 @@ Skills:
 - **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed. It replaced a Stop-hook gate that classified changes by file path: paths do not know what a change does, and a fixed proof per extension asks for the wrong evidence as often as the right one.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus the task-flow node of `/cc-tuner:setup` that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
-Start with **`/cc-tuner:setup`** — one command, run as independent nodes that each detect, propose, apply and verify: environment, instruction cleanup, rule loading, the task-flow rule, task tools, an optional statusline, an optional board, and an optional one-call Codex audit. `check` writes nothing; `install` applies the additive changes and asks only where a change is not additive. A failed node blocks only what depends on it, and the report has one row per node. `/cc-tuner:task-flow-setup` and `/cc-tuner:statusline-setup` forward to their nodes for one release.
-
-The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
+Start with **`/cc-tuner:setup`** — one command, run as independent nodes that each detect, propose, apply and verify: environment, instruction cleanup, rule loading, the task-flow rule, task tools, an optional statusline, an optional board, and an optional one-call Codex audit. `check` writes nothing; `install` applies the additive changes and asks only where a change is not additive. A failed node blocks only what depends on it, and the report has one row per node. The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
 
 
 ## Why this exists
@@ -51,36 +49,40 @@ plugins/
   cc-tuner/
     .claude-plugin/plugin.json      # plugin manifest
     README.md
+    agents/
+      deep-review-lens.md           # read-only review lens (Read, Grep, Glob; sonnet)
+      slice-unit.md                 # implementation unit for one slice (sonnet, maxTurns 300)
     assets/
+      agent-rules/instruction.md        # the rule-loading block setup writes into AGENTS.md
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
-    skills/
-      run/SKILL.md                  # /cc-tuner:run [--auto] <spec> executor
-      spec/SKILL.md                 # /cc-tuner:spec writes the contract and sliced execution plan
-      spec/spec-template.md         # executable spec contract filled by /cc-tuner:spec
-      spec/plan-template.md         # plan grammar filled by /cc-tuner:spec
-      setup/SKILL.md                # /cc-tuner:setup env check + installer orchestration
     hooks/
       hooks.json                    # SessionStart registration
       session-start.sh              # asks a fresh session to rebuild its task list from the plan
+    output-styles/mechanism-first.md
     scripts/
-      merge.sh                      # checked merge: required review + public verdict + CI on the head SHA
+      merge.sh                      # checked merge: review, public verdict, verification record, CI, head pin
+      heavy.sh                      # machine-wide slots for heavy checks (full suites, e2e, builds)
       mutate.sh                     # one mutation, graded by the program: no-op and syntax refusals, verified restore
       plan-lint.sh                  # the plan format's validator, and the parser the hook reads it with
       plan-path.sh                  # the one branch -> plan-path resolver
+      review-diff.sh                # the one diff reader behind review packets
+      shard-diff.sh                 # partitions a large candidate for deep-review
+      agent-rules-setup.py          # installs/checks the agent-rules block
       setup/doctor.sh               # environment checks behind /cc-tuner:setup
       setup/prereq-check.sh         # companion plugins installed, enabled, and carrying their contracts
       setup/plugin-here.sh          # which install of a plugin applies to this repo (one rule, two callers)
     skills/
-      claude-md-writer/
-        SKILL.md                    # corrected canonical skill
-        reference.md                # deep examples + verified sources
-      task-flow/
-        SKILL.md                    # board recipes, merge strategies, plan lifecycle
-        references/case-studies.md  # historical failure evidence outside the hot path
-      statusline/
-        SKILL.md                    # usage statusline (feature + disclaimers)
-        statusline.sh               # the cross-platform statusline script
-docs/superpowers/specs/             # design records
+      spec/                         # /cc-tuner:spec: contract, plan grammar, templates
+      run/                          # /cc-tuner:run and its references (placement, CI, mutation, shared task)
+      verify-feature/               # proves acceptance criteria against the running system
+      deep-review/                  # read-only multi-lens review of one candidate
+      setup/                        # /cc-tuner:setup and its node references
+      agent-rules/                  # loads a repository's rules before a review or change
+      claude-md-writer/             # CLAUDE.md / .claude/rules audit and writing
+      task-flow/                    # branch/commit/PR/board procedures and case studies
+      statusline/                   # usage statusline script and notes
+    tests/                          # contract, flow and setup suites
+docs/                               # design records, ADRs and plans
 tests/run.sh                        # repo validation (also the CI entry point)
 tests/scenarios/                    # eval scenarios (RED/GREEN baselines)
 release-please-config.json          # what a release bumps

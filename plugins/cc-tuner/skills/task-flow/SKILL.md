@@ -108,6 +108,17 @@ git branch -d <branch>                         # -d refuses if unmerged; never r
 git fetch --prune                              # drops remote-tracking refs for branches deleted on the remote
 ```
 
+After a **squash** merge `-d` always refuses: the branch's commits are not ancestors of the squash
+commit, even though their changes landed. Delete it only when the merged PR's head is exactly the
+local tip, so nothing local is left out of what merged:
+
+```bash
+[ "$(gh pr view <pr> --json state,headRefOid --jq 'select(.state=="MERGED") | .headRefOid')" = \
+  "$(git rev-parse <branch>)" ] && git branch -D <branch>
+```
+
+A local tip that differs holds commits the PR never carried: look at them, do not delete.
+
 `--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
 something to look at, not to paper over with a merge commit.
 
@@ -131,7 +142,8 @@ the notes; that is the actual cost of an off-format commit.
 **Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
 carries `Co-Authored-By:` or a session trailer is a preference — some repositories want the
 authorship visible, some want the history to read as the team's — so the answer lives in
-`.claude/rules/task-flow.md`, which the template ships a line for. Left unfilled, an agent falls back
+`.claude/rules/task-flow.local.md`: the generated `task-flow.md` is rewritten on every update and
+would lose it. Left unfilled, an agent falls back
 to whatever its harness does by default, and the repository ends up with a convention nobody chose.
 
 ## Merge strategies
@@ -144,7 +156,9 @@ to whatever its harness does by default, and the repository ends up with a conve
 ## Spec lifecycle (`PLANS/`)
 
 These are design documents — `/cc-tuner:spec` writes them and their execution plans. Execution plans
-are a different artifact with a different path (`task-plans/`) and a different lifecycle.
+are a different artifact with a different path (`task-plans/`): a plan stays where
+`plan-path.sh create` put it for its whole life, is ticked as work lands, and merges with the task.
+It is never moved or archived — `plan-path.sh`, SessionStart and `merge.sh` all find it there.
 
 1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
    plugin path.
@@ -185,5 +199,5 @@ review; record later DoD evidence on the PR. For shared tasks, update companion 
       and older dependencies needed for acceptance; independent improvements remain optional
 - [ ] PR links the candidate's green CI under its declared mode, or records the exact-SHA local
       result for `none:<reason>` as the CI policy above requires
-- [ ] Plan promoted or archived if this PR completes it
+- [ ] Spec archived if this PR completes it; the plan stays in `task-plans/`
 - [ ] No credentials, unrelated WIP or unintended generated files staged

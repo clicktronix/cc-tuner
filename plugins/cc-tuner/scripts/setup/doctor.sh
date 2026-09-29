@@ -25,14 +25,14 @@ bad()  { say "MISS $1"; miss=1; }
 
 # --- 1. command-line tools ----------------------------------------------------------------------
 # Only git blocks: nothing here works without it. jq blocks two named consumers, not this tool, and
-# both refuse on their own -- statusline-setup checks before it patches settings.json, and
+# both refuse on their own -- the statusline node checks before it patches settings.json, and
 # tests/run.sh will not start. A global MISS made doctor exit non-zero, and /cc-tuner:setup stops on a
 # non-zero exit, so a missing jq halted setting up claude-md-writer, which never calls jq at all.
 # A blocker belongs to the capability that needs it, not to the tool that reports on all of them.
 # Plain `if`, not `a && b || c`: that chain runs `c` whenever `b` fails, so one day a reporting
 # helper returns non-zero and the script starts claiming things are missing that are not.
 if command -v git     >/dev/null 2>&1; then ok "git";     else bad "git — required for every command here"; fi
-if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — statusline-setup refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
+if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — the statusline node refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
 if command -v gh      >/dev/null 2>&1; then ok "gh";      else warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"; fi
 if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — agent-rules setup requires it; the statusline's usage segment also degrades without it"; fi
 
@@ -150,6 +150,13 @@ else
   companion 'mattpocock-skills@mattpocock' \
     'grilling + domain-modeling in /cc-tuner:spec, code-review in /cc-tuner:run' \
     '/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
+  # mattpocock-skills' engineering skills read per-repo config by literal path; without it
+  # code-review cannot find the spec through the issue tracker and says so on every run.
+  if plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
+    MP_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    [ -f "$MP_ROOT/docs/agents/issue-tracker.md" ] \
+      || warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
+  fi
   companion 'cc-codex-triage@cc-codex-triage' \
     'required-review gate in /cc-tuner:run' \
     '/plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage'
@@ -180,9 +187,9 @@ fi
 if [ -n "$REPO_ROOT" ]; then
   [ -f "$REPO_ROOT/.claude/rules/task-flow.md" ] \
     && ok "task-flow rule installed" \
-    || warn "task-flow rule not installed here — /cc-tuner:task-flow-setup"
+    || warn "task-flow rule not installed here — /cc-tuner:setup install task-flow"
   [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
-    && warn "legacy git-flow.md still present — /cc-tuner:task-flow-setup migrates it (keeps your cached board field IDs)"
+    && warn "legacy git-flow.md still present — /cc-tuner:setup install task-flow migrates it (keeps your cached board field IDs)"
   # Verification is a stage of /run (cc-tuner:verify-feature), not a per-repo opt-in any more, so
   # there is nothing to report here. What still helps is knowing whether anything can drive a browser,
   # because that is the instrument a UI criterion needs and its absence changes what a run can prove.
@@ -196,7 +203,7 @@ fi
 if [ -f "$UHOME/.claude/cc-tuner-statusline.sh" ]; then
   ok "statusline script installed"
 else
-  say "     statusline not installed (optional — /cc-tuner:statusline-setup)"
+  say "     statusline not installed (optional — /cc-tuner:setup install statusline)"
 fi
 
 say ""

@@ -134,12 +134,13 @@ node 0 reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, add `"CLAUDE_CODE_ENABLE_
 **Nesting.** `/cc-tuner:run` tells every unit not to delegate further and deep-review's lenses
 carry no Agent tool, but a `general-purpose` unit can still spawn down to depth 3 by the platform
 default, and one run once produced dozens of unrequested agents that way. When node 0 reported
-`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, offer two values and let the user pick: `"1"`
-means only the orchestrator dispatches; `"2"` lets a unit run its own `Explore` lookups while
-nothing below it can spawn. Field transcripts showed units wanting a lookup, never a rig, so `2`
-loses little; `1` is the strict form. Say what either changes outside cc-tuner — every session on
-this machine, including `/code-review` at max effort, which builds an eleven-agent rig from inside
-a subagent — because that is the user's call, not the plugin's.
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit can run its own `Explore`
+lookup, which the unit brief allows, while nothing below it can spawn. `"1"` is the strict form and
+forbids that lookup too, so a unit that needs one returns the question instead. Say what either
+changes outside cc-tuner — every session on this machine, including `/code-review` at max effort,
+which dispatches a verifier per candidate from inside a subagent — because that is the user's call,
+not the plugin's. Heavy-check slots need no setting: `CC_TUNER_HEAVY_SLOTS` defaults to 1; mention
+that a machine with memory to spare can raise it.
 
 Detect has two halves, and they can disagree. First, **now**: is `TaskCreate` in this session's
 tool list? You can answer that directly — it is your own tool list. Second, the env: is the key in

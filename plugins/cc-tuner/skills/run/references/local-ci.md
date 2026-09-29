@@ -10,6 +10,8 @@ and the checks attached to the candidate; trigger type alone does not decide whe
   the spec. `merge.sh` permits it only with zero reported checks and the exact-SHA comment below.
 
 Pending, paused, failed and unreadable checks are not absent checks. Do not use `none` to bypass them.
+Deployment previews that post statuses (Vercel, Netlify) are reported checks: a repository with
+them and no required checks uses `any`.
 If observation contradicts the spec, correct its mode before candidate review. Follow repository
 policy about which workflows to run; CI dispatch does not authorize deployment or publishing.
 

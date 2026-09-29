@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.13.0 — installed by /cc-tuner:task-flow-setup. Do not hand-edit: re-run the setup command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.16.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -54,7 +54,7 @@ Breaking change: `!` after type/scope plus a `BREAKING CHANGE:` footer carrying 
 One commit = one logical change. A WIP chain during work is fine — squash-on-merge collapses it.
 
 **Attribution trailers:** answer this in `task-flow.local.md`, not here — this file is generated
-and an answer written into it is lost on the next `/cc-tuner:task-flow-setup update`.
+and an answer written into it is lost on the next `/cc-tuner:setup install task-flow`.
 
 Whether a commit made by an agent carries `Co-Authored-By:` or a session trailer is a decision each
 repository makes — some want the authorship visible, some want the history to read as the team's.

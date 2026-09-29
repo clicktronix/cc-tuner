@@ -75,9 +75,13 @@ EOF
 world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [local-ci comment body] [base-sha]
   local d; d="$(flow_workdir)"; gh_stub "$d"
   local comments='[]'
-  [ -n "${5:-}" ] && comments="$(jq -nc --arg b "$5" '[{author:{login:"agent-bot"}, body:$b}]')"
+  [ -n "${5:-}" ] && comments="$(jq -nc --arg b "$5" '[{author:{login:"agent-bot"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
+  # Every in-scope merge needs verify-feature's record; NO_VERIFY drops it, VERIFIED names another SHA.
+  [ -n "${NO_VERIFY:-}" ] || comments="$(printf '%s' "$comments" | jq -c --arg b "cc-tuner-verified: ${VERIFIED:-${4:-$SHA}}" '. + [{author:{login:"agent-bot"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
+  [ -z "${EXTRA_COMMENTS:-}" ] || comments="$(printf '%s' "$comments" | jq -c --argjson x "$EXTRA_COMMENTS" '. + $x')"
   jq -nc --arg head "${4:-$SHA}" --arg base "${6:-$BASE_SHA}" --argjson reviews "$2" --argjson comments "$comments" \
-    '{headRefOid: $head, baseRefName: "main", baseRefOid: $base, reviews: $reviews, comments: $comments}' > "$d/pr.json"
+    --argjson draft "${DRAFT:-false}" \
+    '{headRefOid: $head, baseRefName: "main", baseRefOid: $base, isDraft: $draft, reviews: $reviews, comments: $comments}' > "$d/pr.json"
   printf '%s' "$1" | jq -r '.[]? | (.path // .filename // empty)' > "$d/api-files"
   printf '%s\n' "$3" > "$d/checks.json"
   printf 'agent-bot\n' > "$d/user"
@@ -153,11 +157,10 @@ D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED" "" "$ADVANCED
 OUT="$(run "$D" 42 squash "$INTEGRATED")"
 check "integrated-candidate-merges"        "MERGED pr merge 42 --squash --match-head-commit $INTEGRATED" "$OUT"
 check "integrated-candidate-rc0"           "rc=0"                                      "$OUT"
-# The check is a cc-tuner rule and applies only to cc-tuner runs: a pull request with no plan file
-# is merged unchecked, pinned, however far its target has moved. Imposing the lifecycle on it was
-# the regression the first placement of this check introduced.
+# The check is a cc-tuner rule and applies only to cc-tuner runs: an --unmanaged pull request is
+# merged unchecked, pinned, however far its target has moved.
 D="$(world "$NO_PLAN_FILES" '[]' '[]' "" "" "$ADVANCED")"
-OUT="$(run "$D" 42 squash "$SHA")"
+OUT="$(run_without_thread "$D" --unmanaged 42 squash "$SHA")"
 check "out-of-scope-ignores-target-advance" "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
 check "out-of-scope-ignores-target-rc0"     "rc=0"                                                 "$OUT"
 # The base moves WHILE merge.sh is consulting CI and the companion: the first read saw the reviewed
@@ -353,14 +356,14 @@ OUT="$(run "$D" 42 squash "$SHA")"
 check "stale-sha-refused"  "the branch moved" "$OUT"
 absent "stale-sha-no-merge" "MERGED"          "$OUT"
 
-# --- outside a run, this is not our business, so it merges --------------------------------------
-# Refusing here was a deadlock: the hook refuses a raw `gh pr merge` and this refused everything with
-# no plan file, so a repository with cc-tuner installed could not merge an ordinary pull request at
-# all. There must always be a path, and for work that is not a cc-tuner run the path is "just merge".
+# --- outside a run, this is not our business: --unmanaged merges it --------------------------------
+# There must always be a path for an ordinary pull request, and it has to be asked for by name: the
+# inferred path ("no plan file, so merge unchecked") silently merged cc-tuner runs whose plan had
+# moved, and was used in the field as a general merge button.
 D="$(world "$NO_PLAN_FILES" '[]' '[]')"
-OUT="$(run "$D" 42 squash "$SHA")"
+OUT="$(run_without_thread "$D" --unmanaged 42 squash "$SHA")"
 check "non-cc-tuner-pr-merges"   "MERGED pr merge 42 --squash" "$OUT"
-check "non-cc-tuner-says-so"     "not a cc-tuner run"          "$OUT"
+check "non-cc-tuner-says-so"     "merged as --unmanaged"       "$OUT"
 check "non-cc-tuner-rc0"         "rc=0"                        "$OUT"
 # Still pinned. The head can move between reading the PR and merging it whether or not cc-tuner has
 # an opinion about the contents, and an earlier revision dropped the pin here -- with a test that
@@ -369,7 +372,7 @@ check "non-cc-tuner-still-pinned" "--match-head-commit $SHA" "$OUT"
 
 # --check-only has no answer for a pull request it checks nothing about, and must not look like a
 # pass: Task 8 reads that output as evidence.
-OUT="$(run "$D" --check-only 42 squash "$SHA")"
+OUT="$(run_without_thread "$D" --check-only --unmanaged 42 squash "$SHA")"
 check  "check-only-refuses-out-of-scope" "nothing to check" "$OUT"
 check  "check-only-out-of-scope-rc1"     "rc=1"             "$OUT"
 absent "check-only-out-of-scope-no-merge" "MERGED"          "$OUT"
@@ -394,7 +397,125 @@ printf 'docs/task-plans/2026-01-01-retry.md\n' >> "$D/api-files"
 check "paginated-files-find-plan" "MERGED" "$(run "$D" 42 squash "$SHA")"
 
 printf 'src/f0.ts\nsrc/f1.ts\n' > "$D/api-files"
-check "paginated-files-find-no-plan" "not a cc-tuner run" "$(run "$D" 42 squash "$SHA")"
+check "paginated-files-find-no-plan" "carries no plan file and no review was named" "$(run_without_thread "$D" 42 squash "$SHA")"
+
+# --- scope is the caller's statement ------------------------------------------------------------
+ARCHIVED_FILES='[{"path":"docs/ARCHIVE/task-plans/2026-01-01-retry.md"},{"path":"src/retry.ts"}]'
+# A run whose plan moved out of task-plans/ used to be merged unchecked. With no plan and no named
+# review it is now refused, and the message names both ways forward.
+D="$(world "$ARCHIVED_FILES" '[]' '[]')"
+OUT="$(run_without_thread "$D" 42 squash "$SHA")"
+check  "no-plan-no-intent-refused"      "carries no plan file and no review was named" "$OUT"
+check  "no-plan-no-intent-names-unmanaged" "--unmanaged"                               "$OUT"
+check  "no-plan-no-intent-rc1"          "rc=1"                                         "$OUT"
+absent "no-plan-no-intent-no-merge"     "MERGED"                                       "$OUT"
+# The review thread makes it a cc-tuner run: every check runs, and a missing approval refuses.
+D="$(world "$ARCHIVED_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/codex-fail"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "thread-makes-no-plan-pr-in-scope" "did not approve this worktree candidate"   "$OUT"
+absent "thread-scope-no-merge"            "MERGED"                                    "$OUT"
+D="$(world "$ARCHIVED_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "thread-scoped-approved-merges"    "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check  "thread-scoped-reaches-checker"    "check review-default" "$(cat "$D/codex-calls")"
+# --unmanaged cannot be used on a PR that says it is a run.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --unmanaged 42 squash "$SHA")"
+check  "unmanaged-with-plan-refused"      "contradicts this call"                     "$OUT"
+absent "unmanaged-with-plan-no-merge"     "MERGED"                                    "$OUT"
+D="$(world "$NO_PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --unmanaged 42 squash "$SHA" review-default)"
+check  "unmanaged-with-thread-refused"    "contradicts this call"                     "$OUT"
+
+# --- --review none: Codex is optional, the rest still decides -----------------------------------
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --review 'none:owner reviewed by hand' 42 squash "$SHA")"
+check  "review-none-merges"               "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check  "review-none-prints-reason"        "owner reviewed by hand"                    "$OUT"
+[ ! -f "$D/codex-calls" ] && pass "review-none-skips-codex" || fail "review-none-skips-codex (codex was called)"
+D="$(world "$NO_PLAN_FILES" '[]' "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --review 'none:owner reviewed by hand' 42 squash "$SHA")"
+check  "review-none-still-needs-verdict"  "no cc-tuner verdict"                       "$OUT"
+check "review-none-needs-a-reason"  "needs a reason"     "$(run_without_thread "$D" --review none 42 squash "$SHA")"
+check "review-unknown-mode-refused" "unknown --review mode" "$(run_without_thread "$D" --review maybe 42 squash "$SHA")"
+
+# --- the verdict may be a PR comment ------------------------------------------------------------
+# In the field the verdict was posted with `gh pr comment` and the gate could not see it.
+COMMENT_APPROVE="$(jq -nc --arg b "cc-tuner-verdict: APPROVE $SHA" '[{author:{login:"agent-bot"}, createdAt:"2026-01-02T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$COMMENT_APPROVE" world "$PLAN_FILES" '[]' "$GREEN_CI")"
+check "comment-verdict-merges" "MERGED" "$(run "$D" 42 squash "$SHA")"
+OTHER_AUTHOR="$(jq -nc --arg b "cc-tuner-verdict: APPROVE $SHA" '[{author:{login:"someone-else"}, createdAt:"2026-01-02T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$OTHER_AUTHOR" world "$PLAN_FILES" '[]' "$GREEN_CI")"
+check "comment-verdict-wrong-author-refused" "no cc-tuner verdict" "$(run "$D" 42 squash "$SHA")"
+# A later dissenting review at the head still nulls an earlier comment approval.
+DISSENT="$(review agent-bot "$SHA" 2026-01-03T00:00:00Z "hold on, found a regression")"
+D="$(EXTRA_COMMENTS="$COMMENT_APPROVE" world "$PLAN_FILES" "$DISSENT" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "dissent-after-comment-refused" "rc=1"   "$OUT"
+absent "dissent-after-comment-no-merge" "MERGED" "$OUT"
+# A later REQUEST_CHANGES comment wins over an earlier approving review.
+LATER_RC="$(jq -nc --arg b "cc-tuner-verdict: REQUEST_CHANGES $SHA" '[{author:{login:"agent-bot"}, createdAt:"2026-01-05T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$LATER_RC" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check "later-comment-request-changes-refused" "is not an approval" "$(run "$D" 42 squash "$SHA")"
+
+# --- a draft is not ready, and a preflight must not say it is -----------------------------------
+D="$(DRAFT=true world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "draft-refused-in-preflight"  "is a draft"          "$OUT"
+check  "draft-names-gh-pr-ready"     "pr ready 42"         "$OUT"
+absent "draft-no-would-merge"        "would merge"         "$OUT"
+absent "draft-no-merge"              "MERGED"  "$(run "$D" 42 squash "$SHA")"
+
+# --- a user's decision after the review cap is its own record ---------------------------------
+RC_VERDICT="$(review agent-bot "$SHA" 2026-01-04T00:00:00Z "cc-tuner-verdict: REQUEST_CHANGES $SHA")"
+ACCEPT="$(jq -nc --arg b "cc-tuner-accepted: $SHA owner accepted after 5 rounds: deferred finding F3" '[{author:{login:"agent-bot"}, createdAt:"2026-01-05T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$ACCEPT" world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --review 'none:owner accepted after 5 rounds' 42 squash "$SHA")"
+check  "accepted-decision-merges"    "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check  "accepted-decision-printed"   "deferred finding F3"                                  "$OUT"
+D="$(world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --review 'none:owner accepted after 5 rounds' 42 squash "$SHA")"
+check  "no-decision-still-refused"   "is not an approval"                                   "$OUT"
+check  "refusal-names-the-decision-record" "cc-tuner-accepted:"                             "$OUT"
+ACCEPT_OTHER="$(jq -nc --arg b "cc-tuner-accepted: $BASE_SHA owner accepted" '[{author:{login:"agent-bot"}, createdAt:"2026-01-05T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$ACCEPT_OTHER" world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"
+check  "decision-for-other-sha-refused" "is not an approval" "$(run_without_thread "$D" --review 'none:x' 42 squash "$SHA")"
+# A decision, a verification or a local-CI record counts only from the authenticated account: on a
+# public repository anyone can comment.
+OUTSIDER_ACCEPT="$(jq -nc --arg b "cc-tuner-accepted: $SHA owner: accepted" '[{author:{login:"untrusted-outsider"}, createdAt:"2026-01-05T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$OUTSIDER_ACCEPT" world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --check-only --review 'none:x' 42 squash "$SHA")"
+check  "outsider-decision-refused"     "is not an approval" "$OUT"
+absent "outsider-decision-no-would-merge" "would merge"     "$OUT"
+# An earlier decision does not survive a later REQUEST_CHANGES on the same head.
+EARLY_ACCEPT="$(jq -nc --arg b "cc-tuner-accepted: $SHA owner accepted" '[{author:{login:"agent-bot"}, createdAt:"2026-01-02T00:00:00Z", body:$b}]')"
+LATE_RC="$(review agent-bot "$SHA" 2026-01-03T00:00:00Z "cc-tuner-verdict: REQUEST_CHANGES $SHA")"
+D="$(EXTRA_COMMENTS="$EARLY_ACCEPT" world "$PLAN_FILES" "$LATE_RC" "$GREEN_CI")"
+OUT="$(run_without_thread "$D" --review 'none:x' 42 squash "$SHA")"
+check  "later-rejection-beats-earlier-decision" "is not an approval" "$OUT"
+absent "later-rejection-no-merge"               "MERGED"             "$OUT"
+OUTSIDER_VERIFY="$(jq -nc --arg b "cc-tuner-verified: $SHA" '[{author:{login:"untrusted-outsider"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
+D="$(NO_VERIFY=1 EXTRA_COMMENTS="$OUTSIDER_VERIFY" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check  "outsider-verify-record-refused" "no verify-feature record" "$(run "$D" 42 squash "$SHA")"
+OUTSIDER_LOCAL="$(jq -nc --arg b "cc-tuner-local-ci: $SHA bun run check — green" '[{author:{login:"untrusted-outsider"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
+D="$(EXTRA_COMMENTS="$OUTSIDER_LOCAL" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; : > "$D/checks-none-any"
+check  "outsider-local-ci-refused" "has to be on the record" "$(run_without_thread "$D" --ci 'none:no CI here' 42 squash "$SHA" review-default)"
+# Under codex a decision record does not stand in for the companion's approval.
+D="$(EXTRA_COMMENTS="$ACCEPT" world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"; : > "$D/codex-fail"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "decision-ignored-under-codex" "did not approve this worktree candidate"             "$OUT"
+absent "decision-under-codex-no-merge" "MERGED"                                             "$OUT"
+
+# --- verify-feature must have run on a commit the head contains ---------------------------------
+D="$(NO_VERIFY=1 world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "missing-verify-record-refused"  "no verify-feature record"                    "$OUT"
+absent "missing-verify-record-no-merge" "MERGED"                                      "$OUT"
+D="$(VERIFIED="$ADVANCED" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check  "foreign-verify-record-refused"  "does not contain"          "$(run "$D" 42 squash "$SHA")"
+# Verification of an ancestor still counts: a review-fix commit does not force a new run.
+D="$(VERIFIED="$BASE_SHA" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check  "ancestor-verify-record-merges"  "MERGED"                    "$(run "$D" 42 squash "$SHA")"
 
 # --- a scope it cannot establish is not a scope out of ------------------------------------------
 # An API failure is not evidence that the PR is out of scope. Earlier code folded unknown into no

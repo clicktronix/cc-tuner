@@ -233,6 +233,14 @@ stops cc-tuner from intercepting unrelated merges.
 arguments, never the branch that happens to be checked out. It reads the changed files through the
 paginated REST endpoint; `gh pr view --json files` returns only the first 100 GraphQL nodes.
 
+> **Amended after 0.15.0 (2026-09-27).** Scope now follows the caller as well as the diff: a plan in
+> the PR, a review thread or `--review` makes a PR a run, and a PR with none of them is refused. The
+> head-pinned pass-through below exists only as the explicit `--unmanaged`, refused for a PR that
+> carries a plan or names a review. The required review may be `review: none:<reason>`, with the
+> run's owner publishing the verdict and a user's merge decision recorded as `cc-tuner-accepted`.
+> Field transcripts showed the inferred pass-through merging runs whose plan had moved, and being
+> used as a general merge button. The paragraphs that follow record the 0.11–0.15 design.
+
 An earlier revision of this ADR specified the PR's commit *history* instead, to close one hole: a run
 that commits its plan and then deletes it before merging leaves the net diff and so leaves scope. That
 is not what was built, and rather than leave the decision record and the code disagreeing, the record

@@ -1,192 +1,129 @@
 # Where the work happens
 
-Reference for `/cc-tuner:run`. Two questions: what may run at the same time, and which workspace a
-method belongs in. Both are ordering rules — cc-tuner never rewrites another plugin's skill, it
-decides when each one runs.
+`/cc-tuner:run` owns the plan, integration, acceptance, aggregate review and delivery decisions.
+A unit receives one bounded implementation job and returns evidence; it does not own a PR or issue.
 
 ## Parallelism, only where it is safe
 
-**Delegating and parallelising are different decisions.** One slice handed to one subagent while the
-orchestrator waits is delegation: it costs a brief, buys context back, and needs no worktree. Two
-units writing at once is parallelism, and everything below is about that. Read a rule here as a limit
-on running things at the same time, never as a limit on handing one job to one unit.
+Delegate when saved context or independent work justifies the brief and verification cost. One
+unit may work sequentially in the task checkout. Concurrent writers require independent slices,
+disjoint Owned paths and separate worktrees. Use the batch from `plan-lint.sh ready-batches --active`;
+do not recalculate ownership from prose or substitute `frontier`.
 
-Fan out **only across independent code-writing units**, one isolated git worktree each. Never
-parallelise a testing decision or any step of delivery: those read a state that the other branch is
-still changing, and two answers about one candidate is not twice the confidence.
+The concurrency cap counts running units plus proposed starts, not just a returned batch. Respect
+available host slots; on build-heavy repositories keep at most two implementation units active.
+Heavy checks — full build, full suite, e2e, container start — run through `scripts/heavy.sh`, whose
+slots are shared by every session on the machine, so parallel units and parallel sessions queue
+instead of exhausting memory together. Focused checks are part of implementation and run directly.
+Candidate acceptance and delivery remain sequential.
 
-**Review is the exception.** Independent read-only lenses of the selected advisory workflow may
-fan out over one immutable candidate, including Matt's Spec/Standards pair. One owner aggregates
-findings; candidate changes and delivery remain sequential.
+Independent read-only review is the exception to sequential review: its own skill defines the
+reviewers and packets, while one owner aggregates. `deep-review` owns its agent availability and
+coverage refusals. Model/cost anecdotes are in [case studies](../../task-flow/references/case-studies.md),
+not dispatch thresholds. Estimate the actual model/effort and input/output cost before paid fan-out.
 
-**A fanned-out unit hands back commits, never a pull request.** Whoever fanned the work out is the
-one owner: they take the units' commits into **one candidate per repository**, run the authoritative
-tests and review for each candidate, and verify the shared outcome against that set of commits. A
-unit does not open its own PR, does not merge, and does not claim its own approval.
+## Brief and return
 
-**A unit runs whatever checks it needs while it writes** — those are part of writing, not a second
-opinion about the candidate. What never fans out is the **decision**: whether the assembled candidate
-passes, what the review verdict is, and every step of delivery. Those read the assembled work and belong to
-one owner.
+Build the brief from committed files: repository/worktree, candidate starting SHA, spec path with
+an instruction to read it, the slice verbatim (title, Owned paths, deciding check, delivery, criteria),
+any shared-task prerequisites, and whether other units run beside it. Tell the unit to:
 
-One orchestrator and shared outcome; each repository has its own plan, candidate, verdict and merge.
-Dispatch and integrate a unit only in its named repository. Local ready batches do not establish
-cross-repository readiness: the orchestrator checks the shared spec's prerequisites before dispatch.
+- load applicable repository rules and write within Owned paths. A unit working alone may make a
+  mechanical consequence outside them (lockfile, i18n catalog, generated types, a re-export) and list
+  it in the return. A unit running beside others returns that change instead of making it — the
+  batch proved only Owned paths disjoint — and the owner applies it once after integration. Anything
+  else outside Owned paths is returned as a need;
+- prove the expected RED or approved non-code baseline and return commands and deciding output;
+- commit after every green step, so a stop at the turn cap leaves committed work;
+- run the slice's targeted checks — one browser or API regression test when that is the deciding
+  check — not the full suite or the e2e suite; anything heavy goes through `heavy.sh`; never decide
+  integrated acceptance;
+- avoid further implementation delegation; a bounded lookup is permitted;
+- commit under repository conventions, but never push, open/comment on PRs, merge, create issues
+  or claim approval;
+- report incomplete criteria, assumptions and blockers to the owner.
 
-`plan-lint.sh ready-batches --active <running slices>` decides which ready slices have Owned paths
-proven disjoint from each other and from every running one. This reference only places the batch it
-returned; do not recalculate or widen that batch from plan prose, and do not fall back to `frontier`
-for candidates — it carries no path proof.
+The owner reads the diff, verifies paths and actual check inputs/output, and integrates commits into
+one candidate per repository. Reuse evidence only when it still covers the assembled result; rerun
+affected checks otherwise. Shared-task readiness is checked across the whole candidate set.
 
-## Implementation brief and return
+## Agent selection
 
-The orchestrator builds the brief from committed files, not session history. Include the local spec
-path with an instruction to read it, the slice verbatim (title, Owned paths, Deciding check, Delivers,
-criteria), and any shared-task prerequisites. Give the unit these constraints:
+Use `cc-tuner:slice-unit` for implementation. Its definition supplies sonnet, `effort: high` and
+`maxTurns: 300`.
+If unavailable, do the slice as owner; do not substitute an uncapped worker. Use Explore for location
+search, not exhaustive auditing, and a suitable general-purpose reader for other bounded questions.
+Review lenses use their own restricted definition, without an unrestricted fallback.
 
-- Write only inside Owned paths; prove the deciding check with its expected RED or approved non-code baseline.
-- Do not delegate the slice's own work further; a lookup that saves reading is fine. Nested
-  delegation previously spawned dozens of unrequested agents. The spawn-depth setting from
-  `/cc-tuner:setup` caps how many layers can exist below the orchestrator; what a unit may hand
-  down within that depth is this line, and only this line.
-- Report commands, results, what was not verified, and any incorrect assumptions in the slice.
-- Commit using repository conventions; do not push, open/comment on a PR, merge or claim approval.
-- Return findings to the orchestrator; do not create issues or own the task list.
+A subagent's model is the dispatch's `model` parameter, else its definition's, else
+`CLAUDE_CODE_SUBAGENT_MODEL` when set, else the session's;
+effort is its definition's, else the session's, and a dispatch cannot set it. A brief configures
+neither. The ladder:
 
-On return, the orchestrator reads the diff, checks Owned paths and inspects the actual check output
-and tested inputs. Reuse evidence only when it still covers the integrated result; otherwise run
-the deciding check here. An unsupported success summary does not establish completion. The orchestrator owns mutation-log interpretation,
-slice completion, full regression, runtime acceptance, review verdict, DoD and delivery.
+- **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
+  runs on, so a Fable or `max` orchestrator does not multiply every unit's cost.
+- **Opus when the slice needs it** (`model: "opus"`), chosen by the orchestrator without asking:
+  a slice that is genuinely hard from the start, or a retry after the same deciding check failed
+  twice, with the failure evidence in the brief. Say which slice ran on Opus and why in the run log.
+  After an Opus attempt fails, the orchestrator takes the slice.
+- **Fable only for the orchestrator.** A unit or reader on Fable needs the user's explicit decision.
+- **Readers name their model.** Pass `model: "sonnet"` to a `general-purpose` reader; use `Explore`
+  for location search.
 
-## How a unit is dispatched
+The orchestrator keeps the session's model and effort for its own decisions.
 
-Units are **dispatched dynamically with the Agent tool**, and the plugin ships exactly two agent
-definitions: `cc-tuner:deep-review-lens` and `cc-tuner:slice-unit`. The line between a definition
-and a brief is what each can hold. A definition holds what repeats on every dispatch and cannot be
-set on a dynamic call — a tool list, a model, a turn cap, an effort. A brief holds the task, which is
-different every time and already written down in the committed spec and the slice's own text. So
-the lens definition carries the read-only tool list and the unit definition carries the cap, while
-neither describes a job; the job stays in the brief, in one place. Ship a definition when the
-constraint repeats; write a brief when the task does.
+Track handles and completions. Multiple spawns can be in flight even when sent in separate messages;
+wait for a slot before adding work. Do not claim prompt-prefix cache savings without evidence from
+the current host. The setup spawn-depth setting limits nesting layers; the brief limits which work
+may be handed down within those layers.
 
-- **Type.** `cc-tuner:slice-unit` for an implementation slice: it is `general-purpose` with a
-  200-turn cap and `sonnet` as the default model, which is what makes a partial return possible at
-  all. There is no uncapped fallback: if the host does not list the unit type, the orchestrator does
-  the slice itself and says so in the run log, because an uncapped `general-purpose` unit is the
-  thing the definition exists to prevent. `general-purpose` for other judgement-forming work that is
-  not a slice. `Explore` only to locate things, because it reads excerpts and does not audit what it
-  finds, and because it skips the CLAUDE.md hierarchy, which is what makes it the cheap one. Review
-  lenses use `cc-tuner:deep-review-lens`, which has no fallback either. If the host offers none of
-  these, do the work yourself rather than guessing at a type that may not exist.
-- **Model.** Choose by the difficulty of the slice, honestly: `sonnet` for implementation from a
-  clear brief, which is where the saving is — it is also `cc-tuner:slice-unit`'s default, and a
-  `model` on the dispatch overrides the definition's; a stronger model when the slice itself is hard, not as a
-  sign the brief is unfinished. The session's own model for what is a judgement: an architectural
-  choice, or a final review whose findings are contested. Reasoning effort is **not** settable on a
-  dynamic dispatch — the Agent tool takes a model, not an effort, and a subagent inherits the
-  session's; only an agent definition's `effort` field changes it. Do not write an effort into a
-  brief and count it as configured. `haiku` only for
-  mechanical retrieval where being wrong is visible immediately. The orchestrator stays on the
-  session's own model, because what it does is decide. Escalate on evidence, not on feeling: a unit
-  failing the same deciding check twice is re-dispatched once on a stronger model with the failure
-  text attached, and after that the orchestrator takes the slice.
-- **Cost is not automatic.** A fresh unit pays its own system prompt, tool list and the whole
-  CLAUDE.md hierarchy before it reads a line: measured on one repository, 34k–42k tokens per
-  `general-purpose` spawn against 57k for the parent's first request. Delegation pays when the unit
-  reads more than that on the parent's behalf, or when two units genuinely run at once; a slice
-  that fits in a handful of tool calls costs more delegated than done. A long brief plus a
-  verification pass can cost more than doing the slice. Say the expected saving when proposing a
-  fan-out, and count builds separately from agents — two units are two agents and, on a repository
-  with a heavy build, two full builds. Subagent cache entries live five minutes, so units of one
-  batch dispatched in one message share a prefix and a late joiner past that window rebuilds it.
-- **One heavy check at a time.** A full build, a full suite, a container start: run those in sequence
-  even when the units writing the code run in parallel. **The concurrency cap counts running units,
-  not the batch.** With rolling dispatch a new batch joins units still working, so on a repository
-  where the deciding check is a build, hold the *active set* — running plus about-to-start — at two,
-  and dispatch from a returned batch only up to that ceiling; the rest waits for a unit to return.
-  Machines run out of memory before they run out of agents, and a run killed for memory grades
-  nothing — it only spends.
-- **Concurrency.** Every dispatch runs in the background: the Agent tool returns at once with a
-  handle, the unit's result arrives later as a task notification, and the orchestrator cannot ask
-  for a blocking foreground run. So the number of units in flight is the number dispatched and not
-  yet returned, whatever the message boundaries — one dispatch per message does **not** serialise
-  them. The cap above is therefore held by the orchestrator: dispatch up to the ceiling, then do
-  nothing that starts a unit until a notification returns one. Several dispatches in one message
-  still matter for one reason: same-prefix first requests share a cache. Do not delegate further
-  from inside a unit beyond a lookup; `/cc-tuner:setup` offers `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`
-  at `1` or `2`, which makes that a limit the platform enforces rather than a line in the brief.
-- **Isolation.** A single unit with nothing else in flight works in this checkout and needs nothing.
-  **For slice work the plugin makes the worktree itself and does not rely on the Agent tool's
-  `isolation: "worktree"`.** Native isolation branches from the repository's *default branch* unless
-  the user has set `worktree.baseRef: "head"` in their settings — a key the plugin cannot set per
-  dispatch and that accepts no branch name. A unit opened from the default branch has no spec, no
-  plan and none of the slices already landed, and its shell is fenced inside that tree. Native
-  isolation is right for a throwaway experiment; a slice needs the task branch, so it gets an
-  explicit worktree from `HEAD`, below.
-- **Parallel units, when a batch has more than one.** Make the worktrees yourself, from the task
-  branch, and hand each unit a path:
+## Worktree isolation
 
-  ```bash
-  git worktree add -b <slice-branch> ../wt-<slice> HEAD
-  ```
+Create parallel slice worktrees explicitly from the current task candidate. This avoids depending on
+host isolation defaults that may start from another branch without the spec or landed slices:
 
-  Dispatch an ordinary (non-isolated) unit told to work in that directory. When it returns, bring its
-  commits over with `git cherry-pick <task-branch>..<slice-branch>`, confirm the work actually landed —
-  the deciding check covers the integrated result under the evidence rule above, and
-  `git diff <slice-branch> -- <its Owned paths>` is empty —
-  then `git worktree remove ../wt-<slice> && git branch -D <slice-branch>`.
+```bash
+git worktree add -b <slice-branch> ../wt-<slice> HEAD
+```
 
-  Cherry-pick can leave the source branch outside the target's ancestry, so `-d` may refuse it.
-  Use `-D` only after verifying integration and removing the clean worktree; never discard unlanded
-  work. Disjoint paths prevent file overlap; worktrees prevent a shared index.
-- **Context.** A subagent inherits the `CLAUDE.md` hierarchy, the MCP servers and the skill list, and
-  nothing else from this session — not the transcript, not files already read, not the output style,
-  not what a review just said. Only the final message comes back. Anything load-bearing goes into
-  the brief as literal text or as a path it is told to read; anything the orchestrator needs back
-  is a file the unit writes or a commit it makes, not a long report.
+Give the unit that directory. On return, inspect its commits and integrate them:
+
+```bash
+git cherry-pick <task-branch>..<slice-branch>
+git diff <slice-branch> -- <its Owned paths> <any outside paths it listed>
+```
+
+Require an empty path diff and deciding-check evidence covering the integrated result before cleanup.
+Remove only the clean worktree. Cherry-picking can leave the source branch outside target ancestry;
+`git branch -D <slice-branch>` is allowed only after those integration checks. Never discard unlanded
+work or use force to hide a dirty checkout.
 
 ## Unit size and partial returns
 
-A `cc-tuner:slice-unit` stops at 200 turns and returns marked partial. That number comes from the
-field: across 399 observed units the median was 76 turns, 320 fit in 150, and the ones past 200
-were the ones whose context had grown past 300k and was being re-read on every turn — the cost the
-cap exists to stop. A partial return is a run event, not a failure, and it is the orchestrator's:
-
-1. **Read what landed.** The worktree's commits, its diff against the slice branch's base, and the
-   deciding-check output the unit reported. A criterion counts as proven only after you have read
-   its evidence; the unit's closing summary is not that.
-2. **Redispatch once, fresh.** A new `cc-tuner:slice-unit` with a brief that states what landed
-   (the commits, the proven criteria) and what remains. Fresh, because a new unit starts at the
-   spawn cost while resuming the old one through `SendMessage` continues the 300k–400k context the
-   cap just stopped.
-3. **Take the second partial yourself.** A slice that two capped units could not finish is not
-   going to fit a third; the orchestrator finishes the remainder, the way it already takes a slice
-   whose unit failed the deciding check twice.
-
-Record it in the plan under the slice, one line the next reader can act on:
+A capped slice returns partial when unfinished. The owner reads landed commits/diff, check evidence,
+proven and remaining criteria. Permit one fresh unit with those facts — not a `SendMessage`
+continuation, which resumes the 300k–600k-token context the cap stopped and pays for it on every
+turn; after a second partial, the owner finishes or reports the concrete blocker. A slice that
+reaches the cap twice was too large: split what remains in the plan rather than feeding it again. Record the consumed retry beneath the slice:
 
 ```text
 Partial: <unit> at maxTurns; landed <commits>; redispatched once
 ```
 
-The parser ignores the line, like `Evidence:`. It exists so a resumed session knows the slice has
-already spent its redispatch.
+The plan parser ignores this line; it preserves the retry decision across resume. A partial return
+is not completion and does not reset the slice's failed-check escalation history.
 
-## Where each method runs
+## Method placement
 
-Ordering, not overrides. cc-tuner never rewrites another plugin's skill; it decides when each runs.
-The axis is what a method **persists**, not whether it feels exploratory.
-
-| method | workspace |
+| Method | Workspace |
 |---|---|
-| `research`, `domain-modeling` | the task branch — their output is committed, and a saved artifact is a write |
-| `prototype` | a disposable branch or worktree — its output is throwaway by definition, and landing it on the task branch is how a spike becomes the implementation by accident |
-| `tdd` | the task branch, around the slice's deciding check |
-| `diagnosing-bugs`, reading | the task branch |
-| `diagnosing-bugs`, probe edits | a disposable workspace — instrumentation and bisect stubs are experiments, and an experiment that lands is a regression waiting |
-| `code-review`, deep-review | the candidate SHA |
+| research, domain-modeling | task branch; their saved design artifacts are committed |
+| prototype | disposable branch/worktree for the experiment |
+| tdd | task branch around the slice's deciding check |
+| diagnosing-bugs, reading | task branch |
+| diagnosing-bugs, probe edits | disposable workspace |
+| code-review, deep-review | immutable candidate SHA |
 
-`/cc-tuner:spec` creates the task branch before methods that may write design artifacts.
-
-The prior ordering failures and their evidence live in
-[case studies](../../task-flow/references/case-studies.md).
+Spec creates the task branch before a method writes design artifacts. Keep load-bearing facts in
+the brief even when a host can inherit session context; return evidence as files/commits or a concise
+result the owner can verify.

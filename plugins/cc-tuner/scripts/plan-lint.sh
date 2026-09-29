@@ -51,6 +51,7 @@ help() {
     'usage: plan-lint.sh check|slices|frontier|ready-batches|owned <file> [--spec <path> --branch <name>] [--active <n,n,...>]' \
     '' \
     'Owned paths: comma-separated repo-relative literal paths or directory prefixes.' \
+    'Brackets, parentheses, @, + and = are literal characters (Next.js `[locale]`, `(shell)`).' \
     'No globs, absolute paths, spaces, dot components, or empty path components.' \
     '' \
     'owned: one OWNED<TAB><slice><TAB><path,...> line per slice in plan order, paths as the plan' \
@@ -86,8 +87,6 @@ if [ -n "$EXPECTED_SPEC" ]; then
   ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$ROOT" ] || die "--spec requires a git repository"
   [ -f "$ROOT/$EXPECTED_SPEC" ] || die "the expected spec does not exist: $EXPECTED_SPEC"
-  git -C "$ROOT" ls-files --error-unmatch -- "$EXPECTED_SPEC" >/dev/null 2>&1 \
-    || die "the expected spec is not tracked: $EXPECTED_SPEC"
 fi
 
 # One awk pass produces the diagnostics and every record mode. Splitting them into separate programs
@@ -96,7 +95,7 @@ awk -v mode="$MODE" -v expected_spec="$EXPECTED_SPEC" -v expected_branch="$EXPEC
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function literal_path(p) {
   if (p == "" || p ~ /^\// || p ~ /\/\//) return 0
-  if (p !~ /^[A-Za-z0-9._\/-]+$/) return 0
+  if (p !~ /^[][A-Za-z0-9._\/@+=()-]+$/) return 0
   if (p ~ /(^|\/)\.\.?(\/|$)/) return 0
   return 1
 }

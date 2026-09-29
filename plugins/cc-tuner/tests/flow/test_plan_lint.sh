@@ -534,6 +534,27 @@ Delivers: d
   check "non-literal-owned-path-rc1-$owned_path" "rc=1" "$OUT"
 done
 
+# App Router directory names are literal: `[locale]` and `(shell)` are real directories, not globs.
+# Refusing them sent agents to widen ownership to `src/app`, which voided the disjointness proof.
+P="$(plan app_router '## Slice 1 — Locale layout
+Blocked by: none
+Owned paths: src/app/(shell)/[locale]/layout.tsx, src/app/@modal/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — Settings page
+Blocked by: none
+Owned paths: src/app/(shell)/[locale]/settings/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+')"
+check "app-router-literal-paths-pass" "rc=0" "$(lint check "$P")"
+check "app-router-paths-stay-disjoint" "BATCH	1,2	parallel" "$(bash "$LINT" ready-batches "$P")"
+
 # The header comparison is the only guard against running plan A with spec B's DoD and merge shape.
 # This is fixture data, not repository state. A frozen eval runs from a detached worktree, where
 # `git branch --show-current` is empty and used to make the suite fail before testing the validator.
@@ -555,6 +576,16 @@ check "mismatched-spec-is-refused" "expected \"CHANGELOG.md\"" \
   "$(lint check "$P" --spec CHANGELOG.md --branch "$BRANCH")"
 check "mismatched-branch-is-refused" "expected \"not-this-branch\"" \
   "$(lint check "$P" --spec README.md --branch not-this-branch)"
+# /spec lints the plan before committing spec and plan together, so a spec that exists but is not
+# tracked yet is accepted; a missing one is still refused.
+UR="$(flow_repo)"
+mkdir -p "$UR/docs/PLANS" "$UR/docs/task-plans"
+printf '# fixture\n' > "$UR/docs/PLANS/untracked.md"
+printf '**Spec:** docs/PLANS/untracked.md\n**Branch:** %s\n\n## Slice 1 — A\nBlocked by: none\nOwned paths: src/\nDeciding check: t\nDelivers: d\n\n- [ ] a\n' "$BRANCH" > "$UR/docs/task-plans/p.md"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+check "untracked-spec-accepted" "rc=0" "$OUT"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/absent.md --branch "$BRANCH")"
+check "missing-spec-refused" "does not exist" "$OUT"
 check "empty-expected-spec-is-refused" "--spec requires a non-empty path" \
   "$(lint check "$P" --spec '' --branch "$BRANCH")"
 check "empty-expected-branch-is-refused" "--branch requires a non-empty name" \

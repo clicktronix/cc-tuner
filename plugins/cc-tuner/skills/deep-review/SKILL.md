@@ -1,176 +1,112 @@
 ---
 name: deep-review
-description: Exhaustively review a clean, committed candidate through six independent lenses. Use for large, cross-boundary, or sensitive changes selected by /run; do not use for an ordinary small task.
+description: Exhaustively review a clean, committed candidate through independent read-only lenses (six, or more when a large candidate is sharded). Use for large, cross-boundary, or sensitive changes selected by /run; do not use for an ordinary small task.
 ---
 
 # Deep Review
 
-Review an immutable candidate, not a moving worktree. Find every material problem the evidence supports;
-never stop at an arbitrary count. This skill is read-only: report findings, but do not edit code.
+Review one immutable candidate. This is advisory input to `/cc-tuner:run`; the companion review
+remains the authoritative merge gate. Find every material problem supported by evidence, without
+editing the candidate; never stop at an arbitrary count of findings.
 
-## Inputs
+## Inputs and packet
 
-Require literal values for:
+Require candidate SHA, base commit/target ref, and the committed spec when one exists. Resolve refs
+to literal SHAs; refuse dirty/mismatched candidates and unresolved/unrelated bases. An advanced target
+returns to run for synchronization. Read the spec, acceptance, rules, architecture and verification
+evidence for this candidate; green CI and another review's summary do not prove correctness.
 
-- candidate commit SHA;
-- base commit or target ref;
-- committed spec path, when the task has one.
+Before dispatch, prepare the full diff and changed-file list once in scratch space outside the
+checkout. Use the same reader as the partitioner, so Git settings cannot hide submodule updates or
+substitute external diff/text conversion:
 
-Resolve a supplied target ref to a literal base SHA. If the target has advanced beyond the candidate,
-return that fact to the caller for branch synchronization before review; do not rebase or merge in
-this read-only skill. Refuse a dirty/mismatched candidate or an unresolved/unrelated base. A later
-commit invalidates this result. `/run` prepares and synchronizes the candidate before invoking review.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> > <dir>/candidate.diff
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> --name-status > <dir>/changed-files.txt
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base-sha> <candidate-sha> [--plan <plan>] [--max 4] [--files 300] [--lines 10000]
+```
 
-## Build the review packet
+Write `<dir>/toolchain.txt` next to them: the language and runtime versions the repository declares
+(`.python-version`, `requires-python`, `.nvmrc`, `engines`, `go.mod`, `rust-toolchain`, the CI image).
+A lens has no shell to ask, and a lens that judges syntax by the version it remembers reports valid
+code as broken.
 
-Read before judging:
-
-1. the issue/spec and its acceptance, scope, DoR, test plan, and DoD;
-2. `CLAUDE.md`, `AGENTS.md`, applicable rules, and architecture records;
-3. the complete `git diff --find-renames <base>...<candidate>` and changed-file list;
-4. changed code in context, its callers/consumers, tests, schemas, generated artifacts, and config;
-5. verification evidence already produced for this exact candidate.
-
-Do not infer correctness from green CI, a plan checkbox, another review, or the author's summary.
-
-## Review lenses
-
-Run every applicable lens independently and fan them out against the immutable candidate. `/run`
-owns the decision to invoke this expensive workflow; once selected, `deep-review` does not degrade
-into a second lightweight review.
-
-Before dispatching, write what every lens will read, once, into a scratch directory the briefs can
-name: the full diff (`git diff --find-renames <base>...<candidate> > <dir>/candidate.diff`) and the
-changed-file list (`git diff --name-status <base>...<candidate> > <dir>/changed-files.txt`). A lens
-has no shell, so this is the only way the diff reaches it; it also means six lenses read one file
-instead of generating the diff six times.
-
-Dispatch each lens as its own `cc-tuner:deep-review-lens` subagent with the Agent tool, all in one
-message. The agent definition (`agents/deep-review-lens.md`) is what makes a lens read-only: its
-tool list is `Read, Grep, Glob`, with `Bash`, `Edit`, `Write`, `NotebookEdit` and `Agent` withheld,
-so the constraint holds by the tool list and not by the brief, and it runs on `sonnet`. There is no
-fallback type: if the host does not list `cc-tuner:deep-review-lens`, the review is incomplete by
-construction, and the verdict below says so and returns `REQUEST_CHANGES` — a `general-purpose`
-reader would hold every tool the definition withholds, and putting the constraint back into prose
-is exactly what this definition replaced. One message for all six is also what lets their first
-requests share one cache prefix. Escalate a lens the way `placement.md` escalates any unit — on a
-returned result you can point at, not on a feeling about the codebase. A lens is a reading job over
-a tree nobody is changing, which is why it may fan out at all — and each brief still carries the
-literal candidate SHA, base ref, spec path, the two file paths and the finding format, because a
-subagent sees none of this session. What must not fan out is the aggregation
-below: one owner reads every lens's findings and produces one verdict.
-
-Say the cost when `/run` selects this route. Each lens is a fresh context: measured on one
-repository, a `general-purpose` spawn carried 34k–42k tokens of system prompt, tools and CLAUDE.md
-before reading a line of the diff, so six lenses are on the order of 200k tokens of overhead plus
-six reads of the diff and spec. That is the price of six independent readers, and it is why the
-trigger in `/run` is large or sensitive changes only.
+Any command failure leaves preparation incomplete: do not dispatch or reuse partial files.
 
 ## Sharding
 
-A lens cannot hold a large diff, and since 0.14.0 it cannot spawn help either, so the one that used to
-build a rig of its own would now read part of the candidate and report as if it had read all of it.
-The owner decides the cut, and the arithmetic is a script, not a sentence:
+`shard-diff.sh` owns partition arithmetic. It prints SIZE, MODE and, in sharded mode, numbered SHARD
+records with comma-separated paths. It groups by the plan's Owned paths when supplied, otherwise by
+first path component; splits oversized groups and merges compatible neighbours up to the requested
+cap. Renames count once and list both endpoints. Every shard stays strictly below file/changed-line
+thresholds; binary changes and pure renames still count as files. These are not token guarantees.
+
+The script also reads the actual filtered packets and checks their budgets and exact combined
+coverage. Git errors, unsupported filenames, oversized atomic changes, unsatisfied caps or changed
+coverage refuse with empty stdout. Do not treat refusal as single mode. Choose a larger budget/cap
+explicitly when context and cost permit, or report incomplete coverage. Never silently skip a
+lockfile or generated artifact. Binary contents and changed submodule revisions require appropriate
+inspection beyond the marker/gitlink.
+
+For each accepted SHARD, pass its paths as separately quoted arguments, including both rename
+endpoints. Do not expand the list with unquoted shell substitution:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base> <candidate> [--plan <plan>] [--max 4] [--files 300] [--lines 10000]
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> -- <paths> > <dir>/shard-<n>.diff
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> --name-status -- <paths> > <dir>/shard-<n>-files.txt
 ```
 
-It prints `SIZE`, `MODE	single|sharded` and, when sharded, one `SHARD	<n>	<key>	<path,...>` per
-shard: grouped by the plan's Owned paths through `plan-lint.sh owned` (unmatched files in `rest`), or
-by first path component without a plan; a group that itself reaches a threshold is split into chunks
-below it (`src#1`, `src#2`), and groups are merged smallest-into-neighbour while the pair stays below
-the thresholds and more than four remain. A rename is listed with both of its paths. The script
-refuses, with exit 1 and nothing on stdout, a Git read failure, a bad ref, a path its grammar cannot
-carry, an individual change that reaches a threshold, and a
-candidate that cannot be covered in four shards below the thresholds — the message says how many it
-needs, and raising `--max` is the owner's stated decision, not a default. Treat any refusal as a
-refusal, not as `single`. Run it before any lens is dispatched. `MODE	single` means the dispatch
-above, unchanged.
+## Dispatch and coverage
 
-When sharded, write for every `SHARD` line, next to `candidate.diff`:
-`git --literal-pathspecs diff --find-renames <base>...<candidate> -- <paths> > <dir>/shard-<n>.diff`
-and `git --literal-pathspecs diff --name-status <base>...<candidate> -- <paths> > <dir>/shard-<n>-files.txt`,
-with the script's path list after `--`. `--literal-pathspecs` is load-bearing: `--` stops option
-parsing but not pathspec magic, so a file named `:(exclude)x` would otherwise silently drop files
-from the packet. Then dispatch **Correctness**, **Repository standards**, **Security**
-and **Tests and operability** once per shard, each brief naming that shard's two files and nothing
-else of the diff; dispatch **Specification and scope** and **Architecture** once, on the whole
-`candidate.diff` and `changed-files.txt`, because their question does not cut along paths. That is
-`shards × 4 + 2` agents; say the number and the spawn overhead (each lens is a fresh 34k–42k-token
-context) before the first dispatch, so the spend is chosen and not discovered. A lens never cuts its
-own shard and never delegates reading; the definition withholds `Agent` for that reason.
+Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `sonnet`, `effort: high` and
+only Read, Grep and Glob: no shell, edits or Agent tool. There is no unrestricted fallback. Each
+brief names literal base/candidate, spec, applicable rules, lens, the diff/list/toolchain files and
+the finding format. The lens reads changed code and
+relevant callers/tests/dependencies beyond its owned paths. Commands needed to settle a finding go
+to the owner for a separate probe.
 
-Aggregation does not change shape: one owner reads every shard's findings and validates them below.
-Deduplicate across shards by cause — the same missing check reported from two shards is one finding
-with two evidence lines, not two findings.
+Run these lenses independently:
 
-Keep the lifecycle outside the review sequential and give every reviewer the same literal base,
-candidate, spec, and read-only constraint.
+1. **Correctness and edge cases** — logic, concurrency, errors, compatibility and user behavior.
+2. **Specification and scope** — every acceptance criterion, exclusion and affected consumer.
+3. **Repository standards** — rules, idioms, public contracts, generated outputs and release duties.
+4. **Architecture and systemic effects** — ownership, coupling, dependencies and cross-boundary effects.
+5. **Security and data safety** — trust boundaries, unsafe input, authorization, privacy and data loss.
+6. **Tests and operability** — regression quality, negative/runtime evidence, diagnostics and recovery.
 
-1. **Correctness and edge cases** — logic, state transitions, concurrency, errors, cleanup,
-   compatibility, and user-visible behavior.
-2. **Specification and scope** — every acceptance criterion and task is actually satisfied; no
-   accidental scope, missing consumer, or claim unsupported by the diff.
-3. **Repository standards** — applicable instructions, idioms, dependency direction, public API
-   conventions, migrations, generated outputs, and release requirements.
-4. **Architecture and systemic effects** — ownership, boundaries, coupling, data/control flow,
-   invariants, duplicated policy, extensibility, and downstream/upstream consumers.
-5. **Security and data safety** — authn/authz, secrets, injection, SSRF, traversal, unsafe parsing,
-   privacy, destructive operations, trust boundaries, and rollback/recovery.
-6. **Tests and operability** — regression test quality, red-before-green evidence, negative paths,
-   integration/runtime coverage, observability, diagnostics, deployability, and failure recovery.
+In single mode all six read the full packet. In sharded mode, Correctness, Standards, Security and
+Tests run per shard; Specification and Architecture each read the whole candidate. The total is
+`shards × 4 + 2`: 18 at the default four-shard cap, more if the owner explicitly raises it. Calculate
+from the accepted result. State model, effort, concurrency and estimated USD using current rates
+and token assumptions before dispatch; label unknown pricing as unknown. Historical general-purpose
+spawn measurements are not current restricted-lens estimates.
 
-Reviewers may return any number of candidate findings. Do not ask for a top ten and do not truncate,
-sample, or summarize away additional findings.
-
-## Validate and aggregate
-
-The owning reviewer reads every candidate finding and checks it against live source at the candidate
-SHA. Deduplicate only when two findings have the same root cause and remediation. Keep distinct
-symptoms when they require different fixes or prove different impact.
-
-Reject speculative or unsupported findings and independent improvements outside the agreed outcome.
-Apply the scope contract in `.claude/rules/task-flow.md`: an older defect in an untouched dependency
-still matters when this task exposes it or needs its fix to meet acceptance. Preserve valid findings
-even when another reviewer missed them.
-
-For each validated finding report:
-
-```text
-<P0|P1|P2|P3> <short imperative title>
-candidate: <full SHA>
-evidence: <path:line and concrete behavior>
-contract: <spec criterion, repo rule, or invariant>
-impact: <what breaks and for whom>
-fix: <smallest systemic correction>
-verify: <test or observation that would prove the correction>
-```
-
-Priority meanings:
-
-- `P0`: immediate security/data-loss/outage risk;
-- `P1`: blocks the promised behavior, safe delivery, or a required contract;
-- `P2`: material defect or architecture/operability regression that should be fixed before merge;
-- `P3`: non-blocking maintainability or clarity improvement with concrete future cost.
+Dispatch independent readers together within available host slots; queue remaining jobs in bounded
+batches. They never cut their own shards or delegate. One owner aggregates all returns. A timeout,
+tool failure, unread artifact or missing lens is incomplete coverage, never approval: redispatch that
+lens once; if it still cannot complete, or the host does not offer the lens type, the result is
+`INCOMPLETE` for the named lenses and paths (below).
 
 ## Verdict
 
-This verdict is **advisory input to `/cc-tuner:run`, not a merge gate**, and it does not stop the run:
-`/run` owns every stop in a run it started. Only the authoritative review
-gates a merge, and only `merge.sh` enforces one. `REQUEST_CHANGES` here means the run must address or
-concretely refute the blocking findings before it takes the candidate to that review — it does not
-open a second approval loop of its own.
+Validate every candidate finding against live source at the candidate SHA and the agreed scope.
+Where a command decides a P0/P1 claim — a runtime version, a test that should fail, a query plan —
+run it yourself before the verdict; a lens could only name it.
+Apply the repository's task-flow scope contract: an older dependency defect matters when this task
+exposes it or needs its fix for acceptance. Refute unsupported or independent improvements. Deduplicate
+by root cause and remediation, retaining distinct impacts and evidence across shards.
 
-Return exactly one verdict after the complete finding list:
+For each finding report priority, full candidate SHA, path:line and concrete behavior, violated
+contract, impact, smallest systemic fix and verifying check. P0 is immediate security/data-loss/outage;
+P1 blocks required behavior or safe delivery; P2 is a material defect; P3 is non-blocking improvement
+with concrete future cost.
 
-- `REQUEST_CHANGES <candidate SHA>` when any validated `P0`-`P2` finding remains;
-- `APPROVE <candidate SHA>` only when no validated blocking finding remains.
-
-List `P3` findings even with `APPROVE`; `/cc-tuner:run` must record each as fixed, refuted, or
-explicitly deferred. Never convert a tool failure, timeout, reviewer cap, or partial lens coverage into
-approval. State which lens was incomplete and return `REQUEST_CHANGES`.
-
-Any fix makes this verdict stale. Under `/run`, verify the affected findings and let the authoritative
-review judge the final SHA; do not restart all six advisory lenses. A user who directly requested a
-new exhaustive review may run the skill again.
+Return `REQUEST_CHANGES <candidate SHA>` for any validated P0–P2. Return `APPROVE <candidate SHA>`
+only with complete coverage and no blockers. Return `INCOMPLETE <candidate SHA>` when coverage is
+incomplete and no validated blocker exists, naming the missing lenses/paths: run carries that gap
+into the required review as a named residual instead of waiting on a finding that does not exist.
+List P3 findings in the review summary on the PR; they do not move the candidate, and an issue is
+filed only for independent future work. Do not create an additional approval loop: run owns fixes,
+evidence reuse and delivery. Changes make this result stale; verify affected
+findings and let authoritative review judge the final SHA. Only an explicit new exhaustive-review
+request restarts the whole advisory pass.

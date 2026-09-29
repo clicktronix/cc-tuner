@@ -1,8 +1,7 @@
 ---
-description: Turn an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run.
+description: Turn an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run. Use when the user asks to plan, spec or start a feature or fix in a repository that uses cc-tuner.
 argument-hint: '<issue number | URL | free-text description>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
-disable-model-invocation: true
 ---
 
 # /cc-tuner:spec
@@ -18,9 +17,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh" \
   || echo "prerequisites missing — /spec continues; /cc-tuner:run needs them before delivery"
 ```
 
-The prerequisite check names what `/run` will need — the Codex required-review contract, the
-review skills. A miss there is recorded in the spec's Delivery section for `/run` to act on; it does
-not block spec work, and an absent bridge only means the optional research below is unavailable.
+The prerequisite check names what `/run` will use — the review skills, and the Codex
+required-review contract behind `review: codex`. It does not block spec work. Without the bridge the
+spec declares `review: none:<reason>` (section 5) and the optional research below is unavailable;
+a missing review skill is recorded in the spec's Delivery section for `/run` to act on.
 
 **Decide once, now, whether a second provider reads alongside you.** When `cc-codex-triage` is
 installed and the task has an unfamiliar dependency, a current-facts question or two defensible
@@ -66,9 +66,15 @@ recent history rather than the harness default.
 ## 3. Grill the problem
 
 Resolve only decisions not already settled by the request, repository or approved spec. Use
-`mattpocock-skills:grilling` for unresolved design choices and `mattpocock-skills:domain-modeling`
-when vocabulary needs work. Batch independent questions with recommendations; ask dependent ones
-after their prerequisites are answered. Pull current dependency documentation through Context7.
+`mattpocock-skills:grilling` for unresolved design choices. Ask each of its rounds through
+`AskUserQuestion` rather than as prose: up to four questions per call, the recommended option first
+and labelled "(Recommended)", each option described by its consequence; a question with no discrete
+options stays text. Ask dependent questions after their prerequisites are answered.
+
+Invoke `mattpocock-skills:domain-modeling` here, while the decision is made, whenever the interview
+changes a domain term or settles something worth an ADR: it challenges the term and writes
+`CONTEXT.md` / the ADR in the repository's format. A slice may later carry that text into place,
+but a unit never decides the model. Pull current dependency documentation through Context7.
 These methods do not add a confirmation beyond section 6; a complete contract needs no new interview.
 
 Resolve before calling the task ready:
@@ -81,6 +87,10 @@ Resolve before calling the task ready:
 - targeted and full verification commands, environment, fixtures, and external dependencies.
 
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec is not ready.
+When the missing fact can only be learned by building something — the test command of a subsystem
+that does not exist yet, an API's real shape — make the first slice a **spike** whose deliverable is
+that fact, run `prototype` for it in a disposable workspace, and let the rest of the plan depend on
+it. The spec records the spike and what it must establish; `/run` re-plans after it lands.
 
 ## 4. Define acceptance and delivery shape
 
@@ -99,8 +109,11 @@ its spec/plan and task-list sections apply here, under the same approval.
 
 ## 5. Draft the executable contract
 
-Read `${CLAUDE_SKILL_DIR}/spec-template.md` and fill every field. Draft the result in the conversation;
-do not write it before the approval in section 6. Its final path is
+Read `${CLAUDE_SKILL_DIR}/spec-template.md` and fill it at the size of the task. A one-file fix or a
+small change needs Goal, the acceptance criteria with their checks, the first failing check,
+`target_test`, `full_test`, `ci`, `review` and `merge`; other sections may read `not applicable —
+<reason>`. Larger or riskier work fills every field. Draft the result in the conversation; do not
+write it before the approval in section 6. Its final path is
 `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise.
 
 **A directory that differs only in case is the same directory — use the one that exists.** macOS is
@@ -124,7 +137,9 @@ names **what the killed test must say**, the way the first failing check names i
 does not prove the mutation caused the failure. `/run` executes this proof without inventing another.
 
 Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
-and how to observe them on the candidate. `/run` passes the mode verbatim.
+and how to observe them on the candidate. `/run` passes the mode verbatim. Set `review:` to `codex`
+when cc-codex-triage is installed and the repository uses it, otherwise `none:<reason>`; the
+prerequisite check above tells you which.
 `auto_ready: yes` requires a defined PR per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
@@ -191,13 +206,12 @@ absent, say once that only the visible list and its edges are lost, mention
 survives the next session — or `--allowedTools TaskCreate` for this one, and continue to
 the handoff. Do not add a second confirmation after the approved contract and slices.
 
-Print the spec and plan paths, branch, target, and the next command. The command takes the committed
-**spec path**, never the plan path; `/run` resolves the branch's plan itself. Copy the path printed as
-`Spec:`, even though the plan is the artifact `/run` will work:
+Print the spec and plan paths, branch, target, and the next command. When the user asked for the
+task to be implemented, not only planned, start `/cc-tuner:run` yourself with the spec path; offer
+`--auto` only when `auto_ready: yes` and start it only when the user asked for unattended delivery.
+The command takes the committed **spec path**; `/run` resolves the branch's plan itself:
 
 ```text
 /cc-tuner:run docs/PLANS/2026-07-31-thing.md
 /cc-tuner:run --auto docs/PLANS/2026-07-31-thing.md
 ```
-
-Offer `--auto` only when `auto_ready: yes`.

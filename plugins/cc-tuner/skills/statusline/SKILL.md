@@ -21,22 +21,32 @@ Claude Code plugins can't register a statusline on their own — it has to live 
 user's `settings.json`. Run the bundled command, which copies the script and wires it
 in (with a settings backup):
 
-**To set it up, follow `${CLAUDE_PLUGIN_ROOT}/skills/statusline-setup/SKILL.md`** —
-`/cc-tuner:statusline-setup` (install by default; also `update`, `remove`, `status`).
+**To set it up, run the statusline node of `/cc-tuner:setup`** — `/cc-tuner:setup install
+statusline` (also `check statusline` and `remove statusline`).
 After install, the user restarts Claude Code or runs `/reload`.
 
 ## How the rate-limit data works
 
-The 5h/7d figures come from Claude Code's OAuth usage endpoint
-(`api.anthropic.com/api/oauth/usage`, `anthropic-beta: oauth-2025-04-20`), cached for
-5 minutes via an atomic `mkdir` lock so concurrent sessions don't stampede the refresh.
+**Native, first.** Claude Code's own statusline payload carries `rate_limits.five_hour`
+and `rate_limits.seven_day` (each a `used_percentage` and a `resets_at` epoch), documented
+at https://code.claude.com/docs/en/statusline. When it's there, the script renders
+straight from it — no credentials, cache, lock, or network touched at all. This field is
+only present for eligible claude.ai Pro/Max accounts, and only after the session's first
+API response; either window can be independently absent, and a missing one is hidden,
+never shown as `0%`.
 
-> **This is an unofficial / internal endpoint.** Anthropic does not document it and may
-> change or remove it without notice. The statusline degrades gracefully — if the
+**OAuth endpoint, as a fallback.** Only when stdin has no `rate_limits` at all (an older
+client that doesn't send it yet) does the script fall back to Claude Code's OAuth usage
+endpoint (`api.anthropic.com/api/oauth/usage`, `anthropic-beta: oauth-2025-04-20`),
+cached for 5 minutes via an atomic `mkdir` lock so concurrent sessions don't stampede the
+refresh.
+
+> **The fallback endpoint is unofficial / internal.** Anthropic does not document it and
+> may change or remove it without notice. The statusline degrades gracefully — if the
 > endpoint, token, or dependencies are unavailable, the rate-limit segment is simply
 > dropped and the rest still renders. Mention this caveat to the user when they install.
 
-On HTTP 429 the script honors the server's `retry-after` (clamped 5–60 min, 15 min
+On HTTP 429 the fallback honors the server's `retry-after` (clamped 5–60 min, 15 min
 when absent) and suspends refresh attempts for that window — the endpoint's throttle
 extends on repeated hits, so fixed-interval retries would keep it throttled forever.
 The rate-limit segment reappears automatically after the first successful refresh.
@@ -47,10 +57,11 @@ The OAuth token is read locally: macOS Keychain (`security find-generic-password
 
 ## Requirements
 
-`bash`, `jq`, `python3`, `git`. The statusline JSON fields it reads
+`bash`, `jq`, `git`. The OAuth fallback additionally requires `python3` — the native path
+needs nothing beyond `jq` and `date`. The statusline JSON fields it reads
 (`workspace.current_dir`, `model.display_name`, `effort.level`,
-`cost.total_duration_ms`, `context_window.used_percentage`) are all from Claude Code's
-documented statusline payload.
+`cost.total_duration_ms`, `context_window.used_percentage`, `rate_limits.five_hour`,
+`rate_limits.seven_day`) are all from Claude Code's documented statusline payload.
 
 ## Customizing
 
@@ -62,5 +73,5 @@ Edit the installed copy at `~/.claude/cc-tuner-statusline.sh`:
   `usage_info`, `context_info`) is independent; drop any you don't want from the final
   `printf`.
 
-Re-run `/cc-tuner:statusline-setup update` after a plugin upgrade to refresh the copy
+Re-run `/cc-tuner:setup install statusline` after a plugin upgrade to refresh the copy
 (note: that overwrites local edits — keep customizations in a fork of the script).

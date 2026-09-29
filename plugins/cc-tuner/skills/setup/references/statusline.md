@@ -88,9 +88,12 @@ rm -f "$HOME/.claude/cc-tuner-statusline.sh" && echo "Removed $HOME/.claude/cc-t
 
 ## Notes
 
-- The rate-limit (5h/7d) segment uses Claude Code's **unofficial** OAuth usage endpoint and may
-  break without notice; it degrades silently if unavailable. See the `statusline` skill for the
-  full disclaimer.
-- The script reads the OAuth token from the macOS Keychain, or `~/.claude/.credentials.json` on
+- The rate-limit (5h/7d) segment is read first from Claude Code's own statusline payload
+  (`rate_limits.five_hour` / `rate_limits.seven_day` — see
+  https://code.claude.com/docs/en/statusline), which touches no credentials, cache, or network.
+  It falls back to Claude Code's **unofficial** OAuth usage endpoint only when that payload field
+  is entirely absent (older clients), and may break without notice; it degrades silently if
+  unavailable either way. See the `statusline` skill for the full disclaimer.
+- The fallback reads the OAuth token from the macOS Keychain, or `~/.claude/.credentials.json` on
   Linux/Windows (honoring `$CLAUDE_CONFIG_DIR`). It only ever sends that token to
   `api.anthropic.com`.
