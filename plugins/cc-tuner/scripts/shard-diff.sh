@@ -47,8 +47,8 @@ while [ $# -gt 0 ]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null || die "not a commit: $BASE"
-git rev-parse --verify --quiet "$CAND^{commit}" >/dev/null || die "not a commit: $CAND"
+BASE="$(git rev-parse --verify --quiet --end-of-options "$BASE^{commit}")" || die "not a commit: $BASE"
+CAND="$(git rev-parse --verify --quiet --end-of-options "$CAND^{commit}")" || die "not a commit: $CAND"
 
 # Owned paths come from the linter's parser, never from a second reader of the plan grammar. An
 # invalid plan fails closed: the review must not shard along lines nobody scheduled.
@@ -62,11 +62,11 @@ fi
 # `<ins>\t<del>\t<path>\t<old-path-or-empty>`, which is what awk below reads.
 TAB="$(printf '\t')"; NL='
 '
-ROWS="$(
+read_rows() {
   # An empty reader succeeds even when Git failed. Preserve failures from either side;
   # a reader refusal still wins over an upstream SIGPIPE because it is the rightmost failure.
   set -o pipefail
-  git diff --numstat -z --find-renames "$BASE...$CAND" | {
+  bash "$SCRIPT_DIR/review-diff.sh" "$BASE" "$CAND" --numstat -z "$@" | {
     while IFS= read -r -d '' rec; do
       ins="${rec%%$TAB*}"; rest="${rec#*$TAB}"; del="${rest%%$TAB*}"; path="${rest#*$TAB}"
       old=""
@@ -85,7 +85,8 @@ ROWS="$(
       printf '%s\t%s\t%s\t%s\n' "$ins" "$del" "$path" "$old"
     done
   }
-)"
+}
+ROWS="$(read_rows)"
 case $? in
   0) ;;
   2) exit 1 ;;
@@ -93,6 +94,7 @@ case $? in
 esac
 
 # OWNED rows travel on stdin ahead of the change rows: BSD awk refuses a -v value with a newline.
+RESULT="$(
 { [ -z "$OWNED" ] || printf '%s\n' "$OWNED"; printf '%s\n' "$ROWS"; } \
   | awk -F'\t' -v files_t="$FILES" -v lines_t="$LINES" -v max="$MAX" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
@@ -194,3 +196,29 @@ END {
   }
 }
 '
+)" || exit 1
+
+# A literal path can include descendants, and filtering may change rename detection. Check the
+# actual packets before emitting even SIZE. Sorted rows retain multiplicity, detecting duplicates
+# as well as omissions and altered changes across the candidate.
+OBSERVED=""
+while IFS="$TAB" read -r kind number label paths; do
+  [ "$kind" = SHARD ] || continue
+  IFS=, read -r -a packet_paths <<< "$paths"
+  actual="$(read_rows -- "${packet_paths[@]}")" || die "could not read packet $number"
+  printf '%s\n' "$actual" | awk -F'\t' -v files="$FILES" -v lines="$LINES" '
+    NF >= 3 { n++; if ($1 != "-") total += $1 + $2 }
+    END { exit !(n < files && total < lines) }
+  ' || die "packet $number reaches a budget after path filtering; raise thresholds explicitly"
+  [ -z "$OBSERVED" ] || OBSERVED="$OBSERVED
+"
+  OBSERVED="$OBSERVED$actual"
+done <<< "$RESULT"
+case "$RESULT" in
+  *"MODE${TAB}sharded"*)
+    expected="$(printf '%s\n' "$ROWS" | LC_ALL=C sort)"
+    observed="$(printf '%s\n' "$OBSERVED" | LC_ALL=C sort)"
+    [ "$expected" = "$observed" ] || die 'packet coverage changed after path filtering; raise thresholds for a single packet'
+    ;;
+esac
+printf '%s\n' "$RESULT"

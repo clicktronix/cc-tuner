@@ -53,9 +53,13 @@ fi
 root_of() { roots "$1" | cut -f1; }
 
 # has_file <plugin-id> <relative path> -- does the applicable install carry this file?
-has_file() {
+# A companion skill is found by its directory name anywhere under the plugin's skills/, not by an
+# internal path: mattpocock-skills has already moved skills between category folders once, and every
+# move turned into a false MISSING.
+has_skill() {
   local root; root="$(root_of "$1")"
-  [ -n "$root" ] && [ -f "$root/$2" ]
+  [ -n "$root" ] && [ -d "$root/skills" ] \
+    && [ -n "$(find "$root/skills" -path "*/$2/SKILL.md" -print 2>/dev/null | head -n 1)" ]
 }
 
 # The required-review contract, not merely the plugin: an installed cc-codex-triage predating it
@@ -80,25 +84,35 @@ codex_contract() {
 # need it while letting the dependency they DO need go unchecked until the review step of an
 # unattended run.
 MP_INSTALL='/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
-if ! has_file 'mattpocock-skills@mattpocock' 'skills/productivity/grilling/SKILL.md'; then
+if ! has_skill 'mattpocock-skills@mattpocock' grilling; then
   echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
   echo "  install: $MP_INSTALL" >&2
   missing=1
 fi
-if ! has_file 'mattpocock-skills@mattpocock' 'skills/engineering/domain-modeling/SKILL.md'; then
+if ! has_skill 'mattpocock-skills@mattpocock' domain-modeling; then
   echo "MISSING: mattpocock-skills domain-modeling skill (/spec vocabulary pass)" >&2
-  echo "  install: $MP_INSTALL (or update it — the skill moved)" >&2
+  echo "  install: $MP_INSTALL" >&2
   missing=1
 fi
-if ! has_file 'mattpocock-skills@mattpocock' 'skills/engineering/code-review/SKILL.md'; then
+if ! has_skill 'mattpocock-skills@mattpocock' code-review; then
   echo "MISSING: mattpocock-skills code-review skill (the review layer /cc-tuner:run requires)" >&2
-  echo "  install: $MP_INSTALL (or update it — the skill moved)" >&2
+  echo "  install: $MP_INSTALL" >&2
   missing=1
 fi
 if ! codex_contract; then
   echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
   echo "  install/update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
   missing=1
+fi
+
+# Optional companion capabilities /run uses when present (cc-codex-triage 0.14+): an integration round
+# outside the review cap, and renewing an authorized budget on the same thread. Older versions still
+# gate correctly, so this is a note naming the fallback, not a missing prerequisite.
+if codex_contract; then
+  CODEX_STATE="$(root_of 'cc-codex-triage@cc-codex-triage')/scripts/review-state.sh"
+  if ! grep -qF -- '--integration' "$CODEX_STATE" || ! grep -q '^  renew)' "$CODEX_STATE"; then
+    echo "NOTE: cc-codex-triage predates integration rounds and renew — /run reviews an integrated target as a normal round and asks before resetting for a new budget; update: /plugin update cc-codex-triage@cc-codex-triage"
+  fi
 fi
 
 if [ "$missing" -eq 0 ]; then echo "prereqs OK"; else exit 1; fi

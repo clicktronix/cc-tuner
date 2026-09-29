@@ -25,16 +25,20 @@
 - Negative/mutation proof (name what the killed test must SAY, not only that it goes red): <how the test is shown to fail without the fix>
 
 ## Definition of Done
-- [ ] Regression check was observed failing for the expected reason before the fix
-- [ ] Targeted, full, static/build, runtime, and acceptance checks passed as specified
-- [ ] Complete diff and formatter/autofix output were read; no unexplained files remain
-- [ ] Applicable advisory reviews ran once; valid findings were addressed or concretely refuted; authoritative Codex review approved the exact candidate SHA
-- [ ] PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares —
-      under `none:` that means no checks exist and a PR comment records the local result for that SHA
+Recorded with evidence on the PR before merge, not ticked here: ticking would move the reviewed SHA.
+- Regression check was observed failing for the expected reason before the fix
+- Targeted, full, static/build, runtime, and acceptance checks passed as specified; verify-feature's
+  record is on the PR
+- Complete diff and formatter/autofix output were read; no unexplained files remain
+- One advisory route ran (with at most one escalation to deep-review); valid findings were addressed
+  or concretely refuted; the required review `review:` names approved the exact candidate SHA
+- PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares —
+  under `none:` that means no checks exist and a PR comment records the local result for that SHA
 
 ## Completion and reconciliation
-- [ ] PR is merged with the configured method
-- [ ] Spec/archive, issue/board, target sync, branches, and worktrees are reconciled
+Observed after merge and reported, not committed: the target branch takes no completion commits.
+- PR is merged with the configured method
+- Spec/archive, issue/board, target sync, branches, and worktrees are reconciled
 
 ## Run config
 branch: <current task branch>
@@ -54,6 +58,8 @@ ci: <mode> — <the checks, and how to observe them>
                         printed at merge. Honoured only when GitHub reports no checks at all AND a
                         PR comment records `cc-tuner-local-ci: <sha> <what ran, and what it
                         returned>`. Prefer `any` where a workflow can be dispatched by hand.
+review: codex|none:<reason> — codex when cc-codex-triage reviews this repository (merge.sh then
+    requires its exact-candidate approval); none records why no second-provider review is required
 target_test: <exact command>
 full_test: <exact command>
 tracker: gh|none — gh when the repository tracks work in GitHub issues; none makes this spec the record

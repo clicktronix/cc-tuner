@@ -86,7 +86,7 @@ check  "cap-names-merged-keys" "+" "$(lines_of "$OUT" SHARD)"
 # nothing about the diff a lens would read (review of the first candidate, 2026-09-20).
 packet() {  # packet <repo> <shard-line> -> name-status of the packet the owner would write
   local d="$1" paths; paths="$(printf '%s' "$2" | cut -f4 | tr ',' '\n')"
-  ( cd "$d" && printf '%s\n' "$paths" | tr '\n' '\0' | xargs -0 git -c core.quotePath=false --literal-pathspecs diff --find-renames --name-status base...HEAD -- )
+  ( cd "$d" && printf '%s\n' "$paths" | tr '\n' '\0' | xargs -0 bash "$FLOW_PLUGIN/scripts/review-diff.sh" base HEAD --name-status -- )
 }
 R="$(flow_repo)"
 ( cd "$R" && git tag base && mkdir -p old src && printf 'l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n' > old/a.txt && git add -A && git commit -q -m base2 && git tag -f base >/dev/null \
@@ -175,5 +175,46 @@ MODE	single" "$out"
 out="$(bash "$SHARD" 2>&1)"; rc=$?
 check  "usage-on-missing-args" "usage:" "$out"
 equals "usage-rc1" "1" "$rc"
+
+# Submodule changes must survive user-level ignore settings in both inventory and packets.
+R="$(flow_repo)"
+( cd "$R" && first="$(git rev-parse HEAD)" && git commit --allow-empty -q -m dependency \
+  && second="$(git rev-parse HEAD)" && git update-index --add --cacheinfo "160000,$first,vendor/lib" \
+  && git commit -q -m gitlink-base && git tag base \
+  && git update-index --cacheinfo "160000,$second,vendor/lib" && git commit -q -m gitlink-update \
+  && git config diff.ignoreSubmodules all && git config submodule.vendor/lib.ignore all )
+OUT="$(shard "$R")"
+check "submodule-ignore-cannot-hide-inventory" "SIZE	1	2" "$OUT"
+OUT="$(cd "$R" && bash "$FLOW_PLUGIN/scripts/review-diff.sh" base HEAD --name-status)"
+check "submodule-ignore-cannot-hide-packet" "M	vendor/lib" "$OUT"
+
+# A literal directory path still includes descendants: validate the packet, not just its path list.
+R="$(flow_repo)"
+( cd "$R" && printf 'old content\n' > node && git add node && git commit -q -m file \
+  && git tag base && git rm -q node && mkdir node && printf 'different content\n' > node/child \
+  && git add node/child && git commit -q -m directory )
+out="$(cd "$R" && bash "$SHARD" base HEAD --files 2 2>"$R/err")"; rc=$?
+equals "expanded-pathspec-refuses" "1" "$rc"
+equals "expanded-pathspec-no-partial-output" "" "$out"
+check "expanded-pathspec-diagnostic" "packet" "$(cat "$R/err")"
+OUT="$(shard "$R" --files 3)"
+check "expanded-pathspec-explicit-budget" "MODE	single" "$OUT"
+
+# Expansion can stay below a per-packet budget yet duplicate a change across the candidate.
+( cd "$R" && mkdir lib && printf 'independent\n' > lib/other && git add lib/other && git commit -q -m other )
+out="$(cd "$R" && bash "$SHARD" base HEAD --files 3 2>"$R/err")"; rc=$?
+equals "duplicate-coverage-refuses" "1" "$rc"
+equals "duplicate-coverage-no-partial-output" "" "$out"
+check "duplicate-coverage-diagnostic" "packet coverage changed" "$(cat "$R/err")"
+OUT="$(shard "$R" --files 4)"
+check "duplicate-coverage-explicit-budget" "MODE	single" "$OUT"
+
+# Packet content is real Git content, never an external presentation command.
+R="$(repo_with 1)"
+( cd "$R" && git config diff.external false && printf '*.txt diff=hidden\n' > .gitattributes \
+  && git config diff.hidden.textconv 'printf hidden' )
+OUT="$(cd "$R" && bash "$FLOW_PLUGIN/scripts/review-diff.sh" base HEAD)"; rc=$?
+equals "packet-ignores-external-presentation-rc" "0" "$rc"
+check "packet-ignores-external-presentation-content" '+line 1' "$OUT"
 
 exit $fails

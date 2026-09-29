@@ -12,8 +12,6 @@ RUN="$ROOT/plugins/cc-tuner/skills/run/SKILL.md"
 DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
-TASK_FLOW_SETUP="$ROOT/plugins/cc-tuner/skills/task-flow-setup/SKILL.md"
-STATUSLINE_SETUP="$ROOT/plugins/cc-tuner/skills/statusline-setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
@@ -60,7 +58,7 @@ need "spec-targeted-checks" 'Targeted checks: <exact commands>' "$SPEC_TEMPLATE"
 need "spec-full-regression" 'Full regression: <exact command>' "$SPEC_TEMPLATE"
 need "spec-dod" '## Definition of Done' "$SPEC_TEMPLATE"
 need "spec-github-tracker" 'tracker: gh' "$SPEC_TEMPLATE"
-need "spec-dod-routes-applicable-reviews" 'Applicable advisory reviews ran once' "$SPEC_TEMPLATE"
+need "spec-dod-routes-applicable-reviews" 'One advisory route ran' "$SPEC_TEMPLATE"
 if grep -Eq 'passed deep review|exact SHA/tree|<tree SHA>' "$SPEC_TEMPLATE"; then
   echo "FAIL spec-template-requires-obsolete-review-policy"
   fails=1
@@ -93,7 +91,7 @@ need "run-asks-for-safe-batches"    'plan-lint.sh" ready-batches' "$RUN"
 need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
-need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <candidate-sha>' "$RUN"
+need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>' "$RUN"
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
 # Sentence matching used to grade task recovery, review routing, deferral and publication order.
@@ -108,7 +106,7 @@ need "spec-assigns-mutation-classes"     'fail-closed guards'  "$SPEC"
 need "spec-writes-the-plan"         'plan-path.sh" create' "$SPEC"
 need "spec-validates-the-plan"      'plan-lint.sh" check' "$SPEC"
 need "spec-hands-off-to-run"        '/cc-tuner:run docs/PLANS' "$SPEC"
-need "spec-rejects-plan-as-argument" 'never the plan path' "$SPEC"
+need "spec-hands-off-the-spec-path" 'The command takes the committed **spec path**' "$SPEC"
 
 # This checks the published instruction's order, not whether a model followed it. A lone
 # `addBlockedBy` phrase used to report the whole two-pass contract as PASS.
@@ -186,25 +184,23 @@ else
   fails=1
 fi
 need "setup-auth-miss-is-login" '`gh auth login` — an interactive browser flow' "$SETUP"
-# One setup, run as nodes. The two old installers are forwarders for one release: they must still be
-# user-invoked (checked below) and must route to the node, never keep a workflow of their own.
+# One setup, run as nodes; the old per-installer forwarders were removed after 0.15.0.
 need "setup-routes-task-flow-node"   'references/task-flow-rule.md' "$SETUP"
 need "setup-routes-statusline-node"  'references/statusline.md' "$SETUP"
 need "setup-audit-row-never-silent"  'audit: skipped — bridge not installed' "$SETUP"
 need "setup-task-tools-not-verified-in-session" 'written; takes effect after restart' "$SETUP"
 need "setup-cleanup-has-its-own-boundary" 'the install rule above does not cover it' "$SETUP"
-need "task-flow-setup-forwards"      '/cc-tuner:setup install task-flow' "$TASK_FLOW_SETUP"
-need "statusline-setup-forwards"     '/cc-tuner:setup install statusline' "$STATUSLINE_SETUP"
-for forwarder in "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP"; do
-  if grep -qE 'mktemp|jq |cp "\$SRC"' "$forwarder"; then
-    echo "FAIL $(basename "$(dirname "$forwarder")")-kept-its-own-procedure"; fails=1
+# setup writes user-global settings, so it stays a user command. spec and run are how the agent
+# enters the flow: when they were user-only, the agent rebuilt the lifecycle by hand without their text.
+need "setup-is-user-invoked" 'disable-model-invocation: true' "$SETUP"
+for lifecycle in "$SPEC" "$RUN"; do
+  if grep -q '^disable-model-invocation: true' "$lifecycle"; then
+    echo "FAIL $(basename "$(dirname "$lifecycle")")-is-model-invocable"; fails=1
   else
-    echo "PASS $(basename "$(dirname "$forwarder")")-is-a-forwarder"
+    echo "PASS $(basename "$(dirname "$lifecycle")")-is-model-invocable"
   fi
 done
-for setup_skill in "$SETUP" "$TASK_FLOW_SETUP" "$STATUSLINE_SETUP"; do
-  need "$(basename "$(dirname "$setup_skill")")-is-user-invoked" 'disable-model-invocation: true' "$setup_skill"
-done
+need "run-auto-stays-the-users-request" 'Use `--auto` only when the user asked for unattended' "$RUN"
 need "release-pr-status" 'context=release-pr/validate' "$RELEASE_WORKFLOW"
 need "release-pr-exact-sha" 'ref: ${{ steps.release-pr.outputs.sha }}' "$RELEASE_WORKFLOW"
 need "release-pr-runs-suite" 'run: bash tests/run.sh' "$RELEASE_WORKFLOW"

@@ -243,4 +243,40 @@ check "unreadable-state-fails-toward-replan" "and re-plan —" "$(context "$R11"
 R8="$(flow_repo)"
 absent "no-legacy-no-warning" "removed runtime" "$(context "$R8")"
 
+# A plan already present in the remote default branch is finished work: a branch reused after its
+# merge must not be told to rebuild it (field: a finished epic's plan was pushed into a new session).
+R_LANDED="$(repo_with_plan feat/landed 2026-01-01-feat-landed.md "**Spec:** docs/PLANS/s.md
+**Branch:** feat/landed
+
+$HALF")"
+(
+  cd "$R_LANDED" || exit 1
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+)
+equals "landed-plan-is-silent" "" "$(fire "$R_LANDED")"
+# A landed plan that this branch extended with a new open slice is open work, not landed work.
+R_EXT="$(repo_with_plan feat/extended 2026-01-01-feat-extended.md "**Spec:** docs/PLANS/s.md
+**Branch:** feat/extended
+
+$HALF")"
+(
+  cd "$R_EXT" || exit 1
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  printf '\n## Slice 4 — Extension\nBlocked by: 3\nOwned paths: src/\nDeciding check: t\nDelivers: d\n\n- [ ] new\n' >> docs/task-plans/2026-01-01-feat-extended.md
+  git commit -qam extend
+)
+check "extended-landed-plan-restored" "Slice 4 — Extension" "$(context "$R_EXT")"
+# The same plan not yet on the default branch is still restored, and the wording is advisory.
+R_OPEN="$(repo_with_plan feat/open 2026-01-01-feat-open.md "**Spec:** docs/PLANS/s.md
+**Branch:** feat/open
+
+$HALF")"
+( cd "$R_OPEN" && git update-ref refs/remotes/origin/main HEAD^ && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main )
+C_OPEN="$(context "$R_OPEN")"
+check  "unlanded-plan-restored"   "Slice 2 — Wire the budget" "$C_OPEN"
+check  "restore-is-advisory"      "if the session is about something else, ignore this" "$C_OPEN"
+absent "no-before-anything-else"  "before doing anything else" "$C_OPEN"
+
 exit $fails

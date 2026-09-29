@@ -12,7 +12,7 @@
     {
       "name": "cc-tuner",
       "source": "./plugins/cc-tuner",
-      "description": "Check the environment and install what a repo needs (/cc-tuner:setup), audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (/cc-tuner:statusline-setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:spec, then /cc-tuner:run) — with verify-feature proving the behaviour and a checked merge that pins the head — plus canonical task-flow conventions installed per repo (/cc-tuner:task-flow-setup).",
+      "description": "Check the environment and install what a repo needs (/cc-tuner:setup), audit CLAUDE.md / .claude/rules/ memory against the official docs (claude-md-writer), install a rate-limit + context usage statusline (the statusline node of /cc-tuner:setup), and drive coding tasks end-to-end from intake to merge (/cc-tuner:spec, then /cc-tuner:run) — with verify-feature proving the behaviour and a checked merge that pins the head — plus canonical task-flow conventions installed per repo (the task-flow node of /cc-tuner:setup).",
       "version": "0.15.0"
     }
   ]
