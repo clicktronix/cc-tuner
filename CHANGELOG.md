@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.16.0](https://github.com/clicktronix/cc-tuner/compare/v0.15.0...v0.16.0) (2026-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* /cc-tuner:task-flow-setup and /cc-tuner:statusline-setup are removed; use the task-flow and statusline nodes of /cc-tuner:setup.
+
+### Features
+
+* one continuous delivery flow with machine-wide heavy-check slots ([#47](https://github.com/clicktronix/cc-tuner/issues/47)) ([c74de52](https://github.com/clicktronix/cc-tuner/commit/c74de5261e1aed2d5cd3d11f3e141c3123f0a961))
+
 ## [0.15.0](https://github.com/clicktronix/cc-tuner/compare/v0.14.1...v0.15.0) (2026-09-20)
 
 
