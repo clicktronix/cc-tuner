@@ -4,8 +4,11 @@
 # module the way a session loads it, and `claude plugin test` runs hooks/*.test.ts against the real
 # hook chain. Neither needs a signed-in account. A missing `claude` fails instead of skipping: a
 # suite that passes when it could not run is the gap tests/run.sh exists to close.
-# The engine lays the module API types and a tsconfig into .claude-plugin/types/ when it loads the
-# plugin, and neither command type-checks, so the last step runs tsc against that tsconfig.
+# Neither command type-checks. The engine writes the module API types and a tsconfig into
+# .claude-plugin/types/ only when an interactive session loads the plugin from a folder
+# (`claude --plugin-dir`); `validate`, `test` and CI never do, and the generated declarations are
+# Claude Code's, not ours to commit. So tsc runs where those types exist, a developer's machine
+# after such a load, and elsewhere the run says plainly that no type check happened.
 # tests/flow/CLAUDE_CODE_VERSION is the one place the Claude Code version is pinned; CI installs it.
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
@@ -26,10 +29,9 @@ out="$(cd "$FLOW_PLUGIN" && claude plugin test . 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "module tests pass"; else fail "plugin test rc=$rc: $(printf '%s' "$out" | grep -E '\(fail\)|error' | head -5)"; fi
 absent "no module test failed" "(fail)" "$out"
 
-# The types exist only after the engine ran above; their absence is a failure, not a skip.
 tsconfig="$FLOW_PLUGIN/.claude-plugin/types/tsconfig.json"
 if [ ! -f "$tsconfig" ]; then
-  fail "type check: the engine did not write $tsconfig"
+  printf 'NOTE type check not run: no engine-written types (load the plugin once with claude --plugin-dir)\n'
 else
   out="$(npx -y -p typescript@5.6.3 tsc -p "$tsconfig" 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ]; then pass "hooks module type-checks"; else fail "tsc rc=$rc: $(printf '%s' "$out" | head -5)"; fi
