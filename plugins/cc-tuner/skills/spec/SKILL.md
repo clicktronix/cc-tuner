@@ -1,5 +1,5 @@
 ---
-description: Turn an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run. Use when the user asks to plan, spec or start a feature or fix in a repository that uses cc-tuner.
+description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run. Use when the user asks to plan, spec or start a feature or fix in a repository that uses cc-tuner; it writes the plan and stops at the handoff, and /cc-tuner:run does the implementing.
 argument-hint: '<issue number | URL | free-text description>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 ---
@@ -26,9 +26,10 @@ a missing review skill is recorded in the spec's Delivery section for `/run` to 
 installed and the task has an unfamiliar dependency, a current-facts question or two defensible
 designs, read [optional-opinions.md](references/optional-opinions.md) and start
 `/cc-codex-triage:research` in the same turn as the fan-out below — before the reading, so it has
-something to overlap with. Ask the user once, in the opening question batch, only if the existing
-authorisation does not already cover a bounded call. Its answer is evidence for the Sources
-section, never a decision; without the bridge, nothing here changes.
+something to overlap with. When the existing authorisation does not already cover a bounded call,
+ask first with one `AskUserQuestion` (run the research: yes / no), before anything else is read.
+Its answer is evidence for the Sources section, never a decision; without the bridge, nothing here
+changes.
 
 Read, in order:
 
@@ -41,9 +42,10 @@ Do not ask for information already present in those sources.
 
 **Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
 subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
-with the Agent tool (`Explore` for search, `general-purpose` on `sonnet` for a question that needs
-running commands), all in a single message so they run at once. Each gets a literal question and the
-paths to look in; none of them decides anything. You read what comes back and write the spec. This is
+with the Agent tool (`Explore` for search, `general-purpose` on `haiku` at `effort: "high"` for a
+question that needs running commands; the model ladder is in `run`'s placement reference), all in a
+single message so they run at once. Each gets a literal question and the paths to look in; none of
+them decides anything. You read what comes back and write the spec. This is
 the cheapest part of the flow to parallelise, because discovery is read-only and the failure mode of a
 wrong answer is that you notice it while drafting. Do not delegate the grilling in section 3: its
 questions change the draft, and their answers are decisions the owner keeps — an adviser can be
@@ -60,8 +62,7 @@ Create the task branch before grilling because `domain-modeling` may write `CONT
 `/run` continues this branch rather than creating another.
 
 **Commit message format, including any attribution trailers, comes from the repository's
-conventions** in `.claude/rules/task-flow.md`; where that file is silent, match the repository's
-recent history rather than the harness default.
+conventions**, resolved in the order `cc-tuner:task-flow` gives under Commit conventions.
 
 ## 3. Grill the problem
 
@@ -90,7 +91,8 @@ A pending `TBD`, “as appropriate”, unknown test command, or unstated expecte
 When the missing fact can only be learned by building something — the test command of a subsystem
 that does not exist yet, an API's real shape — make the first slice a **spike** whose deliverable is
 that fact, run `prototype` for it in a disposable workspace, and let the rest of the plan depend on
-it. The spec records the spike and what it must establish; `/run` re-plans after it lands.
+it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
+it lands (see its loop).
 
 ## 4. Define acceptance and delivery shape
 
@@ -114,13 +116,10 @@ small change needs Goal, the acceptance criteria with their checks, the first fa
 `target_test`, `full_test`, `ci`, `review` and `merge`; other sections may read `not applicable —
 <reason>`. Larger or riskier work fills every field. Draft the result in the conversation; do not
 write it before the approval in section 6. Its final path is
-`<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`, using `wiki/` when present and `docs/` otherwise.
-
-**A directory that differs only in case is the same directory — use the one that exists.** macOS is
-case-insensitive and Linux is not, so a repository that already keeps specs in `docs/plans/` gets one
-folder on a laptop and two in CI if this writes `docs/PLANS/`. Check with
-`git ls-files 'docs/*lans*' 'wiki/*lans*'` before creating anything, and write into whatever spelling
-the repository already tracks.
+`$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" spec-dir)/YYYY-MM-DD-<slug>.md`: the script picks
+`wiki/` or `docs/`, and the spelling of the plans directory the repository already tracks (macOS is
+case-insensitive and Linux is not, so a second spelling is one folder on a laptop and two in CI). It
+never returns `task-plans/`, which holds execution plans.
 
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.

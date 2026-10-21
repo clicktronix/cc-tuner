@@ -3,7 +3,8 @@
 Reference for `/cc-tuner:spec`. Read when `cc-codex-triage` is installed and the task has an
 unfamiliar dependency, a current-facts question, or two defensible designs. Nothing here is a
 mandatory step, and no chain of `ask` → `research` → `debate` exists: each method answers a
-different question, and most specs need none of them.
+different question, `debate` is considered only when two positions survive `research`, and most
+specs need none of them.
 
 | method | the question it answers | what comes back |
 |---|---|---|
@@ -13,11 +14,10 @@ different question, and most specs need none of them.
 
 ## When to ask, and when not to
 
-Decide once, **before section 1 discovery starts** — not in the section 3 question batch, which
-runs after discovery is done and would leave the research nothing to overlap with. If the
-existing task authorisation already covers a bounded call, run it; otherwise put one question in
-the opening `AskUserQuestion` alongside the others. Never ask per call, and never ask again once the
-answer is on record.
+Decide once, **before section 1 discovery starts** — not in the section 3 question rounds, which
+run after discovery is done and would leave the research nothing to overlap with. If the
+existing task authorisation already covers a bounded call, run it; otherwise ask the one question
+that section 1 describes. Never ask per call, and never ask again once the answer is on record.
 
 Run `research` **alongside** the internal read-only fan-out, in the same turn, so it overlaps the
 longest owner work. Wait for it only before a decision that depends on its findings. Do not dispatch

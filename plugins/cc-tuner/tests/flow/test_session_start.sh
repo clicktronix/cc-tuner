@@ -130,7 +130,9 @@ check "open-slice-emitted"          "Slice 3 — Top"        "$C6"
 # not a count: only one slice here has that edge, so counting proves nothing about which one carries it.
 equals "transitive-blocker-keeps-its-edge" "Blocked by: 1" \
   "$(printf '%s' "$C6" | grep -A1 'Slice 2 — Middle' | sed -n '2p' | sed 's/^ *//')"
-equals "done-blocker-with-no-edge-says-so" "Blocked by: -" \
+# The plan grammar spells "no blockers" `none`; plan-lint's `-` is its own tab-record placeholder and
+# must not leak into text the agent reads back as plan syntax.
+equals "done-blocker-with-no-edge-says-none" "Blocked by: none" \
   "$(printf '%s' "$C6" | grep -A1 'Slice 1 — Foundation' | sed -n '2p' | sed 's/^ *//')"
 
 # --- silence is a correct output, and the common one ---------------------------------------------
@@ -167,7 +169,12 @@ Blocked by: 9
 R4="$(repo_with_plan feature/broken 2026-01-01-feature-broken.md "$BROKEN")"
 C4="$(context "$R4")"
 check  "invalid-plan-is-reported" "does not parse"        "$C4"
-check  "invalid-plan-names-lint"  "plan-lint.sh check"    "$C4"
+check  "invalid-plan-names-lint"  "plan-lint.sh\" check"  "$C4"
+# The printed command must run as printed: an absolute script path, not a bare name that is on no PATH.
+LINT_CMD="$(printf '%s' "$C4" | sed -n 's/^  \(bash .*\)$/\1/p')"
+check  "invalid-plan-command-is-absolute" "bash \"$FLOW_PLUGIN/scripts/plan-lint.sh\" check" "$LINT_CMD"
+equals "invalid-plan-command-runs" "plan-lint:" \
+  "$(cd "$R4" && eval "$LINT_CMD" 2>&1 | head -1 | cut -d' ' -f1)"
 absent "invalid-plan-emits-no-slices" "Slice 1 — A"       "$C4"
 
 # --- the output is valid JSON in the shape the platform reads ------------------------------------

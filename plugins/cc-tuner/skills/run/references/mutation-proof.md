@@ -20,6 +20,4 @@ Run the assigned proof once for the guard. Repeat only if the guard or its test 
 because another commit moved HEAD. Copy the helper's output into the run log without rewriting its
 verdict or figures. Keep its failure evidence and recovery instructions if restoration fails.
 
-Historical reason: a live run spent ten builds re-proving one unchanged budget; other runs reported
-a no-op mutant as survived or changed correct measurements while transcribing them. Preserve the
-observations and test the intended failure, rather than buying another copy of the same proof.
+Test the intended failure; a second copy of the same proof buys nothing.

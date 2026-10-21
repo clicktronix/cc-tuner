@@ -14,6 +14,13 @@ name and has to precede step 6, which creates `$LOCAL` when it is missing — re
 the migration looking at a `$LOCAL` that already exists, so it silently declines to move the old
 one and the cached board field IDs are lost.
 
+## Contents
+
+- [Locate the template and the repo](#locate-the-template-and-the-repo)
+- [check](#check)
+- [install](#install)
+- [Verification](#verification)
+
 ## Locate the template and the repo
 
 ```bash
@@ -29,10 +36,9 @@ RENDERED=$(cat "$SRC") || { echo "ERROR: cannot read $SRC"; exit 1; }
 [ -n "$RENDERED" ] || { echo "ERROR: template is empty — aborting"; exit 1; }
 ```
 
-The template carries no substitution tokens. Since v0.7.0 the rule is invariants only, and the
-plans root (`wiki/` when the repo has one, else `docs/`) is a procedure the `cc-tuner:task-flow`
-skill resolves at use time — so the rule installs verbatim and nothing about its content is
-repo-specific.
+The template carries no substitution tokens: the rule is invariants only, and the plans root is
+resolved by the `cc-tuner:task-flow` skill at use time — so the rule installs verbatim and nothing
+about its content is repo-specific.
 
 ## check
 
@@ -47,8 +53,8 @@ repo-specific.
 
 ## install
 
-1. **Migrate the deltas file off the `git-flow` name — first, before anything else.** This rule
-   shipped as `git-flow.md` through v0.6.0. Step 6 creates `$LOCAL` when it is missing, so if that
+1. **Migrate the deltas file off the `git-flow` name — first, before anything else.** An older
+   release shipped this rule as `git-flow.md`. Step 6 creates `$LOCAL` when it is missing, so if that
    runs first this migration finds a `$LOCAL` already present, declines, and the repo silently
    starts from an empty deltas file with its cached board field IDs gone:
    ```bash
@@ -119,11 +125,6 @@ repo-specific.
    delete without confirmation.
 8. Remind: the rule carries invariants only (no hooks, by design). Procedures — epics, board
    recipes, post-merge cleanup, release notes — live in the `cc-tuner:task-flow` skill.
-
-**Retirement schedule.** The `/cc-tuner:task-flow-setup` forward was removed after 0.15.0. The
-`git-flow*` detection in steps 1 and 7 is dropped in the next release, whose notes say how a user
-skipping several versions migrates by hand: rename `git-flow.local.md` to `task-flow.local.md`,
-then run this node.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 ---
 name: task-flow
-description: Use when working a task end to end in a repository — creating branches, commits and PRs, managing epics and cards on a GitHub Projects board when the repository uses one, cleaning up worktrees after a merge, syncing the target branch, choosing a merge strategy for stacked PRs, or generating release notes from commits. Companion to the .claude/rules/task-flow.md invariants installed by the task-flow node of /cc-tuner:setup.
+description: Carries the repository procedures around a task — branch, commit and PR conventions, epics and cards on a GitHub Projects board, cleaning up worktrees and runtime processes after a merge, syncing the target branch, merge strategy for stacked PRs, release notes from commits, and the spec lifecycle. Use for those chores, in any repository. To implement a committed cc-tuner plan use /cc-tuner:run, and to write one /cc-tuner:spec; both read this skill's candidate and checklist sections. Companion to the .claude/rules/task-flow.md invariants installed by the task-flow node of /cc-tuner:setup.
 ---
 
 # Task Flow — procedures
@@ -93,6 +93,15 @@ that is still needed. An optional suggestion with no planned outcome can remain 
 Include the observed problem, the intended result and its source review. Follow the board recipes
 above when a board is configured; otherwise create or update the issue without project commands.
 
+## Runtime cleanup
+
+Start a preview, a dedicated MCP server or a disposable container as a Bash call with
+`run_in_background: true`, and run a container attached (`docker run --rm --init`, not `-d`).
+Stop each with TaskStop when its consumers finish, including work handed back without a merge.
+Claude Code stops the rest when the session exits, and cc-tuner's hook stops them on `/clear`.
+When the user asks to keep one running past the session, start it detached instead and name it in
+the final answer.
+
 ## After the merge
 
 Finishing is not the merge — it is the merge plus leaving the machine clean. Run this once the PR is
@@ -125,10 +134,23 @@ something to look at, not to paper over with a merge commit.
 Do not delete a worktree whose branch never merged — that is the orphan-branch anti-pattern below,
 and the fix is to open the PR, not to erase the evidence.
 
+## Commit conventions
+
+The message format, including attribution trailers, comes from the first of these that answers:
+`.claude/rules/task-flow.local.md`, `.claude/rules/task-flow.md`, `AGENTS.md`/`CLAUDE.md`/
+`CONTRIBUTING.md`, the shape of recent history. Only a repository silent in all four gets the
+harness default. This section is the single owner of that order; `/spec` and `/run` point here.
+
+**Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
+carries `Co-Authored-By:` or a session trailer is a preference: some repositories want the authorship
+visible, some want the history to read as the team's. A repository records its answer in
+`task-flow.local.md`, because the generated `task-flow.md` is rewritten on every update and would
+lose it.
+
 ## Release notes from commits
 
-Conventional Commits are the input to generated release notes, which is why the format is an
-invariant rather than a style preference. Two ways to consume them:
+Conventional Commits are the default format; it is required where release notes are generated from
+commit messages, and optional where they are not. Two ways to consume them:
 
 - **`release-please`** (GitHub Action) — reads the commits since the last release, opens a release PR
   that bumps the version and writes `CHANGELOG.md`. Use it where a version number exists in more than
@@ -138,13 +160,6 @@ invariant rather than a style preference. Two ways to consume them:
 
 Whichever is in use, a commit outside the Conventional format is a commit that will be missing from
 the notes; that is the actual cost of an off-format commit.
-
-**Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
-carries `Co-Authored-By:` or a session trailer is a preference — some repositories want the
-authorship visible, some want the history to read as the team's — so the answer lives in
-`.claude/rules/task-flow.local.md`: the generated `task-flow.md` is rewritten on every update and
-would lose it. Left unfilled, an agent falls back
-to whatever its harness does by default, and the repository ends up with a convention nobody chose.
 
 ## Merge strategies
 
@@ -162,8 +177,8 @@ It is never moved or archived — `plan-path.sh`, SessionStart and `merge.sh` al
 
 1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
    plugin path.
-2. Worth keeping → promote to `<plans-root>/PLANS/YYYY-MM-DD-<slug>.md`. The plans root is `wiki/`
-   when the repo has one, else `docs/` — check, do not assume; the rule no longer carries it.
+2. Worth keeping → promote to `$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" spec-dir)/YYYY-MM-DD-<slug>.md`
+   (the script picks `wiki/` or `docs/` and the repository's own spelling of the plans directory).
    Minimum header: `Goal:`, `Issue:`, and `Architecture:`. Slices, owned paths, and blockers live in
    the separate execution plan that links back to this spec.
 3. When an issue exists, the first paragraph links it and the issue body links the spec back.
@@ -187,7 +202,8 @@ review; record later DoD evidence on the PR. For shared tasks, update companion 
 ## Pre-PR checklist
 
 - [ ] Branch is based on current `origin/<target>` (check, do not assume) and its PR is not already merged
-- [ ] Commits follow Conventional Commits, `!`/`BREAKING CHANGE:` where applicable
+- [ ] Commits follow the repository's convention (Conventional Commits by default, required where release
+      notes are generated), `!`/`BREAKING CHANGE:` where applicable
 - [ ] Issue is linked (`Closes #N` / `Refs #N`), or the PR explains why none is needed; when a board
       is configured, the card has Status and Priority
 - [ ] A new regression check was observed failing as specified, or the approved non-code baseline

@@ -66,6 +66,10 @@ can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in an 
 `task-flow.local.md`, migration of the legacy `git-flow*` files, and a diff-and-ask for a
 hand-maintained copy.
 
+Previews, dedicated MCP servers and test containers run as Bash background tasks, which Claude Code
+stops when the session exits. A `/clear` does not stop them, so the plugin's hooks module
+(`hooks/register.ts`, a Claude Code mod) stops the ones Bash started in the cleared conversation.
+
 ### `deep-review`
 
 A read-only review for large, cross-boundary or sensitive candidates, replacing the ordinary
@@ -215,6 +219,13 @@ user command: it writes user-global settings.
 ## Scope
 
 Claude Code only. The plugin writes Claude Code's own surfaces — memory files (CLAUDE.md, `.claude/rules/`, `CLAUDE.local.md`), user settings (statusline), and per-repo rule installs — it does not manage other agents' instruction files.
+
+## Maintaining
+
+- `bash tests/run.sh` (repository root) is the gate. The checks no script can run, because they need
+  a live session, are in [tests/setup/setup-manual-checks.md](tests/setup/setup-manual-checks.md).
+- `CHANGELOG.md` is written by release-please from commit messages; do not edit it by hand. Text a
+  change removes from a skill is not archived anywhere: git history keeps it.
 
 ## License
 

@@ -32,8 +32,8 @@ Recorded with evidence on the PR before merge, not ticked here: ticking would mo
 - Complete diff and formatter/autofix output were read; no unexplained files remain
 - One advisory route ran (with at most one escalation to deep-review); valid findings were addressed
   or concretely refuted; the required review `review:` names approved the exact candidate SHA
-- PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares —
-  under `none:` that means no checks exist and a PR comment records the local result for that SHA
+- PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares
+  (`../run/references/local-ci.md`)
 
 ## Completion and reconciliation
 Observed after merge and reported, not committed: the target branch takes no completion commits.
@@ -51,13 +51,8 @@ shared-task: <primary repository, branch and spec path>. Only in the companion s
     primary spec too. This local contribution does not complete the shared issue by itself.
 auto_ready: yes|no — <reason when no>
 ci: <mode> — <the checks, and how to observe them>
-    mode is one of:
-      required          the target branch has required checks on GitHub (the default; strongest)
-      any               CI runs here but nothing is required — every reported check must pass
-      none:<reason>     this repository runs no CI on a pull request; the reason is recorded and
-                        printed at merge. Honoured only when GitHub reports no checks at all AND a
-                        PR comment records `cc-tuner-local-ci: <sha> <what ran, and what it
-                        returned>`. Prefer `any` where a workflow can be dispatched by hand.
+    mode is required (default), any, or none:<reason>; ../run/references/local-ci.md owns what each
+    means and what `none` must record
 review: codex|none:<reason> — codex when cc-codex-triage reviews this repository (merge.sh then
     requires its exact-candidate approval); none records why no second-provider review is required
 target_test: <exact command>

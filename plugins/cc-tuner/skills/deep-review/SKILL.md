@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Exhaustively review a clean, committed candidate through independent read-only lenses (six, or more when a large candidate is sharded). Use for large, cross-boundary, or sensitive changes selected by /run; do not use for an ordinary small task.
+description: Reviews a clean, committed candidate exhaustively through independent read-only lenses (six, or more when a large candidate is sharded). Use for large, cross-boundary, or sensitive changes that /cc-tuner:run selects; do not use for an ordinary small task.
 ---
 
 # Deep Review
