@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.18.0](https://github.com/clicktronix/cc-tuner/compare/v0.17.0...v0.18.0) (2026-10-22)
+
+
+### Features
+
+* subagent models in the status line, PR body via pr, GLOSSARY.md ([#53](https://github.com/clicktronix/cc-tuner/issues/53)) ([e5fb52a](https://github.com/clicktronix/cc-tuner/commit/e5fb52a76a2186a25a315f2fe6ae7b2817a0de4e))
+
 ## [0.17.0](https://github.com/clicktronix/cc-tuner/compare/v0.16.0...v0.17.0) (2026-10-22)
 
 
