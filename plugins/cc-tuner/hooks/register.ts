@@ -26,9 +26,18 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       const ids = [...started]
+      const results = await Promise.allSettled(ids.map(task_id => $.tool.call({ tool: 'TaskStop', task_id })))
+      // Keep every id whose stop was not confirmed, so the next /clear tries again; exit still
+      // stops them. A task that already ended can also answer with an error: harmless to retry.
+      const unstopped = ids.filter((_, i) => {
+        const r = results[i]
+        return r?.status !== 'fulfilled' || r.value.deny !== undefined || r.value.isError === true
+      })
       started.clear()
-      // A task that already finished answers TaskStop with an error; nothing to do.
-      await Promise.allSettled(ids.map(task_id => $.tool.call({ tool: 'TaskStop', task_id })))
+      for (const id of unstopped) started.add(id)
+      if (unstopped.length > 0) {
+        $.ui.log(`cc-tuner: /clear could not confirm stopping ${unstopped.join(', ')}; retrying next /clear`, { to: 'debug' })
+      }
     }
     return next(e)
   })

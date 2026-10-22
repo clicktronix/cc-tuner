@@ -57,3 +57,25 @@ test('a foreground command records nothing', async ($, on) => {
   await $.session.end({ ...END, reason: 'clear' })
   expect(stopped).toEqual([])
 })
+
+test('a task whose stop failed is kept and retried on the next /clear', async ($, on) => {
+  const attempts: string[] = []
+  let failing = true
+  on('tool.call', { tool: 'Bash' }, () => ({
+    result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b9' },
+  }))
+  on('tool.call', { tool: 'TaskStop' }, (_, e) => {
+    attempts.push(String(e.task_id))
+    if (failing) throw new Error('injected TaskStop failure')
+    return { result: { message: 'stopped', task_id: String(e.task_id), task_type: 'bash' } }
+  })
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+
+  await $.tool.call({ tool: 'Bash', command: 'b9', run_in_background: true })
+  await $.session.end({ ...END, reason: 'clear' })
+  failing = false
+  await $.session.end({ ...END, reason: 'clear' })
+  await $.session.end({ ...END, reason: 'clear' })
+  // Tried on the first /clear, retried on the second, and spent once it stopped.
+  expect(attempts).toEqual(['b9', 'b9'])
+})
