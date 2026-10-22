@@ -23,7 +23,7 @@ check "hooks.json names the module" "./register.ts" "$modules"
 
 out="$(claude plugin validate "$FLOW_PLUGIN" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "plugin validates"; else fail "plugin validate rc=$rc: $(printf '%s' "$out" | grep -E '✘|❯' | head -5)"; fi
-check "module hooks Bash and TaskStop calls and session end" "hooks: tool.call{tool=Bash}, tool.call{tool=TaskStop}, session.end" "$out"
+check "module hooks Bash, TaskStop, agent spawns, turn ends and session end" "hooks: tool.call{tool=Bash}, tool.call{tool=TaskStop}, agent.spawn, turn.complete, session.end" "$out"
 
 out="$(cd "$FLOW_PLUGIN" && claude plugin test . 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "module tests pass"; else fail "plugin test rc=$rc: $(printf '%s' "$out" | grep -E '\(fail\)|error' | head -5)"; fi
