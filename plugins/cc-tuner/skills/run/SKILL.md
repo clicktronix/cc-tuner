@@ -198,7 +198,9 @@ and completed advisory passes remain useful; a new SHA does not restart them.
 Shared-task delivery also covers the complete repository/SHA set defined in the loaded reference.
 
 1. **Push and open the PR** (draft is fine while work continues). The candidate is its exact head
-   SHA, with a clean working tree.
+   SHA, with a clean working tree. Write the body with `mattpocock-skills:pr` when it is installed
+   (call the Skill tool with "mattpocock-skills:pr"); its Evidence comes from the verify-feature record.
+   Without it, keep the same three sections: Summary, Evidence, Merge Danger.
 2. **Choose one advisory workflow for the first clean candidate.**
    - `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
      multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
