@@ -56,7 +56,9 @@ plugins/
       agent-rules/instruction.md        # the rule-loading block setup writes into AGENTS.md
       task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
     hooks/
-      hooks.json                    # SessionStart registration
+      hooks.json                    # SessionStart registration and the hooks module
+      register.ts                   # Claude Code mod: stops Bash background tasks on /clear
+      register.test.ts              # its tests, run by `claude plugin test`
       session-start.sh              # asks a fresh session to rebuild its task list from the plan
     output-styles/mechanism-first.md
     scripts/

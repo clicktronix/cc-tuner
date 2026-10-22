@@ -222,8 +222,10 @@ Claude Code only. The plugin writes Claude Code's own surfaces — memory files 
 
 ## Maintaining
 
-- `bash tests/run.sh` (repository root) is the gate. The checks no script can run, because they need
-  a live session, are in [tests/setup/setup-manual-checks.md](tests/setup/setup-manual-checks.md).
+- `bash tests/run.sh` (repository root) is the gate. It needs `claude` on PATH at the version pinned in
+  `tests/flow/CLAUDE_CODE_VERSION` (CI installs it) to validate and test the hooks module; the
+  TypeScript check of that module runs only on a machine where Claude Code has loaded the plugin from
+  a folder. The checks no script can run, because they need a live session, are in [tests/setup/setup-manual-checks.md](tests/setup/setup-manual-checks.md).
 - `CHANGELOG.md` is written by release-please from commit messages; do not edit it by hand. Text a
   change removes from a skill is not archived anywhere: git history keeps it.
 
