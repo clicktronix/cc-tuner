@@ -79,3 +79,30 @@ test('a task whose stop failed is kept and retried on the next /clear', async ($
   // Tried on the first /clear, retried on the second, and spent once it stopped.
   expect(attempts).toEqual(['b9', 'b9'])
 })
+
+test('a task started while a /clear awaits its stops is kept for the next /clear', async ($, on) => {
+  const stopped: string[] = []
+  let stopping = () => {}
+  let release = () => {}
+  const stopStarted = new Promise<void>(resolve => { stopping = resolve })
+  const stopReleased = new Promise<void>(resolve => { release = resolve })
+  on('tool.call', { tool: 'Bash' }, (_, e) => ({
+    result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: e.command },
+  }))
+  on('tool.call', { tool: 'TaskStop' }, async (_, e) => {
+    stopped.push(String(e.task_id))
+    if (e.task_id === 'old') { stopping(); await stopReleased }
+    return { result: { message: 'stopped', task_id: String(e.task_id), task_type: 'bash' } }
+  })
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+
+  await $.tool.call({ tool: 'Bash', command: 'old', run_in_background: true })
+  const clear = $.session.end({ ...END, reason: 'clear' })
+  await stopStarted
+  // 'new' lands in the set after the /clear took its snapshot and before its stops resolve.
+  await $.tool.call({ tool: 'Bash', command: 'new', run_in_background: true })
+  release()
+  await clear
+  await $.session.end({ ...END, reason: 'clear' })
+  expect(stopped).toEqual(['old', 'new'])
+})
