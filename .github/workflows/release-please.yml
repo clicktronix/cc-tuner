@@ -49,6 +49,11 @@ jobs:
           # tests/run.sh compares the accepted production surface with EVALUATED_SHA.
           fetch-depth: 0
 
+      - name: Install the pinned Claude Code
+        # tests/run.sh validates and tests the hooks module with the claude CLI, as validate.yml does.
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: npm install -g @anthropic-ai/claude-code@"$(cat plugins/cc-tuner/tests/flow/CLAUDE_CODE_VERSION)"
+
       - name: Validate release PR
         id: validate-release
         if: ${{ steps.release.outputs.prs_created == 'true' }}

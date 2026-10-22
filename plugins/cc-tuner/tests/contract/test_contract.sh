@@ -207,9 +207,11 @@ need "release-pr-runs-suite" 'run: bash tests/run.sh' "$RELEASE_WORKFLOW"
 need "release-pr-fails-workflow" '[ "$state" = success ]' "$RELEASE_WORKFLOW"
 need "release-pr-create-update-gate" 'prs_created is true when a release PR is created or updated' "$RELEASE_WORKFLOW"
 
+# Every named step after the release action works on the release PR, so each one is gated on it.
 release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" "$RELEASE_WORKFLOW")"
-[ "$release_pr_gate_count" -eq 4 ] && echo "PASS release-pr-gate-count" \
-  || { echo "FAIL release-pr-gate-count (got $release_pr_gate_count, want 4)"; fails=1; }
+release_pr_step_count="$(grep -cE '^ +- name:' "$RELEASE_WORKFLOW")"
+[ "$release_pr_gate_count" -eq "$release_pr_step_count" ] && echo "PASS release-pr-gate-count" \
+  || { echo "FAIL release-pr-gate-count (got $release_pr_gate_count gates for $release_pr_step_count steps)"; fails=1; }
 
 # Three checks stood here: a nine-phase count, an index of twenty contract invariants named in
 # run.md's Verification section, and a walk asserting nine phrases appeared in delivery order. All
