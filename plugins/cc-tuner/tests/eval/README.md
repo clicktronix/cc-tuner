@@ -209,7 +209,7 @@ Task 8, with what it must observe and why it exists. In brief:
 | # | What it observes |
 |---|---|
 | 0 | The session is running this checkout, proved by the recorded path and SHA |
-| 1 | Attended `spec → run`: branch before the first committed write of any kind — amended from "before `CONTEXT.md`", finding 13 — one approval of contract+slices, spec and plan committed, plan linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, local commits uninterrupted, stops before the first push/PR and before merge |
+| 1 | Attended `spec → run`: branch before the first committed write of any kind — amended from "before `GLOSSARY.md`", finding 13 — one approval of contract+slices, spec and plan committed, plan linting clean, `TaskList` carrying **`blockedBy` edges**, frontier order, checkboxes ticked, local commits uninterrupted, stops before the first push/PR and before merge |
 | 2 | Unattended delivery, **fresh repository and session**: one approval in `/spec`, then no questions or delivery stops after the `/run --auto` handoff; plan committed, tasks created when available, and a task with a non-empty `blockedBy` refused out of order |
 | 2b | Producer → checked path: verdict posted only after the `--required` marker, `commit.oid` equal to the head SHA, and `merge.sh --check-only` reporting the candidate would be accepted |
 | 3 | Recovery on the **graph**: same `blockedBy` edges after a fresh session, same after `/clear`, no duplication after `/compact` |
@@ -761,8 +761,8 @@ at most 5 files — are written into `deep-review/SKILL.md` itself, where a read
 
 #### Finding 13 — an acceptance clause about an artifact neither session produced
 
-Step 1 asks to "confirm the branch exists before `CONTEXT.md` is written". Neither `/spec` wrote a
-`CONTEXT.md`: scenario A judged the vocabulary to be general programming terms and said so; scenario B
+Step 1 asks to "confirm the branch exists before `GLOSSARY.md` is written". Neither `/spec` wrote a
+`GLOSSARY.md`: scenario A judged the vocabulary to be general programming terms and said so; scenario B
 folded the domain notes into the spec's Architecture section and flagged the deviation. Two sessions,
 two different justifications, the same outcome.
 
@@ -772,7 +772,7 @@ repositories. Scenario A also wrote two ADRs, which is the other half of what `d
 produces, and they landed on the task branch.
 
 **Settled 2026-08-21, and not in the direction the record first implied.** `mattpocock-skills:domain-modeling`
-says "Create files lazily — only when you have something to write", so `CONTEXT.md` is conditional by
+says "Create files lazily — only when you have something to write", so `GLOSSARY.md` is conditional by
 that skill's own design and there is no invocation to fix. What was wrong was ours: `spec/SKILL.md`
 stated the write as an unconditional consequence, and the acceptance clause was built on that
 statement. Both are corrected — the skill now says *may* write, and the clause names the first
@@ -1297,7 +1297,7 @@ argued that back, correctly. The wording should distinguish the two cases.
 
 Checked against the shipped tooling rather than by reading the output:
 
-- `/spec` created the task branch and committed `CONTEXT.md`, `docs/adr/0001-…md` and the spec —
+- `/spec` created the task branch and committed `GLOSSARY.md`, `docs/adr/0001-…md` and the spec —
   so `domain-modeling` wrote into the task branch, which is the placement rule Task 7 exists for.
 - The spec carries all eight sections the contract names, and they are not decorative: the
   `First failing check` names a command and the exact `ImportError` expected from it, and `ci`
