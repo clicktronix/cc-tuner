@@ -67,7 +67,7 @@ else
 fi
 
 # The branch must exist before grilling, because grilling invokes domain-modeling and that writes
-# CONTEXT.md and ADRs -- committed artifacts, which must not land on the integration branch. Ordering
+# GLOSSARY.md and ADRs -- committed artifacts, which must not land on the integration branch. Ordering
 # is the whole rule, so the test is an ordering test, not a phrase test.
 branch_line="$(grep -n '^## [0-9]*\. Create the task branch' "$SPEC" | head -1 | cut -d: -f1)"
 grill_line="$(grep -n '^## [0-9]*\. Grill the problem' "$SPEC" | head -1 | cut -d: -f1)"

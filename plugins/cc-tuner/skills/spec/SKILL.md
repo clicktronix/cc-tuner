@@ -58,7 +58,7 @@ Fetch it and verify the starting point. If currently on the target branch, creat
 using the task-flow naming rule. If already on a feature branch, confirm it belongs to this task and
 its PR is not already merged. Never commit the spec directly to the integration branch.
 
-Create the task branch before grilling because `domain-modeling` may write `CONTEXT.md` or ADRs;
+Create the task branch before grilling because `domain-modeling` may write `GLOSSARY.md` or ADRs;
 `/run` continues this branch rather than creating another.
 
 **Commit message format, including any attribution trailers, comes from the repository's
@@ -74,7 +74,7 @@ options stays text. Ask dependent questions after their prerequisites are answer
 
 Invoke `mattpocock-skills:domain-modeling` here, while the decision is made, whenever the interview
 changes a domain term or settles something worth an ADR: it challenges the term and writes
-`CONTEXT.md` / the ADR in the repository's format. A slice may later carry that text into place,
+`GLOSSARY.md` / the ADR in the repository's format. A slice may later carry that text into place,
 but a unit never decides the model. Pull current dependency documentation through Context7.
 These methods do not add a confirmation beyond section 6; a complete contract needs no new interview.
 
@@ -183,7 +183,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
-the spec, plan, and only the `CONTEXT.md` or ADR changes this invocation intentionally created.
+the spec, plan, and only the `GLOSSARY.md` or ADR changes this invocation intentionally created.
 Preserve unrelated WIP without staging, reverting or pausing for it. If another change overlaps
 this work or makes its verification unreliable, resolve ownership for that part and continue
 independent work. Commit the reviewed set together using the repository's convention.

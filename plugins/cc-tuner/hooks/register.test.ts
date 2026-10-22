@@ -1,4 +1,4 @@
-import type { On } from 'claude-code'
+import type { AgentSpawnInput, AgentStatus, On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
 const END = { sessionId: 's1', resume: { id: 's1' } }
@@ -105,4 +105,46 @@ test('a task started while a /clear awaits its stops is kept for the next /clear
   await clear
   await $.session.end({ ...END, reason: 'clear' })
   expect(stopped).toEqual(['old', 'new'])
+})
+
+// One Agent call as the engine raises it: only the prompt and the model vary between tests.
+const spawn = (prompt: string, model?: string): AgentSpawnInput => ({
+  tool_use_id: prompt, prompt, description: prompt, subagentType: 'cc-tuner:slice-unit',
+  provider: { plugin: 'cc-tuner', tier: 'user' }, model, parentModel: 'claude-opus-5-5',
+  background: true, fork: false,
+})
+
+// Stubs the engine beneath agent spawns: each spawn answers the next id with its model, the agent
+// list reports the given statuses, and every status-line text is recorded.
+function agents(on: On, status: Map<string, AgentStatus>) {
+  const lines: (string | undefined)[] = []
+  let n = 0
+  on('agent.spawn', (_, e) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: `a${++n}` }))
+  on('agent.list', () => ({
+    value: [...status].map(([id, s]) => ({ id, description: id, type: 'cc-tuner:slice-unit', status: s })),
+  }))
+  on('ui.status', (_, e) => { lines.push(e.text); return { value: undefined } })
+  return lines
+}
+
+test('the status line counts running subagents by model', async ($, on) => {
+  const status = new Map<string, AgentStatus>()
+  const lines = agents(on, status)
+
+  status.set('a1', 'running')
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  status.set('a2', 'running')
+  await $.agent.spawn(spawn('slice two', 'opus'))
+  status.set('a1', 'completed')
+  status.set('a3', 'running')
+  await $.agent.spawn(spawn('slice three', 'claude-haiku-5-5'))
+  expect(lines).toEqual(['subagents: 1 sonnet', 'subagents: 1 sonnet · 1 opus', 'subagents: 1 opus · 1 haiku'])
+})
+
+test('the status line clears once no tracked subagent runs', async ($, on) => {
+  const status = new Map<string, AgentStatus>([['a1', 'completed']])
+  const lines = agents(on, status)
+
+  await $.agent.spawn(spawn('slice one'))
+  expect(lines).toEqual([undefined])
 })

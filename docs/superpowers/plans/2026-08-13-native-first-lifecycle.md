@@ -279,16 +279,16 @@ starting. Restating that is a no-op paid for in context every turn. What is **no
   `research` and `domain-modeling` read-only and put `prototype` on the task branch; both are backwards.
 
   **This forces the branch earlier than `/run`.** `/spec` invokes `grilling` with `domain-modeling`,
-  and `domain-modeling` **may** write `CONTEXT.md` and ADRs — it creates them lazily, only when there is
+  and `domain-modeling` **may** write `GLOSSARY.md` and ADRs — it creates them lazily, only when there is
   something to write, so `/spec` may persist to the repository before `/run` is ever called. "May" is
   enough: the ordering has to hold for the runs where it does, and run 3 was one where it wrote ADRs
-  and no `CONTEXT.md`. An earlier draft placed `grill-with-docs` "inside `/spec`,
+  and no `GLOSSARY.md`. An earlier draft placed `grill-with-docs` "inside `/spec`,
   no branch, writes only the spec", which is wrong twice. **The task branch is created by `/spec`,
   before its grilling phase**, and the rule below is what makes that non-negotiable.
 
   | method | workspace | why |
   |---|---|---|
-  | `grill-with-docs`, `grilling` | **task branch, created by `/spec` first** | it calls `domain-modeling`, which **may** write `CONTEXT.md` and ADRs — lazily, only when there is something to write, and "may" is enough: the ordering has to hold for the runs where it does |
+  | `grill-with-docs`, `grilling` | **task branch, created by `/spec` first** | it calls `domain-modeling`, which **may** write `GLOSSARY.md` and ADRs — lazily, only when there is something to write, and "may" is enough: the ordering has to hold for the runs where it does |
   | `research`, `domain-modeling` | **task branch** | their output is kept and committed — a saved artifact is a write, however much reading produced it |
   | `prototype` | **disposable branch or worktree** | its output is throwaway by definition; landing it on the task branch is how a spike becomes the implementation by accident |
   | `tdd` | task branch, around the slice's deciding check | that check is the red/green boundary |
@@ -478,7 +478,7 @@ script that is about to be removed.
       where the last live references to `runctl.sh`, `journal.sh` and the prepared-file machinery
       leave the tree.
 - [x] **Step 2b: rewrite `spec` so it creates the task branch before grilling.** `commands/spec.md:29`
-      invokes `grilling` with `domain-modeling` today, and `domain-modeling` **may** write `CONTEXT.md`
+      invokes `grilling` with `domain-modeling` today, and `domain-modeling` **may** write `GLOSSARY.md`
       and ADRs — so `/spec` may persist to the repository with no branch, and on the runs where it does,
       it did. The placement rule in Task 3 says
       the branch comes first; without this step that rule is a paragraph nobody implements. Move
@@ -488,7 +488,7 @@ script that is about to be removed.
       testable without one is that the command still *says* it in the right order, and that is an
       ordering assertion in `test_contract.sh` (`spec-branch-before-grilling`), mutation-proved by
       moving the section back. Whether a session obeys it belongs to Task 8, which asserts the branch
-      exists before `CONTEXT.md` is written.
+      exists before `GLOSSARY.md` is written.
 - [x] **Step 3: split it** — instructions stay in `SKILL.md`, reference moves behind a pointer. Target
       under 150 lines in the body; the median skill in both reference plugins is under 180.
 - [x] **Step 4: verify every `/cc-tuner:<name>` still resolves**, including the plugin prefix.
@@ -533,9 +533,9 @@ less necessary — the branch is not done without it.
       kind**, and then:
 
       > **Amended 2026-08-21, after run 3, and the amendment is the finding.** This clause used to
-      > read "before `CONTEXT.md` is written". Neither run 3 session wrote one, and both were right
+      > read "before `GLOSSARY.md` is written". Neither run 3 session wrote one, and both were right
       > to: `mattpocock-skills:domain-modeling` says "Create files lazily — only when you have
-      > something to write", so `CONTEXT.md` is conditional by that skill's own design, and
+      > something to write", so `GLOSSARY.md` is conditional by that skill's own design, and
       > `spec/SKILL.md` states it as an unconditional consequence. A clause naming an optional
       > artifact cannot fail for the right reason — it is vacuous when the artifact is absent and
       > proves nothing when it is present. The rule it was guarding is the placement rule, so the
