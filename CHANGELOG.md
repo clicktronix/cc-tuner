@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.17.0](https://github.com/clicktronix/cc-tuner/compare/v0.16.0...v0.17.0) (2026-10-22)
+
+
+### Features
+
+* native resource lifecycle, skill audit fixes and Haiku readers ([#49](https://github.com/clicktronix/cc-tuner/issues/49)) ([7b4561d](https://github.com/clicktronix/cc-tuner/commit/7b4561de7990ae64d59853491870177a6b12df71))
+
 ## [0.16.0](https://github.com/clicktronix/cc-tuner/compare/v0.15.0...v0.16.0) (2026-09-29)
 
 
