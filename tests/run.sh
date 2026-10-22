@@ -115,8 +115,9 @@ if [ -f "$LENS" ]; then
 else
   bad "plugins/cc-tuner/agents/deep-review-lens.md is missing; deep-review dispatches it by name"
 fi
-# Effort is inherited from the session unless the definition sets it, and a dispatch cannot set it:
-# without these fields a Fable or max-effort orchestrator runs every unit and lens at its own effort.
+# Effort is inherited from the session unless the definition or the dispatch sets it, and an ordinary
+# dispatch does not: without these fields a Fable or max-effort orchestrator runs every unit and
+# lens at its own effort.
 for a in "$PLUGIN/agents/slice-unit.md" "$PLUGIN/agents/deep-review-lens.md"; do
   [ ! -f "$a" ] || [ -n "$(agent_field "$a" effort)" ] \
     || bad "${a#$ROOT/} has no effort:; units and lenses must not inherit the orchestrator's effort"

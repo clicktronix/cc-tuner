@@ -1,6 +1,6 @@
 ---
 name: agent-rules
-description: Load applicable repository rules and linked contracts before reviewing or changing code, and when entering another repository or subsystem.
+description: Loads the applicable repository rules and linked contracts for a review or change. Use before reviewing or changing code in a repository, and when the work enters another repository or subsystem.
 ---
 
 # Agent Rules

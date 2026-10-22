@@ -1,6 +1,6 @@
 ---
 name: run
-description: Work this branch's committed cc-tuner plan to a merged PR — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued.
+description: Works this branch's committed cc-tuner plan to a merged PR — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued. Board, branch-cleanup and release-note procedures belong to cc-tuner:task-flow instead.
 argument-hint: '[--auto] <path-to-spec>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
 ---
@@ -8,14 +8,18 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 # /cc-tuner:run
 
 Work the committed plan for the current branch. `--auto` selects unattended mode; the remaining
-argument is the spec path. It authorises task-scoped commit, push, PR creation and merge, never
-deploy, publish, migration, force-push or work outside the plan.
+argument is the spec path. It additionally authorises the merge, never deploy, publish, migration,
+force-push or work outside the plan; the task-scoped commits, push and draft PR need no flag (see
+"Who may stop the run").
 
 You may start this command yourself when the user asked for the task to be implemented or
 continued and a committed spec exists. Use `--auto` only when the user asked for unattended
 delivery; starting the command is not that request.
 
 ## Before starting
+
+Previews, dedicated MCP servers and test containers follow `task-flow`'s Runtime cleanup: stop
+them before the final answer, including a blocked delivery or handoff.
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
 DoD. If the argument is missing or names the plan instead, take the spec from the resolved plan's
@@ -80,11 +84,15 @@ error, never ignored: refresh the set rather than guessing.
 Under `--auto`, refuse any task with nonempty `blockedBy`, including tasks reached outside this
 parser: native task tools do not enforce the edge.
 
+A spike's result can contradict the wording of the slices that depend on it. When one lands, re-read
+them, update their text in the plan (and the spec if the fact changes its Sources), and re-run the
+`plan-lint check` above. A change to acceptance, scope or an Owned path set is not yours to make:
+ask once.
+
 Mark tasks `in_progress` and `completed` as work advances. When a slice's criteria hold, tick the plan
 and whichever spec acceptance criteria it established **in the same commit**. When a unit did the
 slice, that is the commit integrating its work: the plan is outside the unit's Owned paths. DoD is recorded during
-Delivery, not in these commits. Use the repository's commit/trailer conventions from
-`.claude/rules/task-flow.md`, falling back to recent history where silent.
+Delivery, not in these commits. Take the commit message format, trailers included, from `cc-tuner:task-flow`'s Commit conventions.
 
 ## Who may stop the run
 
@@ -107,8 +115,8 @@ will do next: nothing resumes a run that ended its turn except the user.
 ## Delegating a slice
 
 Delegate implementation when the work justifies the brief; under `--auto`, prefer delegation for
-substantial slices. Dispatch an implementation unit as `cc-tuner:slice-unit` — capped at 300 turns,
-so a slice that does not fit comes back marked partial instead of running on. There is no uncapped
+substantial slices. Dispatch an implementation unit as `cc-tuner:slice-unit`, whose turn cap makes
+a slice that does not fit come back marked partial instead of running on. There is no uncapped
 fallback: when the host does not list that type, do the slice yourself and say so. The orchestrator
 retains the task list, slice completion, mutation interpretation, full regression, runtime
 acceptance, review verdict, DoD and delivery, and it owns a partial return: placement's
@@ -140,11 +148,8 @@ their own read-only agent type/model; where silent, placement decides.
   when those inputs change or the evidence is missing/unreliable. Honour explicitly required fresh
   runs. A new commit alone does not require another identical local build; review and CI still bind
   the final SHA.
-- **Heavy checks go through the machine's slots.** Full suites, e2e, builds and container starts run
-  as `bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --label "<repo>: <what>" -- <command>`, from
-  you and from every unit. Other sessions on the machine share the slots
-  (`CC_TUNER_HEAVY_SLOTS`, default 1), so a call may wait; run long ones in the background and do
-  other work meanwhile. Targeted checks that take seconds run directly.
+- **Heavy checks go through the machine's slots,** as [placement.md](references/placement.md#heavy-checks)
+  defines and spells out; that includes the command you put in every unit's brief.
 - Re-check unresolved `[eyes]` criteria even if a stale plan reached `--auto`: stop for the required
   human step or a user waiver recorded with who and when.
 
@@ -194,29 +199,29 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 
 1. **Push and open the PR** (draft is fine while work continues). The candidate is its exact head
    SHA, with a clean working tree.
-2. **Choose one advisory workflow for the first clean candidate.** Use `deep-review`
-   for a sensitive surface, at least 15 production files or 500 production lines,
-   multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
-   authentication/authorization/secrets/cryptography; migrations or destructive data operations;
-   public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
-   infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
-   fixtures and configuration count when they decide behaviour on these surfaces.
-   Deep-review owns packet preparation, sharding and the reviewer count; use its accepted partition
-   to state cost before dispatch.
+2. **Choose one advisory workflow for the first clean candidate.**
+   - `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
+     multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
+     authentication/authorization/secrets/cryptography; migrations or destructive data operations;
+     public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
+     infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
+     fixtures and configuration count when they decide behaviour on these surfaces. Deep-review owns
+     packet preparation, sharding and the reviewer count; use its accepted partition to state cost
+     before dispatch.
+   - Otherwise `mattpocock-skills:code-review`: dispatch exactly its two subagents, Standards and
+     Spec, each with `model: "sonnet"`, and keep their reports separate. Fix a documented-standard or
+     spec finding once validated, and a code smell only when you agree it costs something here; list
+     the smells you declined.
+   - Claude Code's built-in `/code-review <level> <target>` only when the user asks for it. Put the
+     level first: a level written after the target is read as part of the target. It has no Spec
+     axis, so the spec's acceptance stays yours to check, and `max` dispatches a verifier per
+     candidate finding (cost figures: [case studies](../task-flow/references/case-studies.md)). Pass
+     base, candidate and spec; run without publishing findings automatically.
 
-   Otherwise use `mattpocock-skills:code-review`: dispatch exactly its two subagents, Standards and
-   Spec, each with `model: "sonnet"`, and keep their reports separate. Its Fowler smells are
-   judgement calls: fix a documented-standard or spec finding once validated, and a smell only when
-   you agree it costs something here — list the smells you declined. Or use Claude Code's built-in
-   `/code-review <level>
-   <target>` when requested. Put the level first — a level written after the target is read as part
-   of the target. At `high`/`xhigh` the built-in review runs in one context in minutes; at `max` it
-   dispatches a verifier per candidate finding (20–40 agents and hours in field runs) on the
-   session's model, and it has no Spec axis, so the spec's acceptance stays yours to check. Pass
-   base, candidate and spec; run without publishing findings automatically. Deep review already covers Spec and Standards: do not stack
-   these workflows. If fixes newly meet a deep-review trigger, escalate once; otherwise verify
-   affected findings without restarting advisory passes. These are not merge gates. A deep-review
-   `INCOMPLETE` names the lenses/paths nobody read; the table below says who closes that gap.
+   Deep review already covers Spec and Standards, so do not stack workflows. If fixes newly meet a
+   deep-review trigger, escalate once; otherwise verify affected findings without restarting
+   advisory passes. These are not merge gates. A deep-review `INCOMPLETE` names the lenses/paths
+   nobody read; the table below says who closes that gap.
 
    Apply `.claude/rules/task-flow.md`: validate findings against the agreed outcome, repository rules
    and evidence; group related fixes by cause and update the current plan. Keep them in existing
@@ -234,7 +239,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    | review cap (`--cap`, default 5) | stop paid rounds, keep fixing what is safe, ask the user once: more rounds (`review-state.sh renew <thread> --by <who>`, same thread) or merge on their decision | — |
    | user decides to merge without an approval | merge under `--review 'none:<who> decided at the cap'` with a decision record (step 4) | decision record (step 4) |
 
-   An advisory review that returns reports rather than a verdict (Matt's two axes) is input to the
+   An advisory review that returns reports rather than a verdict (Standards and Spec) is input to the
    owner, never a verdict to copy. A finding refuted with evidence or deferred by the user needs no
    code change: re-judge the same SHA. Do not manufacture an empty commit to move the candidate, and
    do not reset a thread to seek a more favourable verdict.

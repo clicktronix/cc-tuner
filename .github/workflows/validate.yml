@@ -17,4 +17,6 @@ jobs:
         with:
           # tests/run.sh compares the accepted production surface with EVALUATED_SHA.
           fetch-depth: 0
+      # tests/flow/test_mod.sh runs the hooks module through the engine's own validate and test.
+      - run: npm install -g @anthropic-ai/claude-code@"$(cat plugins/cc-tuner/tests/flow/CLAUDE_CODE_VERSION)"
       - run: bash tests/run.sh

@@ -8,6 +8,7 @@
 #   plan-path.sh create    prints the canonical path for a plan that does not exist yet
 #   plan-path.sh resolve   prints the one existing plan for this branch; fails on none and on several
 #   plan-path.sh pattern   prints the repository-relative plan-path pattern used by delivery checks
+#   plan-path.sh spec-dir  prints the directory `/cc-tuner:spec` writes specs into (never task-plans/)
 #
 # Fail-closed on both ends. `resolve` refusing zero matches and refusing two is the whole point: no
 # match may mean no plan or a renamed branch, two matches mean two plans with equal claim, and a
@@ -31,13 +32,33 @@ fi
 # matching dates and slugs, could collide as files. git stores literal paths, so the
 # two spellings also disagree about what exists. A distinct directory removes the whole class.
 # The root follows the spec's own convention: wiki/ when the repo uses it, docs/ otherwise.
-DIR="docs/task-plans"
 
 die() { printf 'plan-path: %s\n' "$1" >&2; exit 1; }
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not a git repository"
 cd "$ROOT" || die "cannot enter $ROOT"
-[ -d wiki ] && DIR="wiki/task-plans"
+PLANS_ROOT="docs"
+[ -d wiki ] && PLANS_ROOT="wiki"
+DIR="$PLANS_ROOT/task-plans"
+
+if [ "$MODE" = "spec-dir" ]; then
+  # <root>/PLANS, in whatever case the repository already tracks. The root is wiki/ when it exists,
+  # docs/ otherwise (PLANS_ROOT, the same rule as DIR above). Only a directory named exactly "plans" in some
+  # case counts: a substring pathspec such as 'docs/*lans*' crosses `/` and matched
+  # docs/task-plans/<file>, so a repository with plans and no specs put its specs where merge.sh
+  # looks for plans. Tracked entries decide first (git is case-sensitive, a laptop is not), then the
+  # working tree, then the default spelling.
+  name="$(git ls-files -- "$PLANS_ROOT" 2>/dev/null \
+    | awk -F/ 'NF >= 3 && tolower($2) == "plans" { print $2; exit }')"
+  if [ -z "$name" ] && [ -d "$PLANS_ROOT" ]; then
+    for d in "$PLANS_ROOT"/*; do
+      [ -d "$d" ] || continue
+      case "$(basename "$d" | tr 'A-Z' 'a-z')" in plans) name="$(basename "$d")"; break ;; esac
+    done
+  fi
+  printf '%s/%s\n' "$PLANS_ROOT" "${name:-PLANS}"
+  exit 0
+fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || die "cannot read the current branch"
 [ "$BRANCH" != "HEAD" ] || die "detached HEAD has no branch to key a plan to"
@@ -99,6 +120,6 @@ case "$MODE" in
     esac
     ;;
   *)
-    die "usage: plan-path.sh create|resolve|pattern"
+    die "usage: plan-path.sh create|resolve|pattern|spec-dir"
     ;;
 esac

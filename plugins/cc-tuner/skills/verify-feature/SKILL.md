@@ -1,6 +1,6 @@
 ---
 name: verify-feature
-description: Decide what would actually prove a change works, run it, and record what was observed. Invoked by /cc-tuner:run before a candidate is offered for review; usable on its own for "verify this actually works" on any change.
+description: Decides what would actually prove a change works, runs it, and records what was observed. Use when /cc-tuner:run reaches verification before a candidate goes to review, or on its own when asked to verify that a change actually works.
 allowed-tools: Bash, Read, Glob, Grep, Skill, WebFetch
 ---
 
@@ -83,9 +83,8 @@ cc-tuner-verified: <full sha>
   <criterion>  —  NOT PROVED: <what is missing, and what would be needed>
 ```
 
-Run e2e suites, full builds and other heavy checks through
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --label "<repo>: <what>" -- <command>`: the slots are
-shared with every other session on the machine.
+Run e2e suites, full builds and other heavy checks as
+[placement.md](../run/references/placement.md#heavy-checks) defines.
 
 A criterion left unproved does not stop the run by itself. `/run` decides what an unproved criterion
 means for delivery — this skill establishes facts and does not own the lifecycle.

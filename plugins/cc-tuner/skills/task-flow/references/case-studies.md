@@ -5,6 +5,20 @@ a future audit can check whether the failure still reproduces. The source runs h
 repositories: repository, PR and issue identifiers were removed on 2026-09-10, so a reader can check
 the mechanism against their own history but cannot open the original.
 
+## Contents
+
+- [Long-lived staging branch and squash](#long-lived-staging-branch-and-squash)
+- [Branch continued after its PR merged](#branch-continued-after-its-pr-merged)
+- [Regression test that could never fail](#regression-test-that-could-never-fail)
+- [Scope rebutted by file provenance](#scope-rebutted-by-file-provenance)
+- [Autofix trusted blindly](#autofix-trusted-blindly)
+- [Issue omitted from the board](#issue-omitted-from-the-board)
+- [Review findings turned into backlog](#review-findings-turned-into-backlog)
+- [Tiny documentation PR](#tiny-documentation-pr)
+- [Other loss patterns](#other-loss-patterns)
+- [Review and delegation ordering](#review-and-delegation-ordering-2026-08-21)
+- [Delegation cost and context observations](#delegation-cost-and-context-observations)
+
 ## Long-lived staging branch and squash
 
 On 2026-06-04/05, `perf-quality-audit` was squash-merged to `main` as PR #50. Eight follow-up PRs
@@ -91,12 +105,12 @@ tests. The boundary is the shared candidate decision: independent reads and isol
 may fan out, while one orchestrator integrates the work, verifies it and owns delivery. Keep that
 boundary explicit without copying the incident into every dispatch brief.
 
-## Delegation cost and context observations (recorded before 0.15.0)
+## Delegation cost and context observations
 
 One repository's general-purpose spawns carried 34k–42k tokens before task reading, versus 57k for
 the parent's first request. A separate sample of 399 units had a median of 76 turns; 320 fit within
 150, and long-running units crossed 300k context tokens. These observations motivated the capped
-slice-unit and fresh partial-return policy. They do not measure today's restricted review lens,
+slice-unit and the fresh partial-return policy. They do not measure today's restricted review lens,
 another repository's instruction load, or the current host's cache behavior.
 
 Field transcripts of Claude Code's built-in `/code-review` at max effort showed 21 and 42 agents
@@ -106,8 +120,7 @@ the chosen workflow's cost, not a fixed runtime or price estimate for future inv
 
 Across 69 slice-units in 2026-09 sessions the median was 159 turns, 23 passed 200 and 12 passed 300,
 with context at 300k–600k tokens on the long tail. Every unit that hit the 200 cap was continued with
-`SendMessage` rather than redispatched, so the cap stopped nothing. The cap moved to 300 and units
-commit after every green step. Five concurrent sessions each running full suites and e2e froze the
+`SendMessage` rather than redispatched, so the cap stopped nothing. Five concurrent sessions each running full suites and e2e froze the
 machine; heavy checks now queue through `heavy.sh`.
 
 The 1071-file candidate in #38 led one lens to spawn five more readers. Packet partitioning moved

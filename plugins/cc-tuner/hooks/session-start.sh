@@ -16,7 +16,7 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SCRIPTS="$HERE/../scripts"
+SCRIPTS="$(cd "$HERE/../scripts" && pwd)"
 
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -86,14 +86,14 @@ if ! SLICES="$(bash "$SCRIPTS/plan-lint.sh" slices "$PLAN" 2>/dev/null)"; then
   # A committed plan that does not parse is not nothing, and staying quiet about it would let the
   # branch look like it has no plan at all.
   emit "${LEGACY}cc-tuner: $PLAN does not parse, so the task list was not restored. Run:
-  plan-lint.sh check $PLAN"
+  bash \"$SCRIPTS/plan-lint.sh\" check \"$PLAN\""
   exit 0
 fi
 
 # Open slices, plus every done slice an open one is blocked by. Restoring only the open ones leaves
 # those edges pointing at tasks that do not exist, and the rebuilt graph is quietly wrong.
 BODY="$(printf '%s\n' "$SLICES" | awk -F'\t' '
-$1 == "SLICE" { state[$2] = $3; blocked[$2] = $4; title[$2] = $5; order[++n] = $2 }
+$1 == "SLICE" { state[$2] = $3; blocked[$2] = $4; shown[$2] = ($4 == "-" ? "none" : $4); title[$2] = $5; order[++n] = $2 }
 $1 == "CRIT" && $3 == "open" { open_crit[$2] = open_crit[$2] "\n    - [ ] " $4 }
 END {
   for (i = 1; i <= n; i++) {
@@ -123,12 +123,12 @@ END {
     if (!(s in need)) continue
     # With its edges. Emitting the title alone brought the node back and left its own Blocked by
     # behind, so `done 1 -> done 2 -> open 3` restored three tasks and one of the two edges.
-    printf "Slice %s — %s [already done: create it completed, then wire its edges below]\n    Blocked by: %s\n", s, title[s], blocked[s]
+    printf "Slice %s — %s [already done: create it completed, then wire its edges below]\n    Blocked by: %s\n", s, title[s], shown[s]
   }
   for (i = 1; i <= n; i++) {
     s = order[i]
     if (state[s] != "open") continue
-    printf "Slice %s — %s\n    Blocked by: %s%s\n", s, title[s], blocked[s], open_crit[s]
+    printf "Slice %s — %s\n    Blocked by: %s%s\n", s, title[s], shown[s], open_crit[s]
   }
 }')"
 

@@ -30,20 +30,29 @@ check "passes-exit-code" "rc=3" "$OUT"
 check "stdin-reaches-command" "piped-in" "$(printf piped-in | bash "$HEAVY" -- cat)"
 check "free-after-failure" "all slots free" "$(bash "$HEAVY" status)"
 
-# One slot: the second caller starts only after the first has finished.
+# One slot: the second caller starts only after the first has finished. The first holds its slot
+# until the second has said it is waiting (released by the test, at most 10 s), so a slow start of
+# the second caller under load cannot turn into "nobody waited".
 LOG="$W/order.log"; : > "$LOG"
-CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; sleep 1; echo A-end >> '$LOG'" &
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; i=0; while [ ! -f '$W/a.release' ] && [ \$i -lt 200 ]; do sleep 0.05; i=\$((i + 1)); done; echo A-end >> '$LOG'" &
 A=$!
 until_logged "$LOG" A-start
-ERR="$(CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label second -- sh -c "echo B-start >> '$LOG'" 2>&1)"
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label second -- sh -c "echo B-start >> '$LOG'" 2> "$W/second.err" &
+B=$!
+until_logged "$W/second.err" "waiting"
+touch "$W/a.release"
+wait "$B"
 wait "$A"
+ERR="$(cat "$W/second.err")"
 equals "one-slot-serialises" "A-start A-end B-start" "$(tr '\n' ' ' < "$LOG" | sed 's/ $//')"
 check "waiting-caller-says-so" "waiting for one of 1" "$ERR"
 check "waiting-caller-names-holder" "first" "$ERR"
 
-# Two slots: both run at once.
+# Two slots: both run at once. A holds its slot until B has started (up to 10 s) instead of
+# sleeping a fixed second: on a loaded machine B's start can take longer than a second, and a timed
+# window then reads as "B waited". If B really waited, A gives up and the order still shows it.
 : > "$LOG"
-CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" -- sh -c "echo A-start >> '$LOG'; sleep 1; echo A-end >> '$LOG'" &
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" -- sh -c "echo A-start >> '$LOG'; i=0; while ! grep -q B-start '$LOG' && [ \$i -lt 100 ]; do sleep 0.1; i=\$((i + 1)); done; echo A-end >> '$LOG'" &
 A=$!
 until_logged "$LOG" A-start
 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" -- sh -c "echo B-start >> '$LOG'"
@@ -72,7 +81,7 @@ equals "surviving-child-keeps-slot" "A-start A-end B-start" "$(tr '\n' ' ' < "$L
 CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label launcher -- python3 -c "
 import os, subprocess, time
 open('$W/launcher.pid', 'w').write(str(os.getpid()))
-subprocess.Popen(['sh', '-c', 'echo C-start >> $LOG; sleep 1.2; echo C-end >> $LOG'])
+subprocess.Popen(['sh', '-c', 'echo C-start >> $LOG; i=0; while [ ! -f $W/c.release ] && [ \$i -lt 200 ]; do sleep 0.05; i=\$((i + 1)); done; echo C-end >> $LOG'])
 time.sleep(30)
 " 2>/dev/null &
 A=$!
@@ -80,16 +89,21 @@ until_logged "$LOG" C-start
 kill -9 "$(cat "$W/launcher.pid")"
 sleep 0.2
 check "killed-launcher-child-keeps-slot" "launcher" "$(bash "$HEAVY" status)"
-CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" -- sh -c "echo B-start >> '$LOG'" 2>/dev/null
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" -- sh -c "echo B-start >> '$LOG'" 2>/dev/null &
+B=$!
+sleep 0.3
+touch "$W/c.release"   # C runs until released (at most 10 s): a timed C can end before status is read.
+wait "$B"
 wait "$A" 2>/dev/null
 equals "killed-launcher-work-finishes-first" "C-start C-end B-start" "$(tr '\n' ' ' < "$LOG" | sed 's/ $//')"
 
 # A launcher that starts work and exits 0 returns its exit code at once, but the slot stays with
-# the work until it finishes.
+# the work until it finishes. The work runs until the test releases it (at most 10 s), not for a
+# fixed time: under load a timed worker can finish before `status` is read.
 : > "$LOG"
 OUT="$(CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label quick-launcher -- python3 -c "
 import subprocess
-subprocess.Popen(['sh', '-c', 'echo \$\$ > $W/e.pid; echo E-start >> $LOG; sleep 1.2; echo E-end >> $LOG'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.Popen(['sh', '-c', 'echo \$\$ > $W/e.pid; echo E-start >> $LOG; i=0; while [ ! -f $W/e.release ] && [ \$i -lt 200 ]; do sleep 0.05; i=\$((i + 1)); done; echo E-end >> $LOG'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 " 2>&1; printf 'rc=%s' "$?")"
 check "clean-launcher-returns-its-code" "rc=0" "$OUT"
 until_logged "$LOG" E-start
@@ -99,7 +113,12 @@ check "status-names-the-keeper" "keeper=" "$STATUS"
 LIVE_SLEEP="$(cat "$W/e.pid")"   # this fixture's own worker, not whatever else runs on the machine
 check "status-lists-current-members" "running now: " "$STATUS"
 case "$STATUS" in *"$LIVE_SLEEP"*) pass "status-shows-the-live-worker" ;; *) fail "status-shows-the-live-worker ($LIVE_SLEEP not in: $STATUS)" ;; esac
-CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" -- sh -c "echo B-start >> '$LOG'" 2>/dev/null
+# B asks for the slot while E still holds it; releasing E must come before B can start.
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" -- sh -c "echo B-start >> '$LOG'" 2>/dev/null &
+B=$!
+sleep 0.3
+touch "$W/e.release"
+wait "$B"
 equals "clean-launcher-work-finishes-first" "E-start E-end B-start" "$(tr '\n' ' ' < "$LOG" | sed 's/ $//')"
 until [ "$(bash "$HEAVY" status)" = "heavy.sh: all slots free" ]; do sleep 0.1; done
 

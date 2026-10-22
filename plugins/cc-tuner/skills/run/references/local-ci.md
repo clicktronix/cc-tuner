@@ -7,7 +7,8 @@ and the checks attached to the candidate; trigger type alone does not decide whe
 - `any`: no required checks are configured; every reported check must pass. Use this for applicable
   push or manual workflows too; dispatch an authorized non-deploy validation workflow when needed.
 - `none:<reason>`: no hosted candidate checks are available. Record why and the local substitute in
-  the spec. `merge.sh` permits it only with zero reported checks and the exact-SHA comment below.
+  the spec; `merge.sh` prints the reason at merge and permits it only with zero reported checks and the
+  exact-SHA comment below. Prefer `any` where a workflow can be dispatched by hand.
 
 Pending, paused, failed and unreadable checks are not absent checks. Do not use `none` to bypass them.
 Deployment previews that post statuses (Vercel, Netlify) are reported checks: a repository with

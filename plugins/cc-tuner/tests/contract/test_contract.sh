@@ -160,7 +160,7 @@ fi
 # sentence is pinned because an earlier revision subtracted the global AGENTS.md even though Codex
 # accounts user instructions outside project_doc_max_bytes.
 need "claude-md-writer-links-audit" '[audit.md](audit.md)' "$CLAUDE_MD_WRITER"
-need "claude-md-writer-user-budget-is-separate" 'user-level `~/.codex/AGENTS.md` is added separately and does not reduce it' "$CLAUDE_MD_WRITER"
+need "claude-md-writer-user-budget-is-separate" '`~/.codex/AGENTS.md` is added separately and must not be subtracted' "$CLAUDE_MD_AUDIT"
 need "claude-md-writer-uses-real-prompt" 'codex debug prompt-input' "$CLAUDE_MD_WRITER"
 need "claude-md-audit-checks-old-pointers" "rg -nF -- '<old heading or path>'" "$CLAUDE_MD_AUDIT"
 if grep -qF 'The `How to fix` section is mandatory' "$CLAUDE_MD_WRITER" \

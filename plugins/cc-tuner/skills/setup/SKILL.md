@@ -13,7 +13,7 @@ optional node name limits the run to that node and the nodes it depends on. `che
 anywhere. `install` applies
 each node's change under one rule: an explicit install request authorises **additive** repository
 edits — a block between markers, a new file, a missing key — and nothing more. A rewrite of the
-repository's own instructions is not additive and has its own confirmation boundary in node 1.
+repository's own instructions is not additive and has its own confirmation boundary in node 2.
 
 ## The nodes
 
@@ -68,8 +68,8 @@ know, the service it cannot start, the environment limit it cannot guess.
 In `check` mode report **found: <files>**, or **none found**, plus the gaps. In `install` mode, when a
 runbook exists, append the missing commands, service requirements and environment limits to it as a
 diff — that is an additive edit to an existing document and is covered by the install request. When
-no runbook exists, report the gaps and stop: a new testing document has a human audience, and setup
-is not its author.
+no runbook exists, report the gaps for this node and continue the other nodes. Creating a new
+testing document is outside this additive setup step.
 
 ### 1. Agent-rules discovery
 
@@ -133,7 +133,7 @@ node 0 reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, add `"CLAUDE_CODE_ENABLE_
 
 **Nesting.** `/cc-tuner:run` tells every unit not to delegate further and deep-review's lenses
 carry no Agent tool, but a `general-purpose` unit can still spawn down to depth 3 by the platform
-default, and one run once produced dozens of unrequested agents that way. When node 0 reported
+default. When node 0 reported
 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit can run its own `Explore`
 lookup, which the unit brief allows, while nothing below it can spawn. `"1"` is the strict form and
 forbids that lookup too, so a unit that needs one returns the question instead. Say what either
@@ -189,14 +189,11 @@ flow you cannot complete for them — and report the board as not wired.
    are in the `cc-tuner:task-flow` skill. Re-fetching these every session is the friction that
    makes agents skip the board, so caching them here is the point of doing it at setup time. Node 3
    must have run: it is what guarantees `task-flow.local.md` exists and carries any migrated IDs.
-2. Check whether the org has an `Epic` issue type:
-   ```bash
-   gh api graphql -f query='query{organization(login:"<ORG>"){issueTypes(first:20){nodes{name}}}}'
-   ```
-   Absent → tell the user an **org admin has to add it in organisation settings**; it cannot be
-   created through the API with an ordinary token. Until then the skill falls back to an `[Epic]`
-   title prefix, which is a convention, not a filterable field. State that trade-off; do not create
-   the prefix convention silently.
+2. Check whether the org has an `Epic` issue type, with the query in the `cc-tuner:task-flow` skill's
+   Epics section. Absent → tell the user an **org admin has to add it in organisation settings**; it
+   cannot be created through the API with an ordinary token. Until then the skill falls back to an
+   `[Epic]` title prefix, which is a convention, not a filterable field. State that trade-off; do not
+   create the prefix convention silently.
 
 ### 7. Codex audit (optional, install mode)
 
@@ -220,15 +217,3 @@ skipped and blocked ones, then what is deliberately left for the user (`gh auth 
 a declined diff). A row that says "installed" must be one whose verify step actually re-detected
 the installed state; reporting an install that could not have happened is worse than not offering
 it, because nothing later contradicts the claim.
-
-## Verification of this command
-
-- [ ] `check` mode leaves every file byte-identical, including `~/.claude/settings.json`.
-- [ ] Running `install` twice reports every node "up to date" the second time and writes nothing.
-- [ ] A repository with `git-flow.local.md` comes out with `task-flow.local.md` still holding its
-      cached field IDs, and `git-flow.md` gone.
-- [ ] With no board (`board: none`) and with no `gh` auth, the run completes and the board row says
-      skipped or blocked — never installed.
-- [ ] A declined instruction-cleanup diff leaves the files untouched and node 2 still runs.
-- [ ] With both nodes 4 and 5 applied, `settings.json` holds both edits.
-- [ ] Without `cc-codex-triage`, the audit row says skipped and the command still completes.

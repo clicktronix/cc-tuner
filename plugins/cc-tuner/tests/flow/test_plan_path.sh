@@ -122,6 +122,25 @@ else
   fail "create-makes-the-directory (the caller cannot write the path it was handed)"
 fi
 
+# --- spec-dir: where specs go, never where plans live ---------------------------------------------
+# The old check was `git ls-files 'docs/*lans*'`; `*` crosses `/`, so it matched docs/task-plans/<file>
+# and a repository with plans but no specs was told its spec directory was task-plans/.
+R8="$(flow_repo)"
+commit_plan "$R8" "docs/task-plans/2026-01-01-x.md"
+OUT="$(run "$R8" spec-dir)"
+check  "spec-dir-ignores-task-plans" "docs/PLANS"       "$OUT"
+absent "spec-dir-is-not-task-plans"  "task-plans"       "$OUT"
+check  "spec-dir-rc0"                "rc=0"             "$OUT"
+commit_plan "$R8" "docs/plans/2026-01-02-spec.md"
+check  "spec-dir-follows-tracked-case" "docs/plans" "$(run "$R8" spec-dir)"
+absent "spec-dir-tracked-case-not-upper" "docs/PLANS" "$(run "$R8" spec-dir)"
+R9="$(flow_repo)"
+( cd "$R9" && mkdir -p wiki && printf 'w\n' > wiki/README.md && git add -A && git commit -q -m wiki )
+commit_plan "$R9" "wiki/task-plans/2026-01-01-y.md"
+check  "spec-dir-uses-wiki-root" "wiki/PLANS" "$(run "$R9" spec-dir)"
+( cd "$R9" && git checkout -q --detach )
+check  "spec-dir-needs-no-branch" "wiki/PLANS" "$(run "$R9" spec-dir)"
+
 OUT="$(run "$R" bogus)"
 check "unknown-mode-fails" "usage:" "$OUT"
 
