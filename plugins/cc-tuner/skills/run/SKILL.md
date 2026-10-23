@@ -18,8 +18,8 @@ delivery; starting the command is not that request.
 
 ## Before starting
 
-Previews, dedicated MCP servers and test containers follow `task-flow`'s Runtime cleanup: stop
-them before the final answer, including a blocked delivery or handoff.
+Start previews, dedicated MCP servers and test containers as `task-flow`'s Runtime cleanup says;
+[Ending the run](#ending-the-run) stops them.
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
 DoD. If the argument is missing or names the plan instead, take the spec from the resolved plan's
@@ -140,10 +140,11 @@ their own read-only agent type/model; where silent, placement decides.
   ignores the line; it exists so completion is a recorded result, not a remembered one. One matching
   line is not proof by itself — you still read the diff and check the criterion is covered — but it
   is what makes reuse honest: evidence names the code it was taken from.
-- **Test cadence.** Slices run the spec's targeted checks, which may be one browser or API
-  regression test when that is the deciding check. The full regression suite runs once on the
-  assembled candidate and once after each batch of review fixes, not after every fix; the full e2e
-  suite runs in verify-feature. Reuse observed results when the checked code, dependencies, configuration and
+- **Test cadence.** Slices run the spec's targeted checks, as placement's Heavy checks assigns them.
+  The full regression suite runs at the spec's `full_test_cadence`: `per-candidate` (the default,
+  also when the field is absent) runs it once on the assembled candidate and once after each batch of
+  review fixes; `per-batch` also runs it after each integrated batch of slices. The full e2e suite
+  runs in verify-feature. Reuse observed results when the checked code, dependencies, configuration and
   environment still match; identify the source result and why it applies. Re-run affected checks
   when those inputs change or the evidence is missing/unreliable. Honour explicitly required fresh
   runs. A new commit alone does not require another identical local build; review and CI still bind
@@ -185,10 +186,11 @@ It selects instruments from acceptance criteria and repository capabilities, exe
 and returns observations. A machine replacement for an `[eyes]` step must prove the same criterion.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
-residual risk if the user already accepted it. Publish the returned record on the PR as one comment
-whose first line is `cc-tuner-verified: <full sha it verified>`; `merge.sh` requires it and accepts
-any commit the head contains, so later fix commits need a new record only when the reuse rule says
-the evidence no longer covers them.
+residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
+as one PR comment: its lines come from verify-feature alone, and a criterion it did not observe stays
+`NOT PROVED`. `merge.sh` requires the record, prints its `NOT PROVED` lines, and accepts any commit the
+head contains, so later fix commits need a new record only when the reuse rule says the evidence no
+longer covers them.
 
 ## Delivery
 
@@ -208,8 +210,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
      public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
      infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
      fixtures and configuration count when they decide behaviour on these surfaces. Deep-review owns
-     packet preparation, sharding and the reviewer count; use its accepted partition to state cost
-     before dispatch.
+     packet preparation, sharding, the lens limit and the line it prints before dispatch.
    - Otherwise `mattpocock-skills:code-review`: dispatch exactly its two subagents, Standards and
      Spec, each with `model: "sonnet"`, and keep their reports separate. Fix a documented-standard or
      spec finding once validated, and a code smell only when you agree it costs something here; list
@@ -238,7 +239,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    | verdict owner | cc-codex-triage `--required` at the exact SHA, one task-specific `--thread` for all rounds and `merge.sh`, in the candidate worktree | you: after step 2's findings are fixed or refuted with `file:line` evidence, you judge the candidate |
    | after a fix commit | a new required round on the new SHA | re-check the affected findings on the new SHA, not a new fan-out, then judge again |
    | deep-review `INCOMPLETE` | name the unread lenses/paths in the round's brief | read those paths yourself before judging, or ask the user to accept the gap |
-   | review cap (`--cap`, default 5) | stop paid rounds, keep fixing what is safe, ask the user once: more rounds (`review-state.sh renew <thread> --by <who>`, same thread) or merge on their decision | — |
+   | review cap (`--cap`, default 5) | stop paid rounds, keep fixing what is safe, ask the user once: more rounds (`review-state.sh renew <thread> --by <who>`, same thread) or merge on their decision. `--by` names who agreed, in this conversation, to more rounds of this thread; one yes covers one renew | — |
    | user decides to merge without an approval | merge under `--review 'none:<who> decided at the cap'` with a decision record (step 4) | decision record (step 4) |
 
    An advisory review that returns reports rather than a verdict (Standards and Spec) is input to the
@@ -295,3 +296,14 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
    are complete. Do not commit a completion record directly to an integration target.
+
+## Ending the run
+
+Every final answer — after the merge, at the handoff before it, or on a block — first stops what this
+run started: TaskStop each background task (previews, dev servers, dedicated MCP servers), close the
+browser pages it opened, and remove each container it created, by the name or label it gave it.
+Something the user asked to keep running stays. The answer then carries one line:
+
+```text
+resources: closed | retained <what, and why> | none
+```

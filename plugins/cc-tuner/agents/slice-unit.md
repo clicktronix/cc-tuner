@@ -18,15 +18,23 @@ return that change instead of making it: only Owned paths were proven disjoint. 
 outside them is a need you return, not a change you make. Prove the deciding check RED before GREEN when the spec says so, and record the command and
 its deciding output line.
 
-Anything you start that outlives a command (a preview, an MCP server, a test container) follows the
-Runtime cleanup section of `${CLAUDE_PLUGIN_ROOT}/skills/task-flow/SKILL.md`; read it before starting
-one. Your part of it: TaskStop everything you started before you return.
-
 Run the slice's focused checks while you write, including one browser or API regression test when
-that is the deciding check. The full suite and the e2e suite belong to the orchestrator. A build or
-container start you do need runs through the `heavy.sh` command the brief gives, as a background Bash
-call, because it may wait for a machine-wide slot. Commit with the repository's conventions after every green step. Do not push,
-open or comment on a pull request, merge, or claim approval.
+that is the deciding check. A build or container start runs only when it is the slice's deciding
+check: once, through the `heavy.sh` command the brief gives, as a background Bash call because it may
+wait for a machine-wide slot, and stopped before you return. The full suite, the e2e suite, browser
+MCP sessions and dev servers belong to the orchestrator and verify-feature.
+
+A container you start follows the Runtime cleanup section of
+`${CLAUDE_PLUGIN_ROOT}/skills/task-flow/SKILL.md`; read it before starting one. Your part of it:
+TaskStop everything you started before you return.
+
+Keep secret values out of everything you print and return: values from `.env` files never appear in
+your output. Check that a variable is set with `printenv NAME | wc -c`, list variable names with
+`awk 'BEGIN { for (k in ENVIRON) print k }'`, and check a `.env` key with `grep -c '^NAME=' <file>`;
+key names come from the committed template (`.env.example`).
+
+Commit with the repository's conventions after every green step. Do not push, open or comment on a
+pull request, merge, or claim approval.
 
 You have 300 turns and no warning before the last one, which is why you commit as you go. If the
 slice does not fit, the orchestrator reads what landed and decides what happens next. Do not

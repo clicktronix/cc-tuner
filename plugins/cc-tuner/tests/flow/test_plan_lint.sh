@@ -586,6 +586,18 @@ OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.m
 check "untracked-spec-accepted" "rc=0" "$OUT"
 OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/absent.md --branch "$BRANCH")"
 check "missing-spec-refused" "does not exist" "$OUT"
+# full_test_cadence is a closed set /run reads: a misspelling would silently mean the default.
+printf '# fixture\nfull_test_cadence: per-batch — cheap suite\n' > "$UR/docs/PLANS/untracked.md"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+check "known-cadence-accepted" "rc=0" "$OUT"
+printf '# fixture\nfull_test_cadence: nightly\n' > "$UR/docs/PLANS/untracked.md"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+check "unknown-cadence-refused" 'full_test_cadence to "nightly"' "$OUT"
+check "unknown-cadence-rc1"     "rc=1" "$OUT"
+printf '# fixture\nfull_test_cadence: per-batch\nfull_test_cadence: per-candidate\n' > "$UR/docs/PLANS/untracked.md"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+check "duplicate-cadence-refused" "more than one full_test_cadence" "$OUT"
+printf '# fixture\n' > "$UR/docs/PLANS/untracked.md"
 check "empty-expected-spec-is-refused" "--spec requires a non-empty path" \
   "$(lint check "$P" --spec '' --branch "$BRANCH")"
 check "empty-expected-branch-is-refused" "--branch requires a non-empty name" \

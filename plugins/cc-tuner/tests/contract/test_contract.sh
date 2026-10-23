@@ -16,6 +16,8 @@ TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
+UNIT="$ROOT/plugins/cc-tuner/agents/slice-unit.md"
+VERIFY="$ROOT/plugins/cc-tuner/skills/verify-feature/SKILL.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 BRANCH_PLAN="$ROOT/docs/superpowers/plans/2026-08-13-native-first-lifecycle.md"
 fails=0
@@ -41,6 +43,33 @@ need "setup-has-a-remove-for-statusline" '/cc-tuner:setup remove statusline' "$S
 need "setup-detects-task-tools-now" 'is `TaskCreate` in this session' "$SETUP"
 need "setup-reports-the-testing-runbook" 'Testing runbook' "$SETUP"
 need "placement-caps-the-active-set" 'counts running units' "$PLACEMENT"
+# Units ran about 70% of all heavy checks while the text allowed "anything heavy" from them. The split
+# of who runs what lives in placement; the unit definition carries its own share because it never
+# reads placement. full_test_cadence is a Run config field: spec writes it, plan-lint checks it, /run reads it.
+need "placement-unit-runs-focused-checks" 'A unit runs focused checks' "$PLACEMENT"
+need "unit-build-only-as-deciding-check"  "only when it is the slice's deciding" "$UNIT"
+# A copied .env reached a unit's output. The mod refuses the dumps it can see (hooks/register.test.ts);
+# the unit's own line covers the reads it cannot.
+need "unit-never-prints-env-values"       'values from `.env` files never appear in' "$UNIT"
+need "spec-template-cadence-field"        'full_test_cadence: per-candidate|per-batch' "$SPEC_TEMPLATE"
+need "run-reads-the-cadence"              '`full_test_cadence`' "$RUN"
+# Containers, dev servers and browser sessions outlived /run. The report line makes what is left over
+# a stated fact instead of a silence.
+need "run-reports-its-resources"          'resources: closed | retained <what, and why> | none' "$RUN"
+# merge.sh reads these tags (tests/flow/test_merge.sh); the producer has to keep writing them, and the
+# publisher has to post what the producer wrote rather than a record of its own.
+need "verify-record-tags-the-instrument"  '[browser|api|test|cli] <what was run>' "$VERIFY"
+need "verify-record-keeps-not-proved"     'NOT PROVED: <what is missing' "$VERIFY"
+need "run-posts-the-record-verbatim"      'Publish the record verify-feature returned, verbatim' "$RUN"
+# Opus ran in about half of all units on "genuinely hard from the start", which any slice can claim.
+# Both admitted reasons leave a line a reader can check.
+need "placement-opus-reason-line"         'Opus-reason: <the failed check and its output | the plan' "$PLACEMENT"
+need "plan-template-marks-opus-slices"    'Model: opus — <why' "$ROOT/plugins/cc-tuner/skills/spec/plan-template.md"
+if grep -qF 'genuinely hard' "$PLACEMENT"; then
+  echo "FAIL placement-opus-has-an-open-criterion"; fails=1
+else
+  echo "PASS placement-opus-needs-evidence"
+fi
 # A second provider's research is optional and decided before discovery, so it overlaps the reading;
 # asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
 need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"
@@ -91,6 +120,19 @@ need "run-asks-for-safe-batches"    'plan-lint.sh" ready-batches' "$RUN"
 need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
+# The template loads in every session. Its trailer paragraph described a failure and gave no action;
+# CI-mode detail is local-ci.md's. Both are pinned out, and the size is held near what it now is.
+need "template-trailer-line-is-an-action" 'ask once and record the answer in `task-flow.local.md`' "$RULE_TEMPLATE"
+if grep -qF 'none:<reason>' "$RULE_TEMPLATE"; then
+  echo "FAIL template-restates-ci-modes"; fails=1
+else
+  echo "PASS template-leaves-ci-modes-to-local-ci"
+fi
+template_words="$(wc -w < "$RULE_TEMPLATE" | tr -d ' ')"
+[ "$template_words" -le 650 ] && echo "PASS template-stays-small ($template_words words)" \
+  || { echo "FAIL template-stays-small ($template_words words; keep it <= 650)"; fails=1; }
+# One general instruction was replayed as `renew --by` six times on one thread.
+need "run-renew-needs-this-threads-agreement" 'in this conversation, to more rounds of this thread' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>' "$RUN"
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"
@@ -142,6 +184,15 @@ need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-is-not-for-small-work" 'do not use for an ordinary small task' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
+# 26 to 43 lenses ran against a stated 18, and the cost line asked for "current rates" the agent does
+# not have. The limit and the printed line are what a user sees before paying.
+need "deep-review-lens-limit"         '**The limit is 18 lenses**' "$DEEP_REVIEW"
+need "deep-review-prints-the-fan-out" 'deep-review: <n> lenses × <model> × effort <effort>' "$DEEP_REVIEW"
+if grep -qF 'current rates' "$DEEP_REVIEW" "$PLACEMENT"; then
+  echo "FAIL deep-review-asks-for-unknown-prices"; fails=1
+else
+  echo "PASS deep-review-cost-needs-a-source"
+fi
 if grep -q '<tree SHA>' "$DEEP_REVIEW"; then
   echo "FAIL deep-review-still-requires-derived-tree-sha"
   fails=1

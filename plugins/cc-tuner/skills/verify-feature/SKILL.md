@@ -74,14 +74,25 @@ that directly exercises it. A plausible diff or an unrelated green suite is not 
 
 ## 5. Hand back
 
-Return a short record `/run` publishes as one PR comment. Its first line is what `merge.sh` looks
-for, so it names the full SHA the checks ran against:
+Return a short record `/run` publishes verbatim as one PR comment. Its first line names the full SHA
+the checks ran against; every line after it is one criterion, tagged with the instrument that
+observed it:
 
 ```text
 cc-tuner-verified: <full sha>
-  <criterion>  —  <what was run>  →  <what was observed>
+  <criterion>  —  [browser|api|test|cli] <what was run>  →  <what was observed>
   <criterion>  —  NOT PROVED: <what is missing, and what would be needed>
 ```
+
+- `[browser]` — you drove the running UI and looked;
+- `[api]` — a real request through the changed path;
+- `[test]` — an automated test that exercises the criterion;
+- `[cli]` — any other command and its output: a build artefact, a migration on a disposable copy, a
+  diff or lint check.
+
+The tag is what you used, so a screen criterion proved by `[test]` reads as exactly that to the
+reviewer. `merge.sh` refuses a record with no tagged or `NOT PROVED` line and prints every
+`NOT PROVED` line at merge.
 
 Run e2e suites, full builds and other heavy checks as
 [placement.md](../run/references/placement.md#heavy-checks) defines.

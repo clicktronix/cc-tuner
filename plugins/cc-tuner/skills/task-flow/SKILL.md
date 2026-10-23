@@ -138,8 +138,9 @@ and the fix is to open the PR, not to erase the evidence.
 
 The message format, including attribution trailers, comes from the first of these that answers:
 `.claude/rules/task-flow.local.md`, `.claude/rules/task-flow.md`, `AGENTS.md`/`CLAUDE.md`/
-`CONTRIBUTING.md`, the shape of recent history. Only a repository silent in all four gets the
-harness default. This section is the single owner of that order; `/spec` and `/run` point here.
+`CONTRIBUTING.md`, the shape of recent history. For trailers in a repository silent in all four, ask
+the user once and record the answer in `task-flow.local.md`. This section is the single owner of
+that order; `/spec` and `/run` point here.
 
 **Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
 carries `Co-Authored-By:` or a session trailer is a preference: some repositories want the authorship

@@ -174,13 +174,22 @@ esac
 
 # The feature was exercised: verify-feature's record, for a commit the head contains. Fix commits
 # after verification do not force a new record; the evidence-reuse rule in /run decides that.
-VERIFIED_SHA="$(printf '%s' "$TRUSTED" | jq -r '
-  [ .comments[]? | ((.body // "") | (split("\n")[0] // "") | sub("[ \t\r]+$"; ""))
-    | select(test("^cc-tuner-verified: [0-9a-f]{40}( |$)")) | split(" ")[1] ] | last // ""')"
+VERIFY_RECORD="$(printf '%s' "$TRUSTED" | jq -r '
+  [ .comments[]? | (.body // "") | gsub("\r"; "")
+    | select((split("\n")[0] // "") | sub("[ \t]+$"; "") | test("^cc-tuner-verified: [0-9a-f]{40}( |$)")) ]
+  | last // ""')"
+VERIFIED_SHA="$(printf '%s\n' "$VERIFY_RECORD" | head -n 1 | cut -d' ' -f2)"
 [ -n "$VERIFIED_SHA" ] \
   || die "no verify-feature record on $PR — post its hand-back as a comment whose first line is: cc-tuner-verified: <full sha it verified>"
 git -C "$MERGE_ROOT" merge-base --is-ancestor "$VERIFIED_SHA" "$HEAD_SHA" 2>/dev/null \
   || die "the verify-feature record names $VERIFIED_SHA, which the head $HEAD_SHA does not contain — verify the current candidate"
+# A marker line alone is a claim, not a record: a criterion line names the instrument that observed it,
+# or says NOT PROVED. Unproved criteria do not block here (/run decides what they mean), but they are
+# printed, so the merge log shows what shipped unproved.
+CRITERIA="$(printf '%s\n' "$VERIFY_RECORD" | sed 1d | grep -E '\[(browser|api|test|cli)\]|NOT PROVED' || true)"
+[ -n "$CRITERIA" ] \
+  || die "the verify-feature record for $VERIFIED_SHA has no criterion lines — post verify-feature's hand-back verbatim: one line per criterion, tagged [browser], [api], [test] or [cli], or marked NOT PROVED"
+printf '%s\n' "$CRITERIA" | grep 'NOT PROVED' | sed 's/^[[:space:]]*/cc-tuner merge: verify-feature did not prove: /' >&2
 
 # CI: zero checks is not green. required = GitHub's required checks; any = every reported check;
 # none:<reason> = honoured only when nothing is reported and a local result is on record.

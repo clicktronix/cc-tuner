@@ -6,6 +6,8 @@
 Replace both headers and every slice below. Two slices are shown so the `Blocked by` edge is visible;
 a real plan has as many as the work needs. `Owned paths: <REPLACE_ME>` is a required slot, not an
 example: replace it using the grammar from `plan-lint.sh --help`, then run `plan-lint.sh check`.
+A slice that needs Opus from the start gets one more line under `Delivers:`, `Model: opus — <why
+Sonnet would fail it>`; every other slice runs on Sonnet.
 
 ## Slice 1 — <what this slice makes work>
 Blocked by: none
