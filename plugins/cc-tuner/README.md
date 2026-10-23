@@ -81,9 +81,10 @@ owner validates findings and coverage before required Codex review of the final 
 
 The shared `review-diff.sh` reader keeps inventory and packets consistent. `shard-diff.sh` validates
 actual packet coverage and size before dispatch. Four file-local lenses run per shard; Specification
-and Architecture each cover the whole candidate. Four shards is the default cap, which the owner
-may explicitly raise. The [deep-review procedure](skills/deep-review/SKILL.md) owns the accepted
-partition, reviewer count and current cost estimate; historical spawn figures are not a price guarantee.
+and Architecture each cover the whole candidate. The limit is 18 lenses (four shards) unless the user
+raises it in the conversation. The [deep-review procedure](skills/deep-review/SKILL.md) owns the
+accepted partition and the line printed before dispatch — lens count, model and effort, with a dollar
+figure only from a source the owner can name.
 
 ### `verify-feature`
 
@@ -96,7 +97,8 @@ would show this change working, and did it? — from the change in front of it:
 3. choose the instrument per behaviour — a screen is opened and interacted with, an endpoint gets a
    real request, a schema change is applied to a disposable copy and its data and constraints read,
    a calculation gets the inputs that used to be wrong;
-4. run it and record **what was observed**, not that it works.
+4. run it and record **what was observed**, not that it works, each line tagged with the instrument
+   that observed it (`[browser]`, `[api]`, `[test]`, `[cli]`) or marked `NOT PROVED`.
 
 Evidence must directly decide the criterion: lint can prove formatting, an approved non-code diff
 check can prove a documentation edit, and an existing test can prove the behaviour it exercises.
@@ -133,7 +135,8 @@ ticks it off in the committed file, synchronizes an advanced target and archives
 candidate review. It chooses Matt Pocock review for ordinary changes or `cc-tuner:deep-review` for
 large or sensitive changes, then obtains the required review the spec names — Codex's by default,
 or none with a recorded reason — at the exact final SHA. It publishes the verdict on the pull request,
-requires verify-feature's record for a commit the head contains, and merges only with green CI on that same
+requires verify-feature's record, with at least one criterion line, for a commit the head contains
+(printing its `NOT PROVED` lines), and merges only with green CI on that same
 commit — under the mode the spec declared — and `--match-head-commit` pinning it. Implementation may
 be handed to subagents the run dispatches itself, one per slice, as `cc-tuner:slice-unit` — the
 plugin's second agent definition, whose `maxTurns: 300` is what turns an over-long slice into a
