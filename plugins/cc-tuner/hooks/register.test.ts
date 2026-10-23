@@ -71,6 +71,7 @@ test('a variable dump is refused however the shell spells it', async ($, on) => 
     `printf '%s\\n' "$(printf ')'; env)"`, 'echo "x$(echo "$(env)")"', 'echo `echo \\`env\\``',
     'command -p env', 'command -v env; env', 'command -v "$(env)"',
     "cat <<$(printf EOF)\n\n'$(env)'\n$(printf EOF)", 'cat <<$(printf EOF)\n$(env)\n$(printf EOF)',
+    "cat <<$(printf EOF>/dev/null)\n\n'$(env)'\n$(printf EOF>/dev/null)",
   ]
 
   for (const command of dumps) {
@@ -88,7 +89,7 @@ test('commands that only name variables, set them, or quote the word pass', asyn
     "cat <<'EOF' > notes.md\nrun env first\nset\nEOF", 'cat <<-EOF\n\tenv\n\tEOF\necho done',
     'cat <<EOF\n\\$(env) and \\`env\\`\nEOF', `printf '%s\\n' "$(printf ')')"`, 'echo "\\$(env)"', 'cat <<< "env"',
     'command -v env', 'command -V printenv', 'command -pv env', 'cat <<$(env)\nhello\n$(env)',
-    'cat <<"$(env)"\n$(env) stays text\n$(env)',
+    'cat <<"$(env)"\n$(env) stays text\n$(env)', 'cat <<$(cat</dev/null;env)\nhello\n$(cat</dev/null;env)',
   ]
 
   for (const command of allowed) {

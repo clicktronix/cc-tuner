@@ -152,10 +152,13 @@ function commands(text: string): Simple[] {
     const op = /^(<<-|<<<|<<|<>|<&|>>|>&|>\||<|>)/.exec(text.slice(i))![0]
     i += op.length
     while (text[i] === ' ' || text[i] === '\t') i++
-    literal = op === '<<' || op === '<<-'
+    const heredoc = op === '<<' || op === '<<-'
+    const outer = literal
+    literal = outer || heredoc
     const target = word()
-    literal = false
-    if (op === '<<' || op === '<<-') heredocs.push({ end: target, tabs: op === '<<-', quoted })
+    literal = outer
+    if (outer) return
+    if (heredoc) heredocs.push({ end: target, tabs: op === '<<-', quoted })
     else if (op === '<' || op === '<>') current.inputs.push(target)
   }
 
