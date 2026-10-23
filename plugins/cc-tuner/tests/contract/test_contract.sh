@@ -117,6 +117,8 @@ need "run-asks-for-safe-batches"    'plan-lint.sh" ready-batches' "$RUN"
 need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
+# One general instruction was replayed as `renew --by` six times on one thread.
+need "run-renew-needs-this-threads-agreement" 'in this conversation, to more rounds of this thread' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>' "$RUN"
 need "run-merges-through-the-script" 'scripts/merge.sh' "$RUN"
 need "run-codex-required-review"    '--required' "$RUN"

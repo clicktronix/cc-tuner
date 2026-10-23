@@ -239,7 +239,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    | verdict owner | cc-codex-triage `--required` at the exact SHA, one task-specific `--thread` for all rounds and `merge.sh`, in the candidate worktree | you: after step 2's findings are fixed or refuted with `file:line` evidence, you judge the candidate |
    | after a fix commit | a new required round on the new SHA | re-check the affected findings on the new SHA, not a new fan-out, then judge again |
    | deep-review `INCOMPLETE` | name the unread lenses/paths in the round's brief | read those paths yourself before judging, or ask the user to accept the gap |
-   | review cap (`--cap`, default 5) | stop paid rounds, keep fixing what is safe, ask the user once: more rounds (`review-state.sh renew <thread> --by <who>`, same thread) or merge on their decision | — |
+   | review cap (`--cap`, default 5) | stop paid rounds, keep fixing what is safe, ask the user once: more rounds (`review-state.sh renew <thread> --by <who>`, same thread) or merge on their decision. `--by` names who agreed, in this conversation, to more rounds of this thread; one yes covers one renew | — |
    | user decides to merge without an approval | merge under `--review 'none:<who> decided at the cap'` with a decision record (step 4) | decision record (step 4) |
 
    An advisory review that returns reports rather than a verdict (Standards and Spec) is input to the
