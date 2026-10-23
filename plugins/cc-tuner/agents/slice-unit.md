@@ -28,6 +28,10 @@ A container you start follows the Runtime cleanup section of
 `${CLAUDE_PLUGIN_ROOT}/skills/task-flow/SKILL.md`; read it before starting one. Your part of it:
 TaskStop everything you started before you return.
 
+Keep secret values out of everything you print and return: values from `.env` files never appear in
+your output. Check that a variable is set with `printenv NAME | wc -c`, and read a `.env` file's key
+names with `cut -d= -f1 <file>`.
+
 Commit with the repository's conventions after every green step. Do not push, open or comment on a
 pull request, merge, or claim approval.
 

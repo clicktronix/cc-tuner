@@ -48,6 +48,9 @@ need "placement-caps-the-active-set" 'counts running units' "$PLACEMENT"
 # reads placement. full_test_cadence is a Run config field: spec writes it, plan-lint checks it, /run reads it.
 need "placement-unit-runs-focused-checks" 'A unit runs focused checks' "$PLACEMENT"
 need "unit-build-only-as-deciding-check"  "only when it is the slice's deciding" "$UNIT"
+# A copied .env reached a unit's output. The mod refuses the dumps it can see (hooks/register.test.ts);
+# the unit's own line covers the reads it cannot.
+need "unit-never-prints-env-values"       'values from `.env` files never appear in' "$UNIT"
 need "spec-template-cadence-field"        'full_test_cadence: per-candidate|per-batch' "$SPEC_TEMPLATE"
 need "run-reads-the-cadence"              '`full_test_cadence`' "$RUN"
 # Containers, dev servers and browser sessions outlived /run. The report line makes what is left over

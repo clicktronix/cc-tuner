@@ -27,8 +27,39 @@ async function showModels($: EngineInterface) {
   $.ui.status(counts.size === 0 ? undefined : `subagents: ${[...counts].map(([m, n]) => `${n} ${m}`).join(' · ')}`)
 }
 
+// A printed secret is in the transcript for good, so this one effect is refused at the call rather
+// than left to prose: a bare `env`, `printenv`, `set` or `export` dumps every variable with its value,
+// and reading a `.env` file prints its values. Each refusal names the command that answers the same
+// question without the values. Committed templates (`.env.example`) hold none and stay readable.
+const DUMPS = /^(env|printenv|set|export)$/
+const NAMES_ONLY = /^cut\s+(-d\s*['"]?=['"]?\s+-f\s*1|-f\s*1\s+-d\s*['"]?=['"]?)(\s|$)/
+const READERS = /^(cat|head|tail|less|more|bat)$/
+const ENV_FILE = /(^|\/)\.env(\.[\w.-]+)?$/
+const TEMPLATE = /\.(example|sample|template|dist)$/
+
+function secretLeak(command: string): string | undefined {
+  for (const chain of command.split(/&&|\|\||;|\n/)) {
+    const pipeline = chain.split('|').map(segment => segment.trim())
+    for (const [i, segment] of pipeline.entries()) {
+      if (DUMPS.test(segment) && !NAMES_ONLY.test(pipeline[i + 1] ?? '')) {
+        return `cc-tuner: a bare \`${segment}\` prints every variable's value, secrets included, into the transcript. ` +
+          'Check one is set with `printenv NAME | wc -c`; list names only with `env | cut -d= -f1`.'
+      }
+      const [reader, ...args] = segment.split(/\s+/)
+      const file = args.map(arg => arg.replace(/^['"]|['"]$/g, '')).find(arg => ENV_FILE.test(arg) && !TEMPLATE.test(arg))
+      if (reader !== undefined && READERS.test(reader) && file !== undefined) {
+        return `cc-tuner: \`${reader} ${file}\` prints secret values into the transcript. ` +
+          `List its keys with \`cut -d= -f1 ${file}\`; check one is set with \`grep -c '^NAME=' ${file}\`.`
+      }
+    }
+  }
+  return undefined
+}
+
 export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const leak = secretLeak(e.command)
+    if (leak !== undefined) return { deny: leak }
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true && ran.result.backgroundTaskId) {
       started.add(ran.result.backgroundTaskId)

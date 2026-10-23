@@ -50,6 +50,49 @@ test('exit leaves stopping to Claude Code', async ($, on) => {
   expect(stopped).toEqual([])
 })
 
+// Stubs Bash and records every command that got past the guard.
+function reached(on: On) {
+  const ran: string[] = []
+  on('tool.call', { tool: 'Bash' }, (_, e) => {
+    ran.push(e.command)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  return ran
+}
+
+test('a bare environment dump is refused with a safe alternative', async ($, on) => {
+  const ran = reached(on)
+
+  for (const command of ['env', 'printenv', 'set', ' export ', 'cd app && env', 'env | grep TOKEN']) {
+    const { deny } = await $.tool.call({ tool: 'Bash', command })
+    expect(deny).toContain('printenv NAME | wc -c')
+  }
+  expect(ran).toEqual([])
+})
+
+test('commands that only name variables or set them pass', async ($, on) => {
+  const ran = reached(on)
+  const allowed = ['env FOO=1 cmd', 'printenv HOME', 'set -euo pipefail', 'env | cut -d= -f1', 'export FOO=1']
+
+  for (const command of allowed) {
+    const { deny } = await $.tool.call({ tool: 'Bash', command })
+    expect(deny).toBeUndefined()
+  }
+  expect(ran).toEqual(allowed)
+})
+
+test('printing a .env file is refused, its template is not', async ($, on) => {
+  const ran = reached(on)
+
+  for (const command of ['cat .env', 'head -n 5 apps/web/.env.local', "tail '.env.production'"]) {
+    const { deny } = await $.tool.call({ tool: 'Bash', command })
+    expect(deny).toContain('cut -d= -f1')
+  }
+  await $.tool.call({ tool: 'Bash', command: 'cat .env.example' })
+  await $.tool.call({ tool: 'Bash', command: 'cat src/environment.ts' })
+  expect(ran).toEqual(['cat .env.example', 'cat src/environment.ts'])
+})
+
 test('a foreground command records nothing', async ($, on) => {
   const stopped = stub(on)
 
