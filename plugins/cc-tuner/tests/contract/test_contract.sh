@@ -58,6 +58,15 @@ need "run-reports-its-resources"          'resources: closed | retained <what, a
 need "verify-record-tags-the-instrument"  '[browser|api|test|cli] <what was run>' "$VERIFY"
 need "verify-record-keeps-not-proved"     'NOT PROVED: <what is missing' "$VERIFY"
 need "run-posts-the-record-verbatim"      'Publish the record verify-feature returned, verbatim' "$RUN"
+# Opus ran in about half of all units on "genuinely hard from the start", which any slice can claim.
+# Both admitted reasons leave a line a reader can check.
+need "placement-opus-reason-line"         'Opus-reason: <the failed check and its output | the plan' "$PLACEMENT"
+need "plan-template-marks-opus-slices"    'Model: opus — <why' "$ROOT/plugins/cc-tuner/skills/spec/plan-template.md"
+if grep -qF 'genuinely hard' "$PLACEMENT"; then
+  echo "FAIL placement-opus-has-an-open-criterion"; fails=1
+else
+  echo "PASS placement-opus-needs-evidence"
+fi
 # A second provider's research is optional and decided before discovery, so it overlaps the reading;
 # asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
 need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"

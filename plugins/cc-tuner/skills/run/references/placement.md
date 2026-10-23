@@ -96,12 +96,13 @@ configures neither. The ladder:
 
 - **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
   runs on, so a Fable or `max` orchestrator does not multiply every unit's cost.
-- **Opus when the slice needs it** (`model: "opus", effort: "medium"`), chosen by the orchestrator
-  without asking: a slice that is genuinely hard from the start, or a retry after the same deciding
-  check failed twice, with the failure evidence in the brief. Pass the effort explicitly: medium is
-  Opus's own API default, and without it the unit's definition would run Opus at high. Say which
-  slice ran on Opus and why in the run log. After an Opus attempt fails, the orchestrator takes the
-  slice.
+- **Opus on evidence** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
+  asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
+  failure output in the brief; or a slice the plan marks `Model: opus — <reason>`. Write the reason
+  as one line in the brief and beneath the slice in the plan, where `Evidence:` lines go:
+  `Opus-reason: <the failed check and its output | the plan's reason>`. Pass the effort explicitly:
+  medium is Opus's own API default, and without it the unit's definition would run Opus at high.
+  After an Opus attempt fails, the orchestrator takes the slice.
 - **Fable only for the orchestrator.** A unit or reader on Fable needs the user's explicit decision.
 - **Readers: Haiku** (`model: "haiku", effort: "high"`) for a bounded read-only question with a
   literal answer — locate, extract, list, summarise named files or command output. It is the
