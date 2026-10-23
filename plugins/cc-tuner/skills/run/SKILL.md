@@ -210,8 +210,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
      public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
      infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
      fixtures and configuration count when they decide behaviour on these surfaces. Deep-review owns
-     packet preparation, sharding and the reviewer count; use its accepted partition to state cost
-     before dispatch.
+     packet preparation, sharding, the lens limit and the line it prints before dispatch.
    - Otherwise `mattpocock-skills:code-review`: dispatch exactly its two subagents, Standards and
      Spec, each with `model: "sonnet"`, and keep their reports separate. Fix a documented-standard or
      spec finding once validated, and a code smell only when you agree it costs something here; list

@@ -43,8 +43,8 @@ thresholds; binary changes and pure renames still count as files. These are not 
 
 The script also reads the actual filtered packets and checks their budgets and exact combined
 coverage. Git errors, unsupported filenames, oversized atomic changes, unsatisfied caps or changed
-coverage refuse with empty stdout. Do not treat refusal as single mode. Choose a larger budget/cap
-explicitly when context and cost permit, or report incomplete coverage. Never silently skip a
+coverage refuse with empty stdout. Do not treat refusal as single mode. Raise `--files`/`--lines`
+when context permits, raise `--max` only within the lens limit below, or report incomplete coverage. Never silently skip a
 lockfile or generated artifact. Binary contents and changed submodule revisions require appropriate
 inspection beyond the marker/gitlink.
 
@@ -76,10 +76,17 @@ Run these lenses independently:
 
 In single mode all six read the full packet. In sharded mode, Correctness, Standards, Security and
 Tests run per shard; Specification and Architecture each read the whole candidate. The total is
-`shards × 4 + 2`: 18 at the default four-shard cap, more if the owner explicitly raises it. Calculate
-from the accepted result. State model, effort, concurrency and estimated USD using current rates
-and token assumptions before dispatch; label unknown pricing as unknown. Historical general-purpose
-spawn measurements are not current restricted-lens estimates.
+`shards × 4 + 2`, calculated from the accepted result. **The limit is 18 lenses** (the default
+four-shard cap) unless the user raised it in this conversation.
+
+Before dispatch, print one line and keep it in the review summary:
+
+```text
+deep-review: <n> lenses × <model> × effort <effort>, <concurrency> at a time; cost: <$ figure and its source | unknown>
+```
+
+A dollar figure comes only from a source you can name in this session: a price the user gave, or the
+measured usage of the same lens type and model. Everything else is `cost: unknown`.
 
 Dispatch independent readers together within available host slots; queue remaining jobs in bounded
 batches. They never cut their own shards or delegate. One owner aggregates all returns. A timeout,

@@ -28,7 +28,8 @@ sessions do not exhaust memory together. Candidate acceptance and delivery remai
 Independent read-only review is the exception to sequential review: its own skill defines the
 reviewers and packets, while one owner aggregates. `deep-review` owns its agent availability and
 coverage refusals. Model/cost anecdotes are in [case studies](../../task-flow/references/case-studies.md),
-not dispatch thresholds. Estimate the actual model/effort and input/output cost before paid fan-out.
+not dispatch thresholds. Before paid fan-out, state the count, model and effort; a dollar figure
+needs a source you can name.
 
 ## Heavy checks
 

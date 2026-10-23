@@ -168,6 +168,15 @@ need "deep-review-no-cap" 'never stop at an arbitrary count' "$DEEP_REVIEW"
 need "deep-review-is-not-for-small-work" 'do not use for an ordinary small task' "$DEEP_REVIEW"
 need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_REVIEW"
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
+# 26 to 43 lenses ran against a stated 18, and the cost line asked for "current rates" the agent does
+# not have. The limit and the printed line are what a user sees before paying.
+need "deep-review-lens-limit"         '**The limit is 18 lenses**' "$DEEP_REVIEW"
+need "deep-review-prints-the-fan-out" 'deep-review: <n> lenses × <model> × effort <effort>' "$DEEP_REVIEW"
+if grep -qF 'current rates' "$DEEP_REVIEW" "$PLACEMENT"; then
+  echo "FAIL deep-review-asks-for-unknown-prices"; fails=1
+else
+  echo "PASS deep-review-cost-needs-a-source"
+fi
 if grep -q '<tree SHA>' "$DEEP_REVIEW"; then
   echo "FAIL deep-review-still-requires-derived-tree-sha"
   fails=1
