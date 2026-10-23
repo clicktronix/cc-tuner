@@ -18,8 +18,8 @@ delivery; starting the command is not that request.
 
 ## Before starting
 
-Previews, dedicated MCP servers and test containers follow `task-flow`'s Runtime cleanup: stop
-them before the final answer, including a blocked delivery or handoff.
+Start previews, dedicated MCP servers and test containers as `task-flow`'s Runtime cleanup says;
+[Ending the run](#ending-the-run) stops them.
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
 DoD. If the argument is missing or names the plan instead, take the spec from the resolved plan's
@@ -296,3 +296,14 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
    are complete. Do not commit a completion record directly to an integration target.
+
+## Ending the run
+
+Every final answer — after the merge, at the handoff before it, or on a block — first stops what this
+run started: TaskStop each background task (previews, dev servers, dedicated MCP servers), close the
+browser pages it opened, and remove each container it created, by the name or label it gave it.
+Something the user asked to keep running stays. The answer then carries one line:
+
+```text
+resources: closed | retained <what, and why> | none
+```

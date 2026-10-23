@@ -49,6 +49,9 @@ need "placement-unit-runs-focused-checks" 'A unit runs focused checks' "$PLACEME
 need "unit-build-only-as-deciding-check"  "only when it is the slice's deciding" "$UNIT"
 need "spec-template-cadence-field"        'full_test_cadence: per-candidate|per-batch' "$SPEC_TEMPLATE"
 need "run-reads-the-cadence"              '`full_test_cadence`' "$RUN"
+# Containers, dev servers and browser sessions outlived /run. The report line makes what is left over
+# a stated fact instead of a silence.
+need "run-reports-its-resources"          'resources: closed | retained <what, and why> | none' "$RUN"
 # A second provider's research is optional and decided before discovery, so it overlaps the reading;
 # asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
 need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"
