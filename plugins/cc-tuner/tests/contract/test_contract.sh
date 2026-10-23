@@ -120,6 +120,17 @@ need "run-asks-for-safe-batches"    'plan-lint.sh" ready-batches' "$RUN"
 need "spec-trailers-from-the-repo" 'attribution trailers, comes from' "$SPEC"
 need "task-flow-owns-the-trailer-rule" 'Attribution trailers are the repository' "$TASK_FLOW"
 need "template-has-a-trailer-line"     '**Attribution trailers:**' "$RULE_TEMPLATE"
+# The template loads in every session. Its trailer paragraph described a failure and gave no action;
+# CI-mode detail is local-ci.md's. Both are pinned out, and the size is held near what it now is.
+need "template-trailer-line-is-an-action" 'ask once and record the answer in `task-flow.local.md`' "$RULE_TEMPLATE"
+if grep -qF 'none:<reason>' "$RULE_TEMPLATE"; then
+  echo "FAIL template-restates-ci-modes"; fails=1
+else
+  echo "PASS template-leaves-ci-modes-to-local-ci"
+fi
+template_words="$(wc -w < "$RULE_TEMPLATE" | tr -d ' ')"
+[ "$template_words" -le 650 ] && echo "PASS template-stays-small ($template_words words)" \
+  || { echo "FAIL template-stays-small ($template_words words; keep it <= 650)"; fails=1; }
 # One general instruction was replayed as `renew --by` six times on one thread.
 need "run-renew-needs-this-threads-agreement" 'in this conversation, to more rounds of this thread' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>' "$RUN"
