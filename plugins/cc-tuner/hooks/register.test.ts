@@ -60,19 +60,29 @@ function reached(on: On) {
   return ran
 }
 
-test('a bare environment dump is refused with a safe alternative', async ($, on) => {
+test('a variable dump is refused however the shell spells it', async ($, on) => {
   const ran = reached(on)
+  const dumps = [
+    'env', 'printenv', 'set', ' export ', 'export -p', 'declare -x', 'typeset',
+    'cd app && env', 'env | grep TOKEN', 'env | cut -d= -f1',
+    'env # inspect configured variables', 'printenv 2>/dev/null', 'env -i', 'env -u HOME', 'env FOO=1',
+    'FOO=1 env', 'command env', '(env)', 'echo "$(printenv)"', 'x=`env`', 'true;\\\nenv',
+  ]
 
-  for (const command of ['env', 'printenv', 'set', ' export ', 'cd app && env', 'env | grep TOKEN']) {
+  for (const command of dumps) {
     const { deny } = await $.tool.call({ tool: 'Bash', command })
-    expect(deny).toContain('printenv NAME | wc -c')
+    expect(deny).toContain("awk 'BEGIN { for (k in ENVIRON) print k }'")
   }
   expect(ran).toEqual([])
 })
 
-test('commands that only name variables or set them pass', async ($, on) => {
+test('commands that only name variables, set them, or quote the word pass', async ($, on) => {
   const ran = reached(on)
-  const allowed = ['env FOO=1 cmd', 'printenv HOME', 'set -euo pipefail', 'env | cut -d= -f1', 'export FOO=1']
+  const allowed = [
+    'env FOO=1 cmd', 'env -u HOME cmd', 'printenv HOME', 'printenv NAME | wc -c', 'set -euo pipefail', 'export FOO=1',
+    "awk 'BEGIN { for (k in ENVIRON) print k }'", "printf '%s\\n' 'a; env; b'", 'echo "env"', 'git log --grep=env',
+    "cat <<'EOF' > notes.md\nrun env first\nset\nEOF", 'cat <<-EOF\n\tenv\n\tEOF\necho done',
+  ]
 
   for (const command of allowed) {
     const { deny } = await $.tool.call({ tool: 'Bash', command })
@@ -81,16 +91,23 @@ test('commands that only name variables or set them pass', async ($, on) => {
   expect(ran).toEqual(allowed)
 })
 
+test('an unquoted heredoc still runs its substitutions', async ($, on) => {
+  reached(on)
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'cat <<EOF\n$(env)\nEOF' })
+  expect(deny).toContain('printenv NAME | wc -c')
+})
+
 test('printing a .env file is refused, its template is not', async ($, on) => {
   const ran = reached(on)
 
-  for (const command of ['cat .env', 'head -n 5 apps/web/.env.local', "tail '.env.production'"]) {
+  for (const command of ['cat .env', 'head -n 5 apps/web/.env.local', "tail '.env.production'", 'cat .env*', 'cat .env 2>/dev/null # peek']) {
     const { deny } = await $.tool.call({ tool: 'Bash', command })
-    expect(deny).toContain('cut -d= -f1')
+    expect(deny).toContain("grep -c '^NAME=' ")
+    expect(deny).not.toContain('cut -d=')
   }
-  await $.tool.call({ tool: 'Bash', command: 'cat .env.example' })
-  await $.tool.call({ tool: 'Bash', command: 'cat src/environment.ts' })
-  expect(ran).toEqual(['cat .env.example', 'cat src/environment.ts'])
+  const allowed = ['cat .env.example', 'cat src/environment.ts', "echo 'cat .env'"]
+  for (const command of allowed) await $.tool.call({ tool: 'Bash', command })
+  expect(ran).toEqual(allowed)
 })
 
 test('a foreground command records nothing', async ($, on) => {

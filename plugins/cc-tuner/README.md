@@ -69,9 +69,12 @@ hand-maintained copy.
 Previews, dedicated MCP servers and test containers run as Bash background tasks, which Claude Code
 stops when the session exits. A `/clear` does not stop them, so the plugin's hooks module
 (`hooks/register.ts`, a Claude Code mod) stops the ones Bash started in the cleared conversation.
-The same module refuses a Bash command that would print secret values into the transcript — a bare
-`env`, `printenv`, `set` or `export`, or `cat`/`head`/`tail` of a `.env` file — and names the
-command that answers the same question without the values.
+The same module refuses a Bash command that would print secret values into the transcript —
+`env`, `printenv`, `set`, `export`, `declare` or `typeset` with nothing to run or name, or
+`cat`/`head`/`tail`/`less`/`more`/`bat` of a `.env` file — wherever the shell would run it (after
+`&&`, in a pipe, a subshell or `$(…)`), reading comments, redirections, quotes and heredocs the way
+the shell does, and names commands that answer the same question
+without printing a value, even one that spans lines.
 
 ### `deep-review`
 
