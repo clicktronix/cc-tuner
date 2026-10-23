@@ -39,6 +39,7 @@ const DUMPS = new Set(['env', 'printenv', 'set', 'export', 'declare', 'typeset']
 const READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'bat'])
 const PREFIXES = new Set(['!', '{', '}', 'if', 'then', 'elif', 'else', 'while', 'until', 'do', 'time', 'command', 'builtin', 'exec'])
 const WRAPPERS = new Set(['command', 'builtin', 'exec'])
+const LOOKUP = /^-[pvV]*[vV][pvV]*$/
 const ASSIGNMENT = /^[A-Za-z_]\w*=/
 const ENV_FILE = /(^|\/)\.env([.*?[][\w.*?[\]-]*)?$/
 const TEMPLATE = /\.(example|sample|template|dist)$/
@@ -46,8 +47,9 @@ const TEMPLATE = /\.(example|sample|template|dist)$/
 // The simple commands shell text would run, each as its words with quotes and escapes resolved and
 // the files it reads on stdin (`< file`). One reader handles every place the shell expands text —
 // words, double quotes, unquoted heredoc bodies, redirection targets — so a $( … ) or backquote is
-// scanned as commands of its own wherever it sits, and an escaped one stays literal. Comments,
-// quoted heredoc bodies and other redirections drop out.
+// scanned as commands of its own wherever it sits, and an escaped one stays literal. A heredoc
+// delimiter is read the same way but, as in the shell, only loses its quotes: a $( … ) in it is
+// text. Comments, quoted heredoc bodies and other redirections drop out.
 interface Simple { words: string[]; inputs: string[] }
 const METACHARS = ' \t\n;&|()<>'
 
@@ -56,6 +58,7 @@ function commands(text: string): Simple[] {
   const heredocs: { end: string; tabs: boolean; quoted: boolean }[] = []
   let i = 0
   let quoted = false
+  let literal = false
 
   // A command list from i; nested, it stops after the `)` that closes its $(.
   function list(nested: boolean) {
@@ -86,24 +89,26 @@ function commands(text: string): Simple[] {
   // One word up to the next unquoted metacharacter.
   function word(): string {
     let out = ''
-    quoted = false
+    let q = false
     while (i < text.length && !METACHARS.includes(text[i]!)) {
       const c = text[i]!
+      const start = i
       if (c === "'") {
-        quoted = true
+        q = true
         const close = text.indexOf("'", i + 1)
         out += text.slice(i + 1, close === -1 ? text.length : close)
         i = close === -1 ? text.length : close + 1
       } else if (c === '"') {
-        quoted = true
+        q = true
         i++
         out += expand('"', text.length)
       } else if (c === '\\') {
-        quoted = true
+        q = true
         if (text[i + 1] !== '\n') out += text[i + 1] ?? ''
         i += 2
-      } else if (!substitution()) { out += c; i++ }
+      } else if (substitution()) { if (literal) out += text.slice(start, i) } else { out += c; i++ }
     }
+    quoted = q
     return out
   }
 
@@ -114,19 +119,22 @@ function commands(text: string): Simple[] {
     while (i < limit) {
       const c = text[i]!
       if (c === close) { i++; return out }
+      const start = i
       if (c === '\\' && escapable.includes(text[i + 1] ?? '')) {
         if (text[i + 1] !== '\n') out += text[i + 1]
         i += 2
-      } else if (!substitution()) { out += c; i++ }
+      } else if (substitution()) { if (literal) out += text.slice(start, i) } else { out += c; i++ }
     }
     return out
   }
 
-  // At $( or a backquote: scans the body as commands and moves past it.
+  // At $( or a backquote: scans the body as commands and moves past it, keeping them unless literal.
   function substitution(): boolean {
+    const kept = found.length
     if (text.startsWith('$(', i)) {
       i += 2
       list(true)
+      if (literal) found.length = kept
       return true
     }
     if (text[i] !== '`') return false
@@ -136,7 +144,7 @@ function commands(text: string): Simple[] {
       body += text[i]
     }
     i++
-    found.push(...commands(body))
+    if (!literal) found.push(...commands(body))
     return true
   }
 
@@ -144,7 +152,9 @@ function commands(text: string): Simple[] {
     const op = /^(<<-|<<<|<<|<>|<&|>>|>&|>\||<|>)/.exec(text.slice(i))![0]
     i += op.length
     while (text[i] === ' ' || text[i] === '\t') i++
+    literal = op === '<<' || op === '<<-'
     const target = word()
+    literal = false
     if (op === '<<' || op === '<<-') heredocs.push({ end: target, tabs: op === '<<-', quoted })
     else if (op === '<' || op === '<>') current.inputs.push(target)
   }
@@ -191,8 +201,13 @@ function secretLeak(command: string): string | undefined {
     let at = 0
     while (at < words.length && (PREFIXES.has(words[at]!) || ASSIGNMENT.test(words[at]!))) {
       if (WRAPPERS.has(words[at]!)) {
-        at++
-        while (at < words.length && words[at]!.startsWith('-')) at += words[at] === '-a' ? 2 : 1
+        const wrapper = words[at++]!
+        while (at < words.length && words[at]!.startsWith('-')) {
+          const option = words[at]!
+          if (wrapper === 'command' && LOOKUP.test(option)) at = words.length
+          else at += option === '-a' ? 2 : 1
+          if (option === '--') break
+        }
       } else at++
     }
     const [name, ...args] = words.slice(at)
