@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.19.0](https://github.com/clicktronix/cc-tuner/compare/v0.18.0...v0.19.0) (2026-10-23)
+
+
+### Features
+
+* behaviour wave 1 — heavy checks, resources, verify record, secret guard ([#55](https://github.com/clicktronix/cc-tuner/issues/55)) ([8fa82f0](https://github.com/clicktronix/cc-tuner/commit/8fa82f02f2d6a75c182c6e96cf2c582ce447b194))
+
 ## [0.18.0](https://github.com/clicktronix/cc-tuner/compare/v0.17.0...v0.18.0) (2026-10-22)
 
 
