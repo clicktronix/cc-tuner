@@ -38,100 +38,139 @@ const CHECK_KEY = "grep -c '^NAME=' FILE"
 const DUMPS = new Set(['env', 'printenv', 'set', 'export', 'declare', 'typeset'])
 const READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'bat'])
 const PREFIXES = new Set(['!', '{', '}', 'if', 'then', 'elif', 'else', 'while', 'until', 'do', 'time', 'command', 'builtin', 'exec'])
+const WRAPPERS = new Set(['command', 'builtin', 'exec'])
 const ASSIGNMENT = /^[A-Za-z_]\w*=/
 const ENV_FILE = /(^|\/)\.env([.*?[][\w.*?[\]-]*)?$/
 const TEMPLATE = /\.(example|sample|template|dist)$/
 
-// Splits shell text into the words of each simple command it would run: quotes and escapes are
-// resolved, comments and heredoc bodies dropped, redirections removed with their targets, and the
-// bodies of $(...) and backquotes scanned as commands of their own.
-function commands(text: string): string[][] {
-  const found: string[][] = []
+// The simple commands shell text would run, each as its words with quotes and escapes resolved and
+// the files it reads on stdin (`< file`). One reader handles every place the shell expands text —
+// words, double quotes, unquoted heredoc bodies, redirection targets — so a $( … ) or backquote is
+// scanned as commands of its own wherever it sits, and an escaped one stays literal. Comments,
+// quoted heredoc bodies and other redirections drop out.
+interface Simple { words: string[]; inputs: string[] }
+const METACHARS = ' \t\n;&|()<>'
+
+function commands(text: string): Simple[] {
+  const found: Simple[] = []
   const heredocs: { end: string; tabs: boolean; quoted: boolean }[] = []
-  let words: string[] = []
-  let word = ''
-  let inWord = false
   let i = 0
-  const endWord = () => { if (inWord) words.push(word); word = ''; inWord = false }
-  const endCommand = () => { endWord(); if (words.length > 0) found.push(words); words = [] }
-  const substitution = (open: number) => {
-    let depth = 1
-    let j = open
-    while (j < text.length && depth > 0) {
-      if (text[j] === '(') depth++
-      else if (text[j] === ')') depth--
-      j++
+  let quoted = false
+
+  // A command list from i; nested, it stops after the `)` that closes its $(.
+  function list(nested: boolean) {
+    let current: Simple = { words: [], inputs: [] }
+    let depth = 0
+    const end = () => {
+      if (current.words.length > 0 || current.inputs.length > 0) found.push(current)
+      current = { words: [], inputs: [] }
     }
-    found.push(...commands(text.slice(open, j - 1)))
-    return j
-  }
-  const backquote = (open: number) => {
-    const close = text.indexOf('`', open)
-    const j = close === -1 ? text.length : close
-    found.push(...commands(text.slice(open, j)))
-    return j + 1
-  }
-  const readTarget = () => {
-    while (text[i] === ' ' || text[i] === '\t') i++
-    let target = ''
-    let quoted = false
-    while (i < text.length && !/[\s;&|()<>]/.test(text[i]!)) {
+    while (i < text.length) {
       const c = text[i]!
-      if (c === "'" || c === '"') {
-        quoted = true
-        const close = text.indexOf(c, i + 1)
-        target += text.slice(i + 1, close === -1 ? text.length : close)
-        i = close === -1 ? text.length : close + 1
-      } else if (c === '\\') { quoted = true; target += text[i + 1] ?? ''; i += 2 } else { target += c; i++ }
-    }
-    return { target, quoted }
-  }
-  const skipHeredocs = () => {
-    for (const doc of heredocs.splice(0)) {
-      while (i < text.length) {
-        const eol = text.indexOf('\n', i)
-        const line = text.slice(i, eol === -1 ? text.length : eol)
-        i = eol === -1 ? text.length : eol + 1
-        if ((doc.tabs ? line.replace(/^\t+/, '') : line) === doc.end) break
-        if (!doc.quoted) for (const [, body] of line.matchAll(/\$\(([^)]*)\)|`([^`]*)`/g)) found.push(...commands(body ?? ''))
+      if (c === '\n') { end(); i++; bodies() } else if (c === ' ' || c === '\t') i++
+      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); depth++; i++ } else if (c === ')') {
+        end()
+        i++
+        if (depth === 0 && nested) return
+        depth = Math.max(0, depth - 1)
+      } else if (';&|'.includes(c)) { end(); i++ } else if (c === '<' || c === '>') redirect(current)
+      else {
+        const w = word()
+        if ((text[i] === '<' || text[i] === '>') && /^\d+$/.test(w)) redirect(current)
+        else current.words.push(w)
       }
+    }
+    end()
+  }
+
+  // One word up to the next unquoted metacharacter.
+  function word(): string {
+    let out = ''
+    quoted = false
+    while (i < text.length && !METACHARS.includes(text[i]!)) {
+      const c = text[i]!
+      if (c === "'") {
+        quoted = true
+        const close = text.indexOf("'", i + 1)
+        out += text.slice(i + 1, close === -1 ? text.length : close)
+        i = close === -1 ? text.length : close + 1
+      } else if (c === '"') {
+        quoted = true
+        i++
+        out += expand('"', text.length)
+      } else if (c === '\\') {
+        quoted = true
+        if (text[i + 1] !== '\n') out += text[i + 1] ?? ''
+        i += 2
+      } else if (!substitution()) { out += c; i++ }
+    }
+    return out
+  }
+
+  // Expandable text up to `close` (double quotes) or `limit` (a heredoc body).
+  function expand(close: string | undefined, limit: number): string {
+    const escapable = close === undefined ? '$`\\\n' : '$`"\\\n'
+    let out = ''
+    while (i < limit) {
+      const c = text[i]!
+      if (c === close) { i++; return out }
+      if (c === '\\' && escapable.includes(text[i + 1] ?? '')) {
+        if (text[i + 1] !== '\n') out += text[i + 1]
+        i += 2
+      } else if (!substitution()) { out += c; i++ }
+    }
+    return out
+  }
+
+  // At $( or a backquote: scans the body as commands and moves past it.
+  function substitution(): boolean {
+    if (text.startsWith('$(', i)) {
+      i += 2
+      list(true)
+      return true
+    }
+    if (text[i] !== '`') return false
+    let body = ''
+    for (i++; i < text.length && text[i] !== '`'; i++) {
+      if (text[i] === '\\' && '`$\\'.includes(text[i + 1] ?? '')) i++
+      body += text[i]
+    }
+    i++
+    found.push(...commands(body))
+    return true
+  }
+
+  function redirect(current: Simple) {
+    const op = /^(<<-|<<<|<<|<>|<&|>>|>&|>\||<|>)/.exec(text.slice(i))![0]
+    i += op.length
+    while (text[i] === ' ' || text[i] === '\t') i++
+    const target = word()
+    if (op === '<<' || op === '<<-') heredocs.push({ end: target, tabs: op === '<<-', quoted })
+    else if (op === '<' || op === '<>') current.inputs.push(target)
+  }
+
+  // The heredoc bodies that start after a newline; unquoted ones expand like double quotes.
+  function bodies() {
+    for (const doc of heredocs.splice(0)) {
+      let at = i
+      let bodyEnd = text.length
+      let next = text.length
+      while (at < text.length) {
+        const eol = text.indexOf('\n', at)
+        const line = text.slice(at, eol === -1 ? text.length : eol)
+        if ((doc.tabs ? line.replace(/^\t+/, '') : line) === doc.end) {
+          bodyEnd = at
+          next = eol === -1 ? text.length : eol + 1
+          break
+        }
+        at = eol === -1 ? text.length : eol + 1
+      }
+      if (!doc.quoted) expand(undefined, bodyEnd)
+      i = Math.max(i, next)
     }
   }
 
-  while (i < text.length) {
-    const c = text[i]!
-    if (c === '\n') { endCommand(); i++; skipHeredocs() } else if (c === ' ' || c === '\t') { endWord(); i++ } else if (';&|()'.includes(c)) { endCommand(); i++ } else if (c === '#' && !inWord) {
-      while (i < text.length && text[i] !== '\n') i++
-    } else if (c === '<' || c === '>') {
-      if (/^\d+$/.test(word)) { word = ''; inWord = false } else endWord()
-      const op = /^(<<-|<<<|<<|<>|<&|>>|>&|>\||<|>)/.exec(text.slice(i))![0]
-      i += op.length
-      const { target, quoted } = readTarget()
-      if (op === '<<' || op === '<<-') heredocs.push({ end: target, tabs: op === '<<-', quoted })
-    } else if (c === "'") {
-      const close = text.indexOf("'", i + 1)
-      word += text.slice(i + 1, close === -1 ? text.length : close)
-      inWord = true
-      i = close === -1 ? text.length : close + 1
-    } else if (c === '"') {
-      inWord = true
-      i++
-      while (i < text.length && text[i] !== '"') {
-        if (text[i] === '\\') { word += text[i + 1] ?? ''; i += 2 } else if (text.startsWith('$(', i)) { i = substitution(i + 2) } else if (text[i] === '`') { i = backquote(i + 1) } else { word += text[i]; i++ }
-      }
-      i++
-    } else if (c === '\\') {
-      if (text[i + 1] !== '\n') { word += text[i + 1] ?? ''; inWord = true }
-      i += 2
-    } else if (text.startsWith('$(', i)) {
-      i = substitution(i + 2)
-      inWord = true
-    } else if (c === '`') {
-      i = backquote(i + 1)
-      inWord = true
-    } else { word += c; inWord = true; i++ }
-  }
-  endCommand()
+  list(false)
   return found
 }
 
@@ -148,18 +187,23 @@ function dumps(name: string, args: string[]): boolean {
 }
 
 function secretLeak(command: string): string | undefined {
-  for (const all of commands(command)) {
+  for (const { words, inputs } of commands(command)) {
     let at = 0
-    while (at < all.length && (PREFIXES.has(all[at]!) || ASSIGNMENT.test(all[at]!))) at++
-    const [name, ...args] = all.slice(at)
-    if (name === undefined) continue
-    if (DUMPS.has(name) && dumps(name, args)) {
-      return `cc-tuner: \`${all.slice(at).join(' ')}\` prints every variable's value, secrets included, into the transcript. ` +
+    while (at < words.length && (PREFIXES.has(words[at]!) || ASSIGNMENT.test(words[at]!))) {
+      if (WRAPPERS.has(words[at]!)) {
+        at++
+        while (at < words.length && words[at]!.startsWith('-')) at += words[at] === '-a' ? 2 : 1
+      } else at++
+    }
+    const [name, ...args] = words.slice(at)
+    if (name !== undefined && DUMPS.has(name) && dumps(name, args)) {
+      return `cc-tuner: \`${words.slice(at).join(' ')}\` prints every variable's value, secrets included, into the transcript. ` +
         `Check one is set with \`${CHECK_SET}\`; list names only with \`${LIST_NAMES}\`.`
     }
-    const file = READERS.has(name) ? args.find(arg => ENV_FILE.test(arg) && !(TEMPLATE.test(arg) && !/[*?[]/.test(arg))) : undefined
+    const read = name === undefined || READERS.has(name) ? [...args, ...inputs] : []
+    const file = read.find(arg => ENV_FILE.test(arg) && !(TEMPLATE.test(arg) && !/[*?[]/.test(arg)))
     if (file !== undefined) {
-      return `cc-tuner: \`${name} ${file}\` prints secret values into the transcript. ` +
+      return `cc-tuner: \`${name ?? '<'} ${file}\` prints secret values into the transcript. ` +
         `Check a key is set with \`${CHECK_KEY.replace('FILE', file)}\`; key names come from its template (\`.env.example\`) or the user.`
     }
   }
