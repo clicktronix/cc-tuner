@@ -17,6 +17,7 @@ CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
 UNIT="$ROOT/plugins/cc-tuner/agents/slice-unit.md"
+VERIFY="$ROOT/plugins/cc-tuner/skills/verify-feature/SKILL.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 BRANCH_PLAN="$ROOT/docs/superpowers/plans/2026-08-13-native-first-lifecycle.md"
 fails=0
@@ -52,6 +53,11 @@ need "run-reads-the-cadence"              '`full_test_cadence`' "$RUN"
 # Containers, dev servers and browser sessions outlived /run. The report line makes what is left over
 # a stated fact instead of a silence.
 need "run-reports-its-resources"          'resources: closed | retained <what, and why> | none' "$RUN"
+# merge.sh reads these tags (tests/flow/test_merge.sh); the producer has to keep writing them, and the
+# publisher has to post what the producer wrote rather than a record of its own.
+need "verify-record-tags-the-instrument"  '[browser|api|test|cli] <what was run>' "$VERIFY"
+need "verify-record-keeps-not-proved"     'NOT PROVED: <what is missing' "$VERIFY"
+need "run-posts-the-record-verbatim"      'Publish the record verify-feature returned, verbatim' "$RUN"
 # A second provider's research is optional and decided before discovery, so it overlaps the reading;
 # asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
 need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"

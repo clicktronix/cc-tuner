@@ -76,8 +76,11 @@ world() {  # world <files-json> <reviews-json> <checks-json> [head-sha] [local-c
   local d; d="$(flow_workdir)"; gh_stub "$d"
   local comments='[]'
   [ -n "${5:-}" ] && comments="$(jq -nc --arg b "$5" '[{author:{login:"agent-bot"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
-  # Every in-scope merge needs verify-feature's record; NO_VERIFY drops it, VERIFIED names another SHA.
-  [ -n "${NO_VERIFY:-}" ] || comments="$(printf '%s' "$comments" | jq -c --arg b "cc-tuner-verified: ${VERIFIED:-${4:-$SHA}}" '. + [{author:{login:"agent-bot"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
+  # Every in-scope merge needs verify-feature's record; NO_VERIFY drops it, VERIFIED names another SHA,
+  # VERIFY_LINES replaces its criterion lines (an empty value leaves the marker line alone).
+  local vlines="${VERIFY_LINES-  retry stops after the budget  —  [test] bun test retry  →  3 attempts, then BudgetError}"
+  [ -n "${NO_VERIFY:-}" ] || comments="$(printf '%s' "$comments" | jq -c --arg b "cc-tuner-verified: ${VERIFIED:-${4:-$SHA}}${vlines:+
+$vlines}" '. + [{author:{login:"agent-bot"}, createdAt:"2026-01-01T00:00:00Z", body:$b}]')"
   [ -z "${EXTRA_COMMENTS:-}" ] || comments="$(printf '%s' "$comments" | jq -c --argjson x "$EXTRA_COMMENTS" '. + $x')"
   jq -nc --arg head "${4:-$SHA}" --arg base "${6:-$BASE_SHA}" --argjson reviews "$2" --argjson comments "$comments" \
     --argjson draft "${DRAFT:-false}" \
@@ -516,6 +519,31 @@ check  "foreign-verify-record-refused"  "does not contain"          "$(run "$D" 
 # Verification of an ancestor still counts: a review-fix commit does not force a new run.
 D="$(VERIFIED="$BASE_SHA" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 check  "ancestor-verify-record-merges"  "MERGED"                    "$(run "$D" 42 squash "$SHA")"
+# A marker with nothing under it was how a record got posted without verify-feature running: the
+# first line alone, or lines that name no instrument, are refused. The record that merges is the
+# default world's, so these refusals are attributable to the record's body and nothing else.
+D="$(VERIFY_LINES='' world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "marker-only-verify-record-refused"  "has no criterion lines"   "$OUT"
+check  "marker-only-names-the-tags"         "[browser], [api], [test] or [cli]" "$OUT"
+absent "marker-only-verify-record-no-merge" "MERGED"                   "$OUT"
+D="$(VERIFY_LINES='  works as expected' world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "untagged-verify-lines-refused"      "has no criterion lines"   "$OUT"
+absent "untagged-verify-lines-no-would-merge" "would merge"            "$OUT"
+# NOT PROVED does not block (run decides what it means), but the merge says it out loud, in a real
+# merge and in --check-only alike.
+UNPROVED="  dark theme keeps contrast  —  NOT PROVED: no browser tooling here; needs chrome-devtools MCP
+  retry stops after the budget  —  [test] bun test retry  →  3 attempts, then BudgetError"
+D="$(VERIFY_LINES="$UNPROVED" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "not-proved-line-printed"  "verify-feature did not prove: dark theme keeps contrast  —  NOT PROVED: no browser tooling" "$OUT"
+check  "not-proved-still-merges"  "MERGED"                                                   "$OUT"
+absent "proved-line-not-reported-as-unproved" "did not prove: retry"                        "$OUT"
+D="$(VERIFY_LINES="$UNPROVED" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check  "not-proved-printed-on-check-only" "did not prove: dark theme" "$(run "$D" --check-only 42 squash "$SHA")"
+D="$(VERIFY_LINES='  every tag  —  [browser] opened /settings  →  toggle flips' world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+check  "browser-tagged-record-merges" "MERGED" "$(run "$D" 42 squash "$SHA")"
 
 # --- a scope it cannot establish is not a scope out of ------------------------------------------
 # An API failure is not evidence that the PR is out of scope. Earlier code folded unknown into no

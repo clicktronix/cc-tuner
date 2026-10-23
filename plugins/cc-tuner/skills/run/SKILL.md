@@ -186,10 +186,11 @@ It selects instruments from acceptance criteria and repository capabilities, exe
 and returns observations. A machine replacement for an `[eyes]` step must prove the same criterion.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
-residual risk if the user already accepted it. Publish the returned record on the PR as one comment
-whose first line is `cc-tuner-verified: <full sha it verified>`; `merge.sh` requires it and accepts
-any commit the head contains, so later fix commits need a new record only when the reuse rule says
-the evidence no longer covers them.
+residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
+as one PR comment: its lines come from verify-feature alone, and a criterion it did not observe stays
+`NOT PROVED`. `merge.sh` requires the record, prints its `NOT PROVED` lines, and accepts any commit the
+head contains, so later fix commits need a new record only when the reuse rule says the evidence no
+longer covers them.
 
 ## Delivery
 
