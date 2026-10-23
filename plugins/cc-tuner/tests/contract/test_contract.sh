@@ -16,6 +16,7 @@ TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
+UNIT="$ROOT/plugins/cc-tuner/agents/slice-unit.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
 BRANCH_PLAN="$ROOT/docs/superpowers/plans/2026-08-13-native-first-lifecycle.md"
 fails=0
@@ -41,6 +42,13 @@ need "setup-has-a-remove-for-statusline" '/cc-tuner:setup remove statusline' "$S
 need "setup-detects-task-tools-now" 'is `TaskCreate` in this session' "$SETUP"
 need "setup-reports-the-testing-runbook" 'Testing runbook' "$SETUP"
 need "placement-caps-the-active-set" 'counts running units' "$PLACEMENT"
+# Units ran about 70% of all heavy checks while the text allowed "anything heavy" from them. The split
+# of who runs what lives in placement; the unit definition carries its own share because it never
+# reads placement. full_test_cadence is a Run config field: spec writes it, plan-lint checks it, /run reads it.
+need "placement-unit-runs-focused-checks" 'A unit runs focused checks' "$PLACEMENT"
+need "unit-build-only-as-deciding-check"  "only when it is the slice's deciding" "$UNIT"
+need "spec-template-cadence-field"        'full_test_cadence: per-candidate|per-batch' "$SPEC_TEMPLATE"
+need "run-reads-the-cadence"              '`full_test_cadence`' "$RUN"
 # A second provider's research is optional and decided before discovery, so it overlaps the reading;
 # asking in the section 3 batch would leave it nothing to overlap with. Its answer is evidence.
 need "spec-routes-optional-opinions"      'references/optional-opinions.md' "$SPEC"

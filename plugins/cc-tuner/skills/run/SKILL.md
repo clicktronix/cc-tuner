@@ -140,10 +140,11 @@ their own read-only agent type/model; where silent, placement decides.
   ignores the line; it exists so completion is a recorded result, not a remembered one. One matching
   line is not proof by itself — you still read the diff and check the criterion is covered — but it
   is what makes reuse honest: evidence names the code it was taken from.
-- **Test cadence.** Slices run the spec's targeted checks, which may be one browser or API
-  regression test when that is the deciding check. The full regression suite runs once on the
-  assembled candidate and once after each batch of review fixes, not after every fix; the full e2e
-  suite runs in verify-feature. Reuse observed results when the checked code, dependencies, configuration and
+- **Test cadence.** Slices run the spec's targeted checks, as placement's Heavy checks assigns them.
+  The full regression suite runs at the spec's `full_test_cadence`: `per-candidate` (the default,
+  also when the field is absent) runs it once on the assembled candidate and once after each batch of
+  review fixes; `per-batch` also runs it after each integrated batch of slices. The full e2e suite
+  runs in verify-feature. Reuse observed results when the checked code, dependencies, configuration and
   environment still match; identify the source result and why it applies. Re-run affected checks
   when those inputs change or the evidence is missing/unreliable. Honour explicitly required fresh
   runs. A new commit alone does not require another identical local build; review and CI still bind

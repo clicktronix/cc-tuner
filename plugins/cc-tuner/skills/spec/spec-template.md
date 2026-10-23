@@ -57,5 +57,7 @@ review: codex|none:<reason> — codex when cc-codex-triage reviews this reposito
     requires its exact-candidate approval); none records why no second-provider review is required
 target_test: <exact command>
 full_test: <exact command>
+full_test_cadence: per-candidate|per-batch — per-candidate by default; per-batch for a full suite
+    cheap enough to run after every integrated batch. ../run/SKILL.md (Test cadence) owns what each means
 tracker: gh|none — gh when the repository tracks work in GitHub issues; none makes this spec the record
 board: <project title + owner | none>

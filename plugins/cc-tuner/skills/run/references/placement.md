@@ -32,14 +32,21 @@ not dispatch thresholds. Estimate the actual model/effort and input/output cost 
 
 ## Heavy checks
 
-This section owns the definition and the command; `/run`, `slice-unit` and `verify-feature` point here.
+This section owns the definition, who runs what, and the command; `/run`, `slice-unit` and
+`verify-feature` point here.
 
 A check is **heavy** when it is a full build, the full test suite, an e2e suite or a container start.
 A **focused** check is the slice's targeted command, including its one browser or API regression test
-when that is the deciding check; it runs directly, from a unit or the owner, and so does anything else
-that finishes in seconds.
+when that is the deciding check, and anything else that finishes in seconds.
 
-Heavy checks run, from the owner, every unit and `verify-feature` alike, as:
+- **A unit runs focused checks.** A build or container start runs from a unit only when it is the
+  slice's deciding check: once, through `heavy.sh`, and stopped before the unit returns.
+- **The owner runs the full suite**, at the cadence `/run`'s Test cadence names.
+- **`verify-feature` runs the e2e suite.**
+- **Browser MCP sessions and dev servers belong to the owner and `verify-feature`.** A regression test
+  that starts and stops its own server inside its test command is still focused.
+
+Every heavy check, from whoever runs it, goes through the machine's slots:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --label "<repo>: <what>" -- <command>
@@ -62,11 +69,9 @@ any shared-task prerequisites, and whether other units run beside it. Tell the u
   else outside Owned paths is returned as a need;
 - prove the expected RED or approved non-code baseline and return commands and deciding output;
 - commit after every green step, so a stop at the turn cap leaves committed work;
-- run the slice's focused checks, not the full suite or the e2e suite; run anything heavy as
-  [defined above](#heavy-checks), using the `heavy.sh` command the owner resolved to an absolute path
-  in the brief; never decide integrated acceptance;
-- start a preview, dedicated MCP server or container as `task-flow`'s Runtime cleanup says, and stop it
-  before returning;
+- run only the checks [Heavy checks](#heavy-checks) gives a unit, through the `heavy.sh` command the
+  owner resolved to an absolute path in the brief; never decide integrated acceptance;
+- start a deciding-check container as `task-flow`'s Runtime cleanup says, and stop it before returning;
 - avoid further implementation delegation; a bounded lookup is permitted;
 - commit under repository conventions, but never push, open/comment on PRs, merge, create issues
   or claim approval;

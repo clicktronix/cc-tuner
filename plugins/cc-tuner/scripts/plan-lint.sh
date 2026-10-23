@@ -57,6 +57,9 @@ help() {
     'owned: one OWNED<TAB><slice><TAB><path,...> line per slice in plan order, paths as the plan' \
     'wrote them, so a consumer (shard-diff.sh) never re-parses the grammar. Refuses an invalid plan.' \
     '' \
+    '--spec: the plan must name this spec; a full_test_cadence line in it must read per-candidate' \
+    'or per-batch.' \
+    '' \
     '--active: slice numbers already running (frontier and ready-batches only). They are excluded' \
     'from the result, and ready-batches also excludes any slice whose Owned paths overlap theirs.' \
     'An empty result with --active does not mean the plan is done: open slices may all be active' \
@@ -87,11 +90,16 @@ if [ -n "$EXPECTED_SPEC" ]; then
   ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$ROOT" ] || die "--spec requires a git repository"
   [ -f "$ROOT/$EXPECTED_SPEC" ] || die "the expected spec does not exist: $EXPECTED_SPEC"
+  # The one Run config field /run reads as a closed set. A misspelt value would silently fall back to
+  # the default cadence, so it is refused here, where the run starts.
+  CADENCE_COUNT="$(grep -c '^full_test_cadence:' "$ROOT/$EXPECTED_SPEC")"
+  CADENCE="$(sed -n 's/^full_test_cadence:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$ROOT/$EXPECTED_SPEC" | head -n 1)"
 fi
 
 # One awk pass produces the diagnostics and every record mode. Splitting them into separate programs
 # is how validation, recovery and execution would drift.
-awk -v mode="$MODE" -v expected_spec="$EXPECTED_SPEC" -v expected_branch="$EXPECTED_BRANCH" -v active_csv="$ACTIVE" '
+awk -v mode="$MODE" -v expected_spec="$EXPECTED_SPEC" -v expected_branch="$EXPECTED_BRANCH" -v active_csv="$ACTIVE" \
+    -v cadence_count="${CADENCE_COUNT:-0}" -v cadence="${CADENCE:-}" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function literal_path(p) {
   if (p == "" || p ~ /^\// || p ~ /\/\//) return 0
@@ -213,6 +221,10 @@ END {
     err[++e] = "plan names spec \"" plan_spec "\", expected \"" expected_spec "\""
   if (expected_branch != "" && plan_branch != expected_branch)
     err[++e] = "plan names branch \"" plan_branch "\", expected \"" expected_branch "\""
+  if (cadence_count > 1)
+    err[++e] = "spec " expected_spec " has more than one full_test_cadence line"
+  else if (cadence_count == 1 && cadence !~ /^(per-candidate|per-batch)$/)
+    err[++e] = "spec " expected_spec " sets full_test_cadence to \"" cadence "\"; expected per-candidate or per-batch"
 
   for (i = 1; i <= count; i++) {
     n = order[i]
