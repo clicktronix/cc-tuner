@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.20.0](https://github.com/clicktronix/cc-tuner/compare/v0.19.0...v0.20.0) (2026-10-24)
+
+
+### Features
+
+* give Matt Pocock skills their moments and compare the task-flow rule in doctor ([#57](https://github.com/clicktronix/cc-tuner/issues/57)) ([c1ee226](https://github.com/clicktronix/cc-tuner/commit/c1ee226ef7e85c648fb784f12e9c38fbf61437b6))
+
 ## [0.19.0](https://github.com/clicktronix/cc-tuner/compare/v0.18.0...v0.19.0) (2026-10-23)
 
 
