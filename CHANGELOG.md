@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.20.1](https://github.com/clicktronix/cc-tuner/compare/v0.20.0...v0.20.1) (2026-10-24)
+
+
+### Miscellaneous Chores
+
+* release 0.20.1 ([fabade2](https://github.com/clicktronix/cc-tuner/commit/fabade20f6ac2f6249efa87c5982145700d8f2ac))
+
 ## [0.20.0](https://github.com/clicktronix/cc-tuner/compare/v0.19.0...v0.20.0) (2026-10-24)
 
 
