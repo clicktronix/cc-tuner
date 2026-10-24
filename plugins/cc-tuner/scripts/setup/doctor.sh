@@ -23,6 +23,45 @@ ok()   { say "ok   $1"; }
 warn() { say "WARN $1"; }
 bad()  { say "MISS $1"; miss=1; }
 
+# The project instruction files a session started here loads, one path per line. Under the default
+# "Project instructions" setting Claude Code reads the CLAUDE files from the working directory up to /
+# and the AGENTS files only when there is none, then follows @-imports for up to five hops
+# (claude-md-writer/reference.md). The user-global ~/.claude/CLAUDE.md does not switch AGENTS off.
+# A non-default setting that loads both is not visible from here; this models the default.
+loaded_instructions() {
+  local d="$PWD" f p claude="" agents="" files next found hop=0
+  while :; do
+    for f in "$d/CLAUDE.md" "$d/.claude/CLAUDE.md" "$d/CLAUDE.local.md"; do
+      if [ -f "$f" ] && [ "$f" != "$UHOME/.claude/CLAUDE.md" ]; then claude="$claude$f"$'\n'; fi
+    done
+    for f in "$d/AGENTS.md" "$d/.claude/AGENTS.md"; do
+      if [ -f "$f" ]; then agents="$agents$f"$'\n'; fi
+    done
+    [ "$d" = / ] && break
+    d="$(dirname "$d")"
+  done
+  files=$'\n'"${claude:-$agents}" next="${claude:-$agents}"
+  while [ -n "$next" ] && [ $hop -lt 5 ]; do
+    hop=$((hop + 1)) found=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      while IFS= read -r p; do
+        case "$p" in
+          '') continue ;;
+          '~/'*) p="$UHOME/${p#\~/}" ;;
+          /*) ;;
+          *) p="$(dirname "$f")/$p" ;;
+        esac
+        [ -f "$p" ] || continue
+        case "$files" in *$'\n'"$p"$'\n'*) continue ;; esac
+        files="$files$p"$'\n' found="$found$p"$'\n'
+      done <<< "$(grep -oE '(^|[[:space:]])@[^[:space:]]+' "$f" 2>/dev/null | sed 's/^[[:space:]]*@//')"
+    done <<< "$next"
+    next="$found"
+  done
+  printf '%s' "${files#$'\n'}"
+}
+
 # --- 1. command-line tools ----------------------------------------------------------------------
 # Only git blocks: nothing here works without it. jq blocks two named consumers, not this tool, and
 # both refuse on their own -- the statusline node checks before it patches settings.json, and
@@ -156,9 +195,11 @@ else
   if [ -n "$REPO_ROOT" ] && plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
     if [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
       warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
-    elif ! cat "$REPO_ROOT/AGENTS.md" "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/.claude/CLAUDE.md" 2>/dev/null \
-         | grep -q 'docs/agents'; then
-      warn "docs/agents/ exists but nothing the session loads points at docs/agents — add the '## Agent skills' block /setup-matt-pocock-skills writes to AGENTS.md or CLAUDE.md"
+    else
+      LOADED="$(loaded_instructions)"
+      if ! printf '%s\n' "$LOADED" | while IFS= read -r f; do [ -z "$f" ] || cat "$f"; done | grep -q 'docs/agents'; then
+        warn "docs/agents/ exists but nothing the session loads points at docs/agents — add the '## Agent skills' block /setup-matt-pocock-skills writes to $(printf '%s\n' "$LOADED" | head -n 1 | grep . || echo "$REPO_ROOT/AGENTS.md")"
+      fi
     fi
   fi
   companion 'cc-codex-triage@cc-codex-triage' \
