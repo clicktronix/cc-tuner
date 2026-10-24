@@ -6,10 +6,10 @@ Skills:
 
 - **`claude-md-writer`** — create, refactor, and audit `CLAUDE.md` / `.claude/rules/` memory files, every Claude Code memory fact checked against <https://code.claude.com/docs/en/memory>.
 - **`statusline`** — a usage-focused statusline (rate-limit 5h/7d windows, context %, git, model + effort, session duration), installed by the statusline node of `/cc-tuner:setup`, since plugins can't register a statusline on their own.
-- **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed. It replaced a Stop-hook gate that classified changes by file path: paths do not know what a change does, and a fixed proof per extension asks for the wrong evidence as often as the right one.
+- **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus the task-flow node of `/cc-tuner:setup` that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
-Start with **`/cc-tuner:setup`** — one command, run as independent nodes that each detect, propose, apply and verify: environment, instruction cleanup, rule loading, the task-flow rule, task tools, an optional statusline, an optional board, and an optional one-call Codex audit. `check` writes nothing; `install` applies the additive changes and asks only where a change is not additive. A failed node blocks only what depends on it, and the report has one row per node. The task loop has two commands: **`/cc-tuner:spec`** does the discovery, creates the task branch, confirms the contract and vertical slices once, then commits the spec and plan and publishes the slices as native tasks when those tools are available; **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge. Without `--auto`, run stops at delivery boundaries; with it, an explicitly auto-ready spec runs unattended through a green merge, never through deploy or publish.
+Start with **`/cc-tuner:setup`** — one command, run as independent nodes that each detect, propose, apply and verify: environment, instruction cleanup, rule loading, the task-flow rule, task tools, an optional statusline, an optional board, and an optional one-call Codex audit. `check` writes nothing; `install` applies the additive changes and asks only where a change is not additive. The task loop has two commands: **`/cc-tuner:spec`** turns a task into a committed spec and sliced plan, and **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge; details in the [plugin README](plugins/cc-tuner/README.md).
 
 
 ## Why this exists
@@ -45,45 +45,8 @@ The instruction remains usable without the plugin; it is guidance, not an enforc
 
 ```
 .claude-plugin/marketplace.json     # marketplace manifest
-plugins/
-  cc-tuner/
-    .claude-plugin/plugin.json      # plugin manifest
-    README.md
-    agents/
-      deep-review-lens.md           # read-only review lens (Read, Grep, Glob; sonnet)
-      slice-unit.md                 # implementation unit for one slice (sonnet, maxTurns 300)
-    assets/
-      agent-rules/instruction.md        # the rule-loading block setup writes into AGENTS.md
-      task-flow/rule.template.md        # canonical .claude/rules/task-flow.md template
-    hooks/
-      hooks.json                    # SessionStart registration and the hooks module
-      register.ts                   # Claude Code mod: stops Bash background tasks on /clear; refuses commands that print secrets; status line names running subagents' models
-      register.test.ts              # its tests, run by `claude plugin test`
-      session-start.sh              # asks a fresh session to rebuild its task list from the plan
-    output-styles/mechanism-first.md
-    scripts/
-      merge.sh                      # checked merge: review, public verdict, verification record, CI, head pin
-      heavy.sh                      # machine-wide slots for heavy checks (full suites, e2e, builds)
-      mutate.sh                     # one mutation, graded by the program: no-op and syntax refusals, verified restore
-      plan-lint.sh                  # the plan format's validator, and the parser the hook reads it with
-      plan-path.sh                  # the one branch -> plan-path resolver
-      review-diff.sh                # the one diff reader behind review packets
-      shard-diff.sh                 # partitions a large candidate for deep-review
-      agent-rules-setup.py          # installs/checks the agent-rules block
-      setup/doctor.sh               # environment checks behind /cc-tuner:setup
-      setup/prereq-check.sh         # companion plugins installed, enabled, and carrying their contracts
-      setup/plugin-here.sh          # which install of a plugin applies to this repo (one rule, two callers)
-    skills/
-      spec/                         # /cc-tuner:spec: contract, plan grammar, templates
-      run/                          # /cc-tuner:run and its references (placement, CI, mutation, shared task)
-      verify-feature/               # proves acceptance criteria against the running system
-      deep-review/                  # read-only multi-lens review of one candidate
-      setup/                        # /cc-tuner:setup and its node references
-      agent-rules/                  # loads a repository's rules before a review or change
-      claude-md-writer/             # CLAUDE.md / .claude/rules audit and writing
-      task-flow/                    # branch/commit/PR/board procedures and case studies
-      statusline/                   # usage statusline script and notes
-    tests/                          # contract, flow and setup suites
+plugins/cc-tuner/                   # the plugin: manifest, README, agents/, assets/, hooks/, output-styles/,
+                                    # scripts/ (merge, heavy-check, plan and review helpers, setup/), skills/, tests/
 docs/                               # design records, ADRs and plans
 tests/run.sh                        # repo validation (also the CI entry point)
 tests/scenarios/                    # eval scenarios (RED/GREEN baselines)

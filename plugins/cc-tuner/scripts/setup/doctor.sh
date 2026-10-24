@@ -102,8 +102,8 @@ if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 —
 # A hint, not a blocker: the plan file is the durable store and a run drives from it either way.
 # What is at stake is the visible task list and its edges.
 case "${CLAUDE_CODE_ENABLE_TODO_TOOLS:-}" in
-  1|true|TRUE|yes) ok "CLAUDE_CODE_ENABLE_TODO_TOOLS is set — the usual reason /cc-tuner:spec cannot publish the visible task list does not apply here (this reads the variable, it does not probe for the tools)" ;;
-  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — the TaskCreate tools are off by default in some model and client versions, so /cc-tuner:spec may commit the plan file and publish no visible task list (check whether TaskCreate is in the session's tool list); set it durably as {\"env\": {\"CLAUDE_CODE_ENABLE_TODO_TOOLS\": \"1\"}} in ~/.claude/settings.json, or export it before starting Claude Code, or pass --allowedTools TaskCreate. Only the session itself can tell whether they are there" ;;
+  1|true|TRUE|yes) ok "CLAUDE_CODE_ENABLE_TODO_TOOLS is set (variable only; the tools are not probed)" ;;
+  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — /cc-tuner:spec may publish no visible task list; set {\"env\": {\"CLAUDE_CODE_ENABLE_TODO_TOOLS\": \"1\"}} in ~/.claude/settings.json (the session's tool list shows whether TaskCreate is present)" ;;
 esac
 
 # --- 1c. nested delegation ---------------------------------------------------------------------
@@ -118,7 +118,7 @@ esac
 case "${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH:-}" in
   1) ok "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 — only the orchestrator can spawn; units and lenses cannot" ;;
   2) ok "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2 — units may run their own lookups; nothing below them can spawn" ;;
-  "") warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set — subagents may nest to depth 3 by default, so a unit told not to delegate can still build a rig of its own; set {\"env\": {\"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH\": \"1\"}} (orchestrator only) or \"2\" (units may run lookups) in ~/.claude/settings.json" ;;
+  "") warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set — subagents may nest to depth 3 by default, so a unit told not to delegate can still spawn agents; set {\"env\": {\"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH\": \"1\"}} (orchestrator only) or \"2\" (units may run lookups) in ~/.claude/settings.json" ;;
   *) warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH} — a third layer of agents is possible; /cc-tuner:run expects 1 or 2" ;;
 esac
 

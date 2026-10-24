@@ -5,9 +5,8 @@ statusline themselves — only the user's `settings.json` can. This node copies 
 wires it in. It is **user-global**, not repository-scoped, and it is offered, not assumed: `install`
 applies it only after the user has said yes once in this run.
 
-**Shared file.** This node and the task-tools node both patch `~/.claude/settings.json`. Never run
-them in the same Bash call, and re-read the file immediately before each patch: the second writer
-must see the first writer's result, not the copy it read a minute ago.
+**Shared file.** This node and the task-tools node both patch `~/.claude/settings.json`; follow the
+serialisation rule in `SKILL.md` (nodes table).
 
 ## Locate the bundled script
 
@@ -88,12 +87,4 @@ rm -f "$HOME/.claude/cc-tuner-statusline.sh" && echo "Removed $HOME/.claude/cc-t
 
 ## Notes
 
-- The rate-limit (5h/7d) segment is read first from Claude Code's own statusline payload
-  (`rate_limits.five_hour` / `rate_limits.seven_day` — see
-  https://code.claude.com/docs/en/statusline), which touches no credentials, cache, or network.
-  It falls back to Claude Code's **unofficial** OAuth usage endpoint only when that payload field
-  is entirely absent (older clients), and may break without notice; it degrades silently if
-  unavailable either way. See the `statusline` skill for the full disclaimer.
-- The fallback reads the OAuth token from the macOS Keychain, or `~/.claude/.credentials.json` on
-  Linux/Windows (honoring `$CLAUDE_CONFIG_DIR`). It only ever sends that token to
-  `api.anthropic.com`.
+Data sources, the unofficial-endpoint fallback and token handling: `skills/statusline/SKILL.md`.

@@ -14,13 +14,11 @@ specs need none of them.
 
 ## When to ask, and when not to
 
-Decide once, **before section 1 discovery starts** — not in the section 3 question rounds, which
-run after discovery is done and would leave the research nothing to overlap with. If the
-existing task authorisation already covers a bounded call, run it; otherwise ask the one question
-that section 1 describes. Never ask per call, and never ask again once the answer is on record.
+Section 1 of `/spec` owns the decision and its timing: once, before discovery starts. Never ask per
+call, and never ask again once the answer is on record.
 
-Run `research` **alongside** the internal read-only fan-out, in the same turn, so it overlaps the
-longest owner work. Wait for it only before a decision that depends on its findings. Do not dispatch
+Run `research` alongside the internal read-only fan-out, in the same turn. Wait for it only before a
+decision that depends on its findings. Do not dispatch
 the same call twice; if the bridge hands off a long dispatch (exit 20), watch the printed command as
 a background task.
 
@@ -38,10 +36,8 @@ resolves a product decision on the user's behalf. Record what was adopted and wh
 
 ## Boundaries
 
-- No bridge → discovery proceeds unchanged. Do not probe for plugins as a step; read
-  `/cc-tuner:setup`'s report or the failed command.
+- No bridge → discovery proceeds unchanged.
 - Advisory threads never share a name with a required-review thread; the bridge refuses that, and
   `/spec` never needs a required thread.
-- A general research question needs no Git repository.
 - Cost: one dispatch per method per spec, concurrent with owner work. Report the requested
   model/effort and the observed usage the bridge records; do not guess a dollar figure.

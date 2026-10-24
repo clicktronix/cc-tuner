@@ -27,26 +27,23 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/shard-diff.sh" <base-sha> <candidate-sha> [-
 ```
 
 Write `<dir>/toolchain.txt` next to them: the language and runtime versions the repository declares
-(`.python-version`, `requires-python`, `.nvmrc`, `engines`, `go.mod`, `rust-toolchain`, the CI image).
-A lens has no shell to ask, and a lens that judges syntax by the version it remembers reports valid
-code as broken.
+(`.python-version`, `requires-python`, `.nvmrc`, `engines`, `go.mod`, `rust-toolchain`, the CI image);
+lenses have no shell to ask.
 
 Any command failure leaves preparation incomplete: do not dispatch or reuse partial files.
 
 ## Sharding
 
 `shard-diff.sh` owns partition arithmetic. It prints SIZE, MODE and, in sharded mode, numbered SHARD
-records with comma-separated paths. It groups by the plan's Owned paths when supplied, otherwise by
-first path component; splits oversized groups and merges compatible neighbours up to the requested
-cap. Renames count once and list both endpoints. Every shard stays strictly below file/changed-line
-thresholds; binary changes and pure renames still count as files. These are not token guarantees.
+records with comma-separated paths; renames list both endpoints. Shard thresholds are not token
+guarantees.
 
-The script also reads the actual filtered packets and checks their budgets and exact combined
-coverage. Git errors, unsupported filenames, oversized atomic changes, unsatisfied caps or changed
-coverage refuse with empty stdout. Do not treat refusal as single mode. Raise `--files`/`--lines`
-when context permits, raise `--max` only within the lens limit below, or report incomplete coverage. Never silently skip a
-lockfile or generated artifact. Binary contents and changed submodule revisions require appropriate
-inspection beyond the marker/gitlink.
+The script checks the filtered packets' budgets and exact combined coverage. Git errors, unsupported
+filenames, oversized atomic changes, unsatisfied caps or changed coverage refuse with empty stdout.
+Do not treat refusal as single mode. Raise `--files`/`--lines` when context permits, raise `--max`
+only within the lens limit below, or report incomplete coverage. Never silently skip a lockfile or
+generated artifact. Binary contents and changed submodule revisions require inspection beyond the
+marker/gitlink.
 
 For each accepted SHARD, pass its paths as separately quoted arguments, including both rename
 endpoints. Do not expand the list with unquoted shell substitution:
@@ -58,12 +55,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> -
 
 ## Dispatch and coverage
 
-Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `sonnet`, `effort: high` and
-only Read, Grep and Glob: no shell, edits or Agent tool. There is no unrestricted fallback. Each
-brief names literal base/candidate, spec, applicable rules, lens, the diff/list/toolchain files and
-the finding format. The lens reads changed code and
-relevant callers/tests/dependencies beyond its owned paths. Commands needed to settle a finding go
-to the owner for a separate probe.
+Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `sonnet`,
+`effort: high` and only Read, Grep and Glob: no shell, edits or Agent tool. There is no unrestricted
+fallback. Each brief names literal base/candidate, spec, applicable rules, lens, the
+diff/list/toolchain files and the finding format. The lens reads changed code and relevant
+callers/tests/dependencies beyond its owned paths; commands needed to settle a finding go to the
+owner for a separate probe.
 
 Run these lenses independently:
 
@@ -109,11 +106,10 @@ P1 blocks required behavior or safe delivery; P2 is a material defect; P3 is non
 with concrete future cost.
 
 Return `REQUEST_CHANGES <candidate SHA>` for any validated P0–P2. Return `APPROVE <candidate SHA>`
-only with complete coverage and no blockers. Return `INCOMPLETE <candidate SHA>` when coverage is
-incomplete and no validated blocker exists, naming the missing lenses/paths: run carries that gap
-into the required review as a named residual instead of waiting on a finding that does not exist.
+only with complete coverage and no blockers. Return `INCOMPLETE <candidate SHA>` naming the missing
+lenses/paths when coverage is partial and no blocker is validated; run carries them into the
+required review as a named residual.
 List P3 findings in the review summary on the PR; they do not move the candidate, and an issue is
 filed only for independent future work. Do not create an additional approval loop: run owns fixes,
-evidence reuse and delivery. Changes make this result stale; verify affected
-findings and let authoritative review judge the final SHA. Only an explicit new exhaustive-review
-request restarts the whole advisory pass.
+evidence reuse and delivery. After any change this result is stale; only an explicit new
+exhaustive-review request restarts the whole advisory pass.

@@ -1,8 +1,8 @@
 # One task across repositories
 
 Read when the work spans repositories or a spec names `second-repo` or `shared-task`. These are
-instructions for the invoking skill's stage; they do not start another lifecycle or authorise
-deployment, migration or work outside the approved scope. `/run` remains the orchestrator.
+instructions for the invoking skill's stage; they do not start another lifecycle. `/run` remains the
+orchestrator.
 
 ## Spec and plans
 
@@ -46,9 +46,9 @@ standalone verification does not initiate review, merge or deployment.
 
 ## Review and delivery
 
-Prepare all candidates through `/run` before combined verification: synchronize each target and
-archive specs/update cross-repository links before any required thread is pinned. Complete Delivery
-steps 1–5 for each repository before the first merge. Give each required
+Before combined verification, prepare all candidates through `/run`: synchronize each target, archive
+specs and update cross-repository links before any required thread is pinned. Complete `/run`'s
+Delivery steps up to the merge for each repository before the first merge. Give each required
 review its local spec, the primary spec, companion diffs and SHAs. Record each repository's PR,
 candidate SHA, review thread and CI policy in the primary PR. A changed participant requires
 rechecking combined acceptance and refreshing affected reviews against the new set of commits.

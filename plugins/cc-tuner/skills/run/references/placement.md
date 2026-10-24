@@ -27,9 +27,8 @@ sessions do not exhaust memory together. Candidate acceptance and delivery remai
 
 Independent read-only review is the exception to sequential review: its own skill defines the
 reviewers and packets, while one owner aggregates. `deep-review` owns its agent availability and
-coverage refusals. Model/cost anecdotes are in [case studies](../../task-flow/references/case-studies.md),
-not dispatch thresholds. Before paid fan-out, state the count, model and effort; a dollar figure
-needs a source you can name.
+coverage refusals. Before paid fan-out, state the count, model and effort; a dollar figure needs a
+source you can name.
 
 ## Heavy checks
 
@@ -63,24 +62,21 @@ Build the brief from committed files: repository/worktree, candidate starting SH
 an instruction to read it, the slice verbatim (title, Owned paths, deciding check, delivery, criteria),
 any shared-task prerequisites, and whether other units run beside it. Tell the unit to:
 
-- load applicable repository rules and write within Owned paths. A unit working alone may make a
-  mechanical consequence outside them (lockfile, i18n catalog, generated types, a re-export) and list
-  it in the return. A unit running beside others returns that change instead of making it — the
-  batch proved only Owned paths disjoint — and the owner applies it once after integration. Anything
-  else outside Owned paths is returned as a need;
+- load applicable repository rules and write within Owned paths. `agents/slice-unit.md` says what a
+  unit may do outside them when it works alone and what it returns when others run beside it, so the
+  brief only states which case applies; the owner applies a returned out-of-path change once after
+  integration;
 - prove the expected RED or approved non-code baseline and return commands and deciding output;
 - commit after every green step, so a stop at the turn cap leaves committed work;
 - run only the checks [Heavy checks](#heavy-checks) gives a unit, through the `heavy.sh` command the
   owner resolved to an absolute path in the brief; never decide integrated acceptance;
-- start a deciding-check container as `task-flow`'s Runtime cleanup says, and stop it before returning;
-- avoid further implementation delegation; a bounded lookup is permitted;
-- commit under repository conventions, but never push, open/comment on PRs, merge, create issues
-  or claim approval;
-- report incomplete criteria, assumptions and blockers to the owner.
+- follow the remaining rules in `agents/slice-unit.md` (container cleanup, no further implementation
+  delegation, commit per green step, never push, open or comment on PRs, merge, create issues or
+  claim approval) and report incomplete criteria, assumptions and blockers to the owner.
 
 The owner reads the diff, verifies paths and actual check inputs/output, and integrates commits into
-one candidate per repository. Reuse evidence only when it still covers the assembled result; rerun
-affected checks otherwise. Shared-task readiness is checked across the whole candidate set.
+one candidate per repository. Reuse evidence only when it still covers the assembled result.
+Shared-task readiness is checked across the whole candidate set.
 
 ## Agent selection
 
@@ -90,10 +86,8 @@ If unavailable, do the slice as owner; do not substitute an uncapped worker. Use
 search, not exhaustive auditing, and a suitable general-purpose reader for other bounded questions.
 Review lenses use their own restricted definition, without an unrestricted fallback.
 
-A subagent's model is the dispatch's `model` parameter, else its definition's, else
-`CLAUDE_CODE_SUBAGENT_MODEL` when set, else the session's;
-effort is the dispatch's `effort` parameter, else its definition's, else the session's. A brief
-configures neither. The ladder:
+A brief configures neither model nor effort: pass them as the dispatch's `model` and `effort`
+parameters, else the agent definition's, else the session's. The ladder:
 
 - **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
   runs on, so a Fable or `max` orchestrator does not multiply every unit's cost.
@@ -108,19 +102,15 @@ configures neither. The ladder:
   cause is not where the briefs looked.
 - **Fable only for the orchestrator.** A unit or reader on Fable needs the user's explicit decision.
 - **Readers: Haiku** (`model: "haiku", effort: "high"`) for a bounded read-only question with a
-  literal answer — locate, extract, list, summarise named files or command output. It is the
-  cheapest tier, follows a precise brief well and has the same 1M context; it decides nothing, so a
-  wrong answer surfaces when the owner uses it. Pass `model: "sonnet", effort: "high"` instead when
+  literal answer — locate, extract, list, summarise named files or command output. It decides
+  nothing, so the owner checks what it uses. Pass `model: "sonnet", effort: "high"` instead when
   the reader must judge — compare designs, assess a risk, explain why something fails. Readers have
-  no definition of their own, so without the explicit effort they would take the session's. Use
-  `Explore` for location search.
+  no definition of their own, so pass the effort explicitly. Use `Explore` for location search.
 
 The orchestrator keeps the session's model and effort for its own decisions.
 
 Track handles and completions. Multiple spawns can be in flight even when sent in separate messages;
-wait for a slot before adding work. Do not claim prompt-prefix cache savings without evidence from
-the current host. The setup spawn-depth setting limits nesting layers; the brief limits which work
-may be handed down within those layers.
+wait for a slot before adding work.
 
 ## Worktree isolation
 
@@ -139,7 +129,7 @@ git diff <slice-branch> -- <its Owned paths> <any outside paths it listed>
 ```
 
 Require an empty path diff and deciding-check evidence covering the integrated result before cleanup.
-Remove only the clean worktree. Cherry-picking can leave the source branch outside target ancestry;
+Remove only the clean worktree. Cherry-picking leaves the source branch outside target ancestry, so
 `git branch -D <slice-branch>` is allowed only after those integration checks. Never discard unlanded
 work or use force to hide a dirty checkout.
 
@@ -157,7 +147,7 @@ Partial: <unit> at maxTurns; landed <commits>; redispatched once
 ```
 
 The plan parser ignores this line; it preserves the retry decision across resume. A partial return
-is not completion and does not reset the slice's failed-check escalation history.
+is not completion.
 
 ## Method placement
 
@@ -169,6 +159,4 @@ is not completion and does not reset the slice's failed-check escalation history
 | diagnosing-bugs, probe edits | disposable workspace |
 | code-review, deep-review | immutable candidate SHA |
 
-Spec creates the task branch before a method writes design artifacts. Keep load-bearing facts in
-the brief even when a host can inherit session context; return evidence as files/commits or a concise
-result the owner can verify.
+Spec creates the task branch before a method writes design artifacts.

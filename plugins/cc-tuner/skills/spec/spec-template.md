@@ -25,7 +25,7 @@
 - Negative/mutation proof (name what the killed test must SAY, not only that it goes red): <how the test is shown to fail without the fix>
 
 ## Definition of Done
-Recorded with evidence on the PR before merge, not ticked here: ticking would move the reviewed SHA.
+Recorded on the PR before merge, not ticked here (it would move the reviewed SHA).
 - Regression check was observed failing for the expected reason before the fix
 - Targeted, full, static/build, runtime, and acceptance checks passed as specified; verify-feature's
   record is on the PR
@@ -36,7 +36,7 @@ Recorded with evidence on the PR before merge, not ticked here: ticking would mo
   (`../run/references/local-ci.md`)
 
 ## Completion and reconciliation
-Observed after merge and reported, not committed: the target branch takes no completion commits.
+Reported after merge, not committed.
 - PR is merged with the configured method
 - Spec/archive, issue/board, target sync, branches, and worktrees are reconciled
 
@@ -45,10 +45,8 @@ branch: <current task branch>
 target: <integration branch>
 merge: squash|merge
 second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <contribution,
-    prerequisites, merge order and why>. Omit for one repository. The companion's local spec
-    records its own target, merge and CI policy; the primary test plan owns combined acceptance.
-shared-task: <primary repository, branch and spec path>. Only in the companion spec; read that
-    primary spec too. This local contribution does not complete the shared issue by itself.
+    prerequisites, merge order and why>. Omit for one repository; see ../run/references/shared-task.md
+shared-task: <primary repository, branch and spec path>. Only in the companion spec
 auto_ready: yes|no — <reason when no>
 ci: <mode> — <the checks, and how to observe them>
     mode is required (default), any, or none:<reason>; ../run/references/local-ci.md owns what each

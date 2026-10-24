@@ -22,5 +22,5 @@ For `none`, publish the actual local result before preflight/merge:
 gh pr comment <pr> --body "cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>"
 ```
 
-Use a comment: `gh pr edit --body` replaces the description. This is an attributable claim, not
-independent execution evidence: the script checks the record, but does not rerun its command.
+Use a comment: `gh pr edit --body` replaces the description. The script checks the record but does
+not rerun its command.
