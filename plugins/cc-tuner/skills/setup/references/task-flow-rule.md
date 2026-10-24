@@ -9,10 +9,7 @@ below guarantee the flow splits into separate calls. Re-run the **Locate** block
 every Bash invocation that references `$SRC` / `$ROOT` / `$DEST` / `$LOCAL` / `$RENDERED`: it is
 read-only and idempotent, so re-running it is always safe and never optional after a prompt.
 
-**Run the steps in the order they are numbered.** Step 1 migrates a repo off the old `git-flow`
-name and has to precede step 6, which creates `$LOCAL` when it is missing — reversing them leaves
-the migration looking at a `$LOCAL` that already exists, so it silently declines to move the old
-one and the cached board field IDs are lost.
+**Run the steps in the order they are numbered.**
 
 ## Contents
 
@@ -36,9 +33,7 @@ RENDERED=$(cat "$SRC") || { echo "ERROR: cannot read $SRC"; exit 1; }
 [ -n "$RENDERED" ] || { echo "ERROR: template is empty — aborting"; exit 1; }
 ```
 
-The template carries no substitution tokens: the rule is invariants only, and the plans root is
-resolved by the `cc-tuner:task-flow` skill at use time — so the rule installs verbatim and nothing
-about its content is repo-specific.
+The template carries no substitution tokens; it installs verbatim.
 
 ## check
 
@@ -47,16 +42,15 @@ about its content is repo-specific.
   "up to date". Differs → "outdated or locally modified — run `/cc-tuner:setup install task-flow`"
   and show `diff` output. Also report whether `$LOCAL` exists, and whether a legacy
   `git-flow.md` / `git-flow.local.md` is still present. Take no other action.
-- Note: the marker version is the plugin version at the template's **last change** — a newer
-  plugin with an unchanged template still reports "up to date" with an older marker. That is
-  expected; comparison is by content, not by version number. Do not "fix" the mismatch.
+- Compare by content, not by marker version: the marker is the plugin version at the template's last
+  change, so an older marker on an unchanged template is expected.
 
 ## install
 
 1. **Migrate the deltas file off the `git-flow` name — first, before anything else.** An older
-   release shipped this rule as `git-flow.md`. Step 6 creates `$LOCAL` when it is missing, so if that
-   runs first this migration finds a `$LOCAL` already present, declines, and the repo silently
-   starts from an empty deltas file with its cached board field IDs gone:
+   release shipped this rule as `git-flow.md`. Step 6 creates `$LOCAL` when it is missing, so if it
+   ran first this migration would decline and the repo would start from an empty deltas file with its
+   cached board field IDs gone:
    ```bash
    OLD_LOCAL="$ROOT/.claude/rules/git-flow.local.md"
    if [ -f "$OLD_LOCAL" ] && [ ! -f "$LOCAL" ]; then
@@ -66,10 +60,8 @@ about its content is repo-specific.
      echo "Migrated git-flow.local.md -> task-flow.local.md (your deltas, including cached board field IDs)"
    fi
    ```
-   The local file is moved, never regenerated: it holds the cached board field IDs, and losing
-   them is the friction that makes agents skip the board. The old canonical `git-flow.md` is
-   removed too, but in step 7 — after `$DEST` exists, so a failed write never leaves the repo with
-   no rule at all.
+   The local file is moved, never regenerated. The old canonical `git-flow.md` is removed in step 7,
+   after `$DEST` exists, so a failed write never leaves the repo with no rule at all.
 2. **No existing file** → write it fail-closed and atomically (same-dir tmp → `mv`) — success is
    claimed only after every step actually succeeded:
    ```bash
@@ -82,7 +74,7 @@ about its content is repo-specific.
    fi
    ```
 3. **Existing file, content identical to `$RENDERED`** → report "up to date" and **skip only the
-   destination write** — still run steps 6–8 below (a clone that committed the canonical file but
+   destination write** — still run steps 6–7 below (a clone that committed the canonical file but
    git-ignored the deltas file would otherwise never get `task-flow.local.md` or the legacy cleanup).
 4. **Existing file with our marker** (first line contains `cc-tuner:task-flow`) but different
    content → show `diff "$DEST" <(printf '%s\n' "$RENDERED")` to the user. Hand-edits would be lost
@@ -123,18 +115,15 @@ about its content is repo-specific.
    Then, if `$ROOT/.claude/rules/no-tiny-doc-prs.md` exists, tell the user that policy is now a case
    study in the `cc-tuner:task-flow` skill rather than a rule, and ask whether to delete it. Never
    delete without confirmation.
-8. Remind: the rule carries invariants only (no hooks, by design). Procedures — epics, board
-   recipes, post-merge cleanup, release notes — live in the `cc-tuner:task-flow` skill.
 
 ## Verification
 
 - [ ] `$DEST` starts with the `cc-tuner:task-flow` marker line and is byte-identical to the
-      template (no substitution happens — a diff means someone hand-edited one).
+      template.
 - [ ] Re-running the node reports "up to date" and writes nothing to `$DEST` (it may still create
       a missing `$LOCAL` — that is by design, branch 3).
 - [ ] A failed read/mkdir/write reports ERROR and exits non-zero — no success message is ever
       printed for an operation that did not happen.
 - [ ] In a repo that had `git-flow.md`: it is gone, `task-flow.md` is present, and any
       `git-flow.local.md` survived as `task-flow.local.md` with its **cached board field IDs
-      intact** — the ordering failure this checks for is silent, so grep the migrated file for the
-      IDs rather than trusting the rename.
+      intact** (grep the migrated file for the IDs rather than trusting the rename).

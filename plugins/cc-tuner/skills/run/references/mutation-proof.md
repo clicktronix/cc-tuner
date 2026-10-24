@@ -19,5 +19,3 @@ of cause: a traceback can echo the expected text from an assertion that never ex
 Run the assigned proof once for the guard. Repeat only if the guard or its test changes, not merely
 because another commit moved HEAD. Copy the helper's output into the run log without rewriting its
 verdict or figures. Keep its failure evidence and recovery instructions if restoration fails.
-
-Test the intended failure; a second copy of the same proof buys nothing.

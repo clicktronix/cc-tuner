@@ -10,7 +10,6 @@ Extended detail for the `claude-md-writer` skill. Claude Code memory facts trace
 - [Lazy loading by client](#lazy-loading-by-client)
 - [When an instruction is ignored](#when-an-instruction-is-ignored)
 - [The AGENTS.md open format](#the-agentsmd-open-format)
-- [Quality checklist](#quality-checklist)
 - [Common mistakes](#common-mistakes)
 - [Path-scoped rule behaviour](#path-scoped-rule-behaviour-the-non-obvious-parts)
 - [CLAUDE.local.md](#claudelocalmd)
@@ -133,53 +132,25 @@ In order:
 Escalate by mechanism, not emphasis: a fixed lifecycle point -> a hook; blocked outright ->
 `permissions.deny`; system-prompt level -> `--append-system-prompt` (every invocation, so suited to scripts).
 
-## Quality checklist
-
-- [ ] CLAUDE.md under 200 lines, counting ancestor files that load in the same session.
-- [ ] Critical, always-on rules at the top.
-- [ ] Nothing Claude can derive from the codebase (layout, dependency lists, architecture prose).
-- [ ] No multi-step procedure or single-area detail in always-on memory (skill, path-scoped rule or `docs/how-to/`).
-- [ ] No chronicle (dates, measurements, incident narration) in always-on memory.
-- [ ] Every stated constraint checked against the linter: enforced ones deleted, unenforced ones kept.
-- [ ] Every list with an owner elsewhere (env vars, versions, counts) replaced by a pointer.
-- [ ] The lazy-loading lever matches who works in the repo (`.claude/rules/` vs nested `AGENTS.md`).
-- [ ] `paths:` only on `.claude/rules/*.md` or a skill, never on CLAUDE.md.
-- [ ] Every glob quoted, brace groups within budget, no unbalanced `[`.
-- [ ] `@path` references instead of duplicated content, and no external import a teammate could decline into silence.
-- [ ] Must-block rules in hooks or settings, not in always-on memory.
-- [ ] No generic personal preference copied into every repository file.
-- [ ] No conflicting scope or refactoring instructions across the loaded chain.
-- [ ] Verified with `/context` that the files actually loaded.
-
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
-| CLAUDE.md keeps growing past 200 lines | Move domain detail to `.claude/rules/` with `paths`; keep only always-on facts |
 | `paths:` frontmatter on CLAUDE.md | Not supported — CLAUDE.md loads by hierarchy. Use a `.claude/rules/` file for conditional loading |
-| SQL / API / deploy detail inline | → `rules/database.md`, `rules/api.md`, `rules/deploy.md` |
 | Multi-step procedure in CLAUDE.md | → a skill (`.claude/skills/<name>/SKILL.md`). Custom commands are the same mechanism now — `.claude/commands/deploy.md` and `.claude/skills/deploy/SKILL.md` both produce `/deploy`; the skill form adds a directory for supporting files and frontmatter |
 | Assuming a file loaded because it exists on disk | `/context` → **Memory files** is the check. `/memory` lists locations, including files that don't exist yet, so it cannot answer this |
-| Team-shared CLAUDE.md importing `@~/something` | An external import shows a one-time approval dialog; a teammate who declines gets permanent silence with no second prompt. Commit the content instead |
 | Keeping layout / dependency lists / architecture prose in CLAUDE.md | Claude derives these from the codebase. `/doctor`'s trim check cuts exactly this class and keeps pitfalls, rationale and non-default conventions |
 | Re-pasting an enforceable linter/formatter config into prose | Keep the config in its tool file; in CLAUDE.md state only the convention to follow ("2-space indent" is a fine CLAUDE.md line — a copy of `.eslintrc` isn't) |
 | Relying on CLAUDE.md to *block* an action | CLAUDE.md isn't enforced — use a hook or `permissions.deny` for hard blocks |
-| Code pasted into memory | → `@path/to/file` reference; pasted code goes stale silently |
 | Only negative rules ("don't X") | Pair with the alternative ("don't X; do Y") |
-| Incident narration in always-on memory ("measured 2026-08-14, 773 lines", "this cost a day") | Rationale belongs in `docs/`, in a comment beside the code, or in the issue. No measurement changes the agent's next action, and counts go stale |
-| An env-var / version / count table pasted from its owner | Point at `.env.example`, `package.json`, the schema. The copy drifts silently and is discovered by accident |
 | A 40-line "how to add a feature" tutorial with an invented entity | The docs list long explanations and tutorials as excluded. Name a real module instead: `see src/.../campaigns/` |
-| The same rationale in a config header *and* in memory | One owner, one pointer. Two copies disagree the day one is edited, and nobody knows which is current |
-| Moving critical rules only into `.claude/rules/` in a repo Codex also works in | Codex does not read `.claude/rules/`. Keep short shared invariants in `AGENTS.md`; use an explicit pointer/router for conditional detail |
-| Conflicting scope or refactoring rules in the loaded chain | Pick one owner and remove the other; do not rely on instruction order to resolve the conflict |
-| Duplicating one CLAUDE.md inside another | `@path/to/shared-file.md` (import; max 4 hops deep) |
 
 ## Path-scoped rule behaviour (the non-obvious parts)
 
 - **Trigger is a READ of a matching file** — the docs say path-scoped rules trigger when Claude *reads* a file matching the glob, "not on every tool use". A merely planned write doesn't pull the rule in; Claude actually reading the file does.
-- **User-level rules load too.** `~/.claude/rules/*.md` apply to every project on the machine and load *before* project rules — the docs frame this as giving project rules "higher priority", but since memory is concatenated, the safe move is to not let user and project rules contradict in the first place. (Contrary to a common misconception that user-level path rules "never load" — they do.)
-- **Quote your globs.** The docs quote every glob in their `paths` examples (e.g. `- "src/**/*.{ts,tsx}"`), and a leading `*` or `{` is unsafe unquoted in YAML anyway. No prose rule *mandates* it, but quoting is the form the docs model — follow it.
-- **Rules-file size:** the docs publish a size target only for CLAUDE.md (< 200 lines). There is **no** official line/size number for `.claude/rules/*.md` — keep them focused, but don't cite a "500-line rule" as official; it isn't.
+- **User-level rules load too.** `~/.claude/rules/*.md` apply to every project on the machine and load *before* project rules — the docs frame this as giving project rules "higher priority", but since memory is concatenated, the safe move is to not let user and project rules contradict in the first place.
+- **Quote your globs.** A leading `*` or `{` is unsafe unquoted in YAML, and the docs quote every `paths` example.
+- **Rules-file size:** the docs publish a size target only for CLAUDE.md (< 200 lines), none for `.claude/rules/*.md`.
 - **Symlinks work**, both for a whole directory and a single file (`ln -s ~/company-standards/security.md .claude/rules/security.md`); circular symlinks are detected. Path matching also works when a file is reached through a symlinked path into the project.
 - **Rules vs skill for scoped content.** A `paths`-scoped *rule* still enters context on any read of a matching file. A `paths`-scoped *skill* loads only when Claude judges it relevant AND a matching file is in play — cheaper, but less certain to fire. Use a rule for a constraint that must always be present when touching those files, a skill for a procedure.
 
@@ -218,20 +189,10 @@ Personal, gitignored notes — appended after `CLAUDE.md` at the project root, s
 The **200-line / 25 KB** ceiling applies to `MEMORY.md` only. A CLAUDE.md is loaded in full up to **4 MiB**, and a file larger than that is **skipped entirely** — not truncated, so nothing in it applies. Below that ceiling length costs adherence, not loading.
 
 - Content past the threshold **is not loaded**, silently.
-- After a write, Claude Code measures the file: near a limit it reminds Claude to shorten; over a limit the write still succeeds but returns an error telling Claude to rewrite the index, because the overflow is dropped on the next load.
 - **Frontmatter and block-level HTML comments are stripped before measuring**, so they cost nothing against the limit.
-- A memory file that already has frontmatter gets a `modified` ISO-8601 timestamp on each write; files without frontmatter never gain it.
 - Topic files are never loaded at startup — Claude reads them on demand.
 
 Subagents do not inherit the main conversation's auto memory; a **fork** is the exception, since it inherits the parent conversation. A subagent's own `memory` field points at a separate directory.
-
-## Patterns from public repositories
-
-Public repositories vary widely in root-file length. The stable patterns worth
-copying are structural: keep one canonical owner, use short nested overlays for
-package-specific constraints, point at executable configuration instead of
-copying it, and name task procedures rather than retelling them in always-on
-instructions. Treat any public file as an example, not a normative template.
 
 ## Sources
 
@@ -246,7 +207,5 @@ Official (authoritative for everything above):
 
 Community patterns (useful, not normative — verify before relying):
 
-- The 150-line threshold and the +20-23% inference-cost figure come from third-party measurement, not the docs; the only doc-published target is 200 lines. <https://www.betterclaw.io/blog/agents-md-best-practices>
-- Structural completeness of practitioner AGENTS.md files, 34-file corpus, 37% below threshold — <https://arxiv.org/abs/2604.21090>
 - The genre labels (instruction / procedure / chronicle / copy / generic / duplicate) are this skill's framing, not doc.
 - The "layered documentation" idea is a common community structuring of the official `.claude/rules/` + subdirectory-CLAUDE.md mechanisms; the mechanisms are official, the specific 3-tier framing is not.

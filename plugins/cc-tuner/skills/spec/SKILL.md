@@ -18,9 +18,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh" \
 ```
 
 The prerequisite check names what `/run` will use — the review skills, and the Codex
-required-review contract behind `review: codex`. It does not block spec work. Without the bridge the
-spec declares `review: none:<reason>` (section 5) and the optional research below is unavailable;
-a missing review skill is recorded in the spec's Delivery section for `/run` to act on.
+required-review contract behind `review: codex`. Without the bridge the spec declares
+`review: none:<reason>` (section 5) and the optional research below is unavailable; a missing review
+skill is recorded in the spec's Delivery section for `/run` to act on.
 
 **Decide once, now, whether a second provider reads alongside you.** When `cc-codex-triage` is
 installed and the task has an unfamiliar dependency, a current-facts question or two defensible
@@ -45,11 +45,8 @@ subsystems, a second repository, an unfamiliar dependency — dispatch one read-
 with the Agent tool (`Explore` for search, `general-purpose` on `haiku` at `effort: "high"` for a
 question that needs running commands; the model ladder is in `run`'s placement reference), all in a
 single message so they run at once. Each gets a literal question and the paths to look in; none of
-them decides anything. You read what comes back and write the spec. This is
-the cheapest part of the flow to parallelise, because discovery is read-only and the failure mode of a
-wrong answer is that you notice it while drafting. Do not delegate the grilling in section 3: its
-questions change the draft, and their answers are decisions the owner keeps — an adviser can be
-handed the draft text, never the decision.
+them decides anything. You read what comes back and write the spec. Do not delegate the grilling in
+section 3: an adviser can be handed the draft text, never the decision.
 
 ## 2. Create the task branch
 
@@ -130,12 +127,11 @@ Assign a mutation only where a false green is otherwise indistinguishable **and 
 produces the same fact**: fail-closed guards, validators and parsers, recovery paths — checks whose
 failure mode nobody has watched. Do **not** assign one to a regression test for a shipped defect: that
 test is watched failing on the pre-fix code, which is the same evidence for free. Elsewhere a baseline
-or diff check is enough. Where the test command is a full build, say so in the spec — the proof then costs **three** runs of it
-(baseline, mutant, and the control that confirms the kill) and is worth assigning only if the guard is
-worth that. A mutation assignment also
-names **what the killed test must say**, the way the first failing check names its expected failure:
-`/run` passes it to `--expect` as a diagnostic filter and inspects the failure log; a text match alone
-does not prove the mutation caused the failure. `/run` executes this proof without inventing another.
+or diff check is enough. Where the test command is a full build, say so in the spec — the proof then
+costs **three** runs of it (baseline, mutant, control) and is worth assigning only if the guard is worth
+that. A mutation assignment also names **what the killed test must say**, the way the first failing
+check names its expected failure; `/run` executes the proof as [mutation-proof.md](../run/references/mutation-proof.md)
+describes, without inventing another.
 
 Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
 and how to observe them on the candidate. `/run` passes the mode verbatim. Set `review:` to `codex`
@@ -147,8 +143,7 @@ Only `/run --auto` requests unattended execution.
 
 Set `tracker:` from repository policy, not from the default: `gh` when the repository tracks work in
 GitHub issues, `none` when it does not. With `tracker: none` the spec is the record and no issue is
-created or updated at any point; a missing tracker or board never blocks permitted spec work. With
-`gh`, do not create or update the issue before the approval in section 6.
+created or updated at any point. With `gh`, do not create or update the issue before the approval in section 6.
 
 ## 6. Plan and confirm
 
@@ -186,9 +181,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
 the spec, plan, and only the `GLOSSARY.md` or ADR changes this invocation intentionally created.
-Preserve unrelated WIP without staging, reverting or pausing for it. If another change overlaps
-this work or makes its verification unreliable, resolve ownership for that part and continue
-independent work. Commit the reviewed set together using the repository's convention.
+Preserve unrelated WIP without staging, reverting or pausing for it; if other changes make
+verification unreliable, ask the user. Commit the reviewed set together using the repository's
+convention.
 
 ## 7. Publish and hand off
 
@@ -203,9 +198,9 @@ When the native task tools are available, publish the visible plan before any im
 
 The task list is only a projection; the committed plan remains the source of truth. If the tools are
 absent, say once that only the visible list and its edges are lost, mention
-`{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` — the form that
-survives the next session — or `--allowedTools TaskCreate` for this one, and continue to
-the handoff. Do not add a second confirmation after the approved contract and slices.
+`{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` (or
+`--allowedTools TaskCreate` for one session), and continue to the handoff. Do not add a second
+confirmation after the approved contract and slices.
 
 Print the spec and plan paths, branch, target, and the next command. When the user asked for the
 task to be implemented, not only planned, start `/cc-tuner:run` yourself with the spec path; offer

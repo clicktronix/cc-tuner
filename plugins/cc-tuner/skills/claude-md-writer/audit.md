@@ -35,13 +35,10 @@ For Claude Code, `/context` -> **Memory files** is authoritative. Count every
 ancestor file listed there and every rule without `paths:`. A disk search alone
 cannot prove that Claude loaded a file.
 
-For Codex, `project_doc_max_bytes` limits only project instruction entries. It
-is 32 KiB by default, can be overridden in Codex configuration, and is shared
-by the project files discovered from repository root to `cwd` (and by project
-files from any additional selected environment). User-level
+For Codex, `project_doc_max_bytes` (32 KiB by default, configurable) is shared by
+the project files discovered from repository root to `cwd`. User-level
 `~/.codex/AGENTS.md` is added separately and must not be subtracted from this
-budget. Truncation emits a tracing warning, which may not be visible in the
-ordinary UI.
+budget. Truncation emits a tracing warning that the ordinary UI may not show.
 
 Ask the installed CLI what the model actually receives instead of recreating
 its loader arithmetic:
@@ -95,8 +92,6 @@ awk '
 ```
 
 Treat a large section as a candidate for inspection, not automatic deletion.
-Procedures and historical narration are common causes; short unenforced
-constraints may carry more value than either.
 
 ## 4. Find duplicated identifiers
 
@@ -146,7 +141,6 @@ else
 fi
 ```
 
-A difference is a reason to inspect the ownership boundary, not a verdict.
 When the owner is authoritative, replace the copy with a pointer instead of
 repairing both lists.
 
@@ -155,15 +149,13 @@ repairing both lists.
 Two failures live here, and both are silent.
 
 **A rule that legislates where it never loads.** A body that governs an area outside the rule's own
-globs is inert there and fires where it does not apply. One repository's architecture rule carried a
-"new public table" migration checklist while scoped to `src/**`: it loaded on UI edits and stayed
-silent on every migration. The same rule documented `src/infrastructure/**` ownership with that path
-absent from its frontmatter.
+globs is inert there and fires where it does not apply (a "new public table" migration checklist in a
+rule scoped to `src/**` loaded on UI edits and stayed silent on every migration).
 
-This one resists a one-liner — a rule may legitimately *mention* a neighbour it does not govern, and
-only a reader can tell a mention from a rule. Use representative tasks and actual files the body
-governs, including prompts, migrations and configuration. Account for every applicable rule,
-including overlapping scopes. A mismatch needs an applicable route or a narrower rule body.
+A rule may legitimately *mention* a neighbour it does not govern, and only a reader can tell a mention
+from a rule. Check each area the body governs (migrations, prompts, configuration) against the
+globs, across every applicable rule including overlapping scopes. A mismatch needs a route or a
+narrower rule body.
 
 **A pointer or router that has drifted from the rules.** Where other agents rely on explicit
 routes, compare those routes with the current rules, including nested and unconditional rules.

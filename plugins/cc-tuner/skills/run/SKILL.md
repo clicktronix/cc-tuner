@@ -22,9 +22,8 @@ Start previews, dedicated MCP servers and test containers as `task-flow`'s Runti
 [Ending the run](#ending-the-run) stops them.
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
-DoD. If the argument is missing or names the plan instead, take the spec from the resolved plan's
-`**Spec:**` header, say which one you took, and continue; the `plan-lint check` below proves the pair.
-Stop only when neither the argument nor the header names a spec that exists. Refuse `--auto` unless
+DoD. If the argument is missing or names a plan, read the spec from the plan's `**Spec:**` header and
+say which one you took. Stop if neither names a spec that exists. Refuse `--auto` unless
 `auto_ready: yes`.
 
 For work spanning repositories or a spec naming `second-repo`/`shared-task`, read
@@ -40,8 +39,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printe
 ```
 
 Read the returned path and use it literally in later calls. A missing or ambiguous plan, or a
-spec/branch mismatch, stops the run: finish `/cc-tuner:spec` first. Never execute a conversation-only
-plan or use one spec's tests and delivery config for another plan.
+spec/branch mismatch, stops the run: finish `/cc-tuner:spec` first. Never execute a plan that exists
+only in the conversation.
 
 When native task tools exist, reconcile the list against the plan even if the list is nonempty.
 `SessionStart` restores slices only. Create missing tasks with `TaskCreate`, then set edges with
@@ -50,8 +49,7 @@ When native task tools exist, reconcile the list against the plan even if the li
 - one task per slice with the plan's dependencies;
 - **verify the feature**, blocked by every slice → **review the candidate** → **deliver**.
 
-Carry all completed slice checkboxes into task status before starting; otherwise the loop, which
-visits only open slices, cannot close stale pending tasks. Update statuses as stages execute. If
+Mark tasks completed for every ticked slice before starting. Update statuses as stages execute. If
 native tools are absent, say so once and continue with the plan file as durable state.
 
 ## The loop
@@ -67,22 +65,20 @@ Omit `--active` when nothing is running. It emits a `BATCH` and its `SLICE` reco
 slices have proven-disjoint literal Owned paths, disjoint also from every active slice; otherwise
 one ready slice. Dispatch what it returns without re-deriving it.
 
-**Rolling dispatch.** A slice whose blockers are done starts as soon as a unit is free; do not wait
-for the rest of its batch. "Free" is measured against placement's concurrency cap on the **active
-set**, not per batch: a returned batch of two joining one running unit is three, and on a
-build-heavy repository two is the ceiling, so one of them waits. Ask again after every unit returns, with the active set refreshed from
-native task status and your agent handles — including on resume, where the first thing to do is
-reconcile which units still exist before dispatching anything.
+**Rolling dispatch.** A slice whose blockers are done starts as soon as the active set (running units
+plus the new start) is under placement's concurrency cap; do not wait for the rest of its batch. Ask
+the parser again after every unit returns, with the active set refreshed from native task status and
+your agent handles. On resume, first reconcile which units still exist.
 
 **An empty batch is not completion.** With `--active` it is also what an all-busy or all-conflicting
 plan returns, and the parser says so on stderr. Decide by the plan, not the batch: open slices remain
-→ wait for an active unit or diagnose the block; no open slices → verify the feature. A unit's
-process ending is not acceptance either — a slice closes only after you have read its diff and its
-deciding-check evidence and integrated the commits. A `--active` id the parser does not know is an
-error, never ignored: refresh the set rather than guessing.
+→ wait for an active unit or diagnose the block; no open slices → verify the feature.
 
-Under `--auto`, refuse any task with nonempty `blockedBy`, including tasks reached outside this
-parser: native task tools do not enforce the edge.
+A unit's process ending is not acceptance either: a slice closes only after you have read its diff and
+its deciding-check evidence and integrated the commits.
+
+Under `--auto`, never start a task whose `blockedBy` is nonempty; native task tools do not enforce
+the edge.
 
 A spike's result can contradict the wording of the slices that depend on it. When one lands, re-read
 them, update their text in the plan (and the spec if the fact changes its Sources), and re-run the
@@ -116,14 +112,14 @@ will do next: nothing resumes a run that ended its turn except the user.
 
 Delegate implementation when the work justifies the brief; under `--auto`, prefer delegation for
 substantial slices. Dispatch an implementation unit as `cc-tuner:slice-unit`, whose turn cap makes
-a slice that does not fit come back marked partial instead of running on. There is no uncapped
-fallback: when the host does not list that type, do the slice yourself and say so. The orchestrator
-retains the task list, slice completion, mutation interpretation, full regression, runtime
-acceptance, review verdict, DoD and delivery, and it owns a partial return: placement's
-"Unit size and partial returns" says what happens next.
+a slice that does not fit come back marked partial instead of running on. If the host does not list
+that type, do the slice yourself and say so. The orchestrator retains the task list, slice
+completion, mutation interpretation, full regression, runtime acceptance, review verdict, DoD and
+delivery, and it owns a partial return.
 
 Before dispatching any implementation unit, read [placement.md](references/placement.md): it defines
-the brief and return checks, model choice, isolation, concurrency and escalation. Read it also before
+the brief and return checks, model choice, isolation, concurrency, escalation and what a partial
+return triggers. Read it also before
 invoking `prototype`, `domain-modeling` or `diagnosing-bugs`. `deep-review` and `/spec` name
 their own read-only agent type/model; where silent, placement decides.
 
@@ -132,25 +128,24 @@ their own read-only agent type/model; where silent, placement decides.
 - **RED before GREEN:** run the failing check first and record the expected failure. Use the honest
   non-code baseline/diff check where the spec explicitly permits it.
 - Execute the spec's negative proof; `not applicable — <reason>` with its alternative is valid.
-  Do not invent mutations. A shipped-bug regression observed RED before the fix needs no extra one.
-  **If the spec assigns a mutation**, read [mutation-proof.md](references/mutation-proof.md) before
-  running `mutate.sh`; the orchestrator must inspect its failure evidence, not just the verdict.
+  Do not invent mutations. **If the spec assigns a mutation**, read
+  [mutation-proof.md](references/mutation-proof.md) before running `mutate.sh`; inspect its failure
+  evidence, not just the verdict.
 - **Record the deciding check's evidence in the plan**, under the slice, as one line the next reader
   can re-run: `Evidence: <command> → <the deciding output line> @ <sha or worktree>`. The parser
-  ignores the line; it exists so completion is a recorded result, not a remembered one. One matching
-  line is not proof by itself — you still read the diff and check the criterion is covered — but it
-  is what makes reuse honest: evidence names the code it was taken from.
+  ignores the line. It does not replace reading the diff; it names the code the result was taken from,
+  which is what makes reuse honest.
 - **Test cadence.** Slices run the spec's targeted checks, as placement's Heavy checks assigns them.
   The full regression suite runs at the spec's `full_test_cadence`: `per-candidate` (the default,
   also when the field is absent) runs it once on the assembled candidate and once after each batch of
   review fixes; `per-batch` also runs it after each integrated batch of slices. The full e2e suite
-  runs in verify-feature. Reuse observed results when the checked code, dependencies, configuration and
-  environment still match; identify the source result and why it applies. Re-run affected checks
-  when those inputs change or the evidence is missing/unreliable. Honour explicitly required fresh
-  runs. A new commit alone does not require another identical local build; review and CI still bind
-  the final SHA.
+  runs in verify-feature. Reuse a result only when the checked code, dependencies, configuration and
+  environment are unchanged, and name the source result. Re-run affected checks when those inputs
+  change or the evidence is missing or unreliable, and whenever a fresh run is explicitly required.
+  A new commit alone does not require another identical local build; review and CI still bind the
+  final SHA.
 - **Heavy checks go through the machine's slots,** as [placement.md](references/placement.md#heavy-checks)
-  defines and spells out; that includes the command you put in every unit's brief.
+  defines, including the command you put in every unit's brief.
 - Re-check unresolved `[eyes]` criteria even if a stale plan reached `--auto`: stop for the required
   human step or a user waiver recorded with who and when.
 
@@ -165,9 +160,9 @@ Fetch the integration target before the first candidate and before delivery. If 
 this branch, notify the user and integrate it, resolving conflicts within the agreed task. Prefer
 merge on published branches or after required review began; rebase only unpublished work before the
 first required round when repository policy allows it. Do not force-push to synchronize. Preserve
-unrelated WIP; use a separate clean task checkout when necessary and retain it for required review
-and merge. Reverify the integrated result. A conflict needing a product decision blocks only its
-dependent work. Do not ask again for routine conflict resolution.
+unrelated WIP, using a separate clean task checkout when necessary. Reverify the integrated result. A
+conflict needing a product decision blocks only its dependent work; do not ask again for routine
+conflict resolution.
 
 Pass a literal synchronized target SHA as the initial review base; keep it and the spec path fixed
 for that thread. Later target updates are merged without changing that base. If target advances
@@ -176,8 +171,9 @@ the new candidate; under `review: codex` claim that round with `begin --integrat
 the integration without spending the cap. A companion older than 0.14 has neither this nor `renew`
 (prereq-check prints a NOTE): review the integration as a normal round, and after an authorized new
 budget use its documented reset.
-On resume, read the existing PR and review state; reuse valid progress, and reconcile an already
-merged PR instead of opening or merging it again.
+
+On resume, read the existing PR and review state, and reconcile an already merged PR instead of
+opening or merging it again.
 
 ## Verifying the feature
 
@@ -189,14 +185,13 @@ The orchestrator decides what an unproved criterion means: ask under `--auto`, o
 residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
 as one PR comment: its lines come from verify-feature alone, and a criterion it did not observe stays
 `NOT PROVED`. `merge.sh` requires the record, prints its `NOT PROVED` lines, and accepts any commit the
-head contains, so later fix commits need a new record only when the reuse rule says the evidence no
-longer covers them.
+head contains, so a later fix commit needs a new record only if the evidence no longer covers it.
 
 ## Delivery
 
 A new commit needs fresh authoritative approval and CI, with acceptance and DoD evidence covering
-the resulting candidate. Local checks follow the evidence-reuse rule above. Previously read findings
-and completed advisory passes remain useful; a new SHA does not restart them.
+the resulting candidate. Local checks follow the reuse rule in Proving a slice; a new SHA does not
+restart findings already read or advisory passes already completed.
 Shared-task delivery also covers the complete repository/SHA set defined in the loaded reference.
 
 1. **Push and open the PR** (draft is fine while work continues). The candidate is its exact head
@@ -220,20 +215,17 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    - Claude Code's built-in `/code-review <level> <target>` only when the user asks for it. Put the
      level first: a level written after the target is read as part of the target. It has no Spec
      axis, so the spec's acceptance stays yours to check, and `max` dispatches a verifier per
-     candidate finding (cost figures: [case studies](../task-flow/references/case-studies.md)). Pass
-     base, candidate and spec; run without publishing findings automatically.
+     candidate finding, which is costly on a large candidate. Pass base, candidate and spec; run without publishing findings automatically.
 
    Deep review already covers Spec and Standards, so do not stack workflows. If fixes newly meet a
-   deep-review trigger, escalate once; otherwise verify affected findings without restarting
-   advisory passes. These are not merge gates. A deep-review `INCOMPLETE` names the lenses/paths
+   deep-review trigger, escalate once. These are not merge gates. A deep-review `INCOMPLETE` names the lenses/paths
    nobody read; the table below says who closes that gap.
 
-   Apply `.claude/rules/task-flow.md`: validate findings against the agreed outcome, repository rules
-   and evidence; group related fixes by cause and update the current plan. Keep them in existing
-   implementation/review tasks unless they need a distinct work unit. A comment does not automatically
-   create a native task or issue. Record independent future work through `cc-tuner:task-flow`.
-   Refute speculative extensions outside the spec or rules; optional style notes with no violation
-   do not move the candidate. After fixes, verify affected findings and continue to required review.
+   Triage findings per `.claude/rules/task-flow.md`: validate them against the agreed outcome,
+   repository rules and evidence; refute speculative extensions outside the spec or rules (style
+   notes with no violation do not move the candidate); fix the rest grouped by cause, update the
+   plan, then verify the affected findings and continue to required review. Record independent
+   future work through `cc-tuner:task-flow`.
 3. **Obtain the verdict from the owner the spec's `review:` names.**
 
    | | `codex` (default) | `none:<reason>` |
@@ -248,10 +240,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    owner, never a verdict to copy. A finding refuted with evidence or deferred by the user needs no
    code change: re-judge the same SHA. Do not manufacture an empty commit to move the candidate, and
    do not reset a thread to seek a more favourable verdict.
-4. **Publish each verdict immediately, for the SHA that was judged.** Take the SHA from the verdict
-   itself (the companion's marker, or the commit you judged), read the PR's full `headRefOid` in
-   this turn, and compare: if the head moved, the verdict belongs to the old SHA — review the
-   difference to the new head instead of relabelling it. Abbreviated SHAs do not match the gate:
+4. **Publish each verdict immediately, for the SHA that was judged** (the companion's marker, or the
+   commit you judged). Read the PR's full `headRefOid` in this turn: if the head moved, the verdict
+   belongs to the old SHA, so review the difference to the new head instead of relabelling it.
+   Abbreviated SHAs do not match the gate:
 
    ```bash
    gh pr review <pr> --comment --body "cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>"
@@ -267,11 +259,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 
    `merge.sh` honours it only under `--review none:<reason>` and only for that exact head.
 5. **Record the spec's DoD before merge.** Name each item and its evidence in a PR comment or body
-   section. Do not commit this record to the spec: that moves the reviewed SHA, and later writing it
-   directly to the integration target violates repository rules.
+   section. Do not commit it to the spec (that moves the reviewed SHA) or to the integration target.
 6. **Mark the PR ready and deliver through the checked script.** When the candidate is verified,
-   judged and its DoD recorded, run `gh pr ready <pr>` if it is a draft — GitHub will not merge a
-   draft, and some repositories run their full checks only on ready PRs, so wait for those checks.
+   judged and its DoD recorded, run `gh pr ready <pr>` if it is a draft and wait for the checks that
+   start then.
    Recheck target advancement as described above. Under `--auto`, merge with the spec's strategy,
    CI mode, pinned head and same review thread:
 
@@ -280,8 +271,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    ```
 
    Omit `--ci` for `required`; legacy specs naming checks without a mode mean `required`. The thread
-   is required under `review: codex`. An ordinary pull request outside a run is merged with
-   `--unmanaged`, which the script refuses for a PR that carries a plan or names a review.
+   is required under `review: codex`.
    If any participating spec declares `none:<reason>`, read [local-ci.md](references/local-ci.md)
    before this step and record the exact candidate's local evidence as it requires.
    For a shared task, complete the reference's preflight of **all** candidates before any merge,
@@ -292,9 +282,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    merge action. Keep deliver pending until the merge is observed.
 
    The script rechecks required review, public verdict, the verify-feature record, the selected CI
-   checks and PR head.
-   Fix any refusal; do not substitute raw CLI/web/API merge or direct push. The head pin prevents
-   merging a commit that moved after verification.
+   checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
    are complete. Do not commit a completion record directly to an integration target.
@@ -302,9 +290,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 ## Ending the run
 
 Every final answer — after the merge, at the handoff before it, or on a block — first stops what this
-run started: TaskStop each background task (previews, dev servers, dedicated MCP servers), close the
-browser pages it opened, and remove each container it created, by the name or label it gave it.
-Something the user asked to keep running stays. The answer then carries one line:
+run started (TaskStop each background task, close the browser pages it opened, remove each container it created), as `task-flow`'s Runtime cleanup says. Something the user asked to keep running stays.
+The answer then carries one line:
 
 ```text
 resources: closed | retained <what, and why> | none

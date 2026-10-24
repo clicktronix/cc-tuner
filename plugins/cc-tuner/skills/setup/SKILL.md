@@ -7,13 +7,14 @@ disable-model-invocation: true
 
 # /cc-tuner:setup
 
-Parse `$ARGUMENTS`: the mode is `check` (default), `install`, or `remove` — the last one only for
-the statusline, the one node that installs something user-global and therefore needs an undo; an
-optional node name limits the run to that node and the nodes it depends on. `check` writes nothing
-anywhere. `install` applies
-each node's change under one rule: an explicit install request authorises **additive** repository
-edits — a block between markers, a new file, a missing key — and nothing more. A rewrite of the
-repository's own instructions is not additive and has its own confirmation boundary in node 2.
+Parse `$ARGUMENTS`. The mode is `check` (default), `install`, or `remove`; `remove` applies only to
+the statusline, the one node that installs something user-global and so needs an undo. An optional
+node name limits the run to that node and the nodes it depends on.
+
+`check` writes nothing anywhere. `install` applies each node's change under one rule: an explicit
+install request authorises **additive** repository edits — a block between markers, a new file, a
+missing key — and nothing more. A rewrite of the repository's own instructions is not additive and has
+its own confirmation boundary in node 2.
 
 ## The nodes
 
@@ -73,8 +74,8 @@ testing document is outside this additive setup step.
 
 ### 1. Agent-rules discovery
 
-Codex builds its instruction chain once at startup and does not load `.claude/rules` on a matching
-read the way Claude Code does, so the root instruction file has to say "read the applicable rules".
+Codex does not load `.claude/rules` on a matching read, so the root instruction file has to say "read
+the applicable rules".
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agent-rules-setup.py" check --repo .
@@ -131,24 +132,24 @@ current models, and nothing the plugin ships can turn them on. Without them `/cc
 commits the plan and publishes no visible task list, which reads as the plugin not working. When
 node 0 reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, add `"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"`.
 
-**Nesting.** `/cc-tuner:run` tells every unit not to delegate further and deep-review's lenses
-carry no Agent tool, but a `general-purpose` unit can still spawn down to depth 3 by the platform
-default. When node 0 reported
-`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit can run its own `Explore`
-lookup, which the unit brief allows, while nothing below it can spawn. `"1"` is the strict form and
-forbids that lookup too, so a unit that needs one returns the question instead. Say what either
-changes outside cc-tuner — every session on this machine, including `/code-review` at max effort,
-which dispatches a verifier per candidate from inside a subagent — because that is the user's call,
-not the plugin's. Heavy-check slots need no setting: `CC_TUNER_HEAVY_SLOTS` defaults to 1; mention
-that a machine with memory to spare can raise it.
+**Nesting.** A `general-purpose` unit can still spawn down to depth 3 by the platform default, though
+`/cc-tuner:run` tells units not to delegate and deep-review's lenses carry no Agent tool. When node 0
+reported `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit can run its own
+`Explore` lookup, which the unit brief allows, while nothing below it can spawn. `"1"` is the strict
+form and forbids that lookup too. Say what either changes outside cc-tuner — every session on this
+machine, including `/code-review` at max effort, which dispatches a verifier per candidate from
+inside a subagent — because that is the user's call, not the plugin's. Heavy-check slots need no
+setting: `CC_TUNER_HEAVY_SLOTS` defaults to 1; a machine with memory to spare can raise it.
 
-Detect has two halves, and they can disagree. First, **now**: is `TaskCreate` in this session's
-tool list? You can answer that directly — it is your own tool list. Second, the env: is the key in
-`~/.claude/settings.json`? Four states follow. Tools present → nothing to do, whatever the env says.
-Env set, tools absent → the setting has not taken effect yet (this session predates it) or this
-model does not offer the tools; report which, and that a restart decides. Env unset, tools absent →
-the install case above. Env unset, tools present → the host enabled them another way; leave the
-env alone and say so.
+Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
+key in `~/.claude/settings.json`?
+
+| tools | env | action |
+|---|---|---|
+| present | any | nothing to do |
+| absent | set | the setting has not taken effect yet (this session predates it) or this model does not offer the tools; report which, and that a restart decides |
+| absent | unset | the install case above |
+| present | unset | the host enabled them another way; leave the env alone and say so |
 
 An env edit is configuration for a later session, not proof the tools loaded. This command cannot
 observe the next session, so after writing either key its verify column reads
@@ -165,14 +166,12 @@ patch and the restart note. Serialise it after node 4 for the shared-file reason
 `/cc-tuner:setup remove statusline` runs the reference's **remove** section — the only `remove` this
 command has, because this is the only node that installs something outside the repository.
 
-The `Mechanism First` output style is in the same category — the plugin ships it, so there is
-nothing to install. Mention it once, as a preference: `/config` → Output style → `Mechanism
-First`, then `/clear`, because the style is read once at session start. Never select it for the
-user — a style rewrites part of the system prompt for every response, and that choice is theirs.
+The `Mechanism First` output style ships with the plugin, so there is nothing to install. Offer it
+once, as a preference: `/config` → Output style → `Mechanism First`, then `/clear`. Never select it
+for the user — a style rewrites part of the system prompt for every response, and that choice is
+theirs.
 
 ### 6. Board wiring (`install` only, and only when `gh` is authorised)
-
-The board is where setup most often stops half-done, because nothing fails loudly when it does.
 
 **First, does this repo track work on a board at all?** A spec may say `board: none`, and such a
 repo never runs a board command. Ask if you do not know. If the answer is no, skip the whole step,
@@ -186,9 +185,8 @@ this node, print `gh auth refresh -s project` for the user to run — it is an i
 flow you cannot complete for them — and report the board as not wired.
 
 1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` — the recipes
-   are in the `cc-tuner:task-flow` skill. Re-fetching these every session is the friction that
-   makes agents skip the board, so caching them here is the point of doing it at setup time. Node 3
-   must have run: it is what guarantees `task-flow.local.md` exists and carries any migrated IDs.
+   are in the `cc-tuner:task-flow` skill. Node 3 must have run: it guarantees `task-flow.local.md`
+   exists and carries any migrated IDs.
 2. Check whether the org has an `Epic` issue type, with the query in the `cc-tuner:task-flow` skill's
    Epics section. Absent → tell the user an **org admin has to add it in organisation settings**; it
    cannot be created through the API with an ordinary token. Until then the skill falls back to an
@@ -215,5 +213,4 @@ Never omit the row: an absent check reported as nothing is indistinguishable fro
 End with one table — `node | before | action | verification` — one row per node including the
 skipped and blocked ones, then what is deliberately left for the user (`gh auth login`, a restart,
 a declined diff). A row that says "installed" must be one whose verify step actually re-detected
-the installed state; reporting an install that could not have happened is worse than not offering
-it, because nothing later contradicts the claim.
+the installed state.

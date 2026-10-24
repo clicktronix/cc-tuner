@@ -19,7 +19,7 @@ or reach them. Preserve scope, authorization and existing manual edits.
 **Every line must change behaviour.** Test each one with the docs' own question: *would removing
 this cause Claude to make mistakes?* If a linter already catches it, or Claude already does it
 right, the line is a no-op that costs context in every session. A conflict between instructions is
-fixed by deleting one side, not by emphasis or load order. For the wording of a line — pointers,
+fixed at its source by deleting one side, never by emphasis or load order. For the wording of a line — pointers,
 no-ops, negation, pruning — invoke `mattpocock-skills:writing-for-agents` when it is installed; this
 skill decides where a line lives and which client loads it.
 
@@ -29,31 +29,22 @@ Read existing root/nested instructions, imports, rule indexes and applicable set
 which clients and versions actually use the repository. Keep one canonical owner for shared rules;
 use a pointer for conditional detail. An existing `AGENTS.md` can remain that owner.
 
-Current Claude Code ships a built-in `agents-md` mod (option `instructionFiles`, shown in `/config` as
-"Project instructions"). Under its default, `claude-md-or-agents-md`, `AGENTS.md` is loaded only where
-no CLAUDE file (`CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`) sits in the working directory
-or any directory above it, a workspace container above the repository included; the user-global `~/.claude/CLAUDE.md` does not
-count, so it does not suppress the fallback. Nested `AGENTS.md` files attach on a text `Read`. A
-repository that has a CLAUDE file therefore still needs `@AGENTS.md` in it, unless the mode is
-`claude-md-and-agents-md`, which loads both and skips an imported file. Older clients, a disabled mod
-or `claude-md` also need the import. Confirm the mode and `/context` before adding or removing a bridge;
-an existing import can stay. Details: [reference.md](reference.md#native-agentsmd-selection).
+Claude Code's built-in `agents-md` mod loads `AGENTS.md` by default only where no CLAUDE file sits
+in the working directory or any directory above it, so a repository that has a CLAUDE file still needs
+`@AGENTS.md` in it. Confirm the mode and `/context` before adding or removing a bridge; an existing
+import can stay. Modes and exceptions: [reference.md](reference.md#native-agentsmd-selection).
 
 AGENTS.md is an open format: plain Markdown, the nearest file in the directory tree wins, and the
 user's prompt overrides the file ([reference.md](reference.md#the-agentsmd-open-format)).
 
-Codex discovers project instructions from repository root to startup `cwd`; reading a source file
-below `cwd` does not itself load its nested `AGENTS.md`. Claude's `.claude/rules` loader is not
-portable to Codex. **If the agent-rules discovery block exists** (the `<!-- agent-rules:begin -->` marker in root
-`AGENTS.override.md` when that file is non-empty, otherwise in root `AGENTS.md`) or setup is about to
-install it, preserve that block first, byte for byte;
-do not generate a per-repository skill or a pointer table beside it. It already routes explicit
-rule reads. Without it, prefer setup's canonical discovery block to a second custom router.
-
 Codex builds its instruction chain once at startup and has no lazy loading, so a rule moved into
-`.claude/rules/` is invisible to it and a nested `AGENTS.md` is not a substitute for `paths:`. Keep
-short shared invariants in the canonical root file and bridge conditional detail as in
-[reference.md](reference.md#lazy-loading-by-client).
+`.claude/rules/` is invisible to it. Keep short shared invariants in the canonical root file and bridge
+conditional detail as in [reference.md](reference.md#lazy-loading-by-client).
+
+Keep the agent-rules discovery block (the `<!-- agent-rules:begin -->` marker in root
+`AGENTS.override.md` when that file is non-empty, otherwise in root `AGENTS.md`) byte for byte, first
+in the file. It already routes explicit rule reads, so do not generate a per-repository skill or a pointer table
+beside it. Without it, prefer setup's canonical discovery block to a second custom router.
 
 ## What goes where
 
@@ -79,8 +70,8 @@ Validate endpoint input and use the repository's standard error envelope.
 ```
 
 `paths` belongs on the rule, not on `CLAUDE.md`. Use the repository's real paths and retain
-the explicit discovery route for other clients. Loader edge cases (glob budget, unbalanced `[`, imports, compaction, monorepo excludes) are in
-[reference.md](reference.md#loader-facts).
+the explicit discovery route for other clients. Loader edge cases (glob budget, unbalanced `[`,
+imports, compaction, monorepo excludes) are in [reference.md](reference.md#loader-facts).
 
 Keep critical constraints first. The official Claude target of fewer than 200 lines is a guideline,
 not a reason to remove a necessary rule. `@path` imports organize content but load it eagerly;
@@ -89,7 +80,6 @@ use ordinary Markdown pointers for material that should be read only when releva
 State concrete decisions and the action that replaces a known failure. Keep config values, command
 lists and architecture inventories with their executable owner. Retain rationale that changes a
 choice; move incident narration and historical measurements out of always-loaded instructions.
-Reconcile contradictions at their source instead of adding emphasis or relying on load order.
 
 ## Verify the proposed result
 
@@ -106,8 +96,9 @@ of automatic instruction loading.
 
 ## Quality checklist
 
-Before reporting done, confirm each; the full list is in [reference.md](reference.md#quality-checklist).
+Before reporting done, confirm each.
 
+- [ ] CLAUDE.md is under 200 lines, counting ancestor files that load in the same session; critical rules come first.
 - [ ] Every line passes the golden-rule test; nothing Claude can derive from the codebase itself.
 - [ ] Every constraint checked against the linter and formatter: enforced ones deleted, unenforced ones kept.
 - [ ] Always-on memory holds no procedure, single-area detail or chronicle (dates, incidents, measurements).
@@ -115,4 +106,5 @@ Before reporting done, confirm each; the full list is in [reference.md](referenc
 - [ ] No `@path` import a teammate could decline into silence (an external import needs one-time approval).
 - [ ] `paths:` only on `.claude/rules/*.md` or a skill; globs quoted, braces within budget, no unbalanced `[`.
 - [ ] Must-block rules sit in hooks or settings, and the loaded chain has no conflicting instructions.
+- [ ] The lazy-loading lever matches who works in the repo (`.claude/rules/` vs nested `AGENTS.md`).
 - [ ] Verified with `/context` that the files loaded, not only that they exist.
