@@ -291,4 +291,19 @@ else
   echo "PASS no-ignored-or-duplicated-policy"
 fi
 
+
+# Matt Pocock skills: each one cc-tuner names has a moment to run, and the review gets its inputs
+# instead of asking for them under --auto.
+need "run-code-review-gets-base"          'the review base SHA as its fixed point' "$RUN"
+need "run-code-review-gets-spec"          'spec path as its spec' "$RUN"
+need "spec-codebase-design-trigger"       '`mattpocock-skills:codebase-design`' "$SPEC"
+need "spec-prototype-qualified"           '`mattpocock-skills:prototype`' "$SPEC"
+need "placement-diagnosing-bugs-trigger"  '`mattpocock-skills:diagnosing-bugs`' "$PLACEMENT"
+need "claude-md-writer-defers-wording"    '`mattpocock-skills:writing-for-agents`' "$CLAUDE_MD_WRITER"
+if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
+  echo "FAIL placement-row-without-a-trigger"; fails=1
+else
+  echo "PASS placement-rows-have-triggers"
+fi
+
 exit "$fails"

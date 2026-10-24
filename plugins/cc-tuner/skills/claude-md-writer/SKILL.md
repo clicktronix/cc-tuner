@@ -19,7 +19,9 @@ or reach them. Preserve scope, authorization and existing manual edits.
 **Every line must change behaviour.** Test each one with the docs' own question: *would removing
 this cause Claude to make mistakes?* If a linter already catches it, or Claude already does it
 right, the line is a no-op that costs context in every session. A conflict between instructions is
-fixed by deleting one side, not by emphasis or load order.
+fixed by deleting one side, not by emphasis or load order. For the wording of a line — pointers,
+no-ops, negation, pruning — invoke `mattpocock-skills:writing-for-agents` when it is installed; this
+skill decides where a line lives and which client loads it.
 
 ## Establish the readers and canonical owner
 

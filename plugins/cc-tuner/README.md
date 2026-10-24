@@ -192,7 +192,8 @@ earlier versions tried to judge arbitrary Bash text and alternated between bypas
 unrelated merges. A raw CLI call, the merge button on github.com, `git push` and the REST API can all
 bypass this checked path. It is workflow discipline, not a local security boundary.
 
-Uses the **mattpocock-skills** plugin for grilling, domain modelling and ordinary review, and
+Uses the **mattpocock-skills** plugin for grilling, domain modelling, module design, prototypes,
+PR bodies, hard-bug diagnosis and ordinary review, and
 **cc-codex-triage** for the default `review: codex` gate (both checked at runtime via prereq-check).
 Without cc-codex-triage a spec declares `review: none:<reason>` and the run's owner publishes the
 verdict; cc-tuner installs and works standalone without either.

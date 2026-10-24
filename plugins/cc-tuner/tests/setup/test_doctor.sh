@@ -55,8 +55,44 @@ check   "baseline-version"    "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
 [ $rc -eq 0 ] || { echo "FAIL baseline-rc (rc=$rc)"; fails=1; }
 check   "matt-setup-missing-warned" "mattpocock-skills not configured for this repo" "$OUT"
 mkdir -p "$R/docs/agents" && : > "$R/docs/agents/issue-tracker.md"
-absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$(run)"
+# The config files alone are not the contract: code-review 1.3 expects the tracker to "have been
+# provided", i.e. named by the instructions the session loads, and asks for setup when it is not.
+check   "matt-setup-unreferenced-warned" "docs/agents pointer not found" "$(run)"
+POINTER='See `docs/agents/issue-tracker.md`.'
+printf '## Agent skills\n\n%s\n' "$POINTER" > "$R/AGENTS.md"
+OUT="$(run)"
+absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$OUT"
+absent  "matt-setup-referenced-quiet" "docs/agents pointer" "$OUT"
+# A CLAUDE file anywhere on the path switches AGENTS.md off, so its pointer no longer reaches the session.
+printf 'Project instructions.\n' > "$R/CLAUDE.md"
+OUT="$(run)"
+check   "matt-setup-shadowed-agents-warned" "docs/agents pointer not loaded" "$OUT"
+check   "matt-setup-shadowed-names-claude" "/repo/CLAUDE.md switches" "$OUT"
+rm -f "$R/AGENTS.md"
+# @-imports are not followed: a pointer reached only through one is reported, and the limit is named,
+# rather than doctor claiming to know the session's context. That includes an @-path in a code span.
+printf '%s\n' "$POINTER" > "$R/guide.md"
+printf 'Project instructions.\n@guide.md\n' > "$R/CLAUDE.md"
+check   "matt-setup-import-limit-named" "does not follow @-imports" "$(run)"
+printf 'Example: `@guide.md`\n' > "$R/CLAUDE.md"
+check   "matt-setup-codespan-import-warned" "docs/agents pointer not found" "$(run)"
+rm -f "$R/CLAUDE.md" "$R/guide.md"
+printf '%s\n' "$POINTER" > "$R/CLAUDE.local.md"
+absent  "matt-setup-claude-local-quiet" "docs/agents pointer" "$(run)"
+rm -f "$R/CLAUDE.local.md"
+mkdir -p "$R/.claude/rules/sub"; printf '%s\n' "$POINTER" > "$R/.claude/AGENTS.md"
+absent  "matt-setup-dotclaude-agents-quiet" "docs/agents pointer" "$(run)"
+rm -f "$R/.claude/AGENTS.md"
+# Rules without paths: load at launch; a path-scoped rule loads only when a matching file is touched.
+printf -- '---\ndescription: setup\n---\n%s\n' "$POINTER" > "$R/.claude/rules/sub/setup.md"
+absent  "matt-setup-unscoped-rule-quiet" "docs/agents pointer" "$(run)"
+printf -- '---\npaths:\n  - "src/**"\n---\n%s\n' "$POINTER" > "$R/.claude/rules/sub/setup.md"
+check   "matt-setup-scoped-rule-warned" "docs/agents pointer not found" "$(run)"
+rm -rf "$R/.claude/rules/sub"
 rm -rf "$R/docs/agents"
+# Outside a repository there is no repo config to judge; the repo checks below are skipped too.
+NOGIT="$T/plain"; mkdir -p "$NOGIT"
+absent  "matt-setup-skipped-outside-git" "mattpocock-skills not configured" "$(run "$NOGIT")"
 rm -rf "$T"
 
 # --- jq missing -> WARN, and it must NOT block ---------------------------------------------------
@@ -158,6 +194,20 @@ mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
 mkdir -p "$R/.claude/rules"; echo legacy > "$R/.claude/rules/git-flow.md"
 OUT="$(run)"
 check "legacy-rule-warned" "WARN legacy git-flow.md still present" "$OUT"
+rm -rf "$T"
+
+# --- installed task-flow rule compared with the plugin's template ---------------------------------
+# Presence alone reported "ok" for rules three releases old; the header carries the template version.
+TEMPLATE="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)/rule.template.md"
+mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
+mkdir -p "$R/.claude/rules"; cat "$TEMPLATE" > "$R/.claude/rules/task-flow.md"
+OUT="$(run)"
+check  "task-flow-current-ok"  "ok   task-flow rule installed and current" "$OUT"
+printf '<!-- cc-tuner:task-flow v0.10.0 — installed by an older setup. -->\nold\n' > "$R/.claude/rules/task-flow.md"
+OUT="$(run)"
+check  "task-flow-stale-warned" "WARN task-flow rule v0.10.0 differs from the plugin's v" "$OUT"
+check  "task-flow-stale-hint"   "/cc-tuner:setup install task-flow" "$OUT"
+absent "task-flow-stale-no-miss" "MISS" "$OUT"
 rm -rf "$T"
 
 # --- MCP probe: only runs in full mode, and reads connection state not mere presence -------------

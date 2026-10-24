@@ -23,6 +23,52 @@ ok()   { say "ok   $1"; }
 warn() { say "WARN $1"; }
 bad()  { say "MISS $1"; miss=1; }
 
+# Instruction files a session started here loads at launch under the default "Project instructions"
+# setting (claude-md-writer/reference.md), split by kind, one path per line: CLAUDE files from the
+# working directory up to / (the user-global ~/.claude/CLAUDE.md does not count), AGENTS files, which
+# load only when there is no CLAUDE file, and .claude/rules files without paths: frontmatter.
+# @-imports are not followed: resolving them means parsing Markdown the way the loader does, so a
+# pointer reached only through one is reported with that limit named instead of guessed at.
+launch_files() { # launch_files claude|agents|rules
+  local d="$PWD" f
+  if [ "$1" = rules ]; then
+    grep -rl --include='*.md' '' "$REPO_ROOT/.claude/rules" 2>/dev/null | while IFS= read -r f; do
+      scoped_rule "$f" || printf '%s\n' "$f"
+    done
+    return
+  fi
+  while :; do
+    if [ "$1" = claude ]; then
+      for f in "$d/CLAUDE.md" "$d/.claude/CLAUDE.md" "$d/CLAUDE.local.md"; do
+        if [ -f "$f" ] && [ "$f" != "$UHOME/.claude/CLAUDE.md" ]; then printf '%s\n' "$f"; fi
+      done
+    else
+      for f in "$d/AGENTS.md" "$d/.claude/AGENTS.md"; do
+        if [ -f "$f" ]; then printf '%s\n' "$f"; fi
+      done
+    fi
+    [ "$d" = / ] && break
+    d="$(dirname "$d")"
+  done
+}
+scoped_rule() { # true when the rule file $1 opens with frontmatter that has a paths: key
+  local line n=0
+  while IFS= read -r line; do
+    n=$((n + 1))
+    if [ $n -eq 1 ]; then [ "$line" = --- ] || return 1; continue; fi
+    [ "$line" = --- ] && return 1
+    case "$line" in paths:*) return 0 ;; esac
+  done < "$1"
+  return 1
+}
+names_pointer() { # true when any file listed on stdin mentions docs/agents
+  local f
+  while IFS= read -r f; do
+    if [ -n "$f" ] && grep -q 'docs/agents' "$f" 2>/dev/null; then return 0; fi
+  done
+  return 1
+}
+
 # --- 1. command-line tools ----------------------------------------------------------------------
 # Only git blocks: nothing here works without it. jq blocks two named consumers, not this tool, and
 # both refuse on their own -- the statusline node checks before it patches settings.json, and
@@ -148,14 +194,25 @@ if [ -z "$PLUGIN_LIST" ] || ! command -v jq >/dev/null 2>&1; then
   warn "could not list installed plugins — companion plugin checks skipped"
 else
   companion 'mattpocock-skills@mattpocock' \
-    'grilling + domain-modeling in /cc-tuner:spec, code-review in /cc-tuner:run' \
+    'grilling + domain-modeling + codebase-design in /cc-tuner:spec; pr, code-review + diagnosing-bugs in /cc-tuner:run' \
     '/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
-  # mattpocock-skills' engineering skills read per-repo config by literal path; without it
-  # code-review cannot find the spec through the issue tracker and says so on every run.
-  if plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
-    MP_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-    [ -f "$MP_ROOT/docs/agents/issue-tracker.md" ] \
-      || warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
+  # The engineering skills expect the issue tracker to "have been provided": docs/agents/ holds the
+  # config, and the instructions the session loads have to name it. Files nobody points at leave
+  # code-review asking for /setup-matt-pocock-skills on every run. Repo config needs a repo.
+  if [ -n "$REPO_ROOT" ] && plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
+    if [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
+      warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
+    else
+      CLAUDE_FILES="$(launch_files claude)" AGENTS_FILES="$(launch_files agents)"
+      if [ -n "$CLAUDE_FILES" ]; then FIRST="${CLAUDE_FILES%%$'\n'*}"; else FIRST="$REPO_ROOT/AGENTS.md"; fi
+      if printf '%s\n' "${CLAUDE_FILES:-$AGENTS_FILES}" | names_pointer || launch_files rules | names_pointer; then
+        :
+      elif [ -n "$CLAUDE_FILES" ] && printf '%s\n' "$AGENTS_FILES" | names_pointer; then
+        warn "docs/agents pointer not loaded: AGENTS.md names it, but $FIRST switches native AGENTS.md loading off — unless that file @-imports AGENTS.md, move the '## Agent skills' block into it"
+      else
+        warn "docs/agents pointer not found: no CLAUDE/AGENTS file on this path and no .claude/rules file without paths: names docs/agents (doctor does not follow @-imports; ignore this if an imported file carries it) — add the '## Agent skills' block /setup-matt-pocock-skills writes to $FIRST"
+      fi
+    fi
   fi
   companion 'cc-codex-triage@cc-codex-triage' \
     'required-review gate in /cc-tuner:run' \
@@ -185,9 +242,20 @@ fi
 
 # --- 5. what is installed in THIS repo -----------------------------------------------------------
 if [ -n "$REPO_ROOT" ]; then
-  [ -f "$REPO_ROOT/.claude/rules/task-flow.md" ] \
-    && ok "task-flow rule installed" \
-    || warn "task-flow rule not installed here — /cc-tuner:setup install task-flow"
+  # Presence alone reported "ok" for rules three releases old. The first line carries the version of
+  # the template the rule was installed from, so compare the whole file and name both versions.
+  TF_RULE="$REPO_ROOT/.claude/rules/task-flow.md"
+  TF_TEMPLATE="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)/rule.template.md"
+  tf_version() { head -n 1 "$1" 2>/dev/null | sed -n 's/.*cc-tuner:task-flow \(v[0-9][0-9.]*\).*/\1/p'; }
+  if [ ! -f "$TF_RULE" ]; then
+    warn "task-flow rule not installed here — /cc-tuner:setup install task-flow"
+  elif [ ! -f "$TF_TEMPLATE" ]; then
+    ok "task-flow rule installed (plugin template not found, version not compared)"
+  elif [ "$(cat "$TF_RULE")" = "$(cat "$TF_TEMPLATE")" ]; then
+    ok "task-flow rule installed and current"
+  else
+    warn "task-flow rule $(tf_version "$TF_RULE") differs from the plugin's $(tf_version "$TF_TEMPLATE") — /cc-tuner:setup install task-flow (task-flow.local.md is kept)"
+  fi
   [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
     && warn "legacy git-flow.md still present — /cc-tuner:setup install task-flow migrates it (keeps your cached board field IDs)"
   # Verification is a stage of /run (cc-tuner:verify-feature), not a per-repo opt-in any more, so
