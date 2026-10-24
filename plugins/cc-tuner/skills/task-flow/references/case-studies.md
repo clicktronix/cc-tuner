@@ -1,9 +1,7 @@
 # Task-flow case studies
 
-These incidents explain the concise rules in the parent skill. Dates and concrete outcomes are kept so
-a future audit can check whether the failure still reproduces. The source runs happened in private
-repositories: repository, PR and issue identifiers were removed on 2026-09-10, so a reader can check
-the mechanism against their own history but cannot open the original.
+Incidents behind the concise rules in the parent skill, with repository, PR and issue identifiers
+removed: check the mechanism against your own history.
 
 ## Contents
 
@@ -16,77 +14,63 @@ the mechanism against their own history but cannot open the original.
 - [Review findings turned into backlog](#review-findings-turned-into-backlog)
 - [Tiny documentation PR](#tiny-documentation-pr)
 - [Other loss patterns](#other-loss-patterns)
-- [Review and delegation ordering](#review-and-delegation-ordering-2026-08-21)
-- [Delegation cost and context observations](#delegation-cost-and-context-observations)
+- [Review and delegation ordering](#review-and-delegation-ordering)
 
 ## Long-lived staging branch and squash
 
-On 2026-06-04/05, `perf-quality-audit` was squash-merged to `main` as PR #50. Eight follow-up PRs
-(#51–#58) targeted the dead branch; the final merge was impossible, so all eight commits had to be
-cherry-picked onto a fresh branch (PR #61). Use short branches directly against the intended target.
+A long-lived branch was squash-merged to `main`; eight follow-up PRs still targeted the dead branch, so
+their commits had to be cherry-picked onto a fresh one. Use short branches directly against the
+intended target.
 
 ## Branch continued after its PR merged
 
-On 2026-07-26, a private Python backend repository squash-merged a `fix/` branch's PR, after which
-the same branch gained two unrelated `chore:` commits. Twelve days later it showed five commits
-"ahead" and 35 behind `main`; three of those five were already merged under other SHAs. Rebasing
-conflicted in six files on the first old commit, while cherry-picking the two new commits onto a fresh
-branch applied cleanly.
+A `fix/` branch gained two unrelated commits after its PR was squash-merged. Twelve days later it showed
+five commits "ahead" and 35 behind `main`, three of them already merged under other SHAs. Rebasing
+conflicted in six files; cherry-picking the two new commits onto a fresh branch applied cleanly.
 
 A branch is finished rather than merely behind when its PR is `MERGED` and apparently unmerged commit
 subjects already exist on the target under other SHAs. Cherry-pick genuinely new work forward.
 
 ## Regression test that could never fail
 
-During the review of a private TypeScript platform repository's PR on 2026-07-28, a URL-race
-regression test built its second
-patch from already-merged state even though production handlers closed over a render snapshot. It
-passed against the broken implementation. Inlining the old implementation as a throwaway mutant
-showed red/green in under two minutes. A regression test needs evidence that it fails against the bug.
+A URL-race regression test built its second patch from already-merged state, although production
+handlers closed over a render snapshot, so it passed against the broken implementation. Inlining the old
+implementation as a throwaway mutant showed red/green in under two minutes. A regression test needs
+evidence that it fails against the bug.
 
 ## Scope rebutted by file provenance
 
-In the same review, a cross-writer race was called pre-existing because its shell file was untouched,
-although the branch's two new writers made it reachable. Conversely, `git diff <base>...HEAD` showed
-that the branch introduced a default behind missing archived rows. Defect causality decides scope;
-file provenance does not.
+A cross-writer race was called pre-existing because its shell file was untouched, although the branch's
+two new writers made it reachable. Conversely, `git diff <base>...HEAD` showed the branch introduced a
+default behind missing archived rows. Defect causality decides scope; file provenance does not.
 
 ## Autofix trusted blindly
 
-In the same review, `eslint --fix` moved value imports into `import type`, and formatting moved a comment
-past a bare `return`. Both tools reported success; typecheck exposed both failures. Those checks
-needed to cover the code after autofix, not an earlier green state. Read the resulting diff and use
-checks relevant to the affected criteria; this TypeScript incident does not prescribe every tool
-for every repository.
+`eslint --fix` moved value imports into `import type`, and formatting moved a comment past a bare
+`return`. Both tools reported success; typecheck exposed both. Checks must cover the code after
+autofix, not an earlier green state: read the resulting diff and run the checks relevant to the
+affected criteria.
 
 ## Issue omitted from the board
 
-On 2026-06-05, nine issues created with bare `gh issue create` missed the project board until a later
-manual request. Create with `--project` and set Status and Priority.
+Nine issues created with bare `gh issue create` missed the project board. Create with `--project` and
+set Status and Priority.
 
 ## Review findings turned into backlog
 
-In the same backend repository, a tool-call audit of 2026-08-31 through 2026-09-04 matched 42 created issues:
-33 from the orchestrator and nine from implementation workers. Forty-one creation commands omitted
-`--project`; only one included it. Separately, 29 review issues were later added to the board.
-These are different measures: a missing flag does not prove missing board membership, because the
-project also had an auto-add workflow. Its historical configuration was not established by the audit.
+A tool-call audit matched 42 created issues, 41 of them without `--project`. A missing flag does not
+prove missing board membership, since the project also had an auto-add workflow.
 
-The larger failure was treating an issue as resolution. One of those issues described a missing
-acceptance criterion while the run reported its findings closed after filing it.
-Several findings named changed files, but that alone cannot establish scope: the file-provenance
-case above already shows why causality matters. Required work must remain in the run; workers return
-findings to its orchestrator, and independent future work is grouped or added to an existing issue.
-
-The initial remedy used file membership and a five-deferral threshold. Neither identifies why a
-defect must be fixed. The threshold was removed, and the rule now distinguishes unresolved acceptance
-from independent future work. The counts belong to this dated audit, not to a runtime decision rule.
+The larger failure was treating an issue as resolution: one issue described a missing acceptance
+criterion while the run reported its findings closed after filing it. Filing an issue is not resolving
+it. Required work stays in the run; workers return findings to the orchestrator, and independent future
+work is grouped or added to an existing issue. File membership and a deferral-count threshold were both
+tried and removed: neither identifies why a defect must be fixed.
 
 ## Tiny documentation PR
 
-On 2026-06-05, a docs-only PR in a private analyzer repository contained three wording fixes in one
-file and incurred more workflow cost than value. Usually fold a tiny doc fix into open work or batch it; an urgent fix may
-still ship alone.
+A docs-only PR with three wording fixes in one file cost more workflow than it was worth. Usually fold a
+tiny doc fix into open work or batch it; an urgent fix may still ship alone.
 
 ## Other loss patterns
 
@@ -96,33 +80,9 @@ still ship alone.
 - Work left only in a branch/worktree is unfinished until it has a PR; remove worktrees only after the
   branch is proven merged.
 
+## Review and delegation ordering
 
-## Review and delegation ordering (2026-08-21)
-
-A blanket ban on parallel review contradicted deep-review's independent read-only lenses. A later
-wording, "parallelism lives in the writing and nowhere else", accidentally forbade units their own
-tests. The boundary is the shared candidate decision: independent reads and isolated implementation
-may fan out, while one orchestrator integrates the work, verifies it and owns delivery. Keep that
-boundary explicit without copying the incident into every dispatch brief.
-
-## Delegation cost and context observations
-
-One repository's general-purpose spawns carried 34k–42k tokens before task reading, versus 57k for
-the parent's first request. A separate sample of 399 units had a median of 76 turns; 320 fit within
-150, and long-running units crossed 300k context tokens. These observations motivated the capped
-slice-unit and the fresh partial-return policy. They do not measure today's restricted review lens,
-another repository's instruction load, or the current host's cache behavior.
-
-Field transcripts of Claude Code's built-in `/code-review` at max effort showed 21 and 42 agents
-(ten finder angles, a verifier per candidate, a sweep) and 110–152 minute invocations on a 775-file
-candidate; at `xhigh` it ran in one context in 15 minutes. This is historical evidence for checking
-the chosen workflow's cost, not a fixed runtime or price estimate for future invocations.
-
-Across 69 slice-units in 2026-09 sessions the median was 159 turns, 23 passed 200 and 12 passed 300,
-with context at 300k–600k tokens on the long tail. Every unit that hit the 200 cap was continued with
-`SendMessage` rather than redispatched, so the cap stopped nothing. Five concurrent sessions each running full suites and e2e froze the
-machine; heavy checks now queue through `heavy.sh`.
-
-The 1071-file candidate in #38 led one lens to spawn five more readers. Packet partitioning moved
-size arithmetic into a helper; disabling lens delegation alone did not establish complete reading.
-The owner still has to account for the review's coverage and validate returned findings.
+A blanket ban on parallel review contradicted deep-review's independent read-only lenses, and the
+wording "parallelism lives in the writing and nowhere else" forbade units their own tests. The boundary
+is the shared candidate decision: independent reads and isolated implementation may fan out, while one
+orchestrator integrates the work, verifies it and owns delivery.

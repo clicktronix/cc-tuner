@@ -104,8 +104,7 @@ the final answer.
 
 ## After the merge
 
-Finishing is not the merge — it is the merge plus leaving the machine clean. Run this once the PR is
-merged, in the order given:
+Finishing is the merge plus a clean machine. Run this once the PR is merged, in the order given:
 
 ```bash
 git switch <target> && git pull --ff-only      # local target was stale the moment the PR merged
@@ -113,7 +112,7 @@ git worktree list                              # any worktree still pointing at 
 git worktree remove <path>                     # remove it; --force only when you know the diff is dead
 git worktree prune                             # clears stale registrations for directories already gone
 git branch --merged <target>                   # inspect local branches already merged into the target
-git branch -d <branch>                         # -d refuses if unmerged; never reach for -D to win an argument
+git branch -d <branch>                         # -d refuses if unmerged
 git fetch --prune                              # drops remote-tracking refs for branches deleted on the remote
 ```
 
@@ -188,17 +187,16 @@ It is never moved or archived — `plan-path.sh`, SessionStart and `merge.sh` al
 
 ## Anti-patterns (case studies)
 
-For diagnosis examples and their evidence, read the [case studies](references/case-studies.md). The
-operative rules are the procedures and checklist in this file; the examples explain why they exist.
+Open the [case studies](references/case-studies.md) only to see why a rule exists.
 
 ## Prepare the candidate
 
-Before the first candidate verification/review, follow this checklist and the
-[CI policy](../run/references/local-ci.md). In a PR completing the task, archive its spec, update the execution
-plan's `Spec:` header and all live links, then commit these artifacts with the implementation.
-Keep acceptance open until proved; archive placement does not certify completion. Use the new spec
-path for the rest of the run and report it for resume. Keep that path stable throughout required
-review; record later DoD evidence on the PR. For shared tasks, update companion links together.
+Before the first candidate verification or review, follow the Pre-PR checklist and the
+[CI policy](../run/references/local-ci.md). In a PR completing the task, archive its spec, update the
+execution plan's `Spec:` header and all live links, then commit these artifacts with the
+implementation. Keep acceptance open until proved; archive placement does not certify completion.
+Use the new spec path, kept stable throughout required review, for the rest of the run and report it
+for resume; record later DoD evidence on the PR. For shared tasks, update companion links together.
 
 ## Pre-PR checklist
 

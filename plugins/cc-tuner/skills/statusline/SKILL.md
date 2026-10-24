@@ -17,13 +17,10 @@ A two-line Claude Code statusline focused on **how much budget is left**:
 
 ## Install / update / remove
 
-Claude Code plugins can't register a statusline on their own — it has to live in the
-user's `settings.json`. Run the bundled command, which copies the script and wires it
-in (with a settings backup):
-
-**To set it up, run the statusline node of `/cc-tuner:setup`** — `/cc-tuner:setup install
-statusline` (also `check statusline` and `remove statusline`).
-After install, the user restarts Claude Code or runs `/reload`.
+Plugins can't register a statusline; it has to live in the user's `settings.json`. **Run the
+statusline node of `/cc-tuner:setup`** — `/cc-tuner:setup install statusline` (also `check statusline`
+and `remove statusline`) — which copies the script and wires it in, with a settings backup. After
+install, the user restarts Claude Code or runs `/reload`.
 
 ## How the rate-limit data works
 
@@ -46,11 +43,6 @@ refresh.
 > endpoint, token, or dependencies are unavailable, the rate-limit segment is simply
 > dropped and the rest still renders. Mention this caveat to the user when they install.
 
-On HTTP 429 the fallback honors the server's `retry-after` (clamped 5–60 min, 15 min
-when absent) and suspends refresh attempts for that window — the endpoint's throttle
-extends on repeated hits, so fixed-interval retries would keep it throttled forever.
-The rate-limit segment reappears automatically after the first successful refresh.
-
 The OAuth token is read locally: macOS Keychain (`security find-generic-password -s
 'Claude Code-credentials'`), or `~/.claude/.credentials.json` on Linux/Windows (honoring
 `$CLAUDE_CONFIG_DIR`). The token is only ever sent to `api.anthropic.com`.
@@ -65,13 +57,10 @@ needs nothing beyond `jq` and `date`. The statusline JSON fields it reads
 
 ## Customizing
 
-Edit the installed copy at `~/.claude/cc-tuner-statusline.sh`:
-- **Colors / thresholds** — the `make_bar` helper (green <50, yellow ≥50, red ≥80).
-- **Bar length** — second arg to `make_bar` (8 for rate-limit windows, 10 for context).
-- **Cache TTL** — `USAGE_CACHE_TTL` (default 300s).
-- **Segments** — each section (`git_info`, `model_info`, `duration_info`,
-  `usage_info`, `context_info`) is independent; drop any you don't want from the final
-  `printf`.
+Edit the installed copy at `~/.claude/cc-tuner-statusline.sh`: colours, thresholds and bar length are
+in `make_bar`, the cache TTL is `USAGE_CACHE_TTL` (default 300s), and each segment function
+(`git_info`, `model_info`, `duration_info`, `usage_info`, `context_info`) can be dropped from the
+final `printf`.
 
 Re-run `/cc-tuner:setup install statusline` after a plugin upgrade to refresh the copy
 (note: that overwrites local edits — keep customizations in a fork of the script).
