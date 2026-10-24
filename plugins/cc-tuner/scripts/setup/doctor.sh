@@ -23,43 +23,50 @@ ok()   { say "ok   $1"; }
 warn() { say "WARN $1"; }
 bad()  { say "MISS $1"; miss=1; }
 
-# The project instruction files a session started here loads, one path per line. Under the default
-# "Project instructions" setting Claude Code reads the CLAUDE files from the working directory up to /
-# and the AGENTS files only when there is none, then follows @-imports for up to five hops
-# (claude-md-writer/reference.md). The user-global ~/.claude/CLAUDE.md does not switch AGENTS off.
-# A non-default setting that loads both is not visible from here; this models the default.
-loaded_instructions() {
-  local d="$PWD" f p claude="" agents="" files next found hop=0
+# Instruction files a session started here loads at launch under the default "Project instructions"
+# setting (claude-md-writer/reference.md), split by kind, one path per line: CLAUDE files from the
+# working directory up to / (the user-global ~/.claude/CLAUDE.md does not count), AGENTS files, which
+# load only when there is no CLAUDE file, and .claude/rules files without paths: frontmatter.
+# @-imports are not followed: resolving them means parsing Markdown the way the loader does, so a
+# pointer reached only through one is reported with that limit named instead of guessed at.
+launch_files() { # launch_files claude|agents|rules
+  local d="$PWD" f
+  if [ "$1" = rules ]; then
+    grep -rl --include='*.md' '' "$REPO_ROOT/.claude/rules" 2>/dev/null | while IFS= read -r f; do
+      scoped_rule "$f" || printf '%s\n' "$f"
+    done
+    return
+  fi
   while :; do
-    for f in "$d/CLAUDE.md" "$d/.claude/CLAUDE.md" "$d/CLAUDE.local.md"; do
-      if [ -f "$f" ] && [ "$f" != "$UHOME/.claude/CLAUDE.md" ]; then claude="$claude$f"$'\n'; fi
-    done
-    for f in "$d/AGENTS.md" "$d/.claude/AGENTS.md"; do
-      if [ -f "$f" ]; then agents="$agents$f"$'\n'; fi
-    done
+    if [ "$1" = claude ]; then
+      for f in "$d/CLAUDE.md" "$d/.claude/CLAUDE.md" "$d/CLAUDE.local.md"; do
+        if [ -f "$f" ] && [ "$f" != "$UHOME/.claude/CLAUDE.md" ]; then printf '%s\n' "$f"; fi
+      done
+    else
+      for f in "$d/AGENTS.md" "$d/.claude/AGENTS.md"; do
+        if [ -f "$f" ]; then printf '%s\n' "$f"; fi
+      done
+    fi
     [ "$d" = / ] && break
     d="$(dirname "$d")"
   done
-  files=$'\n'"${claude:-$agents}" next="${claude:-$agents}"
-  while [ -n "$next" ] && [ $hop -lt 5 ]; do
-    hop=$((hop + 1)) found=""
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      while IFS= read -r p; do
-        case "$p" in
-          '') continue ;;
-          '~/'*) p="$UHOME/${p#\~/}" ;;
-          /*) ;;
-          *) p="$(dirname "$f")/$p" ;;
-        esac
-        [ -f "$p" ] || continue
-        case "$files" in *$'\n'"$p"$'\n'*) continue ;; esac
-        files="$files$p"$'\n' found="$found$p"$'\n'
-      done <<< "$(grep -oE '(^|[[:space:]])@[^[:space:]]+' "$f" 2>/dev/null | sed 's/^[[:space:]]*@//')"
-    done <<< "$next"
-    next="$found"
+}
+scoped_rule() { # true when the rule file $1 opens with frontmatter that has a paths: key
+  local line n=0
+  while IFS= read -r line; do
+    n=$((n + 1))
+    if [ $n -eq 1 ]; then [ "$line" = --- ] || return 1; continue; fi
+    [ "$line" = --- ] && return 1
+    case "$line" in paths:*) return 0 ;; esac
+  done < "$1"
+  return 1
+}
+names_pointer() { # true when any file listed on stdin mentions docs/agents
+  local f
+  while IFS= read -r f; do
+    if [ -n "$f" ] && grep -q 'docs/agents' "$f" 2>/dev/null; then return 0; fi
   done
-  printf '%s' "${files#$'\n'}"
+  return 1
 }
 
 # --- 1. command-line tools ----------------------------------------------------------------------
@@ -196,9 +203,14 @@ else
     if [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
       warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
     else
-      LOADED="$(loaded_instructions)"
-      if ! printf '%s\n' "$LOADED" | while IFS= read -r f; do [ -z "$f" ] || cat "$f"; done | grep -q 'docs/agents'; then
-        warn "docs/agents/ exists but nothing the session loads points at docs/agents — add the '## Agent skills' block /setup-matt-pocock-skills writes to $(printf '%s\n' "$LOADED" | head -n 1 | grep . || echo "$REPO_ROOT/AGENTS.md")"
+      CLAUDE_FILES="$(launch_files claude)" AGENTS_FILES="$(launch_files agents)"
+      if [ -n "$CLAUDE_FILES" ]; then FIRST="${CLAUDE_FILES%%$'\n'*}"; else FIRST="$REPO_ROOT/AGENTS.md"; fi
+      if printf '%s\n' "${CLAUDE_FILES:-$AGENTS_FILES}" | names_pointer || launch_files rules | names_pointer; then
+        :
+      elif [ -n "$CLAUDE_FILES" ] && printf '%s\n' "$AGENTS_FILES" | names_pointer; then
+        warn "docs/agents pointer not loaded: AGENTS.md names it, but $FIRST switches native AGENTS.md loading off — unless that file @-imports AGENTS.md, move the '## Agent skills' block into it"
+      else
+        warn "docs/agents pointer not found: no CLAUDE/AGENTS file on this path and no .claude/rules file without paths: names docs/agents (doctor does not follow @-imports; ignore this if an imported file carries it) — add the '## Agent skills' block /setup-matt-pocock-skills writes to $FIRST"
       fi
     fi
   fi
