@@ -124,7 +124,7 @@ acceptance, review verdict, DoD and delivery, and it owns a partial return: plac
 
 Before dispatching any implementation unit, read [placement.md](references/placement.md): it defines
 the brief and return checks, model choice, isolation, concurrency and escalation. Read it also before
-invoking `prototype`, `research`, `domain-modeling` or `diagnosing-bugs`. `deep-review` and `/spec` name
+invoking `prototype`, `domain-modeling` or `diagnosing-bugs`. `deep-review` and `/spec` name
 their own read-only agent type/model; where silent, placement decides.
 
 ## Proving a slice
@@ -211,8 +211,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
      infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
      fixtures and configuration count when they decide behaviour on these surfaces. Deep-review owns
      packet preparation, sharding, the lens limit and the line it prints before dispatch.
-   - Otherwise `mattpocock-skills:code-review`: dispatch exactly its two subagents, Standards and
-     Spec, each with `model: "sonnet"`, and keep their reports separate. Fix a documented-standard or
+   - Otherwise `mattpocock-skills:code-review`: give it the review base SHA as its fixed point, the
+     spec path as its spec and the rule files `cc-tuner:agent-rules` resolved as its standards, so it
+     neither asks for them nor guesses from issue links. Dispatch exactly its two subagents, Standards
+     and Spec, each with `model: "sonnet"`, and keep their reports separate. Fix a documented-standard or
      spec finding once validated, and a code smell only when you agree it costs something here; list
      the smells you declined.
    - Claude Code's built-in `/code-review <level> <target>` only when the user asks for it. Put the

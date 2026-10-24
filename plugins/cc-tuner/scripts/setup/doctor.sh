@@ -148,14 +148,18 @@ if [ -z "$PLUGIN_LIST" ] || ! command -v jq >/dev/null 2>&1; then
   warn "could not list installed plugins — companion plugin checks skipped"
 else
   companion 'mattpocock-skills@mattpocock' \
-    'grilling + domain-modeling in /cc-tuner:spec, code-review in /cc-tuner:run' \
+    'grilling + domain-modeling + codebase-design in /cc-tuner:spec; pr, code-review + diagnosing-bugs in /cc-tuner:run' \
     '/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
-  # mattpocock-skills' engineering skills read per-repo config by literal path; without it
-  # code-review cannot find the spec through the issue tracker and says so on every run.
-  if plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
-    MP_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-    [ -f "$MP_ROOT/docs/agents/issue-tracker.md" ] \
-      || warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
+  # The engineering skills expect the issue tracker to "have been provided": docs/agents/ holds the
+  # config, and the instructions the session loads have to name it. Files nobody points at leave
+  # code-review asking for /setup-matt-pocock-skills on every run. Repo config needs a repo.
+  if [ -n "$REPO_ROOT" ] && plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
+    if [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
+      warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
+    elif ! cat "$REPO_ROOT/AGENTS.md" "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/.claude/CLAUDE.md" 2>/dev/null \
+         | grep -q 'docs/agents'; then
+      warn "docs/agents/ exists but nothing the session loads points at docs/agents — add the '## Agent skills' block /setup-matt-pocock-skills writes to AGENTS.md or CLAUDE.md"
+    fi
   fi
   companion 'cc-codex-triage@cc-codex-triage' \
     'required-review gate in /cc-tuner:run' \
@@ -185,9 +189,20 @@ fi
 
 # --- 5. what is installed in THIS repo -----------------------------------------------------------
 if [ -n "$REPO_ROOT" ]; then
-  [ -f "$REPO_ROOT/.claude/rules/task-flow.md" ] \
-    && ok "task-flow rule installed" \
-    || warn "task-flow rule not installed here — /cc-tuner:setup install task-flow"
+  # Presence alone reported "ok" for rules three releases old. The first line carries the version of
+  # the template the rule was installed from, so compare the whole file and name both versions.
+  TF_RULE="$REPO_ROOT/.claude/rules/task-flow.md"
+  TF_TEMPLATE="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)/rule.template.md"
+  tf_version() { head -n 1 "$1" 2>/dev/null | sed -n 's/.*cc-tuner:task-flow \(v[0-9][0-9.]*\).*/\1/p'; }
+  if [ ! -f "$TF_RULE" ]; then
+    warn "task-flow rule not installed here — /cc-tuner:setup install task-flow"
+  elif [ ! -f "$TF_TEMPLATE" ]; then
+    ok "task-flow rule installed (plugin template not found, version not compared)"
+  elif [ "$(cat "$TF_RULE")" = "$(cat "$TF_TEMPLATE")" ]; then
+    ok "task-flow rule installed and current"
+  else
+    warn "task-flow rule $(tf_version "$TF_RULE") differs from the plugin's $(tf_version "$TF_TEMPLATE") — /cc-tuner:setup install task-flow (task-flow.local.md is kept)"
+  fi
   [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
     && warn "legacy git-flow.md still present — /cc-tuner:setup install task-flow migrates it (keeps your cached board field IDs)"
   # Verification is a stage of /run (cc-tuner:verify-feature), not a per-repo opt-in any more, so

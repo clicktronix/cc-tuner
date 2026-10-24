@@ -103,7 +103,9 @@ configures neither. The ladder:
   as one line in the brief and beneath the slice in the plan, where `Evidence:` lines go:
   `Opus-reason: <the failed check and its output | the plan's reason>`. Pass the effort explicitly:
   medium is Opus's own API default, and without it the unit's definition would run Opus at high.
-  After an Opus attempt fails, the orchestrator takes the slice.
+  After an Opus attempt fails, the orchestrator takes the slice and runs
+  `mattpocock-skills:diagnosing-bugs` on that check before editing: three failed attempts mean the
+  cause is not where the briefs looked.
 - **Fable only for the orchestrator.** A unit or reader on Fable needs the user's explicit decision.
 - **Readers: Haiku** (`model: "haiku", effort: "high"`) for a bounded read-only question with a
   literal answer — locate, extract, list, summarise named files or command output. It is the
@@ -161,9 +163,8 @@ is not completion and does not reset the slice's failed-check escalation history
 
 | Method | Workspace |
 |---|---|
-| research, domain-modeling | task branch; their saved design artifacts are committed |
+| domain-modeling | task branch; its saved design artifacts are committed |
 | prototype | disposable branch/worktree for the experiment |
-| tdd | task branch around the slice's deciding check |
 | diagnosing-bugs, reading | task branch |
 | diagnosing-bugs, probe edits | disposable workspace |
 | code-review, deep-review | immutable candidate SHA |

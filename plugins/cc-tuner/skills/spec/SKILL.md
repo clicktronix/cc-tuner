@@ -75,7 +75,9 @@ options stays text. Ask dependent questions after their prerequisites are answer
 Invoke `mattpocock-skills:domain-modeling` here, while the decision is made, whenever the interview
 changes a domain term or settles something worth an ADR: it challenges the term and writes
 `GLOSSARY.md` / the ADR in the repository's format. A slice may later carry that text into place,
-but a unit never decides the model. Pull current dependency documentation through Context7.
+but a unit never decides the model. When the decision adds a module or moves an interface or seam,
+invoke `mattpocock-skills:codebase-design` so the ownership and boundaries below are stated in its
+terms. Pull current dependency documentation through Context7.
 These methods do not add a confirmation beyond section 6; a complete contract needs no new interview.
 
 Resolve before calling the task ready:
@@ -90,7 +92,7 @@ Resolve before calling the task ready:
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec is not ready.
 When the missing fact can only be learned by building something — the test command of a subsystem
 that does not exist yet, an API's real shape — make the first slice a **spike** whose deliverable is
-that fact, run `prototype` for it in a disposable workspace, and let the rest of the plan depend on
+that fact, run `mattpocock-skills:prototype` for it in a disposable workspace, and let the rest of the plan depend on
 it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
 it lands (see its loop).
 

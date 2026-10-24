@@ -55,8 +55,17 @@ check   "baseline-version"    "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
 [ $rc -eq 0 ] || { echo "FAIL baseline-rc (rc=$rc)"; fails=1; }
 check   "matt-setup-missing-warned" "mattpocock-skills not configured for this repo" "$OUT"
 mkdir -p "$R/docs/agents" && : > "$R/docs/agents/issue-tracker.md"
-absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$(run)"
-rm -rf "$R/docs/agents"
+# The config files alone are not the contract: code-review 1.3 expects the tracker to "have been
+# provided", i.e. named by the instructions the session loads, and asks for setup when it is not.
+check   "matt-setup-unreferenced-warned" "nothing the session loads points at docs/agents" "$(run)"
+printf '## Agent skills\n\nSee `docs/agents/issue-tracker.md`.\n' > "$R/AGENTS.md"
+OUT="$(run)"
+absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$OUT"
+absent  "matt-setup-referenced-quiet" "points at docs/agents" "$OUT"
+rm -rf "$R/docs/agents" "$R/AGENTS.md"
+# Outside a repository there is no repo config to judge; the repo checks below are skipped too.
+NOGIT="$T/plain"; mkdir -p "$NOGIT"
+absent  "matt-setup-skipped-outside-git" "mattpocock-skills not configured" "$(run "$NOGIT")"
 rm -rf "$T"
 
 # --- jq missing -> WARN, and it must NOT block ---------------------------------------------------
@@ -158,6 +167,20 @@ mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
 mkdir -p "$R/.claude/rules"; echo legacy > "$R/.claude/rules/git-flow.md"
 OUT="$(run)"
 check "legacy-rule-warned" "WARN legacy git-flow.md still present" "$OUT"
+rm -rf "$T"
+
+# --- installed task-flow rule compared with the plugin's template ---------------------------------
+# Presence alone reported "ok" for rules three releases old; the header carries the template version.
+TEMPLATE="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)/rule.template.md"
+mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
+mkdir -p "$R/.claude/rules"; cat "$TEMPLATE" > "$R/.claude/rules/task-flow.md"
+OUT="$(run)"
+check  "task-flow-current-ok"  "ok   task-flow rule installed and current" "$OUT"
+printf '<!-- cc-tuner:task-flow v0.10.0 — installed by an older setup. -->\nold\n' > "$R/.claude/rules/task-flow.md"
+OUT="$(run)"
+check  "task-flow-stale-warned" "WARN task-flow rule v0.10.0 differs from the plugin's v" "$OUT"
+check  "task-flow-stale-hint"   "/cc-tuner:setup install task-flow" "$OUT"
+absent "task-flow-stale-no-miss" "MISS" "$OUT"
 rm -rf "$T"
 
 # --- MCP probe: only runs in full mode, and reads connection state not mere presence -------------
