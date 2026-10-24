@@ -30,8 +30,9 @@ A container you start follows the Runtime cleanup section of
 TaskStop everything you started before you return.
 
 Keep secret values out of everything you print and return: values from `.env` files never appear in
-your output. Check that a variable is set with `printenv NAME | wc -c`; key names come from the
-committed template (`.env.example`).
+your output. Check that a variable is set with `printenv NAME | wc -c`, list variable names with
+`awk 'BEGIN { for (k in ENVIRON) print k }'`, and check a `.env` key with `grep -c '^NAME=' <file>`;
+key names come from the committed template (`.env.example`).
 
 Commit with the repository's conventions after every green step. Do not push, open or comment on a
 pull request, merge, or claim approval.
