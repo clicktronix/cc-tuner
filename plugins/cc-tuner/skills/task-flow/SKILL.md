@@ -74,7 +74,9 @@ was truncated, above): add it with `item-add`, which prints the item ID, then ed
 Never run `item-edit` with an empty `--id`: the flags shift and it fails with an opaque
 `invalid number: PVTSSF_…`. `The single select option Id does not belong to the field` means the
 cached IDs are stale (a board rebuilt or an option renamed): refresh them via `field-list`, update the
-cache, retry once.
+cache, retry once. Write the cache in a task commit only while no candidate is under review; after
+that, use the refreshed IDs for this session and leave the file for the next task, since an edit
+would make the reviewed tree dirty.
 
 Cache the IDs from `field-list` in `.claude/rules/task-flow.local.md` the first time you fetch them —
 they are stable per board, and re-fetching every time is the main friction that makes agents skip the
