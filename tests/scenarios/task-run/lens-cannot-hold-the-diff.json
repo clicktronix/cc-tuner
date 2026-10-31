@@ -8,8 +8,8 @@
   "expected_behavior": [
     "Runs `shard-diff.sh <base> <candidate> --plan <plan>` first and reads MODE and the SHARD lines; does not decide the shard count by eye",
     "Writes one `shard-<n>.diff` and `shard-<n>-files.txt` per SHARD next to `candidate.diff`, so a lens without a shell can read its shard",
-    "Dispatches Correctness, Repository standards, Security and Tests-and-operability once per shard on those two files, and Specification-and-scope and Architecture once on the whole diff",
-    "States the agent count as `shards x 4 + 2` and the spawn overhead before dispatch; aggregates across shards by cause"
+    "Dispatches Correctness, Repository standards, Security and Tests-and-operability once per shard on those two files, and Specification-and-scope, Architecture and Blind spots once on the whole diff",
+    "States the agent count as `shards x 4 + 3`, split by model, and the spawn overhead before dispatch, asking the user first when it exceeds the lens limit; aggregates across shards by cause"
   ],
   "anti_expectation": [
     "Does not send the whole 1071-file diff to one Correctness lens",
@@ -29,5 +29,5 @@
     ],
     "verdict": "reproduced in production; the arithmetic now lives in scripts/shard-diff.sh and this scenario guards the owner's half: who shards, what each lens reads, and what is said before the spend"
   },
-  "decision_question": "Does the owner run shard-diff.sh, write per-shard files, dispatch four lenses per shard and two whole, and state shards x 4 + 2 before spending — rather than hand one lens a diff it cannot hold?"
+  "decision_question": "Does the owner run shard-diff.sh, write per-shard files, dispatch four lenses per shard and three whole, and state shards x 4 + 3 before spending — rather than hand one lens a diff it cannot hold?"
 }
