@@ -340,10 +340,12 @@ blind_tools="$(printf '%s\n' "$blind_front" | sed -n 's/^tools: //p')"
 blind_denied="$(printf '%s\n' "$blind_front" | sed -n 's/^disallowedTools: //p')"
 blind_ok=1
 printf '%s\n' "$blind_front" | grep -q '^model: opus$' || blind_ok=0
-[ -n "$blind_tools" ] || blind_ok=0
+blind_count=0
 for t in $(printf '%s' "$blind_tools" | tr ',' ' '); do
+  blind_count=$((blind_count + 1))
   case "$t" in Read|Grep|Glob|WebSearch|WebFetch) ;; *) blind_ok=0 ;; esac
 done
+[ "$blind_count" -gt 0 ] || blind_ok=0
 for t in Bash Edit Write Agent; do
   printf '%s' "$blind_denied" | tr ',' '\n' | sed 's/^ *//' | grep -qx "$t" || blind_ok=0
 done
