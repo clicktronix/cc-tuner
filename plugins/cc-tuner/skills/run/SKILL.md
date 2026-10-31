@@ -300,9 +300,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
-   are complete, and then move the card to Done; a partial `Refs` merge leaves it where it is. When
-   that closes an epic's last open sub-issue, also move the epic's card to Done and close the epic.
-   Do not commit a completion record directly to an integration target.
+   are complete, and then move the card to Done. When the issue was an epic's last open sub-issue,
+   also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
+   after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
+   open). Do not commit a completion record directly to an integration target.
 
 ## Ending the run
 

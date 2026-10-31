@@ -40,8 +40,10 @@ guarantees.
 
 The script checks the filtered packets' budgets and exact combined coverage. Git errors, unsupported
 filenames, oversized atomic changes, unsatisfied caps or changed coverage refuse with empty stdout.
-Do not treat refusal as single mode. Raise `--files`/`--lines` when context permits, raise `--max`
-only within the lens limit below, or report incomplete coverage. Never silently skip a lockfile or
+Do not treat refusal as single mode. Raise `--files`/`--lines` when context permits, or raise `--max`
+to the number of shards the candidate needs: preparing a partition dispatches nothing, and a total
+past the lens limit below goes to the user before any lens starts. Otherwise report incomplete
+coverage. Never silently skip a lockfile or
 generated artifact. Binary contents and changed submodule revisions require inspection beyond the
 marker/gitlink.
 

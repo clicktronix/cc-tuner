@@ -86,7 +86,7 @@ GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 **Card lifecycle:** on the board when the spec is approved; In Progress when implementation opens
 after recording the prior status; In review when the PR opens, where the board has that option; Done
 after the merge that **fully completes** the issue (`Closes`/`Fixes` link). A partial `Refs #N` merge
-keeps the card In Progress. An epic's card follows its first and last sub-issue. `/cc-tuner:spec` and
+returns the card to In Progress. An epic's card follows its first and last sub-issue. `/cc-tuner:spec` and
 `/cc-tuner:run` name each moment; outside them, follow the same sequence.
 
 **Recording independent future work.** `.claude/rules/task-flow.md` defines what must be fixed in the

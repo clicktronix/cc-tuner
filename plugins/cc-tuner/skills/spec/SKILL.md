@@ -12,7 +12,9 @@ This command owns discovery and readiness; `/run` owns delivery.
 **`--groom` prepares an issue for later**, with no branch, spec or plan and nothing committed. It takes
 an issue number or URL; for free text it asks to create the issue first. It runs section 1, the
 interview of section 3, the acceptance tagging of section 4 and the blind-spots pass of section 5 over
-the decisions and criteria gathered so far, skips section 2, and ends by commenting on the issue with one record whose first line is
+the decisions and criteria gathered so far, skips section 2, and writes no files: a term or ADR that
+`domain-modeling` settles goes into the record's Decisions, and the later `/spec` writes it on its
+branch. It ends by commenting on the issue with one record whose first line is
 `cc-tuner-groom: <date>`, then sections **Decisions** (each with its reason), **Acceptance criteria**
 (tagged, with their deciding checks when known), **Open questions** and **Sources**. It needs an issue:
 it refuses under `tracker: none`, or when the repository does not track work in GitHub issues, and

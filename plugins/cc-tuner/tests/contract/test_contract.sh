@@ -335,6 +335,9 @@ fi
 # issue and nothing in git; a later /spec builds on that record instead of asking again.
 need "spec-groom-mode"                    '`--groom`' "$SPEC"
 need "spec-groom-leaves-git-alone"        'no branch, spec or plan' "$SPEC"
+need "spec-groom-writes-no-files"         'skips section 2, and writes no files' "$SPEC"
+need "run-partial-merge-back-in-progress" 'after a partial `Refs` merge, move it back to In Progress' "$RUN"
+need "deep-review-prepares-past-the-limit" 'preparing a partition dispatches nothing' "$DEEP_REVIEW"
 need "spec-groom-needs-an-issue"          'refuses under `tracker: none`' "$SPEC"
 need "spec-builds-on-the-groom-record"    'cc-tuner-groom:' "$SPEC"
 # Verification output (test logs, browser snapshots) filled the orchestrator's context; the record is
