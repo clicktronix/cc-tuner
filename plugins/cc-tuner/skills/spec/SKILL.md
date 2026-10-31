@@ -178,6 +178,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
   --spec <the committed spec path> --branch "$(git branch --show-current)"
 ```
 
+When the spec's `board:` names a board, read `cc-tuner:task-flow`'s Board recipes and put the issue's card
+on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
+unset. A failed move is reported at the handoff, never skipped silently.
+
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
 the spec, plan, and only the `GLOSSARY.md` or ADR changes this invocation intentionally created.

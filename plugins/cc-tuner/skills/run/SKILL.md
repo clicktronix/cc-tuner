@@ -52,6 +52,12 @@ When native task tools exist, reconcile the list against the plan even if the li
 Mark tasks completed for every ticked slice before starting. Update statuses as stages execute. If
 native tools are absent, say so once and continue with the plan file as durable state.
 
+**The board.** When the spec's `board:` names one, read `cc-tuner:task-flow`'s Board recipes now: this
+run moves the issue's card, and nothing else will. Set it In Progress before the first slice starts
+(adding the card when it is missing); for a sub-issue, also move the epic's card to In Progress if it
+has not started. Delivery steps 1 and 7 name the later moves. A move that fails after the recipes'
+recovery is reported in the final answer, never skipped silently.
+
 ## The loop
 
 Ask the parser for the next safe batch; do not select slices by eye. Name every slice a unit is
@@ -197,7 +203,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 1. **Push and open the PR** (draft is fine while work continues). The candidate is its exact head
    SHA, with a clean working tree. Write the body with `mattpocock-skills:pr` when it is installed
    (call the Skill tool with "mattpocock-skills:pr"); its Evidence comes from the verify-feature record.
-   Without it, keep the same three sections: Summary, Evidence, Merge Danger.
+   Without it, keep the same three sections: Summary, Evidence, Merge Danger. When a board is
+   named and has an In review option, move the card to In review.
 2. **Choose one advisory workflow for the first clean candidate.**
    - `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
      multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
@@ -285,7 +292,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
-   are complete. Do not commit a completion record directly to an integration target.
+   are complete, and then move the card to Done; a partial `Refs` merge leaves it where it is. When
+   that closes an epic's last open sub-issue, also move the epic's card to Done and close the epic.
+   Do not commit a completion record directly to an integration target.
 
 ## Ending the run
 

@@ -9,10 +9,12 @@ Owned paths: plugins/cc-tuner/skills/spec/SKILL.md,plugins/cc-tuner/skills/run/S
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: an agent following `/spec` then `/run` puts the issue's card on the board and moves it Todo → In Progress → In review → Done, with the epic's card following, and recovers from a missing card or stale IDs instead of failing on an empty item ID
 
-- [ ] The new board `need` lines were observed failing before the text existed
-- [ ] `/spec` and `/run` name each move at its moment and send the agent to `task-flow`'s Board recipes
-- [ ] The recipes state the missing-card, stale-ID and empty-ID cases
-- [ ] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
+- [x] The new board `need` lines were observed failing before the text existed
+- [x] `/spec` and `/run` name each move at its moment and send the agent to `task-flow`'s Board recipes
+- [x] The recipes state the missing-card, stale-ID and empty-ID cases
+- [x] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 111 PASS, rc 0 @ worktree; RED before the text: 8 FAIL (`spec-puts-the-card-on-the-board` … `recipes-refresh-stale-option-ids`), rc 1
 
 ## Slice 2 — Deep-review sees blind spots and asks past its limit
 Blocked by: 1

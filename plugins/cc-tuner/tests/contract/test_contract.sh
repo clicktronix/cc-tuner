@@ -300,6 +300,17 @@ need "spec-codebase-design-trigger"       '`mattpocock-skills:codebase-design`' 
 need "spec-prototype-qualified"           '`mattpocock-skills:prototype`' "$SPEC"
 need "placement-diagnosing-bugs-trigger"  '`mattpocock-skills:diagnosing-bugs`' "$PLACEMENT"
 need "claude-md-writer-defers-wording"    '`mattpocock-skills:writing-for-agents`' "$CLAUDE_MD_WRITER"
+# Field sessions (stokli, marqa) merged 21 PRs with 2 card moves: the lifecycle lived only in task-flow,
+# which /run never loads. The moments live in spec and run; the recovery from a missing card or stale
+# IDs lives in the recipes they send the agent to.
+need "spec-puts-the-card-on-the-board"    "read \`cc-tuner:task-flow\`'s Board recipes and put the issue's card" "$SPEC"
+need "run-moves-card-in-progress"         'In Progress before the first slice starts' "$RUN"
+need "run-moves-card-in-review"           'move the card to In review' "$RUN"
+need "run-moves-card-done"                'move the card to Done' "$RUN"
+need "run-moves-the-epic-card"            "also move the epic's card to Done" "$RUN"
+need "recipes-add-a-missing-card"         'An empty `item-list` lookup means the card is not on the board' "$TASK_FLOW"
+need "recipes-never-edit-an-empty-id"     'Never run `item-edit` with an empty `--id`' "$TASK_FLOW"
+need "recipes-refresh-stale-option-ids"   'does not belong to the field' "$TASK_FLOW"
 if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
   echo "FAIL placement-row-without-a-trigger"; fails=1
 else

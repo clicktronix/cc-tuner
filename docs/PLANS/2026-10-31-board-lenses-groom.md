@@ -28,7 +28,7 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
 - [x] Delivery: one repository, branch `feat/board-lenses-groom`, PR to `main`, tracker gh, CI `validate.yml`
 
 ## Acceptance criteria
-- [ ] [machine] `/spec` adds or confirms the issue's card after approval; `/run` sets In Progress when
+- [x] [machine] `/spec` adds or confirms the issue's card after approval; `/run` sets In Progress when
   implementation opens, In review when the PR opens if the board has that option, and Done after the
   merge that fully closes the issue; an epic's card follows its first and last sub-issue; each step
   sends the agent to `task-flow`'s Board recipes, which state the missing-card, stale-ID and
