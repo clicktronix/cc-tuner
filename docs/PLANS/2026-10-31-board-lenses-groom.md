@@ -38,7 +38,7 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
   P3 or owner questions only; past the limit it asks with `AskUserQuestion` (run all / cut to the
   limit → `INCOMPLETE` naming unread lenses and paths / larger shards); the printed line shows the
   split by model — checked by: `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [ ] [machine] `/spec` dispatches `cc-tuner:blind-spots` after the draft contract and before the
+- [x] [machine] `/spec` dispatches `cc-tuner:blind-spots` after the draft contract and before the
   approval and turns its returns into grilling questions; `--groom` writes decisions, acceptance and
   open questions into the issue without a branch, spec or plan, refuses under `tracker: none`, and a
   later `/spec <issue>` does not re-ask what the groom record settled; `agents/blind-spots.md` has

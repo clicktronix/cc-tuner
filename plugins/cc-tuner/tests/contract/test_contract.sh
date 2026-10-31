@@ -319,6 +319,24 @@ need "run-moves-the-epic-card"            "also move the epic's card to Done" "$
 need "recipes-add-a-missing-card"         'An empty `item-list` lookup means the card is not on the board' "$TASK_FLOW"
 need "recipes-never-edit-an-empty-id"     'Never run `item-edit` with an empty `--id`' "$TASK_FLOW"
 need "recipes-refresh-stale-option-ids"   'does not belong to the field' "$TASK_FLOW"
+# /spec grilled only what was named: nothing asked what the user had not thought of. The pass is an
+# adviser on Opus that cannot change the tree; the user decides what it raises.
+BLIND="$ROOT/plugins/cc-tuner/agents/blind-spots.md"
+need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:blind-spots` once' "$SPEC"
+need "spec-blind-spots-become-questions"  'its returns become grilling questions' "$SPEC"
+need "placement-names-the-spec-pass"      'the `/spec` blind-spots pass' "$PLACEMENT"
+if [ -f "$BLIND" ] && grep -q '^model: opus$' "$BLIND" \
+   && ! sed -n '/^tools:/p' "$BLIND" | grep -Eq 'Bash|Edit|Write|Agent'; then
+  echo "PASS blind-spots-agent-is-opus-and-read-only"
+else
+  echo "FAIL blind-spots-agent-is-opus-and-read-only"; fails=1
+fi
+# Grooming needed a branch: /spec created it before the interview. --groom records the outcome in the
+# issue and nothing in git; a later /spec builds on that record instead of asking again.
+need "spec-groom-mode"                    '`--groom`' "$SPEC"
+need "spec-groom-leaves-git-alone"        'no branch, spec or plan' "$SPEC"
+need "spec-groom-needs-an-issue"          'refuses under `tracker: none`' "$SPEC"
+need "spec-builds-on-the-groom-record"    'cc-tuner-groom:' "$SPEC"
 if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
   echo "FAIL placement-row-without-a-trigger"; fails=1
 else

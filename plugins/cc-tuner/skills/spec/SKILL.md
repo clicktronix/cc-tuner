@@ -1,6 +1,6 @@
 ---
-description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run. Use when the user asks to plan, spec or start a feature or fix in a repository that uses cc-tuner; it writes the plan and stops at the handoff, and /cc-tuner:run does the implementing.
-argument-hint: '<issue number | URL | free-text description>'
+description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run, or with --groom records the decisions in the issue without a branch. Use when the user asks to plan, spec, groom or start a feature or fix in a repository that uses cc-tuner; it writes the plan and stops at the handoff, and /cc-tuner:run does the implementing.
+argument-hint: '[--groom] <issue number | URL | free-text description>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 ---
 
@@ -8,6 +8,16 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 
 Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening decisions.
 This command owns discovery and readiness; `/run` owns delivery.
+
+**`--groom` prepares an issue for later**, with no branch, spec or plan and nothing committed. It runs
+section 1, the interview of section 3, the acceptance tagging of section 4 and the blind-spots pass of
+section 5, skips section 2, and ends by commenting on the issue with one record whose first line is
+`cc-tuner-groom: <date>`, then sections **Decisions** (each with its reason), **Acceptance criteria**
+(tagged, with their deciding checks when known), **Open questions** and **Sources**. It needs an issue:
+it refuses under `tracker: none`, or when the repository does not track work in GitHub issues, and
+says the spec is then the only record. A later `/spec <issue>` reads the newest `cc-tuner-groom:`
+comment as a source: its decisions are settled, so the interview covers only its open questions and
+what the code now contradicts.
 
 ## 1. Anchor and read
 
@@ -119,6 +129,15 @@ write it before the approval in section 6. Its final path is
 `wiki/` or `docs/`, and the spelling of the plans directory the repository already tracks (macOS is
 case-insensitive and Linux is not, so a second spelling is one folder on a laptop and two in CI). It
 never returns `task-plans/`, which holds execution plans.
+
+**Blind spots, before the approval.** With the draft contract written, dispatch `cc-tuner:blind-spots` once
+(its definition supplies Opus and only read and web tools) with the draft text, the issue, the
+repository path and the decisions already made. It looks for what nobody in this conversation
+considered: unwalked user scenarios, business-logic holes, capabilities the outcome implies, simpler
+or non-standard alternatives. Validate each item against the code, drop what the draft already
+settles, and its returns become grilling questions asked as section 3 asks them; the user decides,
+and an adopted answer changes the draft before section 6. Skip it only for a one-file fix or
+mechanical change, and say so.
 
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.

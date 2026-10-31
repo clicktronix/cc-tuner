@@ -92,7 +92,7 @@ parameters, else the agent definition's, else the session's. The ladder:
 - **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
   runs on, so a Fable or `max` orchestrator does not multiply every unit's cost. The exception is
   deep-review's Architecture, Security and Blind spots lenses, which its skill dispatches on Opus at
-  the definition's high effort.
+  the definition's high effort, and the `/spec` blind-spots pass, whose agent definition is Opus.
 - **Opus on evidence** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
   asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
   failure output in the brief; or a slice the plan marks `Model: opus — <reason>`. Write the reason

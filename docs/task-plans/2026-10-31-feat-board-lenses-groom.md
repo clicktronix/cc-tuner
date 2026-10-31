@@ -35,10 +35,12 @@ Owned paths: plugins/cc-tuner/skills/spec/SKILL.md,plugins/cc-tuner/agents/blind
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: `/spec` runs a read-only Opus blind-spots pass before approval and turns its returns into grilling questions; `/spec --groom <issue>` records decisions, acceptance and open questions in the issue with no branch, spec or plan, and a later `/spec <issue>` builds on that record
 
-- [ ] The new spec `need` lines and the agent frontmatter check were observed failing first
-- [ ] `agents/blind-spots.md` is Opus and read-only
-- [ ] `--groom` refuses under `tracker: none`
-- [ ] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
+- [x] The new spec `need` lines and the agent frontmatter check were observed failing first
+- [x] `agents/blind-spots.md` is Opus and read-only
+- [x] `--groom` refuses under `tracker: none`
+- [x] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 124 PASS, rc 0 @ worktree; RED before the text: 8 FAIL (`spec-dispatches-blind-spots` … `spec-builds-on-the-groom-record`), rc 1; Bash added to the agent's tools → `FAIL blind-spots-agent-is-opus-and-read-only`
 
 ## Slice 4 — Verification runs beside the orchestrator
 Blocked by: 3
