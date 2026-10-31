@@ -48,6 +48,8 @@ Owned paths: plugins/cc-tuner/skills/run/SKILL.md,plugins/cc-tuner/skills/run/re
 Deciding check: bash tests/run.sh
 Delivers: `/run` hands `verify-feature` to a Sonnet subagent and keeps only its record, the owner still deciding `[eyes]` criteria; the README describes every behaviour this plan adds
 
-- [ ] The new verify `need` line was observed failing before the text existed
-- [ ] The README names the board moves, the Blind spots lens and pass, `--groom` and the verify subagent
-- [ ] `bash tests/run.sh` exits 0
+- [x] The new verify `need` line was observed failing before the text existed
+- [x] The README names the board moves, the Blind spots lens and pass, `--groom` and the verify subagent
+- [x] `bash tests/run.sh` exits 0
+
+Evidence: bash tests/run.sh → `cc-tuner validate ok`, rc 0 @ worktree; contract 129 PASS; RED before the text: 5 FAIL (`run-verifies-in-a-subagent` … `readme-names-blind-spots`), rc 1

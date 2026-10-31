@@ -42,7 +42,8 @@ when that is the deciding check, and anything else that finishes in seconds.
 - **A unit runs focused checks.** A build or container start runs from a unit only when it is the
   slice's deciding check: once, through `heavy.sh`, and stopped before the unit returns.
 - **The owner runs the full suite**, at the cadence `/run`'s Test cadence names.
-- **`verify-feature` runs the e2e suite.**
+- **`verify-feature` runs the e2e suite.** `verify-feature` runs in a Sonnet subagent that `/run`
+  dispatches; only its record comes back.
 - **Browser MCP sessions and dev servers belong to the owner and `verify-feature`.** A regression test
   that starts and stops its own server inside its test command is still focused.
 

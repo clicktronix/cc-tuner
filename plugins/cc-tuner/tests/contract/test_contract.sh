@@ -337,6 +337,14 @@ need "spec-groom-mode"                    '`--groom`' "$SPEC"
 need "spec-groom-leaves-git-alone"        'no branch, spec or plan' "$SPEC"
 need "spec-groom-needs-an-issue"          'refuses under `tracker: none`' "$SPEC"
 need "spec-builds-on-the-groom-record"    'cc-tuner-groom:' "$SPEC"
+# Verification output (test logs, browser snapshots) filled the orchestrator's context; the record is
+# all /run needs back, and the owner still decides what only a person can see.
+need "run-verifies-in-a-subagent"         'run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"`' "$RUN"
+need "run-keeps-eyes-criteria"            '`[eyes]` criteria stay with you' "$RUN"
+need "placement-verify-on-sonnet"         '`verify-feature` runs in a Sonnet subagent' "$PLACEMENT"
+README_PLUGIN="$ROOT/plugins/cc-tuner/README.md"
+need "readme-names-groom"                 'spec --groom <issue>' "$README_PLUGIN"
+need "readme-names-blind-spots"           'Blind spots' "$README_PLUGIN"
 if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
   echo "FAIL placement-row-without-a-trigger"; fails=1
 else

@@ -183,9 +183,16 @@ opening or merging it again.
 
 ## Verifying the feature
 
-After every slice is done and before offering a candidate for review, invoke `cc-tuner:verify-feature`.
-It selects instruments from acceptance criteria and repository capabilities, exercises the behaviour
-and returns observations. A machine replacement for an `[eyes]` step must prove the same criterion.
+After every slice is done and before offering a candidate for review,
+run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"` and `effort: "high"`: a
+`general-purpose` agent whose brief names the spec path, the candidate worktree and SHA, placement's
+heavy-check command and "return only the record". Test output, browser snapshots and logs stay in its
+context; the record comes back. It selects instruments from acceptance criteria and repository
+capabilities, exercises the behaviour and returns observations. A machine replacement for an `[eyes]`
+step must prove the same criterion, and
+`[eyes]` criteria stay with you: take the human step yourself or with the user. Read the record before
+publishing it and re-run any line whose evidence looks thin. If the host offers no subagent, invoke
+the skill yourself.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
 residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,

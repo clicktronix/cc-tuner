@@ -44,10 +44,10 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
   later `/spec <issue>` does not re-ask what the groom record settled; `agents/blind-spots.md` has
   `model: opus` and no Bash, Edit, Write or Agent tool — checked by:
   `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [ ] [machine] `/run` dispatches `verify-feature` in a Sonnet subagent, takes back only its record,
+- [x] [machine] `/run` dispatches `verify-feature` in a Sonnet subagent, takes back only its record,
   and keeps `[eyes]` criteria with the owner — checked by:
   `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [ ] [machine] The plugin README names the new behaviour and the repository suite passes — checked
+- [x] [machine] The plugin README names the new behaviour and the repository suite passes — checked
   by: `bash tests/run.sh`
 
 ## Test plan
