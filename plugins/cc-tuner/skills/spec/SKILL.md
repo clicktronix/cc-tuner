@@ -1,6 +1,6 @@
 ---
-description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run, or with --groom records the decisions in the issue without a branch. Use when the user asks to plan, spec, groom or start a feature or fix in a repository that uses cc-tuner; it writes the plan and stops at the handoff, and /cc-tuner:run does the implementing.
-argument-hint: '[--groom] <issue number | URL | free-text description>'
+description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run, or with --groom records the decisions in an existing issue without a branch, spec or plan. Use when the user asks to plan, spec, groom or start a feature or fix in a repository that uses cc-tuner; it stops at the handoff (the committed plan, or the issue record under --groom), and /cc-tuner:run does the implementing.
+argument-hint: '<issue number | URL | free-text description> | --groom <issue number | URL>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 ---
 
@@ -134,17 +134,15 @@ case-insensitive and Linux is not, so a second spelling is one folder on a lapto
 never returns `task-plans/`, which holds execution plans.
 
 **Blind spots, before the approval.** With the draft contract written, dispatch `cc-tuner:spec-blind-spots` once
-(its definition supplies Opus and only read and web tools) with the draft text, the issue, the
-repository path and the decisions already made. It looks for what nobody in this conversation
-considered: unwalked user scenarios, business-logic holes, capabilities the outcome implies, simpler
-or non-standard alternatives. Validate each item against the code, drop what the draft already
+with the draft text, the issue, the repository path and the decisions already made; the agent's
+definition owns what it looks for. Validate each item against the code, drop what the draft already
 settles, and its returns become grilling questions asked as section 3 asks them; the user decides,
 and an adopted answer changes the draft before section 6. Before dispatching, print
 `spec-blind-spots: 1 opus × effort high; cost: <$ figure and its source | unknown>` (deep-review's
 rule for the figure). It ends with one status line; say it. An `incomplete: <reason>` goes to the
 user with the review in section 6 whatever questions came with it, and under `--groom` into the
-record's Open questions; `completed: no findings` leads straight on. Skip it
-only for a one-file fix or mechanical change, and say so.
+record's Open questions; `completed: no findings` leads straight on. Skip it only for a mechanical or
+documentation-only change, and say so: a one-file change can still move authorization or billing.
 
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.

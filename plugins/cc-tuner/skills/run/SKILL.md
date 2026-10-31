@@ -1,6 +1,6 @@
 ---
 name: run
-description: Works this branch's committed cc-tuner plan to a merged PR — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued. Board, branch-cleanup and release-note procedures belong to cc-tuner:task-flow instead.
+description: Works this branch's committed cc-tuner plan to a merged PR — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued. It decides when the board card moves; the board recipes, branch cleanup and release notes belong to cc-tuner:task-flow.
 argument-hint: '[--auto] <path-to-spec>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
 ---

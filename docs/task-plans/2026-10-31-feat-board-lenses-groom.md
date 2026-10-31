@@ -1,6 +1,6 @@
 # Board moves, blind spots, grooming — plan
 
-**Spec:** docs/PLANS/2026-10-31-board-lenses-groom.md
+**Spec:** docs/ARCHIVE/PLANS/2026-10-31-board-lenses-groom.md
 **Branch:** feat/board-lenses-groom
 
 ## Slice 1 — Cards move as spec and run advance

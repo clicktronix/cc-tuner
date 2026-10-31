@@ -326,12 +326,28 @@ need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:spec-blind-spots` 
 need "spec-blind-spots-become-questions"  'its returns become grilling questions' "$SPEC"
 need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
 need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
+need "spec-skips-only-mechanical-work"    'Skip it only for a mechanical or' "$SPEC"
+need "spec-describes-the-groom-stop"      'or the issue record under --groom' "$SPEC"
+need "run-describes-its-board-moves"      'It decides when the board card moves' "$RUN"
 need "spec-keeps-an-incomplete-pass"       'whatever questions came with it, and under `--groom` into the' "$SPEC"
 need "spec-approves-the-card-priority"     "plus the card's Priority when a board is named" "$SPEC"
 need "run-says-a-failed-move-at-once"      'recovery is said at once' "$RUN"
 need "placement-defers-named-models"      '`deep-review`, `/spec` or `/run` name the model' "$PLACEMENT"
-if [ -f "$BLIND" ] && grep -q '^model: opus$' "$BLIND" \
-   && ! sed -n '/^tools:/p' "$BLIND" | grep -Eq 'Bash|Edit|Write|Agent'; then
+# Without a `tools` allowlist an agent inherits every tool, so the check needs the allowlist present,
+# made only of read and web tools, and the write tools disallowed by name.
+blind_front="$(sed -n '2,/^---$/p' "$BLIND" 2>/dev/null)"
+blind_tools="$(printf '%s\n' "$blind_front" | sed -n 's/^tools: //p')"
+blind_denied="$(printf '%s\n' "$blind_front" | sed -n 's/^disallowedTools: //p')"
+blind_ok=1
+printf '%s\n' "$blind_front" | grep -q '^model: opus$' || blind_ok=0
+[ -n "$blind_tools" ] || blind_ok=0
+for t in $(printf '%s' "$blind_tools" | tr ',' ' '); do
+  case "$t" in Read|Grep|Glob|WebSearch|WebFetch) ;; *) blind_ok=0 ;; esac
+done
+for t in Bash Edit Write Agent; do
+  printf '%s' "$blind_denied" | tr ',' '\n' | sed 's/^ *//' | grep -qx "$t" || blind_ok=0
+done
+if [ "$blind_ok" = 1 ]; then
   echo "PASS spec-blind-spots-agent-is-opus-and-read-only"
 else
   echo "FAIL spec-blind-spots-agent-is-opus-and-read-only"; fails=1
