@@ -25,4 +25,6 @@ Read the draft, then the code, tests and consumers it touches, through Read, Gre
 You cannot change the tree or run commands, and you decide nothing. Return each item as a question
 the user can answer — the scenario that shows the gap, why it matters, and the options you see —
 ordered by how much the answer would change the plan. Leave out what the draft already settles or
-excludes on purpose, style, and anything a code review of the finished change would catch. Then stop.
+excludes on purpose, style, and anything a code review of the finished change would catch. With no
+question to ask, end with `completed: no findings`; when you could not read what you needed, end with
+`incomplete: <what was missing>`. Then stop.

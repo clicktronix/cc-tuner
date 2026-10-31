@@ -56,7 +56,8 @@ native tools are absent, say so once and continue with the plan file as durable 
 run moves the issue's card, and nothing else will. Set it In Progress before the first slice starts
 (adding the card when it is missing); for a sub-issue, also move the epic's card to In Progress if it
 has not started. Delivery steps 1 and 7 name the later moves. A move that fails after the recipes'
-recovery is reported in the final answer, never skipped silently.
+recovery is said at once — the card, the move and the error — while the run goes on, and again in the
+final answer; never skipped silently.
 
 ## The loop
 

@@ -324,6 +324,10 @@ need "recipes-refresh-stale-option-ids"   'does not belong to the field' "$TASK_
 BLIND="$ROOT/plugins/cc-tuner/agents/spec-blind-spots.md"
 need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:spec-blind-spots` once' "$SPEC"
 need "spec-blind-spots-become-questions"  'its returns become grilling questions' "$SPEC"
+need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
+need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
+need "spec-approves-the-card-priority"     "plus the card's Priority when a board is named" "$SPEC"
+need "run-says-a-failed-move-at-once"      'recovery is said at once' "$RUN"
 need "placement-defers-named-models"      '`deep-review`, `/spec` or `/run` name the model' "$PLACEMENT"
 if [ -f "$BLIND" ] && grep -q '^model: opus$' "$BLIND" \
    && ! sed -n '/^tools:/p' "$BLIND" | grep -Eq 'Bash|Edit|Write|Agent'; then

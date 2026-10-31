@@ -139,8 +139,11 @@ repository path and the decisions already made. It looks for what nobody in this
 considered: unwalked user scenarios, business-logic holes, capabilities the outcome implies, simpler
 or non-standard alternatives. Validate each item against the code, drop what the draft already
 settles, and its returns become grilling questions asked as section 3 asks them; the user decides,
-and an adopted answer changes the draft before section 6. Skip it only for a one-file fix or
-mechanical change, and say so.
+and an adopted answer changes the draft before section 6. Before dispatching, print
+`spec-blind-spots: 1 opus × effort high; cost: <$ figure and its source | unknown>` (deep-review's
+rule for the figure). It ends with `completed: no findings` or `incomplete: <reason>` when it has no
+questions: say which, and an incomplete pass goes to the user with the review in section 6. Skip it
+only for a one-file fix or mechanical change, and say so.
 
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.
@@ -182,7 +185,8 @@ contract**: introduce the new form beside the old, migrate consumers in independ
 then remove the old form only after every batch.
 
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
-and blockers. Ask once whether the contract, granularity, and edges are right; revise until approved.
+and blockers, plus the card's Priority when a board is named and neither the issue nor
+`task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.
 This is the only approval before implementation.
 
 After approval — with `tracker: gh`, create or update the issue so it and the spec link to each
@@ -226,7 +230,8 @@ confirmation after the approved contract and slices.
 
 When the spec's `board:` names a board, read `cc-tuner:task-flow`'s Board recipes and put the issue's card
 on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
-unset; for a sub-issue, put the epic's card on the board too. Report a move that failed.
+unset (the value approved in section 6); for a sub-issue, put the epic's card on the board too.
+Report a move that failed.
 
 Print the spec and plan paths, branch, target, and the next command. When the user asked for the
 task to be implemented, not only planned, start `/cc-tuner:run` yourself with the spec path; offer
