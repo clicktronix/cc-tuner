@@ -60,11 +60,15 @@ advisory pass. Restricted `cc-tuner:deep-review-lens` agents read owner-prepared
 owner validates findings and coverage before required Codex review of the final SHA.
 
 The shared `review-diff.sh` reader keeps inventory and packets consistent. `shard-diff.sh` validates
-actual packet coverage and size before dispatch. Four file-local lenses run per shard; Specification
-and Architecture each cover the whole candidate. The limit is 18 lenses (four shards) unless the user
-raises it in the conversation. The [deep-review procedure](skills/deep-review/SKILL.md) owns the
-accepted partition and the line printed before dispatch — lens count, model and effort, with a dollar
-figure only from a source the owner can name.
+actual packet coverage and size before dispatch. Seven lenses run; with shards, four file-local
+lenses run per shard and Specification, Architecture and Blind spots each cover the whole candidate.
+Blind spots asks what the user and the spec did not consider (unwalked scenarios, business-logic
+holes, simpler alternatives); its findings are questions for the owner, never blockers. Architecture,
+Security and Blind spots run on Opus, the rest on Sonnet. Past 19 lenses (four shards) the owner asks
+the user whether to run them all, cut to the limit, or re-shard. The
+[deep-review procedure](skills/deep-review/SKILL.md) owns the accepted partition and the line printed
+before dispatch — lens count by model and effort, with a dollar figure only from a source the owner
+can name.
 
 
 ### `verify-feature`
@@ -74,17 +78,24 @@ criteria and the diff, finds what the repository already provides (test commands
 dev server, a database, a browser tool), picks the instrument each behaviour needs, runs it, and
 records **what was observed**, each line tagged with its instrument (`[browser]`, `[api]`, `[test]`,
 `[cli]`) or marked `NOT PROVED`. Evidence must directly decide the criterion; unproved criteria return
-to `/run`. Steps: `skills/verify-feature/SKILL.md`.
+to `/run`, which runs this stage in a Sonnet subagent and takes back only the record. Steps:
+`skills/verify-feature/SKILL.md`.
 
 ## /spec and /run
 
 The task loop has two commands. `/cc-tuner:spec <issue | description>` does the discovery, creates the
-task branch, resolves open decisions, confirms the contract and tracer-bullet slices once, then commits
-the spec and plan and, when the Task tools are available, publishes the slices as native tasks.
+task branch, resolves open decisions, has a read-only Opus agent look for Blind spots in the draft (its
+questions go to the user), confirms the contract and tracer-bullet slices once, then commits the spec
+and plan, puts the issue's card on the board, and, when the Task tools are available, publishes the
+slices as native tasks. `/cc-tuner:spec --groom <issue>` does the discovery and the interview only and
+records the decisions in the issue, with no branch, spec or plan; a later `/cc-tuner:spec <issue>`
+builds on that record.
 `/cc-tuner:run [--auto] <spec>` works that plan to a merged pull request: it proves each slice
 RED→GREEN, reviews the candidate (Matt Pocock review, or `cc-tuner:deep-review` for large or sensitive
 changes), obtains the review the spec names (Codex's by default, or none with a recorded reason) at the
-exact final SHA, and merges only through `scripts/merge.sh`. Implementation may be handed to
+exact final SHA, and merges only through `scripts/merge.sh`. Where the spec names a board, `/run`
+moves the card to In Progress, In review and Done as it goes, and the epic's card with its first and
+last sub-issue. Implementation may be handed to
 `cc-tuner:slice-unit` subagents, one per slice, capped at `maxTurns: 300` so an over-long slice returns
 partial; the parent owns integration, proof, review and every later gate. Procedures:
 `skills/spec/SKILL.md`, `skills/run/SKILL.md`.

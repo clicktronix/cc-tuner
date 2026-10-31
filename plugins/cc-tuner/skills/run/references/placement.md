@@ -90,9 +90,10 @@ A brief configures neither model nor effort: pass them as the dispatch's `model`
 parameters, else the agent definition's, else the session's. The ladder:
 
 - **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
-  runs on, so a Fable or `max` orchestrator does not multiply every unit's cost.
-- **Opus on evidence** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
-  asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
+  runs on, so a Fable or `max` orchestrator does not multiply every unit's cost — except where
+  `deep-review`, `/spec` or `/run` name the model of an agent they dispatch.
+- **Opus on evidence** for implementation units (`model: "opus", effort: "medium"`), chosen by the
+  orchestrator without asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
   failure output in the brief; or a slice the plan marks `Model: opus — <reason>`. Write the reason
   as one line in the brief and beneath the slice in the plan, where `Evidence:` lines go:
   `Opus-reason: <the failed check and its output | the plan's reason>`. Pass the effort explicitly:

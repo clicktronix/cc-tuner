@@ -108,7 +108,7 @@ esac
 
 # --- 1c. nested delegation ---------------------------------------------------------------------
 # /cc-tuner:run hands slices to subagents and tells each one not to delegate further; deep-review
-# fans out six read-only lenses the same way. That instruction is prose. The platform default lets a
+# fans out seven read-only lenses the same way. That instruction is prose. The platform default lets a
 # subagent spawn its own down to depth 3, and one run once produced dozens of unrequested agents that
 # way. CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 makes the rule a limit instead of a request: the
 # orchestrator still dispatches, its units cannot. A hint, not a blocker -- the prose still applies.

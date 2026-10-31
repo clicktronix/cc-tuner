@@ -52,6 +52,13 @@ When native task tools exist, reconcile the list against the plan even if the li
 Mark tasks completed for every ticked slice before starting. Update statuses as stages execute. If
 native tools are absent, say so once and continue with the plan file as durable state.
 
+**The board.** When the spec's `board:` names one, read `cc-tuner:task-flow`'s Board recipes now: this
+run moves the issue's card, and nothing else will. Set it In Progress before the first slice starts
+(adding the card when it is missing); for a sub-issue, also move the epic's card to In Progress if it
+has not started. Delivery steps 1 and 7 name the later moves. A move that fails after the recipes'
+recovery is said at once — the card, the move and the error — while the run goes on, and again in the
+final answer; never skipped silently.
+
 ## The loop
 
 Ask the parser for the next safe batch; do not select slices by eye. Name every slice a unit is
@@ -177,9 +184,18 @@ opening or merging it again.
 
 ## Verifying the feature
 
-After every slice is done and before offering a candidate for review, invoke `cc-tuner:verify-feature`.
-It selects instruments from acceptance criteria and repository capabilities, exercises the behaviour
-and returns observations. A machine replacement for an `[eyes]` step must prove the same criterion.
+After every slice is done and before offering a candidate for review,
+run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"` and `effort: "high"`: a
+`general-purpose` agent whose brief names the spec path, the candidate worktree and SHA, placement's
+heavy-check command, "stop what you started, as task-flow's Runtime cleanup says, and name anything
+left running" and "return only the record". Test output, browser snapshots and logs stay in its
+context; the record comes back. It selects instruments from acceptance criteria and repository
+capabilities, exercises the behaviour and returns observations. A machine replacement for an `[eyes]`
+step must prove the same criterion, and
+`[eyes]` criteria stay with you: arrange the human step with the user, and close one without them only
+through a proved machine replacement or a recorded waiver. Read the record before
+publishing it and re-run any line whose evidence looks thin. If the host offers no subagent, invoke
+the skill yourself.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
 residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
@@ -198,6 +214,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    SHA, with a clean working tree. Write the body with `mattpocock-skills:pr` when it is installed
    (call the Skill tool with "mattpocock-skills:pr"); its Evidence comes from the verify-feature record.
    Without it, keep the same three sections: Summary, Evidence, Merge Danger.
+   Then, whichever wrote the body, when a board is named and has an In review option,
+   move the card to In review.
 2. **Choose one advisory workflow for the first clean candidate.**
    - `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
      multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
@@ -285,7 +303,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
-   are complete. Do not commit a completion record directly to an integration target.
+   are complete, and then move the card to Done. When the issue was an epic's last open sub-issue,
+   also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
+   after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
+   open). Do not commit a completion record directly to an integration target.
 
 ## Ending the run
 
