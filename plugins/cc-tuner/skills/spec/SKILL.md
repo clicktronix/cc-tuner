@@ -1,6 +1,6 @@
 ---
-description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run. Use when the user asks to plan, spec or start a feature or fix in a repository that uses cc-tuner; it writes the plan and stops at the handoff, and /cc-tuner:run does the implementing.
-argument-hint: '<issue number | URL | free-text description>'
+description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run, or with --groom records the decisions in an existing issue without a branch, spec or plan. Use when the user asks to plan, spec, groom or start a feature or fix in a repository that uses cc-tuner; it stops at the handoff (the committed plan, or the issue record under --groom), and /cc-tuner:run does the implementing.
+argument-hint: '<issue number | URL | free-text description> | --groom <issue number | URL>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 ---
 
@@ -8,6 +8,19 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 
 Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening decisions.
 This command owns discovery and readiness; `/run` owns delivery.
+
+**`--groom` prepares an issue for later**, with no branch, spec or plan and nothing committed. It takes
+an issue number or URL; for free text it asks to create the issue first. It runs section 1, the
+interview of section 3, the acceptance tagging of section 4 and the blind-spots pass of section 5 over
+the decisions and criteria gathered so far, skips section 2, and writes no files: a term or ADR that
+`domain-modeling` settles goes into the record's Decisions, and the later `/spec` writes it on its
+branch. It ends by commenting on the issue with one record whose first line is
+`cc-tuner-groom: <date>`, then sections **Decisions** (each with its reason), **Acceptance criteria**
+(tagged, with their deciding checks when known), **Open questions** and **Sources**. It needs an issue:
+it refuses under `tracker: none`, or when the repository does not track work in GitHub issues, and
+says the spec is then the only record. A later `/spec <issue>` reads the newest `cc-tuner-groom:`
+comment as a source: its decisions are settled, so the interview covers only its open questions and
+what the code now contradicts.
 
 ## 1. Anchor and read
 
@@ -120,6 +133,17 @@ write it before the approval in section 6. Its final path is
 case-insensitive and Linux is not, so a second spelling is one folder on a laptop and two in CI). It
 never returns `task-plans/`, which holds execution plans.
 
+**Blind spots, before the approval.** With the draft contract written, dispatch `cc-tuner:spec-blind-spots` once
+with the draft text, the issue, the repository path and the decisions already made; the agent's
+definition owns what it looks for. Validate each item against the code, drop what the draft already
+settles, and its returns become grilling questions asked as section 3 asks them; the user decides,
+and an adopted answer changes the draft before section 6. Before dispatching, print
+`spec-blind-spots: 1 opus × effort high; cost: <$ figure and its source | unknown>` (deep-review's
+rule for the figure). It ends with one status line; say it. An `incomplete: <reason>` goes to the
+user with the review in section 6 whatever questions came with it, and under `--groom` into the
+record's Open questions; `completed: no findings` leads straight on. Skip it only for a mechanical or
+documentation-only change, and say so: a one-file change can still move authorization or billing.
+
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.
 
@@ -160,7 +184,8 @@ contract**: introduce the new form beside the old, migrate consumers in independ
 then remove the old form only after every batch.
 
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
-and blockers. Ask once whether the contract, granularity, and edges are right; revise until approved.
+and blockers, plus the card's Priority when a board is named and neither the issue nor
+`task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.
 This is the only approval before implementation.
 
 After approval — with `tracker: gh`, create or update the issue so it and the spec link to each
@@ -201,6 +226,11 @@ absent, say once that only the visible list and its edges are lost, mention
 `{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` (or
 `--allowedTools TaskCreate` for one session), and continue to the handoff. Do not add a second
 confirmation after the approved contract and slices.
+
+When the spec's `board:` names a board, read `cc-tuner:task-flow`'s Board recipes and put the issue's card
+on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
+unset (the value approved in section 6); for a sub-issue, put the epic's card on the board too.
+Report a move that failed.
 
 Print the spec and plan paths, branch, target, and the next command. When the user asked for the
 task to be implemented, not only planned, start `/cc-tuner:run` yourself with the spec path; offer

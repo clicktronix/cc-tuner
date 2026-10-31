@@ -186,8 +186,16 @@ need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_R
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
 # 26 to 43 lenses ran against a stated 18, and the cost line asked for "current rates" the agent does
 # not have. The limit and the printed line are what a user sees before paying.
-need "deep-review-lens-limit"         '**The limit is 18 lenses**' "$DEEP_REVIEW"
-need "deep-review-prints-the-fan-out" 'deep-review: <n> lenses × <model> × effort <effort>' "$DEEP_REVIEW"
+need "deep-review-lens-limit"         '**The limit is 19 lenses**' "$DEEP_REVIEW"
+need "deep-review-prints-the-fan-out" 'deep-review: <n> lenses (<k> opus, <m> sonnet) × effort <effort>' "$DEEP_REVIEW"
+# Past the limit the user decides, with the count and models in front of them; one agent ran 36
+# lenses after asking, which the old wording only allowed when the user had already raised the limit.
+need "deep-review-asks-past-the-limit" 'ask with `AskUserQuestion` before dispatching' "$DEEP_REVIEW"
+# No lens asked what the user did not think of; reasoning-heavy lenses ran on the cheapest model.
+need "deep-review-blind-spots-lens"   '**Blind spots and product gaps**' "$DEEP_REVIEW"
+need "deep-review-blind-spots-advise" 'Blind spots findings are P3 or questions for the owner' "$DEEP_REVIEW"
+need "deep-review-opus-lenses"        'Architecture, Security and Blind spots with `model: "opus"`' "$DEEP_REVIEW"
+need "placement-opus-rule-is-for-units" 'Opus on evidence** for implementation units' "$PLACEMENT"
 if grep -qF 'current rates' "$DEEP_REVIEW" "$PLACEMENT"; then
   echo "FAIL deep-review-asks-for-unknown-prices"; fails=1
 else
@@ -300,6 +308,71 @@ need "spec-codebase-design-trigger"       '`mattpocock-skills:codebase-design`' 
 need "spec-prototype-qualified"           '`mattpocock-skills:prototype`' "$SPEC"
 need "placement-diagnosing-bugs-trigger"  '`mattpocock-skills:diagnosing-bugs`' "$PLACEMENT"
 need "claude-md-writer-defers-wording"    '`mattpocock-skills:writing-for-agents`' "$CLAUDE_MD_WRITER"
+# Field sessions (stokli, marqa) merged 21 PRs with 2 card moves: the lifecycle lived only in task-flow,
+# which /run never loads. The moments live in spec and run; the recovery from a missing card or stale
+# IDs lives in the recipes they send the agent to.
+need "spec-puts-the-card-on-the-board"    "read \`cc-tuner:task-flow\`'s Board recipes and put the issue's card" "$SPEC"
+need "run-moves-card-in-progress"         'In Progress before the first slice starts' "$RUN"
+need "run-moves-card-in-review"           'move the card to In review' "$RUN"
+need "run-moves-card-done"                'move the card to Done' "$RUN"
+need "run-moves-the-epic-card"            "also move the epic's card to Done" "$RUN"
+need "recipes-add-a-missing-card"         'An empty `item-list` lookup means the card is not on the board' "$TASK_FLOW"
+need "recipes-never-edit-an-empty-id"     'Never run `item-edit` with an empty `--id`' "$TASK_FLOW"
+need "recipes-refresh-stale-option-ids"   'does not belong to the field' "$TASK_FLOW"
+# /spec grilled only what was named: nothing asked what the user had not thought of. The pass is an
+# adviser on Opus that cannot change the tree; the user decides what it raises.
+BLIND="$ROOT/plugins/cc-tuner/agents/spec-blind-spots.md"
+need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:spec-blind-spots` once' "$SPEC"
+need "spec-blind-spots-become-questions"  'its returns become grilling questions' "$SPEC"
+need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
+need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
+need "spec-skips-only-mechanical-work"    'Skip it only for a mechanical or' "$SPEC"
+need "spec-describes-the-groom-stop"      'or the issue record under --groom' "$SPEC"
+need "run-describes-its-board-moves"      'It decides when the board card moves' "$RUN"
+need "spec-keeps-an-incomplete-pass"       'whatever questions came with it, and under `--groom` into the' "$SPEC"
+need "spec-approves-the-card-priority"     "plus the card's Priority when a board is named" "$SPEC"
+need "run-says-a-failed-move-at-once"      'recovery is said at once' "$RUN"
+need "placement-defers-named-models"      '`deep-review`, `/spec` or `/run` name the model' "$PLACEMENT"
+# Without a `tools` allowlist an agent inherits every tool, so the check needs the allowlist present,
+# made only of read and web tools, and the write tools disallowed by name.
+blind_front="$(sed -n '2,/^---$/p' "$BLIND" 2>/dev/null)"
+blind_tools="$(printf '%s\n' "$blind_front" | sed -n 's/^tools: //p')"
+blind_denied="$(printf '%s\n' "$blind_front" | sed -n 's/^disallowedTools: //p')"
+blind_ok=1
+printf '%s\n' "$blind_front" | grep -q '^model: opus$' || blind_ok=0
+blind_count=0
+for t in $(printf '%s' "$blind_tools" | tr ',' ' '); do
+  blind_count=$((blind_count + 1))
+  case "$t" in Read|Grep|Glob|WebSearch|WebFetch) ;; *) blind_ok=0 ;; esac
+done
+[ "$blind_count" -gt 0 ] || blind_ok=0
+for t in Bash Edit Write Agent; do
+  printf '%s' "$blind_denied" | tr ',' '\n' | sed 's/^ *//' | grep -qx "$t" || blind_ok=0
+done
+if [ "$blind_ok" = 1 ]; then
+  echo "PASS spec-blind-spots-agent-is-opus-and-read-only"
+else
+  echo "FAIL spec-blind-spots-agent-is-opus-and-read-only"; fails=1
+fi
+# Grooming needed a branch: /spec created it before the interview. --groom records the outcome in the
+# issue and nothing in git; a later /spec builds on that record instead of asking again.
+need "spec-groom-mode"                    '`--groom`' "$SPEC"
+need "spec-groom-leaves-git-alone"        'no branch, spec or plan' "$SPEC"
+need "spec-groom-writes-no-files"         'skips section 2, and writes no files' "$SPEC"
+need "run-partial-merge-back-in-progress" 'after a partial `Refs` merge, move it back to In Progress' "$RUN"
+need "deep-review-prepares-past-the-limit" 'preparing a partition dispatches nothing' "$DEEP_REVIEW"
+need "spec-groom-needs-an-issue"          'refuses under `tracker: none`' "$SPEC"
+need "spec-builds-on-the-groom-record"    'cc-tuner-groom:' "$SPEC"
+# Verification output (test logs, browser snapshots) filled the orchestrator's context; the record is
+# all /run needs back, and the owner still decides what only a person can see.
+need "run-verifies-in-a-subagent"         'run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"`' "$RUN"
+need "run-keeps-eyes-criteria"            '`[eyes]` criteria stay with you' "$RUN"
+need "run-eyes-need-the-user-or-a-waiver"  'close one without them only' "$RUN"
+need "run-verifier-cleans-up"              'stop what you started, as task-flow' "$RUN"
+need "recipes-keep-the-reviewed-tree-clean" 'Write the cache in a task commit only while no candidate is under review' "$TASK_FLOW"
+README_PLUGIN="$ROOT/plugins/cc-tuner/README.md"
+need "readme-names-groom"                 'spec --groom <issue>' "$README_PLUGIN"
+need "readme-names-blind-spots"           'Blind spots' "$README_PLUGIN"
 if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
   echo "FAIL placement-row-without-a-trigger"; fails=1
 else

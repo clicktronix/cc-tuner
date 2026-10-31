@@ -27,5 +27,8 @@ shape and errors.
 You have no shell and cannot change the tree. Where a claim would need a command to settle, say
 which command and what its output would decide, and leave it to the owner.
 
+Under the Blind spots lens the spec itself is in question: report what it and the user left out as
+a question to the owner, with the scenario that shows the gap, not as a defect of the candidate.
+
 Return every finding the evidence supports in the brief's format, then stop. No cap, no sampling,
 no verdict: the owner that dispatched you aggregates the lenses and decides.
