@@ -33,7 +33,7 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
   merge that fully closes the issue; an epic's card follows its first and last sub-issue; each step
   sends the agent to `task-flow`'s Board recipes, which state the missing-card, stale-ID and
   empty-ID cases — checked by: `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [ ] [machine] deep-review runs 7 lenses in single mode and `shards × 4 + 3` sharded, limit 19;
+- [x] [machine] deep-review runs 7 lenses in single mode and `shards × 4 + 3` sharded, limit 19;
   Architecture, Security and Blind spots are dispatched with `model: "opus"`; Blind spots findings are
   P3 or owner questions only; past the limit it asks with `AskUserQuestion` (run all / cut to the
   limit → `INCOMPLETE` naming unread lenses and paths / larger shards); the printed line shows the

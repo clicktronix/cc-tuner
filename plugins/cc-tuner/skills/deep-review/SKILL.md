@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Reviews a clean, committed candidate exhaustively through independent read-only lenses (six, or more when a large candidate is sharded). Use for large, cross-boundary, or sensitive changes that /cc-tuner:run selects; do not use for an ordinary small task.
+description: Reviews a clean, committed candidate exhaustively through independent read-only lenses (seven, or more when a large candidate is sharded). Use for large, cross-boundary, or sensitive changes that /cc-tuner:run selects; do not use for an ordinary small task.
 ---
 
 # Deep Review
@@ -56,8 +56,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> -
 ## Dispatch and coverage
 
 Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `sonnet`,
-`effort: high` and only Read, Grep and Glob: no shell, edits or Agent tool. There is no unrestricted
-fallback. Each brief names literal base/candidate, spec, applicable rules, lens, the
+`effort: high` and only Read, Grep and Glob: no shell, edits or Agent tool.
+Dispatch Architecture, Security and Blind spots with `model: "opus"` (the dispatch's `model` overrides
+the definition; effort stays high): they reason about what the diff does not show, where Sonnet
+misses most. There is no unrestricted fallback. Each brief names literal base/candidate, spec, applicable rules, lens, the
 diff/list/toolchain files and the finding format. The lens reads changed code and relevant
 callers/tests/dependencies beyond its owned paths; commands needed to settle a finding go to the
 owner for a separate probe.
@@ -70,16 +72,24 @@ Run these lenses independently:
 4. **Architecture and systemic effects** — ownership, coupling, dependencies and cross-boundary effects.
 5. **Security and data safety** — trust boundaries, unsafe input, authorization, privacy and data loss.
 6. **Tests and operability** — regression quality, negative/runtime evidence, diagnostics and recovery.
+7. **Blind spots and product gaps** — what the user and the spec did not consider: user scenarios
+   nobody walked through, business-logic holes, states and inputs the feature never meets in the
+   spec, missing capabilities the outcome implies, and non-standard alternatives that would serve
+   the goal better. Independent of the repository's architecture and standards.
 
-In single mode all six read the full packet. In sharded mode, Correctness, Standards, Security and
-Tests run per shard; Specification and Architecture each read the whole candidate. The total is
-`shards × 4 + 2`, calculated from the accepted result. **The limit is 18 lenses** (the default
-four-shard cap) unless the user raised it in this conversation.
+In single mode all seven read the full packet. In sharded mode, Correctness, Standards, Security and
+Tests run per shard; Specification, Architecture and Blind spots each read the whole candidate. The
+total is `shards × 4 + 3`, calculated from the accepted result. **The limit is 19 lenses** (the
+default four-shard cap). When the accepted total exceeds it, ask with `AskUserQuestion` before dispatching:
+the total, how many run on Opus and Sonnet, and the cost line below, with three options — run all of
+them; cut to the limit, which makes the result `INCOMPLETE` naming the unread lenses and paths; or
+re-shard with larger `--files`/`--lines` so fewer shards fit. A limit the user raised earlier in this
+conversation counts as that answer.
 
 Before dispatch, print one line and keep it in the review summary:
 
 ```text
-deep-review: <n> lenses × <model> × effort <effort>, <concurrency> at a time; cost: <$ figure and its source | unknown>
+deep-review: <n> lenses (<k> opus, <m> sonnet) × effort <effort>, <concurrency> at a time; cost: <$ figure and its source | unknown>
 ```
 
 A dollar figure comes only from a source you can name in this session: a price the user gave, or the
@@ -103,7 +113,9 @@ by root cause and remediation, retaining distinct impacts and evidence across sh
 For each finding report priority, full candidate SHA, path:line and concrete behavior, violated
 contract, impact, smallest systemic fix and verifying check. P0 is immediate security/data-loss/outage;
 P1 blocks required behavior or safe delivery; P2 is a material defect; P3 is non-blocking improvement
-with concrete future cost.
+with concrete future cost. Blind spots findings are P3 or questions for the owner, never blockers: a
+gap in what was asked for is a decision for the user, not a defect of the candidate; the owner
+carries them to the user with the summary.
 
 Return `REQUEST_CHANGES <candidate SHA>` for any validated P0–P2. Return `APPROVE <candidate SHA>`
 only with complete coverage and no blockers. Return `INCOMPLETE <candidate SHA>` naming the missing

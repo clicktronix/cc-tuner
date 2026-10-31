@@ -186,8 +186,16 @@ need "deep-review-architecture" '**Architecture and systemic effects**' "$DEEP_R
 need "deep-review-exact-verdict" 'APPROVE <candidate SHA>' "$DEEP_REVIEW"
 # 26 to 43 lenses ran against a stated 18, and the cost line asked for "current rates" the agent does
 # not have. The limit and the printed line are what a user sees before paying.
-need "deep-review-lens-limit"         '**The limit is 18 lenses**' "$DEEP_REVIEW"
-need "deep-review-prints-the-fan-out" 'deep-review: <n> lenses × <model> × effort <effort>' "$DEEP_REVIEW"
+need "deep-review-lens-limit"         '**The limit is 19 lenses**' "$DEEP_REVIEW"
+need "deep-review-prints-the-fan-out" 'deep-review: <n> lenses (<k> opus, <m> sonnet) × effort <effort>' "$DEEP_REVIEW"
+# Past the limit the user decides, with the count and models in front of them; one agent ran 36
+# lenses after asking, which the old wording only allowed when the user had already raised the limit.
+need "deep-review-asks-past-the-limit" 'ask with `AskUserQuestion` before dispatching' "$DEEP_REVIEW"
+# No lens asked what the user did not think of; reasoning-heavy lenses ran on the cheapest model.
+need "deep-review-blind-spots-lens"   '**Blind spots and product gaps**' "$DEEP_REVIEW"
+need "deep-review-blind-spots-advise" 'Blind spots findings are P3 or questions for the owner' "$DEEP_REVIEW"
+need "deep-review-opus-lenses"        'Architecture, Security and Blind spots with `model: "opus"`' "$DEEP_REVIEW"
+need "placement-names-opus-lenses"    "deep-review's Architecture, Security and Blind spots lenses" "$PLACEMENT"
 if grep -qF 'current rates' "$DEEP_REVIEW" "$PLACEMENT"; then
   echo "FAIL deep-review-asks-for-unknown-prices"; fails=1
 else

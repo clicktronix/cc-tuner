@@ -22,10 +22,12 @@ Owned paths: plugins/cc-tuner/skills/deep-review/SKILL.md,plugins/cc-tuner/agent
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: a deep-review runs seven lenses (sharded `shards × 4 + 3`, limit 19) with Architecture, Security and Blind spots on Opus, prints the split by model, and asks the user how to proceed when the count exceeds the limit
 
-- [ ] The new deep-review `need` lines were observed failing before the text existed
-- [ ] Blind spots findings are P3 or owner questions, never blockers
-- [ ] Placement's ladder names the Opus lenses
-- [ ] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
+- [x] The new deep-review `need` lines were observed failing before the text existed
+- [x] Blind spots findings are P3 or owner questions, never blockers
+- [x] Placement's ladder names the Opus lenses
+- [x] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 116 PASS, rc 0 @ worktree; RED before the text: 7 FAIL (`deep-review-lens-limit` … `placement-names-opus-lenses`), rc 1
 
 ## Slice 3 — Spec looks for what nobody considered, and grooms without a branch
 Blocked by: 2
