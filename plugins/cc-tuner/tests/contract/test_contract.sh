@@ -195,7 +195,7 @@ need "deep-review-asks-past-the-limit" 'ask with `AskUserQuestion` before dispat
 need "deep-review-blind-spots-lens"   '**Blind spots and product gaps**' "$DEEP_REVIEW"
 need "deep-review-blind-spots-advise" 'Blind spots findings are P3 or questions for the owner' "$DEEP_REVIEW"
 need "deep-review-opus-lenses"        'Architecture, Security and Blind spots with `model: "opus"`' "$DEEP_REVIEW"
-need "placement-names-opus-lenses"    "deep-review's Architecture, Security and Blind spots lenses" "$PLACEMENT"
+need "placement-opus-rule-is-for-units" 'Opus on evidence** for implementation units' "$PLACEMENT"
 if grep -qF 'current rates' "$DEEP_REVIEW" "$PLACEMENT"; then
   echo "FAIL deep-review-asks-for-unknown-prices"; fails=1
 else
@@ -321,15 +321,15 @@ need "recipes-never-edit-an-empty-id"     'Never run `item-edit` with an empty `
 need "recipes-refresh-stale-option-ids"   'does not belong to the field' "$TASK_FLOW"
 # /spec grilled only what was named: nothing asked what the user had not thought of. The pass is an
 # adviser on Opus that cannot change the tree; the user decides what it raises.
-BLIND="$ROOT/plugins/cc-tuner/agents/blind-spots.md"
-need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:blind-spots` once' "$SPEC"
+BLIND="$ROOT/plugins/cc-tuner/agents/spec-blind-spots.md"
+need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:spec-blind-spots` once' "$SPEC"
 need "spec-blind-spots-become-questions"  'its returns become grilling questions' "$SPEC"
-need "placement-names-the-spec-pass"      'the `/spec` blind-spots pass' "$PLACEMENT"
+need "placement-defers-named-models"      '`deep-review`, `/spec` or `/run` name the model' "$PLACEMENT"
 if [ -f "$BLIND" ] && grep -q '^model: opus$' "$BLIND" \
    && ! sed -n '/^tools:/p' "$BLIND" | grep -Eq 'Bash|Edit|Write|Agent'; then
-  echo "PASS blind-spots-agent-is-opus-and-read-only"
+  echo "PASS spec-blind-spots-agent-is-opus-and-read-only"
 else
-  echo "FAIL blind-spots-agent-is-opus-and-read-only"; fails=1
+  echo "FAIL spec-blind-spots-agent-is-opus-and-read-only"; fails=1
 fi
 # Grooming needed a branch: /spec created it before the interview. --groom records the outcome in the
 # issue and nothing in git; a later /spec builds on that record instead of asking again.
@@ -341,7 +341,6 @@ need "spec-builds-on-the-groom-record"    'cc-tuner-groom:' "$SPEC"
 # all /run needs back, and the owner still decides what only a person can see.
 need "run-verifies-in-a-subagent"         'run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"`' "$RUN"
 need "run-keeps-eyes-criteria"            '`[eyes]` criteria stay with you' "$RUN"
-need "placement-verify-on-sonnet"         '`verify-feature` runs in a Sonnet subagent' "$PLACEMENT"
 README_PLUGIN="$ROOT/plugins/cc-tuner/README.md"
 need "readme-names-groom"                 'spec --groom <issue>' "$README_PLUGIN"
 need "readme-names-blind-spots"           'Blind spots' "$README_PLUGIN"

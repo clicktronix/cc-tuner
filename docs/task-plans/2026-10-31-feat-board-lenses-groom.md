@@ -31,12 +31,12 @@ Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 116 PASS, rc
 
 ## Slice 3 — Spec looks for what nobody considered, and grooms without a branch
 Blocked by: 2
-Owned paths: plugins/cc-tuner/skills/spec/SKILL.md,plugins/cc-tuner/agents/blind-spots.md,plugins/cc-tuner/skills/run/references/placement.md,plugins/cc-tuner/tests/contract/test_contract.sh
+Owned paths: plugins/cc-tuner/skills/spec/SKILL.md,plugins/cc-tuner/agents/spec-blind-spots.md,plugins/cc-tuner/skills/run/references/placement.md,plugins/cc-tuner/tests/contract/test_contract.sh
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: `/spec` runs a read-only Opus blind-spots pass before approval and turns its returns into grilling questions; `/spec --groom <issue>` records decisions, acceptance and open questions in the issue with no branch, spec or plan, and a later `/spec <issue>` builds on that record
 
 - [x] The new spec `need` lines and the agent frontmatter check were observed failing first
-- [x] `agents/blind-spots.md` is Opus and read-only
+- [x] `agents/spec-blind-spots.md` is Opus and read-only
 - [x] `--groom` refuses under `tracker: none`
 - [x] `bash plugins/cc-tuner/tests/contract/test_contract.sh` exits 0
 

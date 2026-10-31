@@ -1,5 +1,5 @@
 ---
-name: blind-spots
+name: spec-blind-spots
 description: One read-only pass over a draft spec or a groomed issue that looks for what the user did not consider. Dispatched by /cc-tuner:spec before the approval; not for review of a candidate, not for decisions.
 model: opus
 effort: high

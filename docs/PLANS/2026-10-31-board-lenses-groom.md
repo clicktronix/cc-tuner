@@ -9,7 +9,7 @@ in a Sonnet subagent.
 including the failure modes field sessions hit. Each card step in `/spec` and `/run` tells the agent
 to read those recipes, because `/run` does not load `task-flow` on its own. Placement's model ladder
 gains the new Opus and Sonnet dispatches so it does not contradict them. A new read-only agent,
-`blind-spots` (Opus; Read, Grep, Glob, WebSearch, WebFetch), serves `/spec`; deep-review's Blind
+`spec-blind-spots` (Opus; Read, Grep, Glob, WebSearch, WebFetch), serves `/spec`; deep-review's Blind
 spots lens is a `deep-review-lens` dispatched with `model: "opus"`. Rejected: a `board.sh` script
 (user's choice: steps in the text), keeping 18 as the limit (the default four shards would then ask
 every time), and a general-purpose agent for the spec pass (read-only would rest on the brief alone).
@@ -21,7 +21,7 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
   epics #736 and #1177 were moved by hand. `grep item-edit` over `skills/run`, `skills/spec` and
   `scripts/merge.sh` is empty.
 - [x] Scope: `skills/{spec,run,task-flow,deep-review}/SKILL.md`, `skills/run/references/placement.md`,
-  `agents/deep-review-lens.md`, new `agents/blind-spots.md`, `plugins/cc-tuner/README.md`,
+  `agents/deep-review-lens.md`, new `agents/spec-blind-spots.md`, `plugins/cc-tuner/README.md`,
   `tests/contract/test_contract.sh`; out of scope: `merge.sh`, a board script, cc-codex-triage.
 - [x] Acceptance: every criterion below has a deciding check
 - [x] Test plan: commands, expected first failure, environment, and data are explicit
@@ -38,10 +38,10 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
   P3 or owner questions only; past the limit it asks with `AskUserQuestion` (run all / cut to the
   limit → `INCOMPLETE` naming unread lenses and paths / larger shards); the printed line shows the
   split by model — checked by: `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [x] [machine] `/spec` dispatches `cc-tuner:blind-spots` after the draft contract and before the
+- [x] [machine] `/spec` dispatches `cc-tuner:spec-blind-spots` after the draft contract and before the
   approval and turns its returns into grilling questions; `--groom` writes decisions, acceptance and
   open questions into the issue without a branch, spec or plan, refuses under `tracker: none`, and a
-  later `/spec <issue>` does not re-ask what the groom record settled; `agents/blind-spots.md` has
+  later `/spec <issue>` does not re-ask what the groom record settled; `agents/spec-blind-spots.md` has
   `model: opus` and no Bash, Edit, Write or Agent tool — checked by:
   `bash plugins/cc-tuner/tests/contract/test_contract.sh`
 - [x] [machine] `/run` dispatches `verify-feature` in a Sonnet subagent, takes back only its record,
@@ -52,7 +52,7 @@ every time), and a general-purpose agent for the spec pass (read-only would rest
 
 ## Test plan
 - Regression test: new `need` lines in `plugins/cc-tuner/tests/contract/test_contract.sh`, one per
-  criterion phrase, plus a frontmatter check for `agents/blind-spots.md`.
+  criterion phrase, plus a frontmatter check for `agents/spec-blind-spots.md`.
 - First failing check: `bash plugins/cc-tuner/tests/contract/test_contract.sh`; expected failure:
   `FAIL run-moves-card-in-progress` and the other new names before the text exists.
 - Targeted checks: `bash plugins/cc-tuner/tests/contract/test_contract.sh`

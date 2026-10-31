@@ -42,8 +42,7 @@ when that is the deciding check, and anything else that finishes in seconds.
 - **A unit runs focused checks.** A build or container start runs from a unit only when it is the
   slice's deciding check: once, through `heavy.sh`, and stopped before the unit returns.
 - **The owner runs the full suite**, at the cadence `/run`'s Test cadence names.
-- **`verify-feature` runs the e2e suite.** `verify-feature` runs in a Sonnet subagent that `/run`
-  dispatches; only its record comes back.
+- **`verify-feature` runs the e2e suite.**
 - **Browser MCP sessions and dev servers belong to the owner and `verify-feature`.** A regression test
   that starts and stops its own server inside its test command is still focused.
 
@@ -91,11 +90,10 @@ A brief configures neither model nor effort: pass them as the dispatch's `model`
 parameters, else the agent definition's, else the session's. The ladder:
 
 - **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
-  runs on, so a Fable or `max` orchestrator does not multiply every unit's cost. The exception is
-  deep-review's Architecture, Security and Blind spots lenses, which its skill dispatches on Opus at
-  the definition's high effort, and the `/spec` blind-spots pass, whose agent definition is Opus.
-- **Opus on evidence** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
-  asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
+  runs on, so a Fable or `max` orchestrator does not multiply every unit's cost — except where
+  `deep-review`, `/spec` or `/run` name the model of an agent they dispatch.
+- **Opus on evidence** for implementation units (`model: "opus", effort: "medium"`), chosen by the
+  orchestrator without asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
   failure output in the brief; or a slice the plan marks `Model: opus — <reason>`. Write the reason
   as one line in the brief and beneath the slice in the plan, where `Evidence:` lines go:
   `Opus-reason: <the failed check and its output | the plan's reason>`. Pass the effort explicitly:

@@ -55,11 +55,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> -
 
 ## Dispatch and coverage
 
-Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `sonnet`,
-`effort: high` and only Read, Grep and Glob: no shell, edits or Agent tool.
-Dispatch Architecture, Security and Blind spots with `model: "opus"` (the dispatch's `model` overrides
-the definition; effort stays high): they reason about what the diff does not show, where Sonnet
-misses most. There is no unrestricted fallback. Each brief names literal base/candidate, spec, applicable rules, lens, the
+Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `effort: high`
+and only Read, Grep and Glob: no shell, edits or Agent tool; there is no unrestricted fallback. Its
+model is `sonnet` by default. Dispatch Architecture, Security and Blind spots with `model: "opus"`,
+which overrides the definition: they reason about what the diff does not show, where Sonnet misses
+most. Each brief names literal base/candidate, spec, applicable rules, lens, the
 diff/list/toolchain files and the finding format. The lens reads changed code and relevant
 callers/tests/dependencies beyond its owned paths; commands needed to settle a finding go to the
 owner for a separate probe.
@@ -83,8 +83,8 @@ total is `shards × 4 + 3`, calculated from the accepted result. **The limit is 
 default four-shard cap). When the accepted total exceeds it, ask with `AskUserQuestion` before dispatching:
 the total, how many run on Opus and Sonnet, and the cost line below, with three options — run all of
 them; cut to the limit, which makes the result `INCOMPLETE` naming the unread lenses and paths; or
-re-shard with larger `--files`/`--lines` so fewer shards fit. A limit the user raised earlier in this
-conversation counts as that answer.
+re-shard with larger `--files`/`--lines` so fewer shards fit, asking again if the new total still
+exceeds it. A limit the user raised earlier in this conversation counts as that answer.
 
 Before dispatch, print one line and keep it in the review summary:
 

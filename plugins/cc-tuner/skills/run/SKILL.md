@@ -210,8 +210,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 1. **Push and open the PR** (draft is fine while work continues). The candidate is its exact head
    SHA, with a clean working tree. Write the body with `mattpocock-skills:pr` when it is installed
    (call the Skill tool with "mattpocock-skills:pr"); its Evidence comes from the verify-feature record.
-   Without it, keep the same three sections: Summary, Evidence, Merge Danger. When a board is
-   named and has an In review option, move the card to In review.
+   Without it, keep the same three sections: Summary, Evidence, Merge Danger.
+   Then, whichever wrote the body, when a board is named and has an In review option,
+   move the card to In review.
 2. **Choose one advisory workflow for the first clean candidate.**
    - `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
      multiple repositories/services, or a major architectural boundary. Sensitive surfaces are

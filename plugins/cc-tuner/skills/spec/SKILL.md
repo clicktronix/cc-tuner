@@ -9,9 +9,10 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening decisions.
 This command owns discovery and readiness; `/run` owns delivery.
 
-**`--groom` prepares an issue for later**, with no branch, spec or plan and nothing committed. It runs
-section 1, the interview of section 3, the acceptance tagging of section 4 and the blind-spots pass of
-section 5, skips section 2, and ends by commenting on the issue with one record whose first line is
+**`--groom` prepares an issue for later**, with no branch, spec or plan and nothing committed. It takes
+an issue number or URL; for free text it asks to create the issue first. It runs section 1, the
+interview of section 3, the acceptance tagging of section 4 and the blind-spots pass of section 5 over
+the decisions and criteria gathered so far, skips section 2, and ends by commenting on the issue with one record whose first line is
 `cc-tuner-groom: <date>`, then sections **Decisions** (each with its reason), **Acceptance criteria**
 (tagged, with their deciding checks when known), **Open questions** and **Sources**. It needs an issue:
 it refuses under `tracker: none`, or when the repository does not track work in GitHub issues, and
@@ -130,7 +131,7 @@ write it before the approval in section 6. Its final path is
 case-insensitive and Linux is not, so a second spelling is one folder on a laptop and two in CI). It
 never returns `task-plans/`, which holds execution plans.
 
-**Blind spots, before the approval.** With the draft contract written, dispatch `cc-tuner:blind-spots` once
+**Blind spots, before the approval.** With the draft contract written, dispatch `cc-tuner:spec-blind-spots` once
 (its definition supplies Opus and only read and web tools) with the draft text, the issue, the
 repository path and the decisions already made. It looks for what nobody in this conversation
 considered: unwalked user scenarios, business-logic holes, capabilities the outcome implies, simpler
@@ -197,10 +198,6 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
   --spec <the committed spec path> --branch "$(git branch --show-current)"
 ```
 
-When the spec's `board:` names a board, read `cc-tuner:task-flow`'s Board recipes and put the issue's card
-on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
-unset. A failed move is reported at the handoff, never skipped silently.
-
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
 the spec, plan, and only the `GLOSSARY.md` or ADR changes this invocation intentionally created.
@@ -224,6 +221,10 @@ absent, say once that only the visible list and its edges are lost, mention
 `{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` (or
 `--allowedTools TaskCreate` for one session), and continue to the handoff. Do not add a second
 confirmation after the approved contract and slices.
+
+When the spec's `board:` names a board, read `cc-tuner:task-flow`'s Board recipes and put the issue's card
+on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
+unset; for a sub-issue, put the epic's card on the board too. Report a move that failed.
 
 Print the spec and plan paths, branch, target, and the next command. When the user asked for the
 task to be implemented, not only planned, start `/cc-tuner:run` yourself with the spec path; offer
