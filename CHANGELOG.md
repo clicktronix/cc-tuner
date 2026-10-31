@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.21.0](https://github.com/clicktronix/cc-tuner/compare/v0.20.1...v0.21.0) (2026-10-31)
+
+
+### Features
+
+* board moves in spec and run, a blind-spots lens, grooming without a branch ([#63](https://github.com/clicktronix/cc-tuner/issues/63)) ([d3e0876](https://github.com/clicktronix/cc-tuner/commit/d3e0876da88cf414ae2d7dfdcac74f95f011363c))
+
 ## [0.20.1](https://github.com/clicktronix/cc-tuner/compare/v0.20.0...v0.20.1) (2026-10-24)
 
 
