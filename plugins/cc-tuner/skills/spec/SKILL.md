@@ -141,8 +141,9 @@ or non-standard alternatives. Validate each item against the code, drop what the
 settles, and its returns become grilling questions asked as section 3 asks them; the user decides,
 and an adopted answer changes the draft before section 6. Before dispatching, print
 `spec-blind-spots: 1 opus × effort high; cost: <$ figure and its source | unknown>` (deep-review's
-rule for the figure). It ends with `completed: no findings` or `incomplete: <reason>` when it has no
-questions: say which, and an incomplete pass goes to the user with the review in section 6. Skip it
+rule for the figure). It ends with one status line; say it. An `incomplete: <reason>` goes to the
+user with the review in section 6 whatever questions came with it, and under `--groom` into the
+record's Open questions; `completed: no findings` leads straight on. Skip it
 only for a one-file fix or mechanical change, and say so.
 
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
