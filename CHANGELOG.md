@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.22.0](https://github.com/clicktronix/cc-tuner/compare/v0.21.0...v0.22.0) (2026-11-03)
+
+
+### Features
+
+* card moves outside spec and run in the rule; atomic heavy-slot owner file; release PR re-validation ([#65](https://github.com/clicktronix/cc-tuner/issues/65)) ([e66e9dd](https://github.com/clicktronix/cc-tuner/commit/e66e9ddd535501472ec378b1c7f5364faf6c64d5))
+
 ## [0.21.0](https://github.com/clicktronix/cc-tuner/compare/v0.20.1...v0.21.0) (2026-10-31)
 
 
