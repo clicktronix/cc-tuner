@@ -41,8 +41,11 @@ jobs:
             number="$(printf '%s' "$RELEASE_PR" | jq -er '.number')"
             sha="$(printf '%s' "$RELEASE_PR" | jq -er '.sha // empty' || true)"
           elif [ "$RECHECK" = true ]; then
-            number="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head release-please--branches--main \
-              --json number --jq '.[0].number // empty')"
+            # Only this repository's own release branch: a fork can open a PR from a branch of the
+            # same name, and its tests/run.sh would then run next to a token that can write.
+            number="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main \
+              --head release-please--branches--main --json number,isCrossRepository \
+              --jq '[.[] | select(.isCrossRepository == false)][0].number // empty')"
           fi
           [ -n "$number" ] || exit 0
           if [ -z "$sha" ]; then

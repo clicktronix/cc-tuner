@@ -278,6 +278,8 @@ release_pr_step_count="$(grep -cE '^ +- name:' "$RELEASE_WORKFLOW")"
   || { echo "FAIL release-pr-gate-count (got $release_pr_gate_count gates for $release_pr_step_count steps)"; fails=1; }
 need "release-pr-rechecks-on-rerun"   "github.run_attempt != '1' || github.event_name == 'workflow_dispatch'" "$RELEASE_WORKFLOW"
 need "release-pr-found-on-rerun"      '--head release-please--branches--main' "$RELEASE_WORKFLOW"
+need "release-pr-rerun-ignores-forks"  'select(.isCrossRepository == false)' "$RELEASE_WORKFLOW"
+need "release-pr-rerun-targets-main"   '--state open --base main' "$RELEASE_WORKFLOW"
 if grep -qF "steps.release.outputs.prs_created == 'true'" "$RELEASE_WORKFLOW"; then
   echo "FAIL release-pr-steps-gated-on-prs-created"; fails=1
 else
