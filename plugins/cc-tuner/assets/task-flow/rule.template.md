@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.19.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.22.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -61,7 +61,9 @@ ask once and record the answer in `task-flow.local.md`.
   and report the dependency; do not claim completion. Recording independent future work does not
   pause the run or require a new confirmation for work already authorised.
 - **Use the configured board for tracked work.** Add new issues when creating them and confirm reused
-  issues are on it. With `board: none`, use issues without project commands or project permissions.
+  issues are on it. Outside `/cc-tuner:spec` and `/cc-tuner:run`, which move the card themselves, move
+  it by `cc-tuner:task-flow`'s Card lifecycle. With `board: none`, use issues without project commands
+  or project permissions.
 - **Verification is a link, not a transcript.** Point at the green CI run; command output stays in
   the logs, where it does not bury the part a human has to read.
 - Match the body's length to the change. Say what changed, why, and what is still open. A one-file

@@ -80,6 +80,15 @@ cmd = sys.argv[6:]
 def lock_path(i): return os.path.join(d, "slot-%d.lock" % i)
 def owner_path(i): return os.path.join(d, "slot-%d.owner" % i)
 
+def write_owner(i, text):
+    # Replaced whole, never truncated in place: `status` reading between a truncate and the write
+    # saw an empty file and printed "unknown holder" (release PR #64's CI). The lock lives on
+    # slot-<n>.lock, so replacing this file does not touch it.
+    tmp = "%s.%d.tmp" % (owner_path(i), os.getpid())
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, owner_path(i))
+
 def try_slot(i):
     fd = os.open(lock_path(i), os.O_RDWR | os.O_CREAT, 0o644)
     try:
@@ -128,8 +137,8 @@ while True:
         fd = try_slot(i)
         if fd is None:
             continue
-        with open(owner_path(i), "w") as f:
-            f.write("%s supervisor=%d since=%s cwd=%s\n" % (label, os.getpid(), time.strftime("%H:%M:%S"), os.getcwd()))
+        holder = "%s supervisor=%d since=%s cwd=%s\n" % (label, os.getpid(), time.strftime("%H:%M:%S"), os.getcwd())
+        write_owner(i, holder)
         env = dict(os.environ, CC_TUNER_HEAVY_HELD="slot-%d" % i)
         try:
             child = subprocess.Popen(cmd, env=env, pass_fds=(fd,), start_new_session=True)
@@ -137,8 +146,7 @@ while True:
             sys.stderr.write("heavy.sh: cannot run %s: %s\n" % (cmd[0], e))
             sys.exit(127)
         pgid = child.pid
-        with open(owner_path(i), "a") as f:
-            f.write("group=%d\n" % pgid)
+        write_owner(i, holder + "group=%d\n" % pgid)
 
         def members():
             return group_members(pgid)
@@ -174,8 +182,7 @@ while True:
                 os.dup2(null, std)
             for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
                 signal.signal(sig, signal.SIG_DFL)
-            with open(owner_path(i), "w") as f:
-                f.write("%s (exited %d; keeper=%d holds the slot for leftover work) since=%s cwd=%s\ngroup=%d\n"
+            write_owner(i, "%s (exited %d; keeper=%d holds the slot for leftover work) since=%s cwd=%s\ngroup=%d\n"
                         % (label, code, os.getpid(), time.strftime("%H:%M:%S"), os.getcwd(), pgid))
             while members():
                 time.sleep(0.5)
