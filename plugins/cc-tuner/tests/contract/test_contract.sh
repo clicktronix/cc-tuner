@@ -128,6 +128,9 @@ if grep -qF 'none:<reason>' "$RULE_TEMPLATE"; then
 else
   echo "PASS template-leaves-ci-modes-to-local-ci"
 fi
+# Work done outside /spec and /run left cards where they were (stokli, marqa); the always-on rule is
+# what such work reads.
+need "rule-template-moves-cards-outside-commands" 'which move the card themselves' "$RULE_TEMPLATE"
 template_words="$(wc -w < "$RULE_TEMPLATE" | tr -d ' ')"
 [ "$template_words" -le 650 ] && echo "PASS template-stays-small ($template_words words)" \
   || { echo "FAIL template-stays-small ($template_words words; keep it <= 650)"; fails=1; }
@@ -266,11 +269,22 @@ need "release-pr-runs-suite" 'run: bash tests/run.sh' "$RELEASE_WORKFLOW"
 need "release-pr-fails-workflow" '[ "$state" = success ]' "$RELEASE_WORKFLOW"
 need "release-pr-create-update-gate" 'prs_created is true when a release PR is created or updated' "$RELEASE_WORKFLOW"
 
-# Every named step after the release action works on the release PR, so each one is gated on it.
-release_pr_gate_count="$(grep -cF "steps.release.outputs.prs_created == 'true'" "$RELEASE_WORKFLOW")"
+# Every named step after the one that resolves the release PR works on it, so each is gated on the
+# SHA that step found, not on prs_created: a re-run leaves prs_created false (release PR #64's
+# validation failed on a flaky test and its re-run skipped every step).
+release_pr_gate_count="$(grep -cF "steps.release-pr.outputs.sha != ''" "$RELEASE_WORKFLOW")"
 release_pr_step_count="$(grep -cE '^ +- name:' "$RELEASE_WORKFLOW")"
-[ "$release_pr_gate_count" -eq "$release_pr_step_count" ] && echo "PASS release-pr-gate-count" \
+[ "$release_pr_gate_count" -eq $((release_pr_step_count - 1)) ] && echo "PASS release-pr-gate-count" \
   || { echo "FAIL release-pr-gate-count (got $release_pr_gate_count gates for $release_pr_step_count steps)"; fails=1; }
+need "release-pr-rechecks-on-rerun"   "github.run_attempt != '1' || github.event_name == 'workflow_dispatch'" "$RELEASE_WORKFLOW"
+need "release-pr-found-on-rerun"      '--head release-please--branches--main' "$RELEASE_WORKFLOW"
+need "release-pr-rerun-ignores-forks"  'select(.isCrossRepository == false)' "$RELEASE_WORKFLOW"
+need "release-pr-rerun-targets-main"   '--state open --base main' "$RELEASE_WORKFLOW"
+if grep -qF "steps.release.outputs.prs_created == 'true'" "$RELEASE_WORKFLOW"; then
+  echo "FAIL release-pr-steps-gated-on-prs-created"; fails=1
+else
+  echo "PASS release-pr-steps-gated-on-the-found-sha"
+fi
 
 # Three checks stood here: a nine-phase count, an index of twenty contract invariants named in
 # run.md's Verification section, and a walk asserting nine phrases appeared in delivery order. All

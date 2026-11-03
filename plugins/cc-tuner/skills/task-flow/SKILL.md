@@ -1,6 +1,6 @@
 ---
 name: task-flow
-description: Carries the repository procedures around a task — branch, commit and PR conventions, epics and cards on a GitHub Projects board, cleaning up worktrees and runtime processes after a merge, syncing the target branch, merge strategy for stacked PRs, release notes from commits, and the spec lifecycle. Use for those chores, in any repository. To implement a committed cc-tuner plan use /cc-tuner:run, and to write one /cc-tuner:spec; both read this skill's candidate and checklist sections. Companion to the .claude/rules/task-flow.md invariants installed by the task-flow node of /cc-tuner:setup.
+description: Repository chores around a task — branch, commit and PR conventions, GitHub Projects board recipes and card moves, cleanup after a merge, stacked-PR merges, release notes and the spec lifecycle. Use for those chores in any repository; to write a plan use /cc-tuner:spec, to implement one /cc-tuner:run.
 ---
 
 # Task Flow — procedures

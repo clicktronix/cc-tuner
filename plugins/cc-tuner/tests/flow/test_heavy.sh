@@ -160,4 +160,13 @@ absent "nested-call-no-wait" "waiting" "$OUT"
 check "no-command-refused" "no command" "$(bash "$HEAVY" -- 2>&1)"
 check "bad-slots-refused" "positive integer" "$(bash "$HEAVY" --slots 0 -- true 2>&1)"
 
+# `status` read a holder file between its truncate and its write and printed "unknown holder"
+# (release PR #64, ubuntu CI). The window is too short to hit on demand, so the guard is on the
+# writes: every one replaces the file whole through write_owner.
+if grep -nE 'open\(owner_path\([^)]*\), *"[wa]"' "$HEAVY" >/dev/null; then
+  fail "owner-file-written-in-place"
+else
+  pass "owner-file-replaced-whole"
+fi
+
 exit $fails

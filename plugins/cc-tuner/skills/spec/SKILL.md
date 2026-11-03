@@ -9,18 +9,16 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 Produce the committed spec and plan that `/cc-tuner:run` can execute without reopening decisions.
 This command owns discovery and readiness; `/run` owns delivery.
 
-**`--groom` prepares an issue for later**, with no branch, spec or plan and nothing committed. It takes
-an issue number or URL; for free text it asks to create the issue first. It runs section 1, the
-interview of section 3, the acceptance tagging of section 4 and the blind-spots pass of section 5 over
-the decisions and criteria gathered so far, skips section 2, and writes no files: a term or ADR that
-`domain-modeling` settles goes into the record's Decisions, and the later `/spec` writes it on its
-branch. It ends by commenting on the issue with one record whose first line is
-`cc-tuner-groom: <date>`, then sections **Decisions** (each with its reason), **Acceptance criteria**
-(tagged, with their deciding checks when known), **Open questions** and **Sources**. It needs an issue:
-it refuses under `tracker: none`, or when the repository does not track work in GitHub issues, and
-says the spec is then the only record. A later `/spec <issue>` reads the newest `cc-tuner-groom:`
-comment as a source: its decisions are settled, so the interview covers only its open questions and
-what the code now contradicts.
+**`--groom <issue>` prepares an issue for later**, with no branch, spec or plan and nothing committed.
+Its route: read (section 1) → interview (section 3) → tag the acceptance criteria (section 4) → the
+blind-spots pass (section 5) over what was gathered → one comment on the issue. It
+skips section 2, and writes no files: a term or ADR that `domain-modeling` settles goes into the
+record's Decisions, for the later `/spec` to write on its branch. The comment's first line is `cc-tuner-groom: <date>`,
+then **Decisions** (each with its reason), **Acceptance criteria**, **Open questions** and **Sources**.
+It needs an issue number or URL (free text: create the issue first), and it
+refuses under `tracker: none` or where work is not tracked in GitHub issues. A later `/spec <issue>` reads the newest
+`cc-tuner-groom:` comment as settled and interviews only its open questions and what the code now
+contradicts.
 
 ## 1. Anchor and read
 

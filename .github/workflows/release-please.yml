@@ -3,6 +3,8 @@ name: release-please
 on:
   push:
     branches: [main]
+  # Re-validates the open release PR by hand; a re-run of a push run does the same.
+  workflow_dispatch:
 
 # The action maintains the release PR with GITHUB_TOKEN. Because that PR may not trigger ordinary CI,
 # this workflow validates its exact head SHA and publishes an explicit commit status itself.
@@ -24,13 +26,28 @@ jobs:
       - name: Resolve release PR head
         id: release-pr
         # In release-please-action v4, prs_created is true when a release PR is created or updated.
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        # A re-run or a manual run leaves the PR as it is, so prs_created is false there and the
+        # open release PR is looked up instead: otherwise a failed first attempt could never be
+        # validated again.
         env:
           GH_TOKEN: ${{ github.token }}
+          CREATED: ${{ steps.release.outputs.prs_created }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
+          RECHECK: ${{ github.run_attempt != '1' || github.event_name == 'workflow_dispatch' }}
         run: |
-          number="$(printf '%s' "$RELEASE_PR" | jq -er '.number')"
-          sha="$(printf '%s' "$RELEASE_PR" | jq -er '.sha // empty' || true)"
+          number=""
+          sha=""
+          if [ "$CREATED" = true ]; then
+            number="$(printf '%s' "$RELEASE_PR" | jq -er '.number')"
+            sha="$(printf '%s' "$RELEASE_PR" | jq -er '.sha // empty' || true)"
+          elif [ "$RECHECK" = true ]; then
+            # Only this repository's own release branch: a fork can open a PR from a branch of the
+            # same name, and its tests/run.sh would then run next to a token that can write.
+            number="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main \
+              --head release-please--branches--main --json number,isCrossRepository \
+              --jq '[.[] | select(.isCrossRepository == false)][0].number // empty')"
+          fi
+          [ -n "$number" ] || exit 0
           if [ -z "$sha" ]; then
             sha="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)"
           fi
@@ -41,7 +58,7 @@ jobs:
             -f description='Validating generated release changes'
 
       - name: Check out release PR head
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.sha != '' }}
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.release-pr.outputs.sha }}
@@ -51,30 +68,22 @@ jobs:
 
       - name: Install the pinned Claude Code
         # tests/run.sh validates and tests the hooks module with the claude CLI, as validate.yml does.
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.sha != '' }}
         run: npm install -g @anthropic-ai/claude-code@"$(cat plugins/cc-tuner/tests/flow/CLAUDE_CODE_VERSION)"
 
       - name: Validate release PR
         id: validate-release
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.sha != '' }}
         continue-on-error: true
         run: bash tests/run.sh
 
       - name: Publish release PR validation
-        if: ${{ always() && steps.release.outputs.prs_created == 'true' }}
+        if: ${{ always() && steps.release-pr.outputs.sha != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           OUTCOME: ${{ steps.validate-release.outcome }}
-          RELEASE_PR: ${{ steps.release.outputs.pr }}
           SHA: ${{ steps.release-pr.outputs.sha }}
         run: |
-          if [ -z "$SHA" ]; then
-            number="$(printf '%s' "$RELEASE_PR" | jq -er '.number')"
-            SHA="$(printf '%s' "$RELEASE_PR" | jq -er '.sha // empty' || true)"
-            if [ -z "$SHA" ]; then
-              SHA="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)"
-            fi
-          fi
           state=success
           description='Generated release changes passed validation'
           if [ "$OUTCOME" != success ]; then
