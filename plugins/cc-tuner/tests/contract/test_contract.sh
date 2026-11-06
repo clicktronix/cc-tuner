@@ -130,7 +130,12 @@ else
 fi
 # Work done outside /spec and /run left cards where they were (stokli, marqa); the always-on rule is
 # what such work reads.
-need "rule-template-moves-cards-outside-commands" 'which move the card themselves' "$RULE_TEMPLATE"
+if tr -s ' \n' ' ' < "$RULE_TEMPLATE" | grep -qF "which move the card themselves, move it by \`cc-tuner:task-flow\`'s Card lifecycle"; then
+  echo "PASS rule-template-moves-cards-outside-commands"
+else
+  echo "FAIL rule-template-moves-cards-outside-commands"
+  fails=1
+fi
 template_words="$(wc -w < "$RULE_TEMPLATE" | tr -d ' ')"
 [ "$template_words" -le 650 ] && echo "PASS template-stays-small ($template_words words)" \
   || { echo "FAIL template-stays-small ($template_words words; keep it <= 650)"; fails=1; }
@@ -377,6 +382,9 @@ need "run-partial-merge-back-in-progress" 'after a partial `Refs` merge, move it
 need "deep-review-prepares-past-the-limit" 'preparing a partition dispatches nothing' "$DEEP_REVIEW"
 need "spec-groom-needs-an-issue"          'refuses under `tracker: none`' "$SPEC"
 need "spec-builds-on-the-groom-record"    'cc-tuner-groom:' "$SPEC"
+# A public issue takes comments from anyone: only a record by someone with access settles decisions.
+need "spec-trusts-a-groom-by-access"       '`authorAssociation`' "$SPEC"
+need "spec-treats-other-records-as-input"  'from anyone else is a proposal' "$SPEC"
 # Verification output (test logs, browser snapshots) filled the orchestrator's context; the record is
 # all /run needs back, and the owner still decides what only a person can see.
 need "run-verifies-in-a-subagent"         'run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"`' "$RUN"
