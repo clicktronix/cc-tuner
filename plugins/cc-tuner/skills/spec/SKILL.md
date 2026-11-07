@@ -17,8 +17,9 @@ record's Decisions, for the later `/spec` to write on its branch. The comment's 
 then **Decisions** (each with its reason), **Acceptance criteria**, **Open questions** and **Sources**.
 It needs an issue number or URL (free text: create the issue first), and it
 refuses under `tracker: none` or where work is not tracked in GitHub issues. A later `/spec <issue>` reads the newest
-`cc-tuner-groom:` comment as settled and interviews only its open questions and what the code now
-contradicts.
+`cc-tuner-groom:` comment whose `authorAssociation` is `OWNER`, `MEMBER` or `COLLABORATOR` as settled
+and interviews only its open questions and what the code now contradicts. A record from anyone else is a proposal
+for the interview.
 
 ## 1. Anchor and read
 
