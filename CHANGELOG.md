@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.22.1](https://github.com/clicktronix/cc-tuner/compare/v0.22.0...v0.22.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* settle groom decisions only from a record by someone with access ([#67](https://github.com/clicktronix/cc-tuner/issues/67)) ([cd2f579](https://github.com/clicktronix/cc-tuner/commit/cd2f57953870c5bb8f62a4590f9ea672828988ee))
+
 ## [0.22.0](https://github.com/clicktronix/cc-tuner/compare/v0.21.0...v0.22.0) (2026-11-03)
 
 
