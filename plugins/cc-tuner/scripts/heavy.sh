@@ -73,6 +73,7 @@ mkdir -p "$DIR" || die "cannot create $DIR"
 # The program is passed with -c, not on stdin, so the command keeps the caller's stdin after exec.
 read -r -d '' PROG <<'PY' || true
 import fcntl, os, signal, subprocess, sys, time
+from contextlib import contextmanager
 
 mode, d, slots, poll, label = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), sys.argv[5]
 cmd = sys.argv[6:]
@@ -80,10 +81,17 @@ cmd = sys.argv[6:]
 def lock_path(i): return os.path.join(d, "slot-%d.lock" % i)
 def owner_path(i): return os.path.join(d, "slot-%d.owner" % i)
 
+@contextmanager
+def owner_guard(i):
+    # Both tuners share this short lock: a reader must not see the workload lock acquired before
+    # its owner is published. It is released before starting work and never replaces the slot lock.
+    with open(owner_path(i) + ".lock", "a") as note:
+        fcntl.flock(note, fcntl.LOCK_EX)
+        yield
+
 def write_owner(i, text):
-    # Replaced whole, never truncated in place: `status` reading between a truncate and the write
-    # saw an empty file and printed "unknown holder" (release PR #64's CI). The lock lives on
-    # slot-<n>.lock, so replacing this file does not touch it.
+    # Replace metadata whole so readers, including older helpers, never see a truncated note.
+    # The workload lock lives on slot-<n>.lock and is unaffected by the replacement.
     tmp = "%s.%d.tmp" % (owner_path(i), os.getpid())
     with open(tmp, "w") as f:
         f.write(text)
@@ -110,14 +118,15 @@ def group_members(pgid):
 def holders():
     out = []
     for i in range(1, slots + 1):
-        fd = try_slot(i)
-        if fd is not None:
-            os.close(fd)  # free: taking and dropping it changes nothing
-            continue
-        try:
-            with open(owner_path(i)) as f: lines = f.read().split("\n")
-        except OSError:
-            lines = ["unknown holder"]
+        with owner_guard(i):
+            fd = try_slot(i)
+            if fd is not None:
+                os.close(fd)  # free: taking and dropping it changes nothing
+                continue
+            try:
+                with open(owner_path(i)) as f: lines = f.read().split("\n")
+            except OSError:
+                lines = ["unknown holder"]
         who = lines[0].strip() or "unknown holder"
         group = [l[6:] for l in lines if l.startswith("group=")]
         if group:
@@ -134,11 +143,12 @@ if mode == "status":
 said = False
 while True:
     for i in range(1, slots + 1):
-        fd = try_slot(i)
-        if fd is None:
-            continue
-        holder = "%s supervisor=%d since=%s cwd=%s\n" % (label, os.getpid(), time.strftime("%H:%M:%S"), os.getcwd())
-        write_owner(i, holder)
+        with owner_guard(i):
+            fd = try_slot(i)
+            if fd is None:
+                continue
+            holder = "%s supervisor=%d since=%s cwd=%s\n" % (label, os.getpid(), time.strftime("%H:%M:%S"), os.getcwd())
+            write_owner(i, holder)
         env = dict(os.environ, CC_TUNER_HEAVY_HELD="slot-%d" % i)
         try:
             child = subprocess.Popen(cmd, env=env, pass_fds=(fd,), start_new_session=True)

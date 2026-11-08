@@ -169,4 +169,10 @@ else
   pass "owner-file-replaced-whole"
 fi
 
+if python3 "$(dirname "$0")/test_heavy_owner.py"; then
+  pass "owner-publication-is-atomic-to-status"
+else
+  fail "owner-publication-is-atomic-to-status"
+fi
+
 exit $fails
