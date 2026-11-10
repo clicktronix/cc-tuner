@@ -89,10 +89,12 @@ Owned paths: plugins/cc-tuner/skills/run/references/route-gitlab.md,plugins/cc-t
 Deciding check: bash plugins/cc-tuner/tests/setup/test_route.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: setup writes a short key block that route.sh check accepts, doctor and /run reject any drift, and /run follows a route text in the plugin that fixes every route defect deep-review found
 
-- [ ] route.sh write → route.sh check → doctor round trip passes; check reports missing, mismatch, drift, malformed, stale-on-github, CRLF-safe; legacy header replaced; outside text untouched
-- [ ] route references fix R3–R6 and R9–R14 and their record lines match merge.sh's accepted forms
-- [ ] assets/task-flow/route-*.md are gone and rule.template.md equals origin/main; the template word ceiling is back to 650
-- [ ] delivery-route.md drives route.sh instead of inline bash; the plugin-root fallback resolves through plugin-here.sh in every setup reference
+- [x] route.sh write → route.sh check → doctor round trip passes; check reports missing, mismatch, drift, malformed, stale-on-github, CRLF-safe; legacy header replaced; outside text untouched
+- [x] route references fix R3–R6 and R9–R14 and their record lines match merge.sh's accepted forms
+- [x] assets/task-flow/route-*.md are gone and rule.template.md equals origin/main; the template word ceiling is back to 650
+- [x] delivery-route.md drives route.sh instead of inline bash; the plugin-root fallback resolves through plugin-here.sh in every setup reference
+
+Evidence: test_route.sh && test_doctor.sh && test_contract.sh → 143 / 220 / 362 PASS, rc=0 (RED first: 82 route FAILs, FAIL route-local-current-ok, FAIL template-stays-small 660>650; CRLF mutation killed) @ e43e8a9; merge.sh and rule.template.md identical to origin/main
 
 ## Slice 8 — skills and READMEs follow host.sh, route.sh and companion.sh
 Blocked by: 7

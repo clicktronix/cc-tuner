@@ -130,7 +130,7 @@ mattpocock's file).
 - [x] [machine] Without jq, doctor names jq as the reason companion checks were skipped and says the
   SessionStart plan restore is off; "could not list installed plugins" appears only when the list
   command itself failed — checked by: `test_doctor.sh`
-- [ ] [machine] doctor prints the host `host.sh` detected; the CLI of that host is checked, and a missing
+- [x] [machine] doctor prints the host `host.sh` detected; the CLI of that host is checked, and a missing
   or unauthenticated `gh` (github) or `glab` (gitlab, also one lacking `mr merge --sha/--auto-merge`)
   is a `MISS`; no other host's CLI is checked; for gitlab, local and other it prints what
   `route.sh check` reports (WARN with `/cc-tuner:setup install delivery-route` unless current) —
@@ -139,7 +139,7 @@ mattpocock's file).
   exit 0 when mattpocock-skills is complete — checked by: `test_prereq.sh`
 - [x] [machine] `merge.sh` and its suite are untouched — checked by:
   `git diff --exit-code origin/main -- plugins/cc-tuner/scripts/merge.sh plugins/cc-tuner/tests/flow/test_merge.sh`
-- [ ] [machine] `skills/run/references/route-gitlab.md` names the author filter (`glab api user | jq -r .username`, notes `sort=asc`), `review-state.sh check`,
+- [x] [machine] `skills/run/references/route-gitlab.md` names the author filter (`glab api user | jq -r .username`, notes `sort=asc`), `review-state.sh check`,
   the verify-record ancestry, `head_pipeline` at the current head, the target-tip ancestry check,
   `glab mr merge` with `--sha` and `--auto-merge=false`, and the four record lines; `route-local.md`
   names `git notes --ref cc-tuner append -F`, `ci: none`, the ancestry check, `--ff-only`, the
@@ -159,11 +159,11 @@ mattpocock's file).
   plugin-here.sh), hint (enable, install, marketplace add, stop on a same-named marketplace from another
   repo), codex state and the opt-out; doctor and prereq-check call it — checked by:
   `bash plugins/cc-tuner/tests/setup/test_companion.sh`
-- [ ] [machine] `route.sh write` output is accepted by `route.sh check` and by doctor (the real
+- [x] [machine] `route.sh write` output is accepted by `route.sh check` and by doctor (the real
   producer through the real checker); check reports missing, mismatch, drift, malformed, CRLF-safe,
   stale-on-github; write replaces the legacy header and never touches text outside the markers —
   checked by: `bash plugins/cc-tuner/tests/setup/test_route.sh`
-- [ ] [machine] the route references' record lines are the forms merge.sh accepts, and
+- [x] [machine] the route references' record lines are the forms merge.sh accepts, and
   `rule.template.md` is byte-identical to origin/main — checked by: `test_route.sh`,
   `git diff --exit-code origin/main -- plugins/cc-tuner/assets/task-flow/rule.template.md`
 - [ ] [eyes] `/cc-tuner:setup install` in a session with an empty `CLAUDE_CONFIG_DIR` and a
