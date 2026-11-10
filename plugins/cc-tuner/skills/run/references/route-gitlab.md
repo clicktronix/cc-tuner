@@ -48,19 +48,19 @@ Anyone with access can comment, so another person's marker is not this run's evi
 4. **Record the spec's DoD** in an MR note published from a file, not in a commit: a commit moves the reviewed SHA.
 5. **Approvals.** Read `glab api projects/:id/merge_requests/<iid>/approvals`: `approved` must be true, or `approvals_left` 0. Otherwise stop and ask a human to approve in GitLab, under `--auto` too: a required approval is a person's decision, and no note of yours stands in for it.
 6. **CI.** Run `glab mr update <iid> --ready` when the MR is a draft, then wait for the pipeline that starts. Read `head_pipeline` from `glab api projects/:id/merge_requests/<iid>`. Green means all of: `head_pipeline` exists; `head_pipeline.project_id` equals `target_project_id`; it belongs to the current head (`head_pipeline.sha` equals the head, or, for a merged-results pipeline whose `ref` is `refs/merge-requests/<iid>/merge`, the second parent of that merge-result commit, `git rev-parse <pipeline sha>^2` after fetching the ref, equals the head); and it has status `success`. Pending, running, manual, canceled, failed, skipped and absent are not green: an absent pipeline is unproven CI, not passing CI. Under `ci: none:<reason>` there must be no pipeline on the head at all (a waiver covers CI that does not exist, never CI that ran) and a `cc-tuner-local-ci: <full sha> <command and result>` note for the head, written by you and truthful about what ran.
-7. **Target.** The target is the MR's `target_branch`. Run `git fetch <remote> <target>`, where `<remote>` is the one `host.sh` named, then `git merge-base --is-ancestor <target tip> <head>`, with the tip read from `<remote>/<target>`. When it is not an ancestor, the target advanced past the candidate: integrate it, re-verify the affected evidence, obtain approval for the new candidate, and restart from step 2 for the new head.
-8. **Merge, pinned.** Right before merging, re-read the head, the target tip and the records. When any differs from what steps 2 to 7 judged, restart from the step that covers it. Then:
+7. **Target and strategy.** The target is the MR's `target_branch`. Run `git fetch <remote> <target>`, where `<remote>` is the one `host.sh` named, and take the tip from `TIP=$(git rev-parse FETCH_HEAD)` — a single-branch clone has no `<remote>/<target>` ref — then `git merge-base --is-ancestor "$TIP" <head>`. When it is not an ancestor, the target advanced past the candidate: integrate it, re-verify the affected evidence, obtain approval for the new candidate, and restart from step 2 for the new head.
+   The strategy is set, never left to the MR's or the project's default: glab sends `squash` only when it
+   is true, so an MR whose squash setting is on would squash a `merge: merge` candidate. Read the project's `squash_option` (`glab api projects/:id`): `always` with `merge: merge`, or `never`
+   with `merge: squash`, stops and goes to the user. Otherwise set it on the MR and read it back —
+   `glab api --method PUT "projects/:id/merge_requests/<iid>" -F squash=<true for squash, false for merge>`,
+   then `squash` in `glab api projects/:id/merge_requests/<iid>` must equal it.
+8. **Merge, pinned.** Right before merging, re-read the head, the target tip, the MR's `squash` and the records. When any differs from what steps 2 to 7 judged, restart from the step that covers it. Then:
 
    ```bash
    glab mr merge <iid> --sha <head> --auto-merge=false --yes
    ```
 
-   The strategy is set, never left to the MR's or the project's default: glab sends `squash` only when it
-   is true, so an MR whose squash setting is on would squash a `merge: merge` candidate. Before the merge,
-   read the project's `squash_option` (`glab api projects/:id`): `always` with `merge: merge`, or `never`
-   with `merge: squash`, stops and goes to the user. Otherwise set it on the MR and read it back —
-   `glab api --method PUT "projects/:id/merge_requests/<iid>" -F squash=<true for squash, false for merge>`,
-   then `squash` in `glab api projects/:id/merge_requests/<iid>` must equal it. Add `--squash` to the
+   Add `--squash` to the
    merge command when the spec says `merge: squash`. `--sha` makes GitLab refuse a head that moved; `--auto-merge=false` stops it queuing a merge on a pipeline nobody checked. Do not pass `--remove-source-branch`: cleanup is keyed on the merged head below.
 
    Under `--auto`, run it. Without `--auto`, the hand-over is this whole step: give the user the re-read (head, target tip, the latest records, approvals, the pipeline) together with the pinned merge command, never the merge line alone, and keep delivery pending until the merge is observed. `--check-only` runs steps 1 to 7 and stops here.

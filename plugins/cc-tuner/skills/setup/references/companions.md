@@ -93,15 +93,16 @@ unknown, conflicting or optional (no usable Codex, or declined), each absent or 
 
 ## install
 
-1. **Nothing to do** → when no companion is offered, report each one's state ("up to date", optional,
-   declined, conflict) and finish.
-2. **Fallbacks, which install nothing.**
+1. **Fallbacks, which install nothing — before anything else**, because with no `claude` or no jq every
+   state is `unknown` and no plugin would count as offered.
    - **`claude` is not on PATH** → nothing can say what is installed, so print, for the user to type into
      their own session, `bash "$C" commands <id>` for mattpocock-skills and — when `bash "$C" codex`
      prints `ready` and the repository has not opted out — for cc-codex-triage, saying an already
      installed one can be skipped. Mark the node "printed, not installed".
    - **No jq, or `state` is `unknown`** → "cannot tell what is installed" with the reason; install
      nothing; mark the node blocked.
+2. **Nothing to do** → when no companion is offered, report each one's state ("up to date", optional,
+   declined, conflict) and finish.
 3. **Confirm once, per plugin.** One `AskUserQuestion` with `multiSelect: true`, one option per
    offered plugin, plus a last option **Install nothing**. Each option shows the plugin's source —
    `<marketplace> from <source>` taken from `table`, for example `mattpocock from mattpocock/skills` —
