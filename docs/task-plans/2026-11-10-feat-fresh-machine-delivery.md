@@ -39,9 +39,11 @@ Owned paths: plugins/cc-tuner/skills/setup,plugins/cc-tuner/tests/setup/setup-ma
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: `/cc-tuner:setup install` on a fresh machine offers mattpocock-skills and, with a logged-in codex, cc-codex-triage, installs them after one confirmation and verifies them with `claude plugin list --json`
 
-- [ ] the companions node runs `claude plugin marketplace add` + `claude plugin install` at user scope, verifies, and names `/reload-plugins` or a restart
-- [ ] fallbacks: no `claude` → print `/plugin …` commands; no jq → install nothing and say why; disabled → `claude plugin enable`
-- [ ] setup-manual-checks.md carries the live fresh-`CLAUDE_CONFIG_DIR` check for the [eyes] criterion
+- [x] the companions node runs `claude plugin marketplace add` + `claude plugin install` at user scope, verifies, and names `/reload-plugins` or a restart
+- [x] fallbacks: no `claude` → print `/plugin …` commands; no jq → install nothing and say why; disabled → `claude plugin enable`
+- [x] setup-manual-checks.md carries the live fresh-`CLAUDE_CONFIG_DIR` check for the [eyes] criterion
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 220 PASS, rc=0 (RED first: 15 FAILs, first setup-hint-names-companions) @ a59a82c
 
 ## Slice 4 — spec, run and groom follow the tracker file and the route
 Blocked by: 3
