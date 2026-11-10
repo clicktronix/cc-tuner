@@ -280,8 +280,10 @@ eq "route-gitlab-publish-has-no-resolvable-thread" 1 "$(grep -c '^--resolvable=f
 # local: the append command from the reference, run twice, leaves two paragraphs in one note; the lookup
 # from the reference finds the records on the commits the candidate adds, and the hostile text stays text
 rm -rf "$T/lrepo"; mkdir -p "$T/lrepo"
-( cd "$T/lrepo" && git init -q -b main && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m base \
-  && git switch -q -c feature && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m work )
+# A repo-local identity, as tests/flow/lib.sh sets one: `git notes append` writes a commit, and a CI runner
+# with no global identity and no guessable email refuses it, which macOS hosts hide by guessing one.
+( cd "$T/lrepo" && git init -q -b main && git config user.name t && git config user.email t@t \
+  && git commit -q --allow-empty -m base && git switch -q -c feature && git commit -q --allow-empty -m work )
 HEAD_SHA="$(git -C "$T/lrepo" rev-parse HEAD)"
 APPEND="$(grep -m1 '^git notes --ref cc-tuner append' "$PLUGIN/skills/run/references/route-local.md" | sed "s/<judged sha>/$HEAD_SHA/")"
 has "route-local-append-command-found" "append -F" "$APPEND"
