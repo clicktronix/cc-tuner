@@ -1,6 +1,6 @@
 # Fresh-machine onboarding and delivery routes beyond GitHub — plan
 
-**Spec:** docs/PLANS/2026-11-10-fresh-machine-delivery.md
+**Spec:** docs/ARCHIVE/PLANS/2026-11-10-fresh-machine-delivery.md
 **Branch:** feat/fresh-machine-delivery
 
 full_test_cadence: per-candidate
