@@ -1,6 +1,6 @@
 ---
 description: One user-run command that sets a repository up for cc-tuner and says exactly what it did — rule loading, the task-flow rule, task tools, an optional statusline, an optional board — as independent nodes that each detect, propose, apply and verify. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
-argument-hint: '[check|install|remove] [agent-rules|task-flow|task-tools|statusline|board]'
+argument-hint: '[check|install|remove] [agent-rules|task-flow|task-tools|statusline|board|delivery-route]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Skill
 disable-model-invocation: true
 ---
@@ -30,6 +30,7 @@ stop the command because one node stopped.
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
+| 3b | delivery route | 0 (its `host:` line), 3 | one block between `cc-tuner:delivery-route` markers in `task-flow.local.md`; nothing on `github` |
 | 4 | session env | 0 | `~/.claude/settings.json` — up to two `env` keys |
 | 5 | statusline | 0; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
@@ -121,6 +122,22 @@ The order inside it is load-bearing: the `git-flow.local.md` → `task-flow.loca
 before anything creates the deltas file, and the legacy `git-flow.md` is removed only after the new
 rule is in place. A differing or legacy rule file is shown as a diff and asked about once; "keep"
 is a terminal state for this node only.
+
+### 3b. Delivery route
+
+Outside GitHub no script refuses a bad merge, so `/cc-tuner:run` follows a route written in the
+repository instead of `merge.sh`. Read [references/delivery-route.md](references/delivery-route.md)
+and run it in the current mode. It takes the host from node 0's `host:` line and needs node 3, which
+guarantees `task-flow.local.md` exists:
+
+- `github` — nothing to write; `merge.sh` is the route.
+- `gitlab`, `local` — the plugin's route for that host, copied between markers; a block that differs
+  from it is shown as a diff and asked about once.
+- `other` — written from the user's own description of how a candidate is opened, recorded, checked
+  and merged, and never compared with anything.
+
+Only the text between the markers is replaced; the rest of the file is the repository's. An absent
+block is an additive edit, covered by the install request; replacing one is not, and is confirmed.
 
 ### 4. Session env
 

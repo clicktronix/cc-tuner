@@ -93,8 +93,9 @@ The template carries no substitution tokens; it installs verbatim.
      if printf '%s\n' \
        "# task-flow — repo-specific deltas" \
        "" \
-       "<!-- Overrides and additions to task-flow.md live here; setup never touches this file." \
-       "     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->" \
+       "<!-- Overrides and additions to task-flow.md live here; setup writes only between cc-tuner markers" \
+       "     (the delivery route) and caches board field IDs. Typical content: board name/number + cached field" \
+       "     IDs, label taxonomy, merge-policy exceptions. -->" \
        > "$LOCAL"; then
        echo "Created $LOCAL (edit it for repo-specific deltas)"
      else

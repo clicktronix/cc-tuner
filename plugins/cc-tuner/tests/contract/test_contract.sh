@@ -16,6 +16,10 @@ TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
+ROUTE_GITLAB="$ROOT/plugins/cc-tuner/assets/task-flow/route-gitlab.md"
+ROUTE_LOCAL="$ROOT/plugins/cc-tuner/assets/task-flow/route-local.md"
+DELIVERY_REF="$ROOT/plugins/cc-tuner/skills/setup/references/delivery-route.md"
+TASK_FLOW_REF="$ROOT/plugins/cc-tuner/skills/setup/references/task-flow-rule.md"
 UNIT="$ROOT/plugins/cc-tuner/agents/slice-unit.md"
 VERIFY="$ROOT/plugins/cc-tuner/skills/verify-feature/SKILL.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
@@ -399,6 +403,80 @@ if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
   echo "FAIL placement-row-without-a-trigger"; fails=1
 else
   echo "PASS placement-rows-have-triggers"
+fi
+
+# Outside GitHub no script refuses, so a written route is the whole gate: the same order and the same
+# records as merge.sh, as steps the agent performs. Every element merge.sh enforces is named here, so a
+# route that quietly drops one stops passing.
+route_first_line() { # route_first_line <name> <file> <host>: the asset opens with its own marker
+  if [ "$(head -n 1 "$2" 2>/dev/null | sed -n "s/^<!-- cc-tuner:delivery-route $3 v[0-9][0-9.]* -->\$/ok/p")" = ok ]; then
+    echo "PASS $1"
+  else
+    echo "FAIL $1 (first line of ${2#$ROOT/} is not '<!-- cc-tuner:delivery-route $3 vX.Y.Z -->')"; fails=1
+  fi
+}
+route_first_line "route-gitlab-opens-with-its-marker" "$ROUTE_GITLAB" gitlab
+route_first_line "route-local-opens-with-its-marker"  "$ROUTE_LOCAL"  local
+need "route-gitlab-steps-not-a-script"     'steps you perform, and no script refuses on your behalf' "$ROUTE_GITLAB"
+need "route-local-steps-not-a-script"      'steps you perform, and no script refuses on your behalf' "$ROUTE_LOCAL"
+need "route-gitlab-opens-a-draft"          'glab mr create --draft' "$ROUTE_GITLAB"
+need "route-gitlab-records-as-mr-notes"    'glab mr note <iid> --message' "$ROUTE_GITLAB"
+need "route-gitlab-author-filter"          'glab api user' "$ROUTE_GITLAB"
+need "route-gitlab-codex-review-state"     'review-state.sh check <thread>' "$ROUTE_GITLAB"
+need "route-gitlab-codex-marker"           'CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head>' "$ROUTE_GITLAB"
+need "route-gitlab-verify-record-ancestry" 'git merge-base --is-ancestor <verified sha> <head>' "$ROUTE_GITLAB"
+need "route-gitlab-head-pipeline"          'head_pipeline' "$ROUTE_GITLAB"
+need "route-gitlab-pipeline-is-the-head"   'head_pipeline.sha' "$ROUTE_GITLAB"
+need "route-gitlab-merged-results"         'merged-results pipeline' "$ROUTE_GITLAB"
+need "route-gitlab-pipeline-success-only"  'status `success`' "$ROUTE_GITLAB"
+need "route-gitlab-ci-none-needs-a-record" 'ci: none:<reason>' "$ROUTE_GITLAB"
+need "route-gitlab-target-tip-ancestry"    'git merge-base --is-ancestor <target tip> <head>' "$ROUTE_GITLAB"
+need "route-gitlab-ready"                  'glab mr update <iid> --ready' "$ROUTE_GITLAB"
+need "route-gitlab-pinned-merge"           'glab mr merge <iid> --sha <head> --auto-merge=false --yes' "$ROUTE_GITLAB"
+need "route-gitlab-squash-by-spec"         '--squash' "$ROUTE_GITLAB"
+need "route-gitlab-rereads-before-merge"   're-read the head and the target tip' "$ROUTE_GITLAB"
+need "route-gitlab-cleanup-by-merged-head" 'merged head' "$ROUTE_GITLAB"
+need "route-gitlab-verdict-record"         'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <full sha>' "$ROUTE_GITLAB"
+need "route-gitlab-verified-record"        'cc-tuner-verified: <full sha>' "$ROUTE_GITLAB"
+need "route-gitlab-local-ci-record"        'cc-tuner-local-ci: <full sha> <command and result>' "$ROUTE_GITLAB"
+need "route-gitlab-accepted-record"        'cc-tuner-accepted: <head sha> <who>: <what>' "$ROUTE_GITLAB"
+need "route-gitlab-latest-record-wins"     'latest record about the head wins' "$ROUTE_GITLAB"
+need "route-gitlab-never-relabels"         'relabel a `REQUEST_CHANGES` as `APPROVE`' "$ROUTE_GITLAB"
+need "route-local-notes-append"            'git notes --ref cc-tuner append -m' "$ROUTE_LOCAL"
+need "route-local-notes-show"              'git notes --ref cc-tuner show <sha>' "$ROUTE_LOCAL"
+need "route-local-ci-none"                 'ci: none:<reason>' "$ROUTE_LOCAL"
+need "route-local-ci-record"               'cc-tuner-local-ci: <full sha> <command and result>' "$ROUTE_LOCAL"
+need "route-local-ancestry"                'git merge-base --is-ancestor <target tip> <candidate>' "$ROUTE_LOCAL"
+need "route-local-verify-ancestry"         'git merge-base --is-ancestor <verified sha> <candidate>' "$ROUTE_LOCAL"
+need "route-local-ff-only"                 'git merge --ff-only <candidate>' "$ROUTE_LOCAL"
+need "route-local-update-ref-cas"          'git update-ref refs/heads/<target> <candidate> <old target tip>' "$ROUTE_LOCAL"
+need "route-local-dirty-hand-off"          'the merge to the user with the exact command' "$ROUTE_LOCAL"
+need "route-local-no-squash"               'Never create a squash or merge commit on the target' "$ROUTE_LOCAL"
+need "route-local-verdict-record"          'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <full sha>' "$ROUTE_LOCAL"
+need "route-local-verified-record"         'cc-tuner-verified: <full sha>' "$ROUTE_LOCAL"
+need "route-local-accepted-record"         'cc-tuner-accepted: <head sha> <who>: <what>' "$ROUTE_LOCAL"
+need "route-local-latest-record-wins"      'latest record about the head wins' "$ROUTE_LOCAL"
+need "route-local-never-relabels"          'relabel a `REQUEST_CHANGES` as `APPROVE`' "$ROUTE_LOCAL"
+need "route-local-no-remote-no-pr"         'no remote and no pull request' "$ROUTE_LOCAL"
+
+# The setup node that puts a route into the repository: argument-hint, the table row, a reference
+# that is linked and exists, the ask-before-overwrite and write-from-the-user's-words behaviours, and
+# the header that no longer promises setup never touches task-flow.local.md.
+need "setup-hint-names-delivery-route"     'statusline|board|delivery-route]' "$SETUP"
+need "setup-table-has-delivery-route"      '| 3b | delivery route |' "$SETUP"
+need "setup-routes-delivery-route-node"    'references/delivery-route.md' "$SETUP"
+if [ -f "$DELIVERY_REF" ]; then echo "PASS setup-delivery-route-reference-exists"; else echo "FAIL setup-delivery-route-reference-exists"; fails=1; fi
+need "setup-route-github-is-merge-sh"      'merge.sh is the route' "$DELIVERY_REF"
+need "setup-route-writes-between-markers"  'Replace only the text between the markers' "$DELIVERY_REF"
+need "setup-route-diffs-and-asks"          'AskUserQuestion' "$DELIVERY_REF"
+need "setup-route-other-from-user-words"   "written from the user's own words" "$DELIVERY_REF"
+need "setup-route-atomic-write"            'mv "$TMP" "$LOCAL"' "$DELIVERY_REF"
+need "setup-route-reruns-locate"           'Re-run the **Locate** block' "$DELIVERY_REF"
+need "local-header-says-markers-only"      'setup writes only between cc-tuner markers' "$TASK_FLOW_REF"
+if grep -qF 'setup never touches this file' "$TASK_FLOW_REF"; then
+  echo "FAIL local-header-no-longer-says-never-touches"; fails=1
+else
+  echo "PASS local-header-no-longer-says-never-touches"
 fi
 
 exit "$fails"
