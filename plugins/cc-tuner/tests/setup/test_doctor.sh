@@ -51,7 +51,10 @@ glabstub() {
     printf 'if [ "$1" = mr ] && [ "$2" = merge ]; then\n  echo "      --remove-source-branch   Remove source branch"\n'
     [ "$GLAB_HELP" = nosha ]  || printf '  echo "      --sha   Merge only if the HEAD matches this SHA"\n'
     [ "$GLAB_HELP" = noauto ] || printf '  echo "      --auto-merge   Set auto-merge"\n'
-    printf 'fi\nexit 0\n'
+    printf 'fi\n'
+    printf 'if [ "$1" = mr ] && [ "$2" = note ] && [ "$3" = create ]; then\n'
+    [ "$GLAB_HELP" = nonote ] || printf '  echo "  -m --message  Comment or note message."\n  echo "     --resolvable  Create the note as a resolvable discussion thread."\n'
+    printf '  exit 0\nfi\nexit 0\n'
   } > "$STUB/glab"
   chmod +x "$STUB/glab"
 }
@@ -747,5 +750,12 @@ check  "route-github-stale-other-block-warns" "WARN stale delivery-route block (
 printf '# deltas\n\n<!-- cc-tuner:delivery-route gitlab -->\n' > "$(route_file)"
 check  "route-github-malformed-warns" "malformed delivery-route block (1 opening, 0 closing markers)" "$(run)"
 rm -rf "$T" "$OTHER_BODY_FILE"
+
+# glab 1.85 has the merge flags but no `mr note create --resolvable`, so the route could not publish a record.
+mkenv; tool git; tool jq; tool python3; setremote git@gitlab.com:acme/app.git; GLAB_AUTH_RC=0 GLAB_HELP=nonote glabstub; plugins_ok
+OUT="$(run)"; rc=$?
+check "glab-without-note-create-misses" "MISS glab is too old — 'glab mr note create' lacks --message or --resolvable" "$OUT"
+[ $rc -eq 1 ] && echo "PASS glab-without-note-create-rc1" || { echo "FAIL glab-without-note-create-rc1 (rc=$rc)"; fails=1; }
+rm -rf "$T"
 
 exit $fails

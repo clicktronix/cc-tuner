@@ -76,7 +76,7 @@ EOF
   return 1
 }
 
-usage() { printf 'companion: usage: companion.sh table|codex|review|why|optout [repo-root] | state|hint <plugin-id> [repo-root]\n' >&2; exit 2; }
+usage() { printf 'companion: usage: companion.sh table|codex|review|why|optout [repo-root] | state|hint <plugin-id> [repo-root] | commands <plugin-id>\n' >&2; exit 2; }
 
 root_of() { # root_of [repo-root]
   local r="${1:-}"
@@ -173,6 +173,11 @@ case "$SUB" in
       table
     fi ;;
   codex)  codex_state ;;
+  commands) # commands <id>: the slash commands from the table alone, for a session with no `claude` CLI to ask
+    [ -n "${1:-}" ] || usage
+    mkt="$(col "$1" 2)"; src="$(col "$1" 3)"
+    [ -n "$mkt" ] || { printf 'companion: %s is not a companion plugin\n' "$1" >&2; exit 2; }
+    printf '/plugin marketplace add %s\n/plugin install %s\n' "$src" "$1" ;;
   review) cmd_review "$(root_of "${1:-}")" reason ;;
   why)    cmd_review "$(root_of "${1:-}")" sentence; exit 0 ;;
   optout) r="$(optout_reason "$(root_of "${1:-}")")" || exit 1; printf '%s\n' "$r" ;;

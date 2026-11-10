@@ -193,6 +193,13 @@ case "$HOST" in
         *--sha*--auto-merge*|*--auto-merge*--sha*) ;;
         *) bad "glab is too old — 'glab mr merge' lacks --sha or --auto-merge, which the GitLab route's pinned merge needs; upgrade: https://gitlab.com/gitlab-org/cli#installation" ;;
       esac
+      # The route publishes every record with `glab mr note create -m … --resolvable=false`; older glab has
+      # the merge flags but not this command, and would fail at the first record, after the work is done.
+      note_help="$(glab mr note create --help 2>&1)"
+      case "$note_help" in
+        *--message*--resolvable*|*--resolvable*--message*) ;;
+        *) bad "glab is too old — 'glab mr note create' lacks --message or --resolvable, which the GitLab route publishes its records with; upgrade: https://gitlab.com/gitlab-org/cli#installation" ;;
+      esac
     fi
     ;;
   local) ok "host: local — no git remote, so nothing to authenticate against" ;;

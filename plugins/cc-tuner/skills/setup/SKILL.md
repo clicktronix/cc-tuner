@@ -27,7 +27,9 @@ skipped. `plugin-here.sh` itself lives in the plugin root, so it cannot be the f
 not persist between Bash calls, so every Bash call that uses `$PLUGIN` starts with this block.
 
 ```bash
-PLUGIN="${CLAUDE_PLUGIN_ROOT:-}"
+# The exact token: Claude Code fills it in this file's text, so a default like `:-` would leave it to the
+# shell, where the variable is unset outside a skill and the fallback below would always run.
+PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 if [ ! -d "$PLUGIN" ]; then
   REAL=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && pwd -P)
   # projectPath is recorded as typed, so it is resolved on the filesystem, as plugin-here.sh does; "-"

@@ -96,8 +96,10 @@ unknown, conflicting or optional (no usable Codex, or declined), each absent or 
 1. **Nothing to do** → when no companion is offered, report each one's state ("up to date", optional,
    declined, conflict) and finish.
 2. **Fallbacks, which install nothing.**
-   - **`claude` is not on PATH** → print, for the user to type into their own session, the `hint`
-     text for each offered companion. Mark the node "printed, not installed".
+   - **`claude` is not on PATH** → nothing can say what is installed, so print, for the user to type into
+     their own session, `bash "$C" commands <id>` for mattpocock-skills and — when `bash "$C" codex`
+     prints `ready` and the repository has not opted out — for cc-codex-triage, saying an already
+     installed one can be skipped. Mark the node "printed, not installed".
    - **No jq, or `state` is `unknown`** → "cannot tell what is installed" with the reason; install
      nothing; mark the node blocked.
 3. **Confirm once, per plugin.** One `AskUserQuestion` with `multiSelect: true`, one option per

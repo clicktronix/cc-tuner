@@ -193,4 +193,10 @@ eq "unknown-subcommand-rc2" 2 "$RC"
 comp "$NOCODEX" "$LIST_NONE" "$MKT_NONE" state
 eq "state-needs-an-id" 2 "$RC"
 
+# No `claude` on PATH: the fixed commands come from the table alone, whatever is installed.
+OUT="$(PATH=/usr/bin:/bin bash "$COMPANION" commands mattpocock-skills@mattpocock 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "PASS commands-rc0" || { echo "FAIL commands-rc0 (rc=$rc $OUT)"; fails=1; }
+[ "$OUT" = "/plugin marketplace add mattpocock/skills
+/plugin install mattpocock-skills@mattpocock" ] && echo "PASS commands-from-the-table" || { echo "FAIL commands-from-the-table ($OUT)"; fails=1; }
+
 exit $fails

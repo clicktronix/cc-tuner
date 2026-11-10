@@ -516,7 +516,6 @@ fi
 # The plugin-root fallback is written once, in SKILL.md, and resolves the applicable installation; the old
 # `find ~/.claude/plugins ... | sort | tail -1` could pick a fork or a lexically later, older version.
 need "setup-plugin-root-section"           '## Plugin root' "$SETUP"
-need "setup-plugin-root-keeps-the-env"     'PLUGIN="${CLAUDE_PLUGIN_ROOT:-}"' "$SETUP"
 need "setup-plugin-root-asks-the-cli"      'claude plugin list --json' "$SETUP"
 for ref in "$DELIVERY_REF" "$TASK_FLOW_REF" "$ROOT/plugins/cc-tuner/skills/setup/references/statusline.md"; do
   need "setup-reference-uses-the-plugin-root-block ($(basename "$ref"))" 'Plugin root' "$ref"
@@ -704,7 +703,6 @@ need "readme-codex-triage-is-optional"     '**cc-codex-triage** is optional' "$R
 need "readme-codex-needs-login"            'logged-in Codex CLI' "$README_PLUGIN"
 
 need "run-states-its-plugin-root"            '**Plugin root: `${CLAUDE_PLUGIN_ROOT}`.**' "$RUN"
-need "run-other-route-from-the-target"       'git show <target>:.claude/rules/task-flow.local.md' "$RUN"
 need "run-accepted-from-a-file"              'gh pr comment <pr> --body-file "$REC"' "$RUN"
 need "companions-uses-the-plugin-root-block" 'C="$PLUGIN/scripts/setup/companion.sh"' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
 if grep -q 'CLAUDE_PLUGIN_ROOT}/' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"; then
@@ -713,5 +711,12 @@ else echo "PASS companions-reference-does-not-expand-plugin-root"; fi
 if grep -Eq 'marketplace update (mattpocock|cc-codex-triage) ' "$ROOT/plugins/cc-tuner/scripts/setup/prereq-check.sh"; then
   echo "FAIL prereq-update-hints-come-from-companion-table"; fails=1
 else echo "PASS prereq-update-hints-come-from-companion-table"; fi
+
+need "setup-plugin-root-uses-the-substituted-token" 'PLUGIN="${CLAUDE_PLUGIN_ROOT}"' "$SETUP"
+if grep -qF 'CLAUDE_PLUGIN_ROOT:-' "$SETUP"; then echo "FAIL setup-plugin-root-no-shell-default"; fails=1; else echo "PASS setup-plugin-root-no-shell-default"; fi
+need "companions-no-cli-prints-table-commands" '"$C" commands' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+need "route-gitlab-sets-squash-explicitly"   '-F squash=' "$ROUTE_GITLAB"
+need "route-gitlab-reads-project-squash-option" 'squash_option' "$ROUTE_GITLAB"
+need "run-other-route-from-the-fetched-target" 'git show <remote>/<target>:.claude/rules/task-flow.local.md' "$RUN"
 
 exit "$fails"

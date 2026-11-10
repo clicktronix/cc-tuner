@@ -55,7 +55,13 @@ Anyone with access can comment, so another person's marker is not this run's evi
    glab mr merge <iid> --sha <head> --auto-merge=false --yes
    ```
 
-   Add `--squash` when the spec says `merge: squash`. `--sha` makes GitLab refuse a head that moved; `--auto-merge=false` stops it queuing a merge on a pipeline nobody checked. Do not pass `--remove-source-branch`: cleanup is keyed on the merged head below.
+   The strategy is set, never left to the MR's or the project's default: glab sends `squash` only when it
+   is true, so an MR whose squash setting is on would squash a `merge: merge` candidate. Before the merge,
+   read the project's `squash_option` (`glab api projects/:id`): `always` with `merge: merge`, or `never`
+   with `merge: squash`, stops and goes to the user. Otherwise set it on the MR and read it back —
+   `glab api --method PUT "projects/:id/merge_requests/<iid>" -F squash=<true for squash, false for merge>`,
+   then `squash` in `glab api projects/:id/merge_requests/<iid>` must equal it. Add `--squash` to the
+   merge command when the spec says `merge: squash`. `--sha` makes GitLab refuse a head that moved; `--auto-merge=false` stops it queuing a merge on a pipeline nobody checked. Do not pass `--remove-source-branch`: cleanup is keyed on the merged head below.
 
    Under `--auto`, run it. Without `--auto`, the hand-over is this whole step: give the user the re-read (head, target tip, the latest records, approvals, the pipeline) together with the pinned merge command, never the merge line alone, and keep delivery pending until the merge is observed. `--check-only` runs steps 1 to 7 and stops here.
 9. **After the merge.** Confirm with `glab mr view <iid>` that the state is `merged`, then sync the target and clean up through `cc-tuner:task-flow`, keyed on the merged head: delete a task branch or worktree only while its tip is still that head.

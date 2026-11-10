@@ -248,8 +248,8 @@ and follow it step by step wherever the steps below name a GitHub command (open 
 accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
 with the same gates, order and record lines. Those routes refer to "the `plugin-here.sh` path that `/run`'s Delivery paragraph names":
 `${CLAUDE_PLUGIN_ROOT}/scripts/setup/plugin-here.sh`. Host `other`: the block's body in
-`.claude/rules/task-flow.local.md`, as committed on the target (`git show <target>:.claude/rules/task-flow.local.md`;
-with no remote, `refs/heads/<target>`), is the route; when the candidate's copy differs, stop — a candidate never edits its own gate; and a step it leaves undescribed stops the run and goes to
+`.claude/rules/task-flow.local.md`, as committed on the freshly fetched target (`git fetch <remote> <target>`, then
+`git show <remote>/<target>:.claude/rules/task-flow.local.md`, with the remote `host.sh` printed), is the route; when the candidate's copy differs, stop — a candidate never edits its own gate; and a step it leaves undescribed stops the run and goes to
 the user. `--check-only` means running every route step up to the merge and handing the merge command over.
 `--auto` is allowed on every host.
 
