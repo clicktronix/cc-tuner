@@ -207,40 +207,30 @@ case "$HOST" in
   *) say "     host not detected (not inside a git repository)" ;;
 esac
 
-# --- 2b. the delivery route written for that host ------------------------------------------------
-# Outside GitHub no script refuses a bad merge, so the route is the gate: /cc-tuner:setup copies
-# assets/task-flow/route-<host>.md into task-flow.local.md between cc-tuner:delivery-route markers.
-# The block is the asset verbatim plus the closing marker, so a content comparison is the drift check;
-# the version in the marker is only the plugin version at the asset's last change and is never compared.
-# `other` is the user's own words, so it is reported present and never compared. github writes nothing:
-# merge.sh is its route. sed and cat only: doctor runs on a minimal PATH, which has no awk.
-ROUTE_OPEN='^<!-- cc-tuner:delivery-route '
-ROUTE_CLOSE='<!-- /cc-tuner:delivery-route -->'
+# --- 2b. the delivery route key block for that host -----------------------------------------------------
+# Outside GitHub no script refuses a bad merge, so the route is the gate. Its text is a plugin reference
+# that /cc-tuner:run reads at Delivery; the repository holds a short key block in task-flow.local.md,
+# written and checked by scripts/setup/route.sh. This section only maps route.sh's one-line answer to a
+# finding, so the checker that writes the block and the checker that reports on it are the same program
+# (doctor used to carry its own sed extraction, and advised an install that setup refused for a malformed
+# block). `none-needed` (github with no block) says nothing: merge.sh is the route.
 ROUTE_CMD="/cc-tuner:setup install delivery-route"
 case "$HOST" in
-  gitlab|local|other)
-    TF_LOCAL="$REPO_ROOT/.claude/rules/task-flow.local.md"
-    ROUTE_BLOCK=""
-    if [ -f "$TF_LOCAL" ]; then
-      ROUTE_BLOCK="$(sed -n "/$ROUTE_OPEN/,\\#^$ROUTE_CLOSE\$#p" "$TF_LOCAL")"
-    fi
-    if [ -z "$ROUTE_BLOCK" ]; then
-      warn "delivery route not written — $ROUTE_CMD"
-    else
-      ROUTE_HOST="$(printf '%s\n' "$ROUTE_BLOCK" | head -n 1 | sed -n 's/^<!-- cc-tuner:delivery-route \([a-z][a-z]*\).*/\1/p')"
-      ROUTE_ASSET="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)/route-$HOST.md"
-      if [ "$ROUTE_HOST" != "$HOST" ]; then
-        warn "delivery route block is for host ${ROUTE_HOST:-unknown}, but this repository's host is $HOST — $ROUTE_CMD"
-      elif [ "$HOST" = other ]; then
-        ok "delivery route (other) present (user-described, not compared)"
-      elif [ ! -f "$ROUTE_ASSET" ]; then
-        ok "delivery route ($HOST) present (plugin asset not found, not compared)"
-      elif [ "$ROUTE_BLOCK" = "$(cat "$ROUTE_ASSET"; printf '%s\n' "$ROUTE_CLOSE")" ]; then
-        ok "delivery route ($HOST) current"
-      else
-        warn "delivery route ($HOST) differs from the plugin's asset — $ROUTE_CMD shows the diff and asks"
-      fi
-    fi
+  github|gitlab|local|other)
+    ROUTE_OUT="$(bash "$(cd "$(dirname "$0")" && pwd)/route.sh" check "$HOST" "$REPO_ROOT" 2>&1)"
+    R_WORD="${ROUTE_OUT%% *}"; R_REST=""; R_A=""; R_B=""
+    case "$ROUTE_OUT" in *" "*) R_REST="${ROUTE_OUT#* }"; R_A="${R_REST%% *}"; R_B="${R_REST#* }" ;; esac
+    case "$R_WORD" in
+      current)       ok "delivery route ($HOST) current" ;;
+      present-other) ok "delivery route (other) present (user-described, not compared)" ;;
+      none-needed)   ;;
+      missing)       warn "delivery route not written — $ROUTE_CMD" ;;
+      mismatch)      warn "delivery route block is for host ${R_A:-unknown}, but this repository's host is $HOST — $ROUTE_CMD" ;;
+      drift)         warn "delivery route ($HOST) differs from the plugin's key block — $ROUTE_CMD rewrites it" ;;
+      malformed)     warn "malformed delivery-route block (${R_A:-?} opening, ${R_B:-?} closing markers) — fix .claude/rules/task-flow.local.md by hand" ;;
+      stale-on-github) warn "stale delivery-route block (${R_A:-unknown}) in .claude/rules/task-flow.local.md on a github repository, where merge.sh is the route — setup cannot remove it; delete the lines from its <!-- cc-tuner:delivery-route ... --> marker through <!-- /cc-tuner:delivery-route --> by hand" ;;
+      *)             warn "delivery route could not be checked: ${ROUTE_OUT:-route.sh printed nothing}" ;;
+    esac
     ;;
 esac
 

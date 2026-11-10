@@ -638,27 +638,31 @@ absent "host-not-a-repo-no-gh"     "gh "                                        
 [ $rc -eq 0 ] && echo "PASS host-not-a-repo-rc0" || { echo "FAIL host-not-a-repo-rc0 (rc=$rc)"; fails=1; }
 rm -rf "$T"
 
-# --- the delivery route: a block between cc-tuner markers in task-flow.local.md -----------------------
-# gitlab/local carry a copy of assets/task-flow/route-<host>.md that doctor compares by content; other
-# carries the user's own words, which doctor only reports. github writes nothing: merge.sh is the route.
-ASSETS="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)"
+# --- the delivery route key block in task-flow.local.md ------------------------------------------------
+# The block is produced by scripts/setup/route.sh write and read back by route.sh check, which doctor
+# calls, so every fixture here is written by the real producer. The file is first built the way setup
+# builds it (a header and a delta) and the writer appends or replaces the block; hand-made blocks appear
+# only for states the producer refuses to make (malformed, CRLF).
+ROUTE_SH="$(cd "$(dirname "$DOCTOR")" && pwd)/route.sh"
 ROUTE_CMD="/cc-tuner:setup install delivery-route"
 route_file() { mkdir -p "$R/.claude/rules"; printf '%s' "$R/.claude/rules/task-flow.local.md"; }
-# Write the asset for host $1 plus its closing marker, with prose before and after that the block
-# must not disturb.
+# Write the route for host $1 (and body file $2 for other) into a task-flow.local.md that has prose
+# before and after, with the real producer. The producer needs mktemp, cp and mv, which doctor's stubbed
+# PATH does not have, so it runs on the caller's PATH.
 write_route() {
   f="$(route_file)"
-  { printf '# task-flow — repo-specific deltas\n\nboard: 3\n\n'
-    cat "$ASSETS/route-$1.md"
-    printf '<!-- /cc-tuner:delivery-route -->\n\nmore deltas\n'
-  } > "$f"
+  printf '# task-flow — repo-specific deltas\n\nboard: 3\n' > "$f"
+  PATH="$ORIG_PATH" bash "$ROUTE_SH" write "$1" "$f" ${2:+"$2"} >/dev/null || { echo "FAIL write_route $1"; fails=1; }
+  printf '\nmore deltas\n' >> "$f"
 }
+ORIG_PATH="$PATH"
+OTHER_BODY_FILE="$(mktemp)"; printf 'Open a review on our forge, wait for two approvals, merge from the UI.\n' > "$OTHER_BODY_FILE"
 gitlab_env() {
   mkenv; tool git; tool jq; ghstub "'project'"; glabstub; plugins_ok
   setremote https://gitlab.com/acme/app.git
 }
 
-# local, no block
+# local: missing, current, drifted, malformed, mismatched
 mkenv; tool git; tool jq; plugins_ok; noremote
 OUT="$(run)"; rc=$?
 check  "route-local-missing-warns"   "WARN delivery route not written — $ROUTE_CMD" "$OUT"
@@ -667,22 +671,32 @@ absent "route-local-missing-no-miss" "MISS"                                     
 # a task-flow.local.md that exists without a block is the same finding
 printf '# task-flow — repo-specific deltas\n' > "$(route_file)"
 check  "route-local-file-without-block-warns" "delivery route not written" "$(run)"
-# local, current
+# local, current: written by the producer, read by the checker doctor calls
 write_route local
 OUT="$(run)"
 check  "route-local-current-ok"      "ok   delivery route (local) current" "$OUT"
 absent "route-local-current-quiet"   "delivery route not written"           "$OUT"
 absent "route-local-current-no-warn" "differs"                              "$OUT"
-# local, drifted: one line of the copy edited by hand
+# a checkout with CRLF line endings is still current
+sed 's/$/\r/' "$(route_file)" > "$T/crlf" && cp "$T/crlf" "$(route_file)"
+check  "route-local-crlf-current-ok" "ok   delivery route (local) current" "$(run)"
+# local, drifted: the key block's sentence edited by hand
 write_route local
-sed 's/--ff-only/--no-ff/' "$(route_file)" > "$T/drift" && cp "$T/drift" "$(route_file)"
+sed 's/never by a web merge/by any merge/' "$(route_file)" > "$T/drift" && cp "$T/drift" "$(route_file)"
 OUT="$(run)"
-check  "route-local-drift-warns"     "WARN delivery route (local) differs from the plugin's asset — $ROUTE_CMD" "$OUT"
-absent "route-local-drift-not-ok"    "ok   delivery route"                                                      "$OUT"
-# a block with its closing marker removed no longer matches either
+check  "route-local-drift-warns"     "WARN delivery route (local) differs from the plugin's key block — $ROUTE_CMD" "$OUT"
+absent "route-local-drift-not-ok"    "ok   delivery route"                                                        "$OUT"
+# a legacy block (the old copied route text with a versioned marker) is drift too
+printf '# deltas\n\n<!-- cc-tuner:delivery-route local v0.23.0 -->\nold route\n<!-- /cc-tuner:delivery-route -->\n' > "$(route_file)"
+check  "route-local-legacy-block-drifts" "delivery route (local) differs" "$(run)"
+# malformed: counted, and the advice is a hand fix, not an install that setup would refuse
 write_route local
 sed '/^<!-- \/cc-tuner:delivery-route -->$/d' "$(route_file)" > "$T/open" && cp "$T/open" "$(route_file)"
-check  "route-local-unclosed-drifts" "delivery route (local) differs" "$(run)"
+OUT="$(run)"
+check  "route-local-unclosed-is-malformed" "WARN malformed delivery-route block (1 opening, 0 closing markers) — fix .claude/rules/task-flow.local.md by hand" "$OUT"
+absent "route-local-malformed-no-install-advice" "install delivery-route" "$OUT"
+write_route local; cat "$(route_file)" > "$T/twice"; sed -n '/^<!-- cc-tuner:delivery-route /,/^<!-- \/cc-tuner:delivery-route -->$/p' "$T/twice" >> "$(route_file)"
+check  "route-local-two-blocks-malformed" "malformed delivery-route block (2 opening, 2 closing markers)" "$(run)"
 # a block written for another host
 write_route gitlab
 OUT="$(run)"
@@ -698,8 +712,8 @@ check  "route-gitlab-missing-warns"  "WARN delivery route not written — $ROUTE
 write_route gitlab
 check  "route-gitlab-current-ok"     "ok   delivery route (gitlab) current" "$(run)"
 write_route gitlab
-sed 's/--auto-merge=false/--auto-merge/' "$(route_file)" > "$T/drift" && cp "$T/drift" "$(route_file)"
-check  "route-gitlab-drift-warns"    "WARN delivery route (gitlab) differs from the plugin's asset — $ROUTE_CMD" "$(run)"
+sed 's/gitlab route/any route/' "$(route_file)" > "$T/drift" && cp "$T/drift" "$(route_file)"
+check  "route-gitlab-drift-warns"    "WARN delivery route (gitlab) differs from the plugin's key block — $ROUTE_CMD" "$(run)"
 write_route local
 check  "route-gitlab-mismatch-warns" "delivery route block is for host local, but this repository's host is gitlab" "$(run)"
 rm -rf "$T"
@@ -709,7 +723,7 @@ mkenv; tool git; tool jq; ghstub "'project'"; glabstub; plugins_ok
 setremote git@git.example.org:acme/app.git
 OUT="$(run)"
 check  "route-other-missing-warns"   "WARN delivery route not written — $ROUTE_CMD" "$OUT"
-printf '# deltas\n\n<!-- cc-tuner:delivery-route other -->\nOpen a review on our forge, wait for two approvals, merge from the UI.\n<!-- /cc-tuner:delivery-route -->\n' > "$(route_file)"
+write_route other "$OTHER_BODY_FILE"
 OUT="$(run)"; rc=$?
 check  "route-other-present-ok"      "ok   delivery route (other) present (user-described, not compared)" "$OUT"
 absent "route-other-present-no-warn" "delivery route not written"                                           "$OUT"
@@ -718,9 +732,20 @@ write_route local
 check  "route-other-mismatch-warns"  "delivery route block is for host local, but this repository's host is other" "$(run)"
 rm -rf "$T"
 
-# github: merge.sh is the route, so doctor says nothing about one
+# github: merge.sh is the route, so doctor says nothing unless a block is left over from another host
 mkenv; tool git; tool jq; ghstub "'gist', 'project', 'repo'"; plugins_ok
 absent "route-github-says-nothing"   "delivery route" "$(run)"
-rm -rf "$T"
+write_route gitlab
+OUT="$(run)"; rc=$?
+check  "route-github-stale-block-warns" "WARN stale delivery-route block (gitlab) in .claude/rules/task-flow.local.md on a github repository" "$OUT"
+check  "route-github-stale-says-remove-by-hand" "delete the lines from its <!-- cc-tuner:delivery-route ... --> marker through <!-- /cc-tuner:delivery-route --> by hand" "$OUT"
+absent "route-github-stale-no-install-advice" "install delivery-route" "$OUT"
+[ $rc -eq 0 ] && echo "PASS route-github-stale-block-rc0" || { echo "FAIL route-github-stale-block-rc0 (rc=$rc)"; fails=1; }
+write_route other "$OTHER_BODY_FILE"
+check  "route-github-stale-other-block-warns" "WARN stale delivery-route block (other)" "$(run)"
+# a malformed block is reported as malformed on github too
+printf '# deltas\n\n<!-- cc-tuner:delivery-route gitlab -->\n' > "$(route_file)"
+check  "route-github-malformed-warns" "malformed delivery-route block (1 opening, 0 closing markers)" "$(run)"
+rm -rf "$T" "$OTHER_BODY_FILE"
 
 exit $fails
