@@ -29,12 +29,18 @@ not persist between Bash calls, so every Bash call that uses `$PLUGIN` starts wi
 ```bash
 PLUGIN="${CLAUDE_PLUGIN_ROOT:-}"
 if [ ! -d "$PLUGIN" ]; then
-  REPO=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
-  PLUGIN=$(claude plugin list --json 2>/dev/null | jq -r --arg repo "$REPO" '
-    [ .[] | select(.id == "cc-tuner@cc-tuner" and .enabled != false
-        and (.scope == "user" or ((.scope == "project" or .scope == "local") and .projectPath == $repo))) ]
-    | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
-    | (.[0].installPath // "")')
+  REAL=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && pwd -P)
+  # projectPath is recorded as typed, so it is resolved on the filesystem, as plugin-here.sh does; "-"
+  # stands in for an empty field because `read` with a tab IFS collapses empty ones.
+  PLUGIN=$(claude plugin list --json 2>/dev/null | jq -r '.[]
+      | select(.id == "cc-tuner@cc-tuner" and .enabled != false)
+      | [ (if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end), .scope,
+          (.projectPath // "-"), (.installPath // "-") ] | @tsv' | sort -n |
+    while IFS="$(printf '\t')" read -r _ scope ppath ipath; do
+      if [ "$scope" = user ] || [ "$(cd "$ppath" 2>/dev/null && pwd -P)" = "$REAL" ]; then
+        printf '%s\n' "$ipath"; break
+      fi
+    done)
 fi
 [ -d "$PLUGIN" ] || { echo "Could not locate the cc-tuner plugin: is it installed and enabled?"; exit 1; }
 ```

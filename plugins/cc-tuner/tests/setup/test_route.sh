@@ -336,6 +336,12 @@ plugin_list '[
  {"id":"cc-tuner@cc-tuner","scope":"user","enabled":true,"installPath":"__T__/inst/user"}
 ]'
 eq "plugin-root-local-beats-project-beats-user" "$T/inst/local" "$(resolve A=1)"
+ln -s "$PR_REPO" "$T/pr-link"
+plugin_list '[
+ {"id":"cc-tuner@cc-tuner","scope":"user","enabled":true,"installPath":"__T__/inst/user"},
+ {"id":"cc-tuner@cc-tuner","scope":"project","projectPath":"__T__/pr-link","enabled":true,"installPath":"__T__/inst/project"}
+]'
+eq "plugin-root-project-recorded-through-a-symlink-still-applies" "$T/inst/project" "$(resolve A=1)"
 eq "plugin-root-keeps-the-env-when-it-is-a-directory" "$T/inst/env" "$(resolve CLAUDE_PLUGIN_ROOT="$T/inst/env")"
 plugin_list '[{"id":"cc-tuner@cc-tuner","scope":"user","enabled":false,"installPath":"__T__/inst/user"}]'
 OUT="$(resolve A=1)"

@@ -29,9 +29,12 @@ enable`, so nodes 4 and 5 re-read that file after it.
 
 ## Detect
 
+Run the **Plugin root** block from [SKILL.md](../SKILL.md#plugin-root) first, in the same Bash call —
+`${CLAUDE_PLUGIN_ROOT}` is not set in a reference — then:
+
 ```bash
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT="$PWD"
-C="${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh"
+C="$PLUGIN/scripts/setup/companion.sh"
 HAVE_CLAUDE=0; command -v claude >/dev/null 2>&1 && HAVE_CLAUDE=1
 HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
 echo "claude=$HAVE_CLAUDE jq=$HAVE_JQ codex=$(bash "$C" codex)"
@@ -153,7 +156,8 @@ else
 fi
 ```
 
-When the file does not exist, the task-flow node (3) has not run. If it runs in this invocation, hold the
+Commit `task-flow.local.md` with the recorded line, as the delivery-route block is: a task worktree reads the
+committed file, so an uncommitted decline is lost there. When the file does not exist, the task-flow node (3) has not run. If it runs in this invocation, hold the
 decision: its step 6 creates the file and then runs this block. Otherwise the line is **not** recorded —
 skip, and say so: the row reads "declined — review: none not recorded; run `/cc-tuner:setup install
 task-flow companions`". Never create the file here with a different header than the task-flow node's.

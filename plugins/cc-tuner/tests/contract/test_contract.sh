@@ -611,7 +611,7 @@ need "run-github-keeps-the-steps"          'Host `github`: the steps below as wr
 need "run-route-keeps-gates-and-records"   'with the same gates, order and record lines' "$RUN"
 need "run-route-check-only"                '`--check-only` means running every route step up to the merge' "$RUN"
 need "run-auto-on-every-host"              '`--auto` is allowed on every host' "$RUN"
-need "run-record-where-the-host-publishes" "as one record (a PR comment on GitHub, the route's record elsewhere)" "$RUN"
+need "run-record-where-the-host-publishes" "posted with \`gh pr comment <pr> --body-file <file>\`; the route's record elsewhere" "$RUN"
 need "run-local-status-never-on-target"    'never a commit on the target' "$RUN"
 # The host, the route check and the companion state are programs; /spec and /run call them and pin the
 # command, not a restatement of what it knows (the prose ladder these replaced had drifted from doctor).
@@ -619,7 +619,7 @@ need "spec-asks-host-sh"                   'scripts/setup/host.sh' "$SPEC"
 need "run-asks-host-sh"                    'scripts/setup/host.sh' "$RUN"
 need "spec-template-host-from-host-sh"     'scripts/setup/host.sh' "$SPEC_TEMPLATE"
 need "run-stops-on-ambiguous-host"         '`ambiguous`' "$RUN"
-need "spec-asks-which-remote"              '`ambiguous` → ask which remote' "$SPEC"
+need "spec-ambiguous-names-one-origin"     'ask the user to name one remote `origin`' "$SPEC"
 need "run-github-cli-preflight"            'gh auth status --hostname' "$RUN"
 need "run-gitlab-cli-preflight"            'glab auth status --hostname' "$RUN"
 need "run-names-the-cli-login"             'auth login --hostname' "$RUN"
@@ -702,5 +702,16 @@ need "readme-plugin-names-companion-sh"      'scripts/setup/companion.sh' "$READ
 need "readme-mattpocock-is-required"       '**mattpocock-skills** is required by `/spec` and `/run`' "$README_PLUGIN"
 need "readme-codex-triage-is-optional"     '**cc-codex-triage** is optional' "$README_PLUGIN"
 need "readme-codex-needs-login"            'logged-in Codex CLI' "$README_PLUGIN"
+
+need "run-states-its-plugin-root"            '**Plugin root: `${CLAUDE_PLUGIN_ROOT}`.**' "$RUN"
+need "run-other-route-from-the-target"       'git show <target>:.claude/rules/task-flow.local.md' "$RUN"
+need "run-accepted-from-a-file"              'gh pr comment <pr> --body-file "$REC"' "$RUN"
+need "companions-uses-the-plugin-root-block" 'C="$PLUGIN/scripts/setup/companion.sh"' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+if grep -q 'CLAUDE_PLUGIN_ROOT}/' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"; then
+  echo "FAIL companions-reference-does-not-expand-plugin-root"; fails=1
+else echo "PASS companions-reference-does-not-expand-plugin-root"; fi
+if grep -Eq 'marketplace update (mattpocock|cc-codex-triage) ' "$ROOT/plugins/cc-tuner/scripts/setup/prereq-check.sh"; then
+  echo "FAIL prereq-update-hints-come-from-companion-table"; fails=1
+else echo "PASS prereq-update-hints-come-from-companion-table"; fi
 
 exit "$fails"

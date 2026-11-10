@@ -108,7 +108,8 @@ fix_line() {
 # Not installed and installed-but-incomplete are different findings with different commands: `update`
 # fixes a stale copy and fails on a plugin that was never installed.
 MP='mattpocock-skills@mattpocock'
-MP_UPDATE='/plugin marketplace update mattpocock && /plugin update mattpocock-skills@mattpocock'
+MP_MKT="$(bash "$HERE/companion.sh" table "$MP" | cut -f2)"
+MP_UPDATE="/plugin marketplace update $MP_MKT && /plugin update $MP"
 state_of "$MP"
 if [ "$ST" != installed ]; then
   if [ "$ST" = disabled ]; then
@@ -148,7 +149,7 @@ elif ! codex_contract; then
   state_of "$CT"
   if [ "$ST" = installed ]; then
     echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
-    echo "  update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
+    echo "  update: /plugin marketplace update $(bash "$HERE/companion.sh" table "$CT" | cut -f2) && /plugin update $CT" >&2
   else
     if [ "$ST" = disabled ]; then
       echo "MISSING: cc-codex-triage is installed but disabled for this repo (the required-review gate in /cc-tuner:run; codex is logged in)" >&2

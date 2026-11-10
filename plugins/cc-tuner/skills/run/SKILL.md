@@ -7,6 +7,10 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 
 # /cc-tuner:run
 
+**Plugin root: `${CLAUDE_PLUGIN_ROOT}`.** This skill's references and the routes write scripts as
+`${CLAUDE_PLUGIN_ROOT}/…`; only this file has the variable filled in, and a Bash call does not expand it,
+so use the path printed here wherever a reference names it.
+
 Work the committed plan for the current branch. `--auto` selects unattended mode; the remaining
 argument is the spec path. It additionally authorises the merge, never deploy, publish, migration,
 force-push or work outside the plan; the task-scoped commits and, where the host has them, the push and
@@ -221,7 +225,7 @@ the skill yourself.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
 residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
-as one record (a PR comment on GitHub, the route's record elsewhere): its lines come from verify-feature alone, and a criterion it did not observe stays
+as one record (a PR comment on GitHub, written to a file and posted with `gh pr comment <pr> --body-file <file>`; the route's record elsewhere): its lines come from verify-feature alone, and a criterion it did not observe stays
 `NOT PROVED`. `merge.sh`, or the route, requires the record, prints its `NOT PROVED` lines, and accepts any commit the
 head contains, so a later fix commit needs a new record only if the evidence no longer covers it.
 
@@ -244,7 +248,8 @@ and follow it step by step wherever the steps below name a GitHub command (open 
 accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
 with the same gates, order and record lines. Those routes refer to "the `plugin-here.sh` path that `/run`'s Delivery paragraph names":
 `${CLAUDE_PLUGIN_ROOT}/scripts/setup/plugin-here.sh`. Host `other`: the block's body in
-`.claude/rules/task-flow.local.md` is the route, and a step it leaves undescribed stops the run and goes to
+`.claude/rules/task-flow.local.md`, as committed on the target (`git show <target>:.claude/rules/task-flow.local.md`;
+with no remote, `refs/heads/<target>`), is the route; when the candidate's copy differs, stop — a candidate never edits its own gate; and a step it leaves undescribed stops the run and goes to
 the user. `--check-only` means running every route step up to the merge and handing the merge command over.
 `--auto` is allowed on every host.
 
@@ -315,7 +320,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    it in this session, naming them and what they accepted:
 
    ```bash
-   gh pr comment <pr> --body "cc-tuner-accepted: <head-sha> <who>: <what was accepted>"
+   cat > "$REC" <<'EOF'
+   cc-tuner-accepted: <head-sha> <who>: <what was accepted>
+   EOF
+   gh pr comment <pr> --body-file "$REC"
    ```
 
    `merge.sh` honours it only under `--review none:<reason>` and only for that exact head.

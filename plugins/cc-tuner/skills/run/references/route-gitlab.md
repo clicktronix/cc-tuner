@@ -39,7 +39,7 @@ Anyone with access can comment, so another person's marker is not this run's evi
 1. **Open.** Push the branch, then open a draft against the spec's target:
 
    ```bash
-   glab mr create --draft --yes --target-branch <target> --source-branch <branch> --title "<title>" --description "$(cat <description file>)"
+   glab mr create --draft --yes --target-branch <target> --source-branch <branch> --title "$(cat <title file>)" --description "$(cat <description file>)"
    ```
 
    Read `glab api projects/:id/merge_requests/<iid>` and require `target_branch` equal to `<target>`, `source_branch` equal to `<branch>` and `source_project_id` equal to `target_project_id`. Anything else, a fork MR included, is not this route: stop and hand over. The candidate is the MR's `sha`, equal to `git rev-parse HEAD` in a clean working tree.

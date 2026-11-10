@@ -76,7 +76,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
 
 Its first field is `github`, `gitlab`, `local` (no remote), `other` or `ambiguous`. `other` → ask the user what
 this host is and record `other`; the words of its route go through `/cc-tuner:setup install delivery-route` (a
-user-only command). `ambiguous` → ask which remote counts, and record the host that remote's URL names. Record
+user-only command). `ambiguous` → ask the user to name one remote `origin` (`git remote rename <remote> origin`), as doctor says, and detect again: `/run` stops on `ambiguous`. Record
 `host:`. For a host other than `github`, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>`
 and record its answer in the spec's Delivery section; when it is not `current` or `present-other`, tell the
 user to run `/cc-tuner:setup install delivery-route` before `/run`.
@@ -92,7 +92,8 @@ section 3: an adviser can be handed the draft text, never the decision.
 ## 2. Create the task branch
 
 Resolve the integration target from repository policy, falling back to the remote default branch.
-Fetch it and verify the starting point. If currently on the target branch, create the task branch now
+Fetch it and verify the starting point; with host `local` there is no remote, so the target is
+`refs/heads/<target>` and nothing is fetched. If currently on the target branch, create the task branch now
 using the task-flow naming rule. If already on a feature branch, confirm it belongs to this task and
 its PR is not already merged. Never commit the spec directly to the integration branch.
 
