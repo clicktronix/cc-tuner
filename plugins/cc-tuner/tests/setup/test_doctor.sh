@@ -430,8 +430,93 @@ mkenv; tool git; tool jq; GH_VIEW_RC=1; GLAB_VIEW_RC=1; ghstub "'project'"; glab
 OUT="$(run)"; rc=$?
 check  "host-other-detected"       "host: other"            "$OUT"
 check  "host-other-needs-a-route"  "route you describe"     "$OUT"
+check  "host-other-names-setup"    "host: other.*install delivery-route" "$OUT"
 absent "host-other-no-miss"        "MISS"                   "$OUT"
 [ $rc -eq 0 ] && echo "PASS host-other-rc0" || { echo "FAIL host-other-rc0 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# --- the delivery route: a block between cc-tuner markers in task-flow.local.md -----------------------
+# gitlab/local carry a copy of assets/task-flow/route-<host>.md that doctor compares by content; other
+# carries the user's own words, which doctor only reports. github writes nothing: merge.sh is the route.
+ASSETS="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)"
+ROUTE_CMD="/cc-tuner:setup install delivery-route"
+route_file() { mkdir -p "$R/.claude/rules"; printf '%s' "$R/.claude/rules/task-flow.local.md"; }
+# Write the asset for host $1 plus its closing marker, with prose before and after that the block
+# must not disturb.
+write_route() {
+  f="$(route_file)"
+  { printf '# task-flow — repo-specific deltas\n\nboard: 3\n\n'
+    cat "$ASSETS/route-$1.md"
+    printf '<!-- /cc-tuner:delivery-route -->\n\nmore deltas\n'
+  } > "$f"
+}
+gitlab_env() {
+  mkenv; tool git; tool jq; GH_VIEW_RC=1; ghstub "'project'"; glabstub; plugins_ok
+}
+
+# local, no block
+mkenv; tool git; tool jq; plugins_ok
+OUT="$(run)"; rc=$?
+check  "route-local-missing-warns"   "WARN delivery route not written — $ROUTE_CMD" "$OUT"
+absent "route-local-missing-no-miss" "MISS"                                          "$OUT"
+[ $rc -eq 0 ] && echo "PASS route-local-missing-rc0" || { echo "FAIL route-local-missing-rc0 (rc=$rc)"; fails=1; }
+# a task-flow.local.md that exists without a block is the same finding
+printf '# task-flow — repo-specific deltas\n' > "$(route_file)"
+check  "route-local-file-without-block-warns" "delivery route not written" "$(run)"
+# local, current
+write_route local
+OUT="$(run)"
+check  "route-local-current-ok"      "ok   delivery route (local) current" "$OUT"
+absent "route-local-current-quiet"   "delivery route not written"           "$OUT"
+absent "route-local-current-no-warn" "differs"                              "$OUT"
+# local, drifted: one line of the copy edited by hand
+write_route local
+sed 's/--ff-only/--no-ff/' "$(route_file)" > "$T/drift" && cp "$T/drift" "$(route_file)"
+OUT="$(run)"
+check  "route-local-drift-warns"     "WARN delivery route (local) differs from the plugin's asset — $ROUTE_CMD" "$OUT"
+absent "route-local-drift-not-ok"    "ok   delivery route"                                                      "$OUT"
+# a block with its closing marker removed no longer matches either
+write_route local
+sed '/^<!-- \/cc-tuner:delivery-route -->$/d' "$(route_file)" > "$T/open" && cp "$T/open" "$(route_file)"
+check  "route-local-unclosed-drifts" "delivery route (local) differs" "$(run)"
+# a block written for another host
+write_route gitlab
+OUT="$(run)"
+check  "route-host-mismatch-warns"   "WARN delivery route block is for host gitlab, but this repository's host is local — $ROUTE_CMD" "$OUT"
+absent "route-host-mismatch-not-ok"  "ok   delivery route"                                                                           "$OUT"
+rm -rf "$T"
+
+# gitlab: missing, current, drifted, mismatched
+gitlab_env
+OUT="$(run)"; rc=$?
+check  "route-gitlab-missing-warns"  "WARN delivery route not written — $ROUTE_CMD" "$OUT"
+[ $rc -eq 0 ] && echo "PASS route-gitlab-missing-rc0" || { echo "FAIL route-gitlab-missing-rc0 (rc=$rc)"; fails=1; }
+write_route gitlab
+check  "route-gitlab-current-ok"     "ok   delivery route (gitlab) current" "$(run)"
+write_route gitlab
+sed 's/--auto-merge=false/--auto-merge/' "$(route_file)" > "$T/drift" && cp "$T/drift" "$(route_file)"
+check  "route-gitlab-drift-warns"    "WARN delivery route (gitlab) differs from the plugin's asset — $ROUTE_CMD" "$(run)"
+write_route local
+check  "route-gitlab-mismatch-warns" "delivery route block is for host local, but this repository's host is gitlab" "$(run)"
+rm -rf "$T"
+
+# other: the user's own description is reported, never compared
+mkenv; tool git; tool jq; GH_VIEW_RC=1; GLAB_VIEW_RC=1; ghstub "'project'"; glabstub; plugins_ok
+( cd "$R" && git remote add origin git@git.example.org:acme/app.git )
+OUT="$(run)"
+check  "route-other-missing-warns"   "WARN delivery route not written — $ROUTE_CMD" "$OUT"
+printf '# deltas\n\n<!-- cc-tuner:delivery-route other -->\nOpen a review on our forge, wait for two approvals, merge from the UI.\n<!-- /cc-tuner:delivery-route -->\n' > "$(route_file)"
+OUT="$(run)"; rc=$?
+check  "route-other-present-ok"      "ok   delivery route (other) present (user-described, not compared)" "$OUT"
+absent "route-other-present-no-warn" "delivery route not written"                                           "$OUT"
+[ $rc -eq 0 ] && echo "PASS route-other-present-rc0" || { echo "FAIL route-other-present-rc0 (rc=$rc)"; fails=1; }
+write_route local
+check  "route-other-mismatch-warns"  "delivery route block is for host local, but this repository's host is other" "$(run)"
+rm -rf "$T"
+
+# github: merge.sh is the route, so doctor says nothing about one
+mkenv; tool git; tool jq; ghstub "'gist', 'project', 'repo'"; plugins_ok
+absent "route-github-says-nothing"   "delivery route" "$(run)"
 rm -rf "$T"
 
 exit $fails

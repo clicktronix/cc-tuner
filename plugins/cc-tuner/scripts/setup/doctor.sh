@@ -131,7 +131,7 @@ esac
 # own: `gh repo view` succeeding means github, `glab repo view` means gitlab. A remote both fail on is
 # still github/gitlab when its URL says so -- the CLI then is not authenticated, which is the finding.
 # No remote at all is `local`; any other remote is `other`, and delivery there needs a route the user
-# describes. Only the CLI of the detected host is checked: demanding `gh` auth of a GitLab or
+# describes (section 2b checks it is written). Only the CLI of the detected host is checked: demanding `gh` auth of a GitLab or
 # remote-less repository was a blocker nobody could clear without installing a tool they never use.
 #
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
@@ -197,8 +197,45 @@ case "$HOST" in
     fi
     ;;
   local) ok "host: local — no git remote, so nothing to authenticate against" ;;
-  other) warn "host: other — remote $REMOTE is not GitHub or GitLab (or its CLI cannot reach it); delivery needs a route you describe in the repository" ;;
+  other) warn "host: other — remote $REMOTE is not GitHub or GitLab (or its CLI cannot reach it); delivery needs a route you describe; /cc-tuner:setup install delivery-route records it" ;;
   *) say "     host not detected (not inside a git repository)" ;;
+esac
+
+# --- 2b. the delivery route written for that host ------------------------------------------------
+# Outside GitHub no script refuses a bad merge, so the route is the gate: /cc-tuner:setup copies
+# assets/task-flow/route-<host>.md into task-flow.local.md between cc-tuner:delivery-route markers.
+# The block is the asset verbatim plus the closing marker, so a content comparison is the drift check;
+# the version in the marker is only the plugin version at the asset's last change and is never compared.
+# `other` is the user's own words, so it is reported present and never compared. github writes nothing:
+# merge.sh is its route. sed and cat only: doctor runs on a minimal PATH, which has no awk.
+ROUTE_OPEN='^<!-- cc-tuner:delivery-route '
+ROUTE_CLOSE='<!-- /cc-tuner:delivery-route -->'
+ROUTE_CMD="/cc-tuner:setup install delivery-route"
+case "$HOST" in
+  gitlab|local|other)
+    TF_LOCAL="$REPO_ROOT/.claude/rules/task-flow.local.md"
+    ROUTE_BLOCK=""
+    if [ -f "$TF_LOCAL" ]; then
+      ROUTE_BLOCK="$(sed -n "/$ROUTE_OPEN/,\\#^$ROUTE_CLOSE\$#p" "$TF_LOCAL")"
+    fi
+    if [ -z "$ROUTE_BLOCK" ]; then
+      warn "delivery route not written — $ROUTE_CMD"
+    else
+      ROUTE_HOST="$(printf '%s\n' "$ROUTE_BLOCK" | head -n 1 | sed -n 's/^<!-- cc-tuner:delivery-route \([a-z][a-z]*\).*/\1/p')"
+      ROUTE_ASSET="$(cd "$(dirname "$0")/../../assets/task-flow" && pwd)/route-$HOST.md"
+      if [ "$ROUTE_HOST" != "$HOST" ]; then
+        warn "delivery route block is for host ${ROUTE_HOST:-unknown}, but this repository's host is $HOST — $ROUTE_CMD"
+      elif [ "$HOST" = other ]; then
+        ok "delivery route (other) present (user-described, not compared)"
+      elif [ ! -f "$ROUTE_ASSET" ]; then
+        ok "delivery route ($HOST) present (plugin asset not found, not compared)"
+      elif [ "$ROUTE_BLOCK" = "$(cat "$ROUTE_ASSET"; printf '%s\n' "$ROUTE_CLOSE")" ]; then
+        ok "delivery route ($HOST) current"
+      else
+        warn "delivery route ($HOST) differs from the plugin's asset — $ROUTE_CMD shows the diff and asks"
+      fi
+    fi
+    ;;
 esac
 
 # --- 3. companion plugins ------------------------------------------------------------------------
