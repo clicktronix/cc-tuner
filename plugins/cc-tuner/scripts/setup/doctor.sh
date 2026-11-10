@@ -8,6 +8,9 @@
 # Test seams (all default to the real thing):
 #   CC_TUNER_PLUGIN_LIST_CMD  command whose stdout is the installed-plugin JSON
 #                             (default: claude plugin list --json)
+#   CC_TUNER_MARKETPLACE_LIST_CMD  command whose stdout is the configured-marketplace JSON, read only to
+#                             choose between "marketplace add + install" and "install" for a plugin that
+#                             is not installed (default: claude plugin marketplace list --json)
 #   CC_TUNER_MCP_CMD     command whose stdout is parsed for MCP servers (default: claude mcp list)
 #   CC_TUNER_HOME        home dir for user-level checks (default: $HOME)
 set -u
@@ -75,11 +78,12 @@ names_pointer() { # true when any file listed on stdin mentions docs/agents
 # tests/run.sh will not start. A global MISS made doctor exit non-zero, and /cc-tuner:setup stops on a
 # non-zero exit, so a missing jq halted setting up claude-md-writer, which never calls jq at all.
 # A blocker belongs to the capability that needs it, not to the tool that reports on all of them.
+# gh and glab are not here: which one matters depends on the repository's host, and a tool nobody on
+# this host uses is not a finding. Section 2 checks the one the host needs.
 # Plain `if`, not `a && b || c`: that chain runs `c` whenever `b` fails, so one day a reporting
 # helper returns non-zero and the script starts claiming things are missing that are not.
 if command -v git     >/dev/null 2>&1; then ok "git";     else bad "git — required for every command here"; fi
 if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — the statusline node refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
-if command -v gh      >/dev/null 2>&1; then ok "gh";      else warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"; fi
 if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — agent-rules setup requires it; the statusline's usage segment also degrades without it"; fi
 
 # --- 1b. the native task tools -------------------------------------------------------------------
@@ -122,27 +126,80 @@ case "${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH:-}" in
   *) warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH} — a third layer of agents is possible; /cc-tuner:run expects 1 or 2" ;;
 esac
 
-# --- 2. gh auth and the project scope ------------------------------------------------------------
+# --- 2. the repository's host, and the CLI that host needs ---------------------------------------
+# Detected by the CLI that can reach the remote, so an SSH alias (`git@work:org/repo`) resolves on its
+# own: `gh repo view` succeeding means github, `glab repo view` means gitlab. A remote both fail on is
+# still github/gitlab when its URL says so -- the CLI then is not authenticated, which is the finding.
+# No remote at all is `local`; any other remote is `other`, and delivery there needs a route the user
+# describes. Only the CLI of the detected host is checked: demanding `gh` auth of a GitLab or
+# remote-less repository was a blocker nobody could clear without installing a tool they never use.
+#
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
 # single most common reason an agent silently gives up on the board, so name it before it happens.
-#
 # It warns rather than blocks: a spec may say `board: none` (see skills/spec/SKILL.md), and such a
 # repo never runs a board command. The refusal belongs to step 4 of /cc-tuner:setup and to the board
 # recipes in the task-flow skill, which know whether a board is in play; this tool does not.
-if command -v gh >/dev/null 2>&1; then
-  if gh auth status >/dev/null 2>&1; then
-    # Match the scope exactly rather than as a substring: `read:project` contains "project" but
-    # cannot run `project item-edit`, so a substring test would report a working board and be wrong.
-    if gh auth status 2>&1 | sed -n "s/.*Token scopes: //p" | tr -d "'" | tr ',' '\n' | tr -d ' ' \
-       | grep -qx project; then
-      ok "gh token has the 'project' scope"
-    else
-      warn "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; harmless for a repo whose spec says board: none. fix: gh auth refresh -s project"
-    fi
+HOST=""; HOST_VIA=""; REMOTE=""
+if [ -n "$REPO_ROOT" ]; then
+  remotes="$(git -C "$REPO_ROOT" remote 2>/dev/null)"
+  if printf '%s\n' "$remotes" | grep -qx origin; then REMOTE=origin; else REMOTE="$(printf '%s\n' "$remotes" | head -n 1)"; fi
+  if command -v gh >/dev/null 2>&1 && (cd "$REPO_ROOT" && gh repo view) >/dev/null 2>&1; then
+    HOST=github; HOST_VIA=cli
+  elif command -v glab >/dev/null 2>&1 && (cd "$REPO_ROOT" && glab repo view) >/dev/null 2>&1; then
+    HOST=gitlab; HOST_VIA=cli
+  elif [ -z "$REMOTE" ]; then
+    HOST=local
   else
-    bad "gh is not authenticated — run: gh auth login"
+    remote_url="$(git -C "$REPO_ROOT" remote get-url "$REMOTE" 2>/dev/null)"
+    case "$remote_url" in
+      *github.com*) HOST=github; HOST_VIA=url ;;
+      *gitlab.com*) HOST=gitlab; HOST_VIA=url ;;
+      *)            HOST=other ;;
+    esac
   fi
 fi
+
+case "$HOST" in
+  github)
+    if [ "$HOST_VIA" = cli ]; then ok "host: github"; else ok "host: github (remote $REMOTE names github.com; gh could not confirm it)"; fi
+    if ! command -v gh >/dev/null 2>&1; then
+      warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"
+    else
+      ok "gh"
+      if gh auth status >/dev/null 2>&1; then
+        # Match the scope exactly rather than as a substring: `read:project` contains "project" but
+        # cannot run `project item-edit`, so a substring test would report a working board and be wrong.
+        if gh auth status 2>&1 | sed -n "s/.*Token scopes: //p" | tr -d "'" | tr ',' '\n' | tr -d ' ' \
+           | grep -qx project; then
+          ok "gh token has the 'project' scope"
+        else
+          warn "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; harmless for a repo whose spec says board: none. fix: gh auth refresh -s project"
+        fi
+        if [ "$HOST_VIA" = url ]; then
+          warn "gh is authenticated but 'gh repo view' cannot reach remote $REMOTE — check that the account can see the repository"
+        fi
+      else
+        bad "gh is not authenticated — run: gh auth login"
+      fi
+    fi
+    ;;
+  gitlab)
+    if [ "$HOST_VIA" = cli ]; then ok "host: gitlab"; else ok "host: gitlab (remote $REMOTE names gitlab.com; glab could not confirm it)"; fi
+    if ! command -v glab >/dev/null 2>&1; then
+      warn "glab — the GitLab delivery route needs it; brew install glab"
+    elif [ "$HOST_VIA" = cli ]; then
+      ok "glab (authenticated)"
+    elif glab auth status >/dev/null 2>&1; then
+      ok "glab"
+      warn "glab is authenticated but 'glab repo view' cannot reach remote $REMOTE — check that the account can see the project"
+    else
+      warn "glab is not authenticated — run: glab auth login"
+    fi
+    ;;
+  local) ok "host: local — no git remote, so nothing to authenticate against" ;;
+  other) warn "host: other — remote $REMOTE is not GitHub or GitLab (or its CLI cannot reach it); delivery needs a route you describe in the repository" ;;
+  *) say "     host not detected (not inside a git repository)" ;;
+esac
 
 # --- 3. companion plugins ------------------------------------------------------------------------
 # Which installation applies is asked of scripts/setup/plugin-here.sh, which prereq-check.sh also
@@ -175,27 +232,82 @@ plugin_here() {
   printf '%s (%s)' "$pv" "$ps"
 }
 
+# codex is what makes cc-codex-triage necessary: the plugin only drives codex, so without a usable one
+# the review bridge cannot run, specs say `review: none:<reason>`, and a missing plugin is no blocker.
+# "Usable" is on PATH and logged in; `codex login status` exits 0 only when it is.
+CODEX_STATE=ok; CODEX_REASON=""; CODEX_WHY=""
+if ! command -v codex >/dev/null 2>&1; then
+  CODEX_STATE=absent; CODEX_REASON="codex-not-installed"; CODEX_WHY="codex is not on PATH"
+  say "     codex not on PATH (optional) — the review bridge is off; specs use review: none:$CODEX_REASON"
+elif codex login status >/dev/null 2>&1; then
+  ok "codex (logged in)"
+else
+  CODEX_STATE=nologin; CODEX_REASON="codex-not-logged-in"; CODEX_WHY="codex is not logged in (run: codex login)"
+  warn "codex is installed but not logged in — run: codex login; until then specs use review: none:$CODEX_REASON"
+fi
+
 # Still asked once, only to tell "no plugins listed" from "that plugin is not installed": the first
 # is an environment this tool cannot see into, the second is a finding about the environment.
 PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
 
-companion() {  # companion <id> <what needs it> <install hint>
+# The command for a plugin that is not installed. `marketplace update` only refreshes a marketplace
+# that is already configured, and `/plugin update` needs the plugin installed, so offering them to
+# someone with neither fails with an error naming a marketplace they never added. Asked of the
+# platform only when needed; a list that cannot be read counts as "not configured", because the
+# add step is the safe one to repeat. prereq-check.sh carries the same function: it is not shared
+# because the shared code would need a third file both scripts source, on a PATH this one is
+# deliberately kept small for.
+install_hint() { # install_hint <marketplace> <source> <plugin-id>
+  local mkts; mkts="$(${CC_TUNER_MARKETPLACE_LIST_CMD:-claude plugin marketplace list --json} 2>/dev/null)" || mkts=""
+  if printf '%s' "$mkts" | jq -e --arg n "$1" 'any(.[]?; .name == $n)' >/dev/null 2>&1; then
+    printf '/plugin install %s' "$3"
+  else
+    printf '/plugin marketplace add %s && /plugin install %s' "$2" "$3"
+  fi
+}
+
+companion() {  # companion <id> <what needs it> <marketplace> <marketplace source>
   found="$(plugin_here "$1")"
   case $? in
     0) ok "$1 $found — $2" ;;
     # Not installed is a finding about the environment; unable to tell is a limit of this tool, and
     # naming an install command for a plugin nobody looked for sends the user to fix the wrong thing.
-    1) bad "$1 not installed for this repo — $2; install: $3" ;;
+    1) bad "$1 not installed for this repo — $2; install: $(install_hint "$3" "$4" "$1")" ;;
     *) warn "$1 — could not determine which installation applies; $2" ;;
   esac
 }
 
-if [ -z "$PLUGIN_LIST" ] || ! command -v jq >/dev/null 2>&1; then
+# cc-codex-triage has a third state the other companion lacks: it can be fine to be absent. Installed
+# with no usable codex it is a plugin that cannot do its job, which is worth a WARN; not installed
+# with no usable codex is the normal state of a machine that does not use codex.
+triage_check() {
+  local id='cc-codex-triage@cc-codex-triage' what='required-review gate in /cc-tuner:run'
+  found="$(plugin_here "$id")"
+  case $? in
+    0) if [ "$CODEX_STATE" = ok ]; then
+         ok "$id $found — $what"
+       else
+         warn "$id $found — installed, but $CODEX_WHY: the review bridge cannot run (specs use review: none:$CODEX_REASON)"
+       fi ;;
+    1) if [ "$CODEX_STATE" = ok ]; then
+         bad "$id not installed for this repo — $what; install: $(install_hint cc-codex-triage clicktronix/cc-codex-triage "$id")"
+       else
+         say "     $id not installed — optional, $CODEX_WHY (specs use review: none:$CODEX_REASON)"
+       fi ;;
+    *) warn "$id — could not determine which installation applies; $what" ;;
+  esac
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+  # Named as the reason because the list may be perfectly readable: reporting "could not list" here
+  # sent people to debug `claude plugin list` when the only thing missing was jq.
+  warn "companion plugin checks skipped — jq is not installed, so this cannot read the plugin list (brew install jq); the SessionStart plan restore is off without it too"
+elif [ -z "$PLUGIN_LIST" ]; then
   warn "could not list installed plugins — companion plugin checks skipped"
 else
   companion 'mattpocock-skills@mattpocock' \
     'grilling + domain-modeling + codebase-design in /cc-tuner:spec; pr, code-review + diagnosing-bugs in /cc-tuner:run' \
-    '/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
+    mattpocock mattpocock/skills
   # The engineering skills expect the issue tracker to "have been provided": docs/agents/ holds the
   # config, and the instructions the session loads have to name it. Files nobody points at leave
   # code-review asking for /setup-matt-pocock-skills on every run. Repo config needs a repo.
@@ -214,9 +326,7 @@ else
       fi
     fi
   fi
-  companion 'cc-codex-triage@cc-codex-triage' \
-    'required-review gate in /cc-tuner:run' \
-    '/plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage'
+  triage_check
 fi
 
 # --- 4. MCP servers (full mode only) -------------------------------------------------------------

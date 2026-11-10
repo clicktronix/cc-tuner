@@ -19,6 +19,8 @@ mkenv() { # builds $STUB (PATH) + $H (home) + $R (repo, physical path in $RP)
   T="$(mktemp -d)" || { echo "FATAL: mktemp failed"; exit 1; }
   STUB="$T/bin"; FAKE_HOME="$T/plugin-home"; H="$T/home"; R="$T/repo"
   mkdir -p "$STUB" "$FAKE_HOME" "$H/.claude" "$R"
+  MKT="$T/marketplaces.json"; printf '[]' > "$MKT"   # `claude plugin marketplace list --json`: none configured
+  GH_VIEW_RC=0; GH_AUTH_RC=0; GLAB_VIEW_RC=0; GLAB_AUTH_RC=0
   for u in sed tr grep head dirname bash cat; do
     src="$(command -v "$u")" && ln -s "$src" "$STUB/$u"
   done
@@ -26,7 +28,21 @@ mkenv() { # builds $STUB (PATH) + $H (home) + $R (repo, physical path in $RP)
   RP="$(cd "$R" && pwd -P)"   # `git rev-parse --show-toplevel` resolves symlinks; projectPath must match
 }
 tool() { ln -s "$(command -v "$1")" "$STUB/$1" 2>/dev/null || true; }   # expose a real tool
-ghstub() { printf '#!/bin/sh\n[ "$1" = auth ] || exit 0\ncat <<EOF\n  - Token scopes: %s\nEOF\n' "$1" > "$STUB/gh"; chmod +x "$STUB/gh"; }
+# gh stub. $1 is the scopes line `gh auth status` prints. GH_VIEW_RC / GH_AUTH_RC are the exit codes of
+# `gh repo view` / `gh auth status`; a view that succeeds is how doctor recognises a github host.
+ghstub() {
+  { printf '#!/bin/sh\nif [ "$1" = repo ]; then exit %s; fi\n' "$GH_VIEW_RC"
+    printf 'if [ "$1" = auth ]; then\n  [ %s -eq 0 ] || exit 1\n  cat <<EOF\n  - Token scopes: %s\nEOF\nfi\nexit 0\n' "$GH_AUTH_RC" "$1"
+  } > "$STUB/gh"
+  chmod +x "$STUB/gh"
+}
+glabstub() { printf '#!/bin/sh\nif [ "$1" = repo ]; then exit %s; fi\nif [ "$1" = auth ]; then exit %s; fi\nexit 0\n' \
+               "$GLAB_VIEW_RC" "$GLAB_AUTH_RC" > "$STUB/glab"; chmod +x "$STUB/glab"; }
+# codex stub: `codex login status` exits $1 (0 = logged in) and says so on stdout.
+codexstub() { printf '#!/bin/sh\nif [ "$1" = login ]; then\n  [ %s -eq 0 ] && echo "Logged in using ChatGPT"\n  exit %s\nfi\nexit 0\n' "$1" "$1" > "$STUB/codex"; chmod +x "$STUB/codex"; }
+# Stand in for `claude plugin marketplace list --json`: $1 is the JSON array it prints.
+marketplaces() { printf '%s' "$1" > "$MKT"; }
+matt_only() { claude_plugins '[{"id":"mattpocock-skills@mattpocock","version":"1.0.0","scope":"user","enabled":true}]'; }
 # Stand in for `claude plugin list --json`; $1 is the JSON array it prints, with `__REPO__` standing
 # for this fixture's repo path. Pass it as a single-quoted literal: bash 3.2 brace-expands a quoted
 # command substitution used as a function argument, which shreds JSON objects into separate words.
@@ -44,7 +60,7 @@ plugins_ok() {   # both companions installed user-wide
   ]'
 }
 run() { ( cd "${1:-$R}" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
-          bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
+          CC_TUNER_MARKETPLACE_LIST_CMD="cat $MKT" bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
 
 # --- baseline: everything present -> no blockers, exit 0 -----------------------------------------
 mkenv; tool git; tool jq; tool python3; ghstub "'gist', 'project', 'repo'"; plugins_ok
@@ -281,6 +297,141 @@ check "statusline-absent" "statusline not installed" "$OUT"
 touch "$H/.claude/cc-tuner-statusline.sh"
 OUT="$(run)"
 check "statusline-present" "ok   statusline script installed" "$OUT"
+rm -rf "$T"
+
+# --- codex is what makes cc-codex-triage necessary ------------------------------------------------
+# Without a usable codex the review bridge cannot run, so reporting its plugin as a blocker sends the
+# user to install something that would sit idle. Specs then say `review: none:<reason>`.
+mkenv; tool git; tool jq; ghstub "'project'"; matt_only          # no codex on PATH, triage not installed
+OUT="$(run)"; rc=$?
+absent "codex-absent-triage-not-miss"   "MISS cc-codex-triage"             "$OUT"
+check  "codex-absent-triage-optional"   "cc-codex-triage.*optional"        "$OUT"
+check  "codex-absent-names-review-none" "review: none:"                    "$OUT"
+absent "codex-absent-no-install-hint"   "plugin install cc-codex-triage"   "$OUT"
+[ $rc -eq 0 ] && echo "PASS codex-absent-rc0" || { echo "FAIL codex-absent-rc0 (rc=$rc)"; fails=1; }
+codexstub 1                                                        # codex present, login status fails
+OUT="$(run)"; rc=$?
+absent "codex-not-logged-in-not-miss"   "MISS"                             "$OUT"
+check  "codex-not-logged-in-hint"       "codex login"                      "$OUT"
+check  "codex-not-logged-in-review-none" "review: none:"                   "$OUT"
+[ $rc -eq 0 ] && echo "PASS codex-not-logged-in-rc0" || { echo "FAIL codex-not-logged-in-rc0 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# --- logged-in codex, cc-codex-triage not installed: the install command depends on the marketplace --
+mkenv; tool git; tool jq; ghstub "'project'"; matt_only; codexstub 0
+OUT="$(run)"; rc=$?
+check  "triage-no-marketplace-miss"     "MISS cc-codex-triage@cc-codex-triage not installed" "$OUT"
+check  "triage-no-marketplace-add"      "/plugin marketplace add clicktronix/cc-codex-triage" "$OUT"
+check  "triage-no-marketplace-install"  "/plugin install cc-codex-triage@cc-codex-triage"     "$OUT"
+absent "triage-no-marketplace-no-update" "marketplace update"              "$OUT"
+[ $rc -eq 1 ] && echo "PASS triage-logged-in-rc1" || { echo "FAIL triage-logged-in-rc1 (rc=$rc)"; fails=1; }
+marketplaces '[{"name":"cc-codex-triage","source":"github","repo":"clicktronix/cc-codex-triage"}]'
+OUT="$(run)"
+check  "triage-marketplace-configured-installs" "/plugin install cc-codex-triage@cc-codex-triage" "$OUT"
+absent "triage-marketplace-configured-no-add"   "marketplace add clicktronix"                     "$OUT"
+absent "triage-marketplace-configured-no-update" "marketplace update"                             "$OUT"
+printf '#!/bin/sh\nexit 1\n' > "$STUB/mktfail"; chmod +x "$STUB/mktfail"
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CC_TUNER_MARKETPLACE_LIST_CMD="mktfail" bash "$DOCTOR" quick 2>&1 )"
+check  "marketplace-list-failed-still-adds"     "/plugin marketplace add clicktronix/cc-codex-triage" "$OUT"
+rm -rf "$T"
+
+# --- mattpocock-skills gets the same marketplace-aware hint ---------------------------------------
+mkenv; tool git; tool jq; ghstub "'project'"; claude_plugins '[]'
+OUT="$(run)"
+check  "matt-no-marketplace-add"        "/plugin marketplace add mattpocock/skills"  "$OUT"
+check  "matt-no-marketplace-install"    "/plugin install mattpocock-skills@mattpocock" "$OUT"
+marketplaces '[{"name":"mattpocock","source":"github","repo":"mattpocock/skills"}]'
+OUT="$(run)"
+check  "matt-marketplace-configured-installs" "/plugin install mattpocock-skills@mattpocock" "$OUT"
+absent "matt-marketplace-configured-no-add"   "marketplace add mattpocock"                   "$OUT"
+rm -rf "$T"
+
+# --- triage installed but codex unusable: the bridge cannot run ----------------------------------
+mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
+OUT="$(run)"; rc=$?
+check  "triage-installed-codex-absent-warns"   "WARN cc-codex-triage@cc-codex-triage .*cannot run" "$OUT"
+absent "triage-installed-codex-absent-no-miss" "MISS"                                              "$OUT"
+[ $rc -eq 0 ] && echo "PASS triage-installed-codex-absent-rc0" || { echo "FAIL triage-installed-codex-absent-rc0 (rc=$rc)"; fails=1; }
+codexstub 1
+check  "triage-installed-not-logged-in-warns"  "WARN cc-codex-triage@cc-codex-triage .*codex login" "$(run)"
+codexstub 0
+OUT="$(run)"
+check  "triage-installed-codex-ready-ok"        "ok   cc-codex-triage@cc-codex-triage 0.10.0 (user)" "$OUT"
+absent "triage-installed-codex-ready-quiet"     "cannot run"                                        "$OUT"
+rm -rf "$T"
+
+# --- without jq the list is not read at all, and the reason is jq, not the list -------------------
+mkenv; tool git; tool python3; ghstub "'project'"; plugins_ok
+OUT="$(run)"
+check  "no-jq-names-jq-as-reason"        "companion plugin checks skipped.*jq" "$OUT"
+check  "no-jq-names-plan-restore-off"    "SessionStart plan restore"           "$OUT"
+absent "no-jq-not-a-list-failure"        "could not list installed plugins"    "$OUT"
+rm -rf "$T"
+mkenv; tool git; tool jq; ghstub "'project'"       # jq present, claude absent: the list command failed
+OUT="$(run)"
+check  "list-failure-says-list-failed"   "could not list installed plugins" "$OUT"
+absent "list-failure-does-not-blame-jq"  "SessionStart plan restore"        "$OUT"
+rm -rf "$T"
+
+# --- the host decides which CLI is checked ---------------------------------------------------------
+# github: `gh repo view` succeeds. Its auth is a blocker there and only there.
+mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
+OUT="$(run)"
+check  "host-github-detected"      "host: github" "$OUT"
+check  "host-github-checks-gh"     "ok   gh"      "$OUT"
+absent "host-github-no-glab"       "glab"         "$OUT"
+GH_AUTH_RC=1; ghstub "'project'"
+OUT="$(run)"; rc=$?
+check  "gh-unauthenticated-misses" "MISS gh is not authenticated" "$OUT"
+[ $rc -eq 1 ] && echo "PASS gh-unauthenticated-rc1" || { echo "FAIL gh-unauthenticated-rc1 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# github by its URL when gh cannot confirm it (a gh that is not logged in cannot `repo view`)
+mkenv; tool git; tool jq; GH_VIEW_RC=1; GH_AUTH_RC=1; ghstub "'project'"; plugins_ok
+( cd "$R" && git remote add origin git@github.com:acme/app.git )
+OUT="$(run)"
+check  "host-github-by-url"             "host: github"                  "$OUT"
+check  "host-github-by-url-unauth-miss" "MISS gh is not authenticated"  "$OUT"
+rm -rf "$T"
+
+# gitlab: `glab repo view` succeeds. gh and its auth are not asked about at all.
+mkenv; tool git; tool jq; GH_VIEW_RC=1; GH_AUTH_RC=1; ghstub "'project'"; glabstub; plugins_ok
+OUT="$(run)"; rc=$?
+check  "host-gitlab-detected"     "host: gitlab"             "$OUT"
+check  "host-gitlab-checks-glab"  "ok   glab"                "$OUT"
+absent "host-gitlab-no-gh-miss"   "MISS"                     "$OUT"
+absent "host-gitlab-no-gh-line"   "gh is not authenticated"  "$OUT"
+[ $rc -eq 0 ] && echo "PASS host-gitlab-rc0" || { echo "FAIL host-gitlab-rc0 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# gitlab by its URL with glab not logged in -> a WARN naming glab auth, not a blocker
+mkenv; tool git; tool jq; GH_VIEW_RC=1; GLAB_VIEW_RC=1; GLAB_AUTH_RC=1; ghstub "'project'"; glabstub; plugins_ok
+( cd "$R" && git remote add origin https://gitlab.com/acme/app.git )
+OUT="$(run)"; rc=$?
+check  "host-gitlab-by-url"        "host: gitlab"                    "$OUT"
+check  "host-gitlab-unauth-warns"  "WARN glab is not authenticated"  "$OUT"
+absent "host-gitlab-unauth-no-miss" "MISS"                           "$OUT"
+[ $rc -eq 0 ] && echo "PASS host-gitlab-unauth-rc0" || { echo "FAIL host-gitlab-unauth-rc0 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# local: no remote and no CLI that can reach one; neither CLI is mentioned, nothing blocks
+mkenv; tool git; tool jq; plugins_ok
+OUT="$(run)"; rc=$?
+check  "host-local-detected"  "host: local"  "$OUT"
+absent "host-local-no-gh"     "gh"           "$OUT"
+absent "host-local-no-glab"   "glab"         "$OUT"
+absent "host-local-no-miss"   "MISS"         "$OUT"
+[ $rc -eq 0 ] && echo "PASS host-local-rc0" || { echo "FAIL host-local-rc0 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# other: a remote neither CLI recognises and whose URL names neither host
+mkenv; tool git; tool jq; GH_VIEW_RC=1; GLAB_VIEW_RC=1; ghstub "'project'"; glabstub; plugins_ok
+( cd "$R" && git remote add origin git@git.example.org:acme/app.git )
+OUT="$(run)"; rc=$?
+check  "host-other-detected"       "host: other"            "$OUT"
+check  "host-other-needs-a-route"  "route you describe"     "$OUT"
+absent "host-other-no-miss"        "MISS"                   "$OUT"
+[ $rc -eq 0 ] && echo "PASS host-other-rc0" || { echo "FAIL host-other-rc0 (rc=$rc)"; fails=1; }
 rm -rf "$T"
 
 exit $fails
