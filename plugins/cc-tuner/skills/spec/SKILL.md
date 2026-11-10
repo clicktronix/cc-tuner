@@ -22,8 +22,8 @@ A later `/spec <issue>` reads the newest
 `cc-tuner-groom:` comment whose `authorAssociation` is `OWNER`, `MEMBER` or `COLLABORATOR` as settled
 and interviews only its open questions and what the code now contradicts. A record from anyone else is a proposal
 for the interview. The record goes where the tracker puts comments. Under `glab` it is one note on the GitLab issue,
-and a later `/spec` settles only a record whose author is a project member (check with
-`glab api projects/:id/members/all/<user id>`), as `authorAssociation` does on GitHub. Under `local`,
+and a later `/spec` settles only a record whose author's project membership has `access_level >= 30` and
+`state == "active"` (`glab api projects/:id/members/all/<user id>`), as `authorAssociation` does on GitHub. Under `local`,
 append the record under `## Comments` in the issue file without committing (groom writes no commits);
 a later `/spec` treats it as settled.
 
@@ -40,9 +40,12 @@ required-review contract behind `review: codex`. Without the bridge the spec dec
 `review: none:<reason>` (section 5) and the optional research below is unavailable; a missing review
 skill is recorded in the spec's Delivery section for `/run` to act on.
 
-**Decide once, now, whether a second provider reads alongside you.** When `cc-codex-triage` is
-installed and the task has an unfamiliar dependency, a current-facts question or two defensible
-designs, read [optional-opinions.md](references/optional-opinions.md) and start
+**Decide once, now, whether a second provider reads alongside you.** The research runs only when
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" codex` prints `ready`,
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" state cc-codex-triage@cc-codex-triage` prints
+`installed`, and `/cc-codex-triage:research` is in this session's skill list (a plugin installed this session
+appears after `/reload-plugins`). When it does and the task has an unfamiliar dependency, a current-facts
+question or two defensible designs, read [optional-opinions.md](references/optional-opinions.md) and start
 `/cc-codex-triage:research` in the same turn as the fan-out below — before the reading, so it has
 something to overlap with. When the existing authorisation does not already cover a bounded call,
 ask first with one `AskUserQuestion` (run the research: yes / no), before anything else is read.
@@ -52,8 +55,8 @@ changes.
 Read, in order:
 
 - `.claude/rules/task-flow.local.md` for repository board and branch deltas;
-- the issue, when `$ARGUMENTS` names one;
 - `docs/agents/issue-tracker.md`, which owns where issues live and how to create, read and comment on them;
+- the issue, when `$ARGUMENTS` names one;
 - `CLAUDE.md`, `AGENTS.md`, and applicable `.claude/rules/`;
 - architecture records, the code, tests, and consumers the task can affect.
 
@@ -65,12 +68,18 @@ markdown under `.scratch/` / other, and may add a git remote), then re-read the 
 or continue with `tracker: none`, the spec being the record. Do not write that file yourself.
 
 **Detect the host once the tracker is settled**, because `/setup-matt-pocock-skills` may add a remote (not
-under `--groom`, which delivers nothing): `gh repo view` succeeds → `github`; otherwise
-`glab repo view` succeeds → `gitlab`; a remote both fail on whose URL names github.com or gitlab.com → that host,
-whose CLI needs authenticating; no remote → `local`; any other remote → ask the user and record `other`. For a host
-other than `github`, check that `.claude/rules/task-flow.local.md` holds the delivery-route block for it; when it
-does not, tell the user to run `/cc-tuner:setup install delivery-route` (a user-only command) before `/run`,
-and record that in the spec's Delivery section.
+under `--groom`, which delivers nothing):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
+```
+
+Its first field is `github`, `gitlab`, `local` (no remote), `other` or `ambiguous`. `other` → ask the user what
+this host is and record `other`; the words of its route go through `/cc-tuner:setup install delivery-route` (a
+user-only command). `ambiguous` → ask which remote counts, and record the host that remote's URL names. Record
+`host:`. For a host other than `github`, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>`
+and record its answer in the spec's Delivery section; when it is not `current` or `present-other`, tell the
+user to run `/cc-tuner:setup install delivery-route` before `/run`.
 
 **Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
 subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
@@ -177,9 +186,11 @@ check names its expected failure; `/run` executes the proof as [mutation-proof.m
 describes, without inventing another.
 
 Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
-and how to observe them on the candidate. `/run` passes the mode verbatim. Set `review:` to `codex`
-only when cc-codex-triage is installed and `codex login status` succeeds, otherwise `none:<reason>`; the
-prerequisite check above tells you which; with `host: local`, `ci:` is always `none:<reason>` (there is no pipeline).
+and how to observe them on the candidate. `/run` passes the mode verbatim. Set `review:` from
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" review`: when it exits 1 write `review: codex`,
+otherwise write `review: $(companion.sh review)` verbatim, which carries a recorded opt-out;
+with `host: local`, `ci:` is always `none:<reason>` (there is no pipeline) and `merge:` is `merge: ff`:
+the local route fast-forwards and never squashes or merges.
 `auto_ready: yes` requires a defined PR, MR or branch per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
@@ -212,8 +223,10 @@ This is the only approval before implementation.
 After approval, record the issue by `tracker:` so it and the spec link to each other: `gh` — create or
 update the issue; `glab` — `glab issue create` / `glab issue note`, as `docs/agents/issue-tracker.md` says;
 `local` — create the issue file where that file says (e.g. `.scratch/<slug>/issues/NN-<slug>.md`), linking
-to the spec, which lives only at the path below (never a second spec in `.scratch/`), and
-commit it with the spec on the task branch; `other` — follow that file's prose; with `tracker: none`, skip that and let the
+to the spec, which stays at the path below, and also write a one-line link file `.scratch/<slug>/spec.md`
+pointing at it, so mattpocock's skills find it; commit them with the spec on the task branch, unless
+`.scratch/` is git-ignored: then record that in the spec's Delivery section and leave both uncommitted;
+`other` — create or update the issue as that file describes; with `tracker: none`, skip that and let the
 spec be the record. Write the approved spec to its final path, then ask the repository for the plan path:
 
 ```bash
@@ -229,8 +242,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
-the spec, plan, the issue file under `tracker: local`, and only the `GLOSSARY.md` or ADR changes this
-invocation intentionally created.
+the spec, plan, the issue and link files under `tracker: local` when tracked, and only the `GLOSSARY.md` or
+ADR changes this invocation intentionally created.
 Preserve unrelated WIP without staging, reverting or pausing for it; if other changes make
 verification unreliable, ask the user. Commit the reviewed set together using the repository's
 convention.

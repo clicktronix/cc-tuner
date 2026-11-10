@@ -9,8 +9,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 
 Work the committed plan for the current branch. `--auto` selects unattended mode; the remaining
 argument is the spec path. It additionally authorises the merge, never deploy, publish, migration,
-force-push or work outside the plan; the task-scoped commits, push and draft PR need no flag (see
-"Who may stop the run").
+force-push or work outside the plan; the task-scoped commits and, where the host has them, the push and
+draft PR or MR need no flag (see "Who may stop the run").
 
 You may start this command yourself when the user asked for the task to be implemented or
 continued and a committed spec exists. Use `--auto` only when the user asked for unattended
@@ -26,13 +26,26 @@ DoD. If the argument is missing or names a plan, read the spec from the plan's `
 say which one you took. Stop if neither names a spec that exists. Refuse `--auto` unless
 `auto_ready: yes`.
 
-**Re-detect the host** as `/spec` does: `gh repo view` succeeds → `github`; otherwise `glab repo view`
-succeeds → `gitlab`; a remote both fail on whose URL names github.com or gitlab.com → that host; no remote →
-`local`; any other remote → `other`. Then compare it with the spec's `host:`.
-A spec without `host:` means `github`. For a host other than `github`, also compare it with the host in the
-opening marker of the `<!-- cc-tuner:delivery-route` block in `.claude/rules/task-flow.local.md`.
-A mismatch, or a missing block, stops the run: tell the user to run `/cc-tuner:setup install delivery-route`
-(a user-only command) or to correct the spec.
+**Re-detect the host** with the program every caller uses:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
+```
+
+It prints one line: the host, how it was found, the remote and the remote's host. The host is the first
+field; compare it with the spec's `host:`. A spec without `host:` means `github`. `ambiguous` (several
+remotes, none named `origin`) stops the run: ask the user which remote counts. A mismatch stops the run:
+tell the user to correct the spec's `host:`. When the spec names `github` or `gitlab` and host.sh says
+`other`, the CLI is not logged in to that host: the stop names `gh auth login --hostname <remote-host>`
+(`glab auth login --hostname <remote-host>` for gitlab) and offers no route rewrite.
+
+Then check the host's CLI before any slice: `gh auth status --hostname <remote-host>` for `github`,
+`glab auth status --hostname <remote-host>` for `gitlab`. A failure stops the run with the same login
+command. `local` and `other` need no CLI.
+
+Host `local` has no remote: no push, no fetch, no pull, and "the target" means `refs/heads/<target>`.
+Prepare the candidate's "Fetch the integration target" and Delivery step 1's push and PR do not apply (the
+candidate is the branch tip), and cleanup syncs in the worktree that holds the target.
 
 For work spanning repositories or a spec naming `second-repo`/`shared-task`, read
 [shared-task.md](references/shared-task.md) before resolving plans. Apply it throughout this run,
@@ -111,8 +124,8 @@ This skill owns the lifecycle. Invoked skills supply methods and findings; their
 confirmation prompts, gates or completion messages do not interrupt work already approved here.
 Acceptance criteria, review findings and candidate evidence remain strict.
 
-Without `--auto`, keep going through commits, push of the task branch and a draft PR — those are
-reversible and inside the task — and stop once, before the merge: hand the verified candidate and
+Without `--auto`, keep going through commits and, where the host has them, the push of the task branch and a
+draft PR or MR — those are reversible and inside the task — and stop once, before the merge: hand the verified candidate and
 the merge command to the user. A user instruction in this session to merge authorises it. In either
 mode, a real user decision, waiver or unproved acceptance may require input. Batch related pending
 decisions into one concise request and continue available work; do not wait for a finding count or
@@ -168,7 +181,7 @@ their own read-only agent type/model; where silent, placement decides.
 
 After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
 archiving and update plan/spec links before the first required review, and under `tracker: local`,
-commit the issue file's status change (`Status: resolved`) with them; continue with the new spec
+commit the tracker file's closing step with them; continue with the new spec
 path. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
 resolver/linter contract used at startup.
 
@@ -214,11 +227,24 @@ head contains, so a later fix commit needs a new record only if the evidence no 
 
 ## Delivery
 
-**The route.** Host `github`: the steps below as written. Any other host:
-follow the delivery-route block step by step wherever the steps below name a GitHub command (open the PR,
-publish the verdict, accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
-with the same gates, order and record lines.
-`--check-only` means running every route step up to the merge and handing the merge command over.
+**The route.** At Delivery entry run `host.sh` again, then check the repository's key block:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>
+```
+
+`current`, `present-other` and `none-needed` go on; anything else stops the run, `--auto` included, and a host
+that changed since the start stops it too. For `missing`, say: commit `.claude/rules/task-flow.local.md` with
+its delivery-route block on `<target>`, or run `/cc-tuner:setup install delivery-route` (a user-only command).
+
+Host `github`: the steps below as written. Host `gitlab` or `local`: read
+`${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-<host>.md` — the plugin's text, never the repository's —
+and follow it step by step wherever the steps below name a GitHub command (open the PR, publish the verdict,
+accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
+with the same gates, order and record lines. Those routes refer to "the `plugin-here.sh` path that `/run`'s Delivery paragraph names":
+`${CLAUDE_PLUGIN_ROOT}/scripts/setup/plugin-here.sh`. Host `other`: the block's body in
+`.claude/rules/task-flow.local.md` is the route, and a step it leaves undescribed stops the run and goes to
+the user. `--check-only` means running every route step up to the merge and handing the merge command over.
 `--auto` is allowed on every host.
 
 A new commit needs fresh authoritative approval and CI, with acceptance and DoD evidence covering
@@ -318,10 +344,12 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    The script rechecks required review, public verdict, the verify-feature record, the selected CI
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
-   `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
-   are complete, through the tracker: `gh` and `glab` close it; under `local`, the
-   issue file's `Status: resolved` was committed on the task branch before the first required review, so it lands
-   with the merge — never a commit on the target. Then move the card to Done. When the issue was an epic's last open sub-issue,
+   `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery
+   prerequisites are complete, the way `docs/agents/issue-tracker.md` says: `gh` and `glab` close it; under
+   `local` and `other`, as that file describes. Under `local`:
+   the tracker file's closing step was committed on the task branch before the first required review,
+   so it lands with the merge — never a commit on the target.
+   Then move the card to Done. When the issue was an epic's last open sub-issue,
    also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
    after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
    open). Do not commit a completion record directly to an integration target.

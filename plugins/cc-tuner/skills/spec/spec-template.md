@@ -43,8 +43,8 @@ Reported after merge, not committed.
 ## Run config
 branch: <current task branch>
 target: <integration branch>
-host: github|gitlab|local|other — detected as doctor does; github delivers through merge.sh, every other host through the delivery-route block in .claude/rules/task-flow.local.md
-merge: squash|merge
+host: github|gitlab|local|other — from scripts/setup/host.sh; github delivers through merge.sh, every other host through /run's route for it, which route.sh check confirms the repository's key block names
+merge: squash|merge|ff — ff only with host: local (the local route fast-forwards)
 second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <contribution,
     prerequisites, merge order and why>. Omit for one repository; see ../run/references/shared-task.md
 shared-task: <primary repository, branch and spec path>. Only in the companion spec

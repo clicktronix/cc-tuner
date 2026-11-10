@@ -50,8 +50,13 @@ Before combined verification, prepare all candidates through `/run`: synchronize
 specs and update cross-repository links before any required thread is pinned. Complete `/run`'s
 Delivery steps up to the merge for each repository before the first merge. Give each required
 review its local spec, the primary spec, companion diffs and SHAs. Record each repository's PR,
-candidate SHA, review thread and CI policy in the primary PR. A changed participant requires
-rechecking combined acceptance and refreshing affected reviews against the new set of commits.
+candidate SHA, review thread and CI policy in the primary's PR or MR, or, with no remote, as an uncommitted
+note in the final report. A changed participant requires rechecking combined acceptance and refreshing
+affected reviews against the new set of commits.
+
+Each participant first runs `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"` and
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>` in its own checkout, as `/run`'s Before
+starting and Delivery entry say, since the hosts can differ.
 
 Before merging any participant, run the preflight in every candidate's checkout, using its own PR,
 SHA, strategy, CI mode and review thread:

@@ -143,6 +143,9 @@ Other hosts check the same fact. On GitLab, `glab mr view <iid>` must show state
 the local tip. With no remote, `git rev-parse refs/heads/<target>` must equal the merged head, and the local tip
 must equal it too. The route's after-merge step names the same check.
 
+On host `local` (no remote) skip `git pull` and `git fetch --prune`, and sync the target in the worktree that
+holds it (`git worktree list`).
+
 `--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
 something to look at, not to paper over with a merge commit.
 
@@ -216,7 +219,8 @@ for resume; record later DoD evidence on the PR. For shared tasks, update compan
 
 ## Pre-PR checklist
 
-- [ ] Branch is based on current `origin/<target>` (check, do not assume) and its PR is not already merged
+- [ ] Branch is based on the current target tip (`origin/<target>`, or `refs/heads/<target>` with no remote;
+      check, do not assume) and its PR is not already merged
 - [ ] Commits follow the repository's convention (Conventional Commits by default, required where release
       notes are generated), `!`/`BREAKING CHANGE:` where applicable
 - [ ] Issue is linked (`Closes #N` / `Refs #N`), or the PR explains why none is needed; when a board
