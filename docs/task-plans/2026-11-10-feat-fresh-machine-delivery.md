@@ -77,9 +77,11 @@ Owned paths: plugins/cc-tuner/scripts/setup/companion.sh,plugins/cc-tuner/script
 Deciding check: bash plugins/cc-tuner/tests/setup/test_companion.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/setup/test_prereq.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: doctor, prereq-check and the companions node give one answer per companion — installed, disabled (enable), absent (install / marketplace add), conflicting marketplace (stop) — and a user can decline Codex review per repository without a permanent MISS
 
-- [ ] companion.sh owns the table, state, hint, codex state and opt-out; install-hint.sh is gone and no caller restates its rules
-- [ ] a same-named marketplace from another repo is a stop that names both sources
-- [ ] the companions node asks per plugin with sources shown, records the opt-out, declares its settings.json write, runs after 0b and before node 4; node 7 and /spec research are gated on a usable, loaded bridge
+- [x] companion.sh owns the table, state, hint, codex state and opt-out; install-hint.sh is gone and no caller restates its rules
+- [x] a same-named marketplace from another repo is a stop that names both sources
+- [x] the companions node asks per plugin with sources shown, records the opt-out, declares its settings.json write, runs after 0b and before node 4; node 7 and /spec research are gated on a usable, loaded bridge
+
+Evidence: test_companion.sh && test_doctor.sh && test_prereq.sh && test_contract.sh → 68 / 210 / 59 / 303 PASS, rc=0 (RED first: FAIL table-rc0, FAIL optout-rc0, FAIL install-hint-script-is-gone) @ c6fba75; plugin-here.sh default output identical to origin/main
 
 ## Slice 7 — the route text comes from the plugin; the repo keeps a checked key block
 Blocked by: 6

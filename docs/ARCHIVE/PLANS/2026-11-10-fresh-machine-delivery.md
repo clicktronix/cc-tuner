@@ -155,7 +155,7 @@ mattpocock's file).
 - [x] [machine] `host.sh` classifies without network: exact URL host, SSH alias via `ssh -G`, configured
   gh/glab hosts, origin-or-only-remote, ambiguous, local, other with the login hint — checked by:
   `bash plugins/cc-tuner/tests/setup/test_host.sh`
-- [ ] [machine] `companion.sh` answers state (installed/disabled/absent/unknown with the scope rule of
+- [x] [machine] `companion.sh` answers state (installed/disabled/absent/unknown with the scope rule of
   plugin-here.sh), hint (enable, install, marketplace add, stop on a same-named marketplace from another
   repo), codex state and the opt-out; doctor and prereq-check call it — checked by:
   `bash plugins/cc-tuner/tests/setup/test_companion.sh`
