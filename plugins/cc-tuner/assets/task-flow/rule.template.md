@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.23.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.22.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -15,8 +15,6 @@ Procedures — board recipes, epics, cleanup, merge strategies, release notes �
   unrelated WIP reach a commit.
 - **`--amend` after a hook rejected the commit.** That commit did not happen, so `--amend` rewrites
   the *previous* one and destroys work. Fix, re-stage, commit again.
-- **Merge outside the delivery route.** Outside GitHub, deliver only by the delivery-route block in
-  `task-flow.local.md`: a web merge skips it.
 - **Commit directly to the repository's integration target.** Resolve it from repo policy or the
   remote default branch, then branch first: `git switch -c <branch>`. On the target with uncommitted
   work: stash → branch → pop.

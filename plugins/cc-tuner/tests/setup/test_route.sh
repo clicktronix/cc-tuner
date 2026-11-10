@@ -224,4 +224,80 @@ ERR="$(bash "$ROUTE" write local "$R/.claude/rules/nope.md" 2>&1 >/dev/null)"
 has "missing-file-refusal-names-the-node" "task-flow rule node" "$ERR"
 eq "no-file-was-created-by-a-refused-write" "task-flow.local.md" "$(ls -A "$R/.claude/rules")"
 
+# --- the route texts: record lines are the forms merge.sh accepts, and the commands keep them literal ---
+# The routes are /run references read from the plugin (skills/run/references/route-<host>.md). Outside
+# GitHub nothing refuses a malformed record, so the lines the routes teach are held to the forms merge.sh
+# matches. Those forms are restated below with the merge.sh lines they come from; the guard right after
+# fails when merge.sh changes one, so this list cannot drift silently. merge.sh is not modified here.
+MERGE="$PLUGIN/scripts/merge.sh"
+for frag in \
+  'def verdict: test("^cc-tuner-verdict: (APPROVE|REQUEST_CHANGES) " + $sha + "$");' \
+  'def accepted: $mode == "none" and test("^cc-tuner-accepted: " + $sha + " \\S");' \
+  'test("^cc-tuner-verified: [0-9a-f]{40}( |$)")' \
+  "grep -E '\\[(browser|api|test|cli)\\]|NOT PROVED'" \
+  'test("^cc-tuner-local-ci: " + $sha + " \\S.*$")'; do
+  if grep -qF -- "$frag" "$MERGE"; then pass "merge-sh-still-has-the-form"; else fail "merge-sh-still-has-the-form" "$frag"; fi
+done
+SHA=0123456789abcdef0123456789abcdef01234567
+for host in gitlab local; do
+  REFFILE="$PLUGIN/skills/run/references/route-$host.md"
+  [ -f "$REFFILE" ] || { fail "route-reference-$host-exists" "$REFFILE"; continue; }
+  # the record templates: the lines of the first fenced block that start with cc-tuner-
+  TEMPLATES="$(sed -n '/^```text$/,/^```$/p' "$REFFILE" | grep '^cc-tuner-')"
+  eq "route-$host-teaches-four-records" 4 "$(printf '%s\n' "$TEMPLATES" | grep -c '')"
+  FILLED="$(printf '%s\n' "$TEMPLATES" | sed -e 's/<APPROVE|REQUEST_CHANGES>/APPROVE/' -e "s/<full sha>/$SHA/g" -e "s/<head sha>/$SHA/g" \
+    -e 's/<command and result>/make test: 41 passed/' -e 's/<who>: <what>/Vlad: accepted the open nit/')"
+  lacks "route-$host-templates-have-no-placeholder-left" "<" "$FILLED"
+  while IFS= read -r line; do
+    case "$line" in
+      cc-tuner-verdict:*)  [[ "$line" =~ ^cc-tuner-verdict:\ (APPROVE|REQUEST_CHANGES)\ $SHA$ ]] && pass "route-$host-verdict-form" || fail "route-$host-verdict-form" "$line" ;;
+      cc-tuner-verified:*) [[ "$line" =~ ^cc-tuner-verified:\ [0-9a-f]{40}(\ |$) ]]               && pass "route-$host-verified-form" || fail "route-$host-verified-form" "$line" ;;
+      cc-tuner-local-ci:*) [[ "$line" =~ ^cc-tuner-local-ci:\ $SHA\ [^[:space:]] ]]               && pass "route-$host-local-ci-form" || fail "route-$host-local-ci-form" "$line" ;;
+      cc-tuner-accepted:*) [[ "$line" =~ ^cc-tuner-accepted:\ $SHA\ [^[:space:]] ]]               && pass "route-$host-accepted-form" || fail "route-$host-accepted-form" "$line" ;;
+      *) fail "route-$host-unknown-record-line" "$line" ;;
+    esac
+  done <<EOF
+$FILLED
+EOF
+  for tag in '[browser]' '[api]' '[test]' '[cli]' 'NOT PROVED'; do
+    has "route-$host-names-criterion-tag" "$tag" "$(cat "$REFFILE")"
+  done
+done
+
+# gitlab: the publish command, extracted from the reference and run against a stub glab, passes a hostile
+# record through as one literal argument and runs nothing in it
+HOSTILE='criterion `touch pwned` and $(touch pwned2) and "quotes"'
+mkdir -p "$T/bin" "$T/work"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > "%s/glab-argv"\n' "$T" > "$T/bin/glab"; chmod +x "$T/bin/glab"
+printf 'cc-tuner-verified: %s\n[test] %s\n' "$SHA" "$HOSTILE" > "$T/rec"
+CMD="$(grep -m1 '^glab mr note create' "$PLUGIN/skills/run/references/route-gitlab.md" | sed 's/<iid>/7/')"
+has "route-gitlab-publish-command-found" "--message" "$CMD"
+( cd "$T/work" && PATH="$T/bin:$PATH" REC="$T/rec" bash -c "$CMD" )
+eq "route-gitlab-publish-passes-the-record-literally" "$(cat "$T/rec")" "$(tail -n 2 "$T/glab-argv")"
+eq "route-gitlab-publish-runs-nothing-in-the-record" "" "$(ls "$T/work")"
+eq "route-gitlab-publish-has-no-resolvable-thread" 1 "$(grep -c '^--resolvable=false$' "$T/glab-argv")"
+
+# local: the append command from the reference, run twice, leaves two paragraphs in one note; the lookup
+# from the reference finds the records on the commits the candidate adds, and the hostile text stays text
+rm -rf "$T/lrepo"; mkdir -p "$T/lrepo"
+( cd "$T/lrepo" && git init -q -b main && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m base \
+  && git switch -q -c feature && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m work )
+HEAD_SHA="$(git -C "$T/lrepo" rev-parse HEAD)"
+APPEND="$(grep -m1 '^git notes --ref cc-tuner append' "$PLUGIN/skills/run/references/route-local.md" | sed "s/<judged sha>/$HEAD_SHA/")"
+has "route-local-append-command-found" "append -F" "$APPEND"
+printf 'cc-tuner-verdict: REQUEST_CHANGES %s\n' "$HEAD_SHA" > "$T/rec1"
+printf 'cc-tuner-verdict: APPROVE %s\n%s\n' "$HEAD_SHA" "$HOSTILE" > "$T/rec2"
+( cd "$T/lrepo" && GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t REC="$T/rec1" bash -c "$APPEND" && GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t REC="$T/rec2" bash -c "$APPEND" )
+eq "route-local-append-keeps-the-record-literally" "$(cat "$T/rec2")" "$(git -C "$T/lrepo" notes --ref cc-tuner show "$HEAD_SHA" | tail -n 2)"
+eq "route-local-append-runs-nothing-in-the-record" "" "$(ls "$T/lrepo")"
+eq "route-local-two-appends-are-two-paragraphs" 1 "$(git -C "$T/lrepo" notes --ref cc-tuner show "$HEAD_SHA" | grep -c '^$')"
+LOOKUP="$(sed -n 's/.*`\(git log --notes=cc-tuner[^`]*\)`.*/\1/p' "$PLUGIN/skills/run/references/route-local.md" | head -n 1 | sed 's/<target>\.\.<candidate>/main..feature/')"
+has "route-local-lookup-command-found" "--notes=cc-tuner" "$LOOKUP"
+LOOKED="$( cd "$T/lrepo" && eval "$LOOKUP" )"
+has "route-local-lookup-finds-the-head-commit" "$HEAD_SHA" "$LOOKED"
+has "route-local-lookup-finds-the-last-record" "cc-tuner-verdict: APPROVE $HEAD_SHA" "$LOOKED"
+# the last matching paragraph wins: read the note the way the reference says
+LAST="$(git -C "$T/lrepo" notes --ref cc-tuner show "$HEAD_SHA" | sed -n '/^$/,$p' | sed -n '2p')"
+eq "route-local-last-paragraph-wins" "cc-tuner-verdict: APPROVE $HEAD_SHA" "$LAST"
+
 exit $fails

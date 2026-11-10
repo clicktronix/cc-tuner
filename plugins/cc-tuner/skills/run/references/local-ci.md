@@ -19,11 +19,16 @@ policy about which workflows to run; CI dispatch does not authorize deployment o
 For `none`, publish the actual local result before preflight/merge:
 
 ```bash
-gh pr comment <pr> --body "cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>"
+REC=$(mktemp) && cat > "$REC" <<'EOF'
+cc-tuner-local-ci: <candidate-sha> <the command that ran, and what it returned>
+EOF
+gh pr comment <pr> --body-file "$REC"
 ```
 
-Use a comment: `gh pr edit --body` replaces the description. The script checks the record but does
-not rerun its command.
+Write the record to a file, with a quoted heredoc, and publish it with `--body-file`: the result text often
+holds backticks or `$(...)`, which a double-quoted `--body "..."` would run. Use a comment: `gh pr edit --body`
+replaces the description. The script checks the record but does not rerun its command.
 
-On a host other than GitHub the `cc-tuner-local-ci` record goes where the delivery-route block says: an
-MR note on GitLab, a git note on the head commit with no remote; with host `local`, `ci:` is always `none:<reason>`.
+On a host other than GitHub the `cc-tuner-local-ci` record goes where the host's route reference says
+(`route-gitlab.md`: an MR note; `route-local.md`: a git note on the head commit), also published from a file;
+with host `local`, `ci:` is always `none:<reason>`.
