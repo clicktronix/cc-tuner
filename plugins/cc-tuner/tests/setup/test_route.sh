@@ -341,4 +341,18 @@ plugin_list '[{"id":"cc-tuner@cc-tuner","scope":"user","enabled":false,"installP
 OUT="$(resolve A=1)"
 has "plugin-root-none-applicable-is-an-error" "Could not locate the cc-tuner plugin" "$OUT"
 
+# A block or the legacy header on line 1 made write call `head -n 0`, which BSD head rejects on stderr
+# ("illegal line count -- 0") while GNU head accepts it, so only macOS showed the noise.
+LINE1="$(mktemp -d "${TMPDIR:-/tmp}/cc-tuner-line1.XXXXXX")"
+bash "$ROUTE" canonical local > "$LINE1/block-first.md"
+printf '%s\n' "trailing delta" >> "$LINE1/block-first.md"
+ERR="$(bash "$ROUTE" write gitlab "$LINE1/block-first.md" 2>&1 >/dev/null)"
+eq "write-block-on-line-1-has-no-stderr" "" "$ERR"
+printf '%s\n' "<!-- Overrides and additions to task-flow.md live here; setup never touches this file." \
+  "     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->" > "$LINE1/header-first.md"
+ERR="$(bash "$ROUTE" write local "$LINE1/header-first.md" 2>&1 >/dev/null)"
+eq "write-legacy-header-on-line-1-has-no-stderr" "" "$ERR"
+lacks "legacy-header-on-line-1-replaced" "setup never touches this file" "$(cat "$LINE1/header-first.md")"
+rm -rf "$LINE1"
+
 exit $fails

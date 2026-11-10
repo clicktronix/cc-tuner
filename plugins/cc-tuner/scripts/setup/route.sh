@@ -130,6 +130,10 @@ cmd_check() {
 SCRATCH=""
 cleanup() { if [ -n "$SCRATCH" ]; then rm -rf "$SCRATCH"; fi; if [ -n "${FINAL:-}" ]; then rm -f "$FINAL"; fi; }
 
+# lines_before <n> <file>: the first n lines. BSD head rejects `-n 0` with an error on stderr, and a
+# block or legacy header on line 1 asks for exactly zero lines.
+lines_before() { if [ "$1" -gt 0 ]; then head -n "$1" "$2"; fi; }
+
 cmd_write() {
   local host="${1:-}" file="${2:-}" body="${3:-}" dir
   case "$host" in
@@ -178,7 +182,7 @@ cmd_write() {
     if [ "$(sed -n "${so},${sc}p" "$S")" = "$(cat "$NEW")" ]; then
       cp "$file" "$B" || fail "cannot read $file"
     else
-      { head -n $((so - 1)) "$file"; cat "$NEW"; tail -n +$((sc + 1)) "$file"; } > "$B" || fail "cannot build the new $file"
+      { lines_before $((so - 1)) "$file"; cat "$NEW"; tail -n +$((sc + 1)) "$file"; } > "$B" || fail "cannot build the new $file"
     fi
   else
     { cat "$file"
@@ -198,7 +202,7 @@ cmd_write() {
     next=""
   fi
   if [ -n "$L" ] && [ "$next" = "$LEGACY_NEXT" ]; then
-    { head -n $((L - 1)) "$B"; header; tail -n +$((L + 2)) "$B"; } > "$C" || fail "cannot rewrite the header of $file"
+    { lines_before $((L - 1)) "$B"; header; tail -n +$((L + 2)) "$B"; } > "$C" || fail "cannot rewrite the header of $file"
   else
     cp "$B" "$C" || fail "cannot build the new $file"
   fi
