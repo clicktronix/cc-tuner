@@ -65,9 +65,11 @@ Owned paths: plugins/cc-tuner/scripts/setup/host.sh,plugins/cc-tuner/scripts/set
 Deciding check: bash plugins/cc-tuner/tests/setup/test_host.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh
 Delivers: doctor (and later /spec, /run, setup) learn the host from one offline program that resolves SSH aliases and configured hosts, and a missing or unauthenticated host CLI is a MISS on github and gitlab
 
-- [ ] host.sh prints host, via, remote and remote host; origin-or-only-remote; ambiguous; exact URL host parse; ssh -G alias; gh/glab configured hosts; local; other with the login hint; no network
-- [ ] doctor calls host.sh and checks only that host's CLI; missing/unauthenticated gh or glab, or glab without mr merge --sha/--auto-merge, is MISS; install hints are platform-neutral
-- [ ] doctor's untested host branches (review H8) each have a case
+- [x] host.sh prints host, via, remote and remote host; origin-or-only-remote; ambiguous; exact URL host parse; ssh -G alias; gh/glab configured hosts; local; other with the login hint; no network
+- [x] doctor calls host.sh and checks only that host's CLI; missing/unauthenticated gh or glab, or glab without mr merge --sha/--auto-merge, is MISS; install hints are platform-neutral
+- [x] doctor's untested host branches (review H8) each have a case
+
+Evidence: bash plugins/cc-tuner/tests/setup/test_host.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh → 45 PASS / 185 PASS, rc=0 (RED first: 41 FAILs each, e.g. FAIL gh-missing-misses) @ e0e70c6
 
 ## Slice 6 — one owner of companion facts, per-plugin choice and the Codex opt-out
 Blocked by: 5

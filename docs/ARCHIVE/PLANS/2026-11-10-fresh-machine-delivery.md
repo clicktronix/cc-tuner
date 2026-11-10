@@ -152,7 +152,7 @@ mattpocock's file).
   route and stops when the block is missing or the host differs; shared-task names the per-host
   preflight; README no longer claims standalone operation without mattpocock-skills — checked by:
   `test_contract.sh`
-- [ ] [machine] `host.sh` classifies without network: exact URL host, SSH alias via `ssh -G`, configured
+- [x] [machine] `host.sh` classifies without network: exact URL host, SSH alias via `ssh -G`, configured
   gh/glab hosts, origin-or-only-remote, ambiguous, local, other with the login hint — checked by:
   `bash plugins/cc-tuner/tests/setup/test_host.sh`
 - [ ] [machine] `companion.sh` answers state (installed/disabled/absent/unknown with the scope rule of
