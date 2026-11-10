@@ -58,3 +58,43 @@ Delivers: in a GitLab or remote-less repository `/spec` records `host:` and the 
 - [x] both READMEs describe the host routes and no longer claim standalone operation without mattpocock-skills; rule.template.md version marker bumped
 
 Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 295 PASS, rc=0 (RED first: 70 FAILs, e.g. spec-template-host-field) @ 699031c + invariant fix
+
+## Slice 5 — one offline owner of host detection
+Blocked by: 4
+Owned paths: plugins/cc-tuner/scripts/setup/host.sh,plugins/cc-tuner/scripts/setup/doctor.sh,plugins/cc-tuner/tests/setup/test_host.sh,plugins/cc-tuner/tests/setup/test_doctor.sh
+Deciding check: bash plugins/cc-tuner/tests/setup/test_host.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh
+Delivers: doctor (and later /spec, /run, setup) learn the host from one offline program that resolves SSH aliases and configured hosts, and a missing or unauthenticated host CLI is a MISS on github and gitlab
+
+- [ ] host.sh prints host, via, remote and remote host; origin-or-only-remote; ambiguous; exact URL host parse; ssh -G alias; gh/glab configured hosts; local; other with the login hint; no network
+- [ ] doctor calls host.sh and checks only that host's CLI; missing/unauthenticated gh or glab, or glab without mr merge --sha/--auto-merge, is MISS; install hints are platform-neutral
+- [ ] doctor's untested host branches (review H8) each have a case
+
+## Slice 6 — one owner of companion facts, per-plugin choice and the Codex opt-out
+Blocked by: 5
+Owned paths: plugins/cc-tuner/scripts/setup/companion.sh,plugins/cc-tuner/scripts/setup/install-hint.sh,plugins/cc-tuner/scripts/setup/plugin-here.sh,plugins/cc-tuner/scripts/setup/doctor.sh,plugins/cc-tuner/scripts/setup/prereq-check.sh,plugins/cc-tuner/skills/setup,plugins/cc-tuner/tests/setup/test_companion.sh,plugins/cc-tuner/tests/setup/test_doctor.sh,plugins/cc-tuner/tests/setup/test_prereq.sh,plugins/cc-tuner/tests/contract/test_contract.sh
+Deciding check: bash plugins/cc-tuner/tests/setup/test_companion.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/setup/test_prereq.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
+Delivers: doctor, prereq-check and the companions node give one answer per companion — installed, disabled (enable), absent (install / marketplace add), conflicting marketplace (stop) — and a user can decline Codex review per repository without a permanent MISS
+
+- [ ] companion.sh owns the table, state, hint, codex state and opt-out; install-hint.sh is gone and no caller restates its rules
+- [ ] a same-named marketplace from another repo is a stop that names both sources
+- [ ] the companions node asks per plugin with sources shown, records the opt-out, declares its settings.json write, runs after 0b and before node 4; node 7 and /spec research are gated on a usable, loaded bridge
+
+## Slice 7 — the route text comes from the plugin; the repo keeps a checked key block
+Blocked by: 6
+Owned paths: plugins/cc-tuner/skills/run/references/route-gitlab.md,plugins/cc-tuner/skills/run/references/route-local.md,plugins/cc-tuner/skills/run/references/local-ci.md,plugins/cc-tuner/assets/task-flow,plugins/cc-tuner/scripts/setup/route.sh,plugins/cc-tuner/scripts/setup/doctor.sh,plugins/cc-tuner/skills/setup,plugins/cc-tuner/tests/setup/test_route.sh,plugins/cc-tuner/tests/setup/test_doctor.sh,plugins/cc-tuner/tests/contract/test_contract.sh
+Deciding check: bash plugins/cc-tuner/tests/setup/test_route.sh && bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
+Delivers: setup writes a short key block that route.sh check accepts, doctor and /run reject any drift, and /run follows a route text in the plugin that fixes every route defect deep-review found
+
+- [ ] route.sh write → route.sh check → doctor round trip passes; check reports missing, mismatch, drift, malformed, stale-on-github, CRLF-safe; legacy header replaced; outside text untouched
+- [ ] route references fix R3–R6 and R9–R14 and their record lines match merge.sh's accepted forms
+- [ ] assets/task-flow/route-*.md are gone and rule.template.md equals origin/main; the template word ceiling is back to 650
+- [ ] delivery-route.md drives route.sh instead of inline bash; the plugin-root fallback resolves through plugin-here.sh in every setup reference
+
+## Slice 8 — skills and READMEs follow host.sh, route.sh and companion.sh
+Blocked by: 7
+Owned paths: plugins/cc-tuner/skills/spec,plugins/cc-tuner/skills/run/SKILL.md,plugins/cc-tuner/skills/run/references/shared-task.md,plugins/cc-tuner/skills/task-flow,plugins/cc-tuner/skills/verify-feature,plugins/cc-tuner/README.md,README.md,plugins/cc-tuner/tests/contract/test_contract.sh
+Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
+Delivers: /spec and /run detect the host with host.sh, check the route with route.sh at start and at Delivery, read the route from the plugin, and say what a remote-less repository does instead of push/fetch/pull
+
+- [ ] review items S1–S9 are fixed in the skills and READMEs
+- [ ] the contract suite keeps command, marker and order pins and drops the generic-substring pins (S10)

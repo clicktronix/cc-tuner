@@ -21,36 +21,48 @@ guessing:
                                         (unchanged); any other host → the route
 ```
 
-**Host.** Detected by the CLI that can reach the remote, so SSH aliases resolve on their own:
-`github` when `gh repo view` succeeds, `gitlab` when `glab repo view` succeeds; a remote both fail on
-whose URL names github.com/gitlab.com counts as that host with a WARN that its CLI is not
-authenticated; no remote at all → `local`; any other remote → ask the user (their answer is `other`
-plus the route they describe). `/spec` detects after `/setup-matt-pocock-skills` (which may add a
-remote) and records `host:` in Run config. `/run` re-detects before delivery and stops when the
-result differs from `host:` or from the route block's host.
+**Host.** One program owns it, `scripts/setup/host.sh`, and doctor, `/spec`, `/run` and setup call
+it instead of restating the rule (deep-review H1). It is offline: the remote is `origin`, or the only
+remote; several remotes and no `origin` is `ambiguous` and the caller asks. The remote's host is parsed
+exactly from the URL (scp-like, `ssh://`, `https://`), an SSH alias is resolved with `ssh -G`, and the
+host is `github` for github.com or a host `gh` is configured for, `gitlab` for gitlab.com or a host
+`glab` is configured for; no remote → `local`; anything else → `other`, with the
+`gh/glab auth login --hostname <host>` hint. The CLI of the detected host is then checked: missing,
+unauthenticated, or (glab) lacking `mr merge --sha/--auto-merge` is a `MISS` on both github and gitlab,
+because delivery cannot run without it. `/spec` detects after `/setup-matt-pocock-skills` (which may
+add a remote) and records `host:`; `/run` re-detects before starting and at Delivery entry and stops
+on a mismatch, naming the CLI login when that is the cause.
 
-**Delivery route.** For `github` nothing is written: the route is `merge.sh`, unchanged. For other
-hosts the delivery-route setup node copies a plugin asset into `task-flow.local.md` between
-`<!-- cc-tuner:delivery-route <host> vX.Y.Z -->` and `<!-- /cc-tuner:delivery-route -->`; doctor
-compares the block with the asset and WARNs on drift; a re-run shows the diff and asks. `other` is
-written from the user's own words and never compared. The comment setup puts at the top of a new
-`task-flow.local.md` changes from "setup never touches this file" to "setup writes only between
-cc-tuner markers". Every route keeps the GitHub gate's order and records — verify → review →
-verdict → CI → pinned merge; `cc-tuner-verdict`, `-verified`, `-local-ci`, `-accepted` — and its
-first line says these are steps the agent performs, not a script that refuses.
+**Delivery route.** For `github` the route is `merge.sh`, unchanged. For the other hosts the route
+text is a plugin reference that `/run` reads from the plugin at Delivery —
+`skills/run/references/route-gitlab.md`, `route-local.md` — never a copy the candidate can edit
+(deep-review R1–R3). The repository holds only a short key block in `.claude/rules/task-flow.local.md`,
+written and checked by `scripts/setup/route.sh write|check`:
+`<!-- cc-tuner:delivery-route <host> -->`, one line saying delivery goes only by `/cc-tuner:run`'s
+route for that host and never by a web or bare CLI merge, and `<!-- /cc-tuner:delivery-route -->`.
+For `other` the block body is the user's own description and is the route. `route.sh check` reports
+current, missing, host mismatch, drift, malformed and a stale block on a github host; `/run` stops on
+anything but current, and the block is committed with `task-flow.local.md` so task worktrees have it.
+`route.sh write` also replaces the legacy "setup never touches this file" header. Every route keeps the
+GitHub gate's order and records — verify → review → verdict → CI → pinned merge;
+`cc-tuner-verdict`, `-verified`, `-local-ci`, `-accepted` — publishes records from a file, never through
+a double-quoted string, treats a failing step as a stop, and says these are steps the agent performs.
 
-- `route-gitlab.md`: `glab mr create --draft`; records as MR notes; only notes whose author is
-  `glab api user` count; latest record about the head wins; under `review: codex`,
-  `review-state.sh check <thread>` must print the APPROVE marker for the head; the verify record's SHA
-  must be an ancestor of the head; CI from the MR `head_pipeline`, which must belong to the current
-  head (merged-results pipelines included); `merge-base --is-ancestor <target tip> <head>` before
-  merging; `glab mr update --ready`; `glab mr merge <iid> --sha <head> --auto-merge=false --yes
-  [--squash]`; after-merge cleanup keyed on the merged head.
-- `route-local.md`: records as `git notes --ref cc-tuner append` on the judged SHA, latest wins;
-  `ci: none:<reason>` with a `cc-tuner-local-ci` note; the target tip must be an ancestor of the
-  candidate; merge only `--ff-only`, in a clean worktree that has the target checked out, or by
-  `git update-ref refs/heads/<target> <candidate> <old tip>` when no worktree has it; a dirty target
-  worktree hands the merge to the user; no squash commit is ever made on the target.
+- gitlab: `glab mr create --draft --target-branch <target> --source-branch <branch>`; MR notes read
+  with `sort=asc&order_by=created_at`, system notes excluded, only the authenticated username's
+  (`glab api user | jq -r .username`), latest by `created_at` wins; the MR's `target_branch`,
+  `source_branch` and project ids must match the spec; under `review: codex`, the 7-field
+  `review-state.sh check` marker with `head=` equal to the MR sha and the worktree HEAD; verify-record
+  ancestry; `head_pipeline` of the current head and the target project, status `success`; required
+  approvals read from `.../approvals` — when not approved, stop and ask a human, under `--auto` too;
+  target-tip ancestry from the MR's `target_branch`; `glab mr merge <iid> --sha <head>
+  --auto-merge=false --yes [--squash]`; the hand-over is the whole final step, not the merge line.
+- local: records as `git notes --ref cc-tuner append -F <file>` paragraphs, last matching wins,
+  ancestors found with `git log --notes=cc-tuner`; the merge decision is the verdict made in this
+  session and the notes are its audit trail; `ci: none:<reason>`; no push, fetch or pull; the target is
+  `refs/heads/<target>`; merge only fast-forward (`--ff-only` in a clean target worktree, or
+  `git update-ref` compare-and-swap when none has it); a dirty target worktree hands the merge over;
+  no squash or merge commit on the target, so `/spec` writes `merge: ff`.
 
 `/run --auto` is allowed on every host; outside GitHub it follows the route unattended.
 Shared-task preflight: `merge.sh --check-only` for GitHub candidates, every route step up to the
@@ -69,14 +81,21 @@ under `## Comments` without committing. `--groom` under `glab` posts an MR/issue
 missing, then `claude plugin marketplace add <source>` + `claude plugin install <id>` (user scope),
 verified with `claude plugin list --json`, then "run `/reload-plugins` or restart". mattpocock-skills
 is always offered (required by `/spec` and `/run`); cc-codex-triage only when `codex` is on PATH and
-`codex login status` succeeds; otherwise it is optional and specs use `review: none:<reason>`.
+`codex login status` succeeds; otherwise it is optional and specs use `review: none:<reason>`. The
+confirmation is per plugin (multiSelect) and shows each source; declining cc-codex-triage records a
+per-repository opt-out that doctor and prereq-check report as a NOTE and `/spec` turns into
+`review: none:<reason>`. `scripts/setup/companion.sh` owns the companion table, the codex state, the
+opt-out and the hint (install, marketplace add, `enable` for a disabled copy, a stop when a
+same-named marketplace comes from another repo); it replaces `install-hint.sh` (deep-review C1–C4).
 Fallbacks: no `claude` on PATH → print the `/plugin …` commands for the user; no jq → "cannot tell
 what is installed", install nothing; installed but disabled → `claude plugin enable`. Versions are
 not pinned. New node **delivery route** after the task-flow rule (above).
 
 Rejected: host adapters inside `merge.sh` (the user's agent runs `glab`/`git` from a written route);
-a live GitLab test (the user's agent exercises the route in their own repository); referencing the
-asset instead of copying it (the user chose a self-contained copy plus a drift check); GitLab boards
+a live GitLab test (the user's agent exercises the route in their own repository); a full copy of the
+route in `task-flow.local.md` (chosen first, reversed after deep-review: always-loaded, editable by the
+candidate it gates, and `${CLAUDE_PLUGIN_ROOT}` does not expand there); a line in the always-on
+`rule.template.md` (it would load in every GitHub repository); GitLab boards
 (`board: none` outside GitHub); cc-tuner writing `docs/agents/issue-tracker.md` (a second owner of
 mattpocock's file).
 
@@ -88,8 +107,8 @@ mattpocock's file).
   `MISS` on any host (`doctor.sh:143`); `/run` Delivery assumes `gh` unconditionally.
 - [x] Scope: `scripts/setup/{doctor,prereq-check}.sh`; skills `setup` (+ references), `spec`
   (+ template), `run` (+ `local-ci.md`, `shared-task.md`), `verify-feature`, `task-flow`; new
-  `assets/task-flow/route-{gitlab,local}.md`; `assets/task-flow/rule.template.md` (+ its version
-  marker); both READMEs; `tests/setup/*`, `tests/contract/test_contract.sh`. Out of scope: `merge.sh`
+  `scripts/setup/{host,companion,route}.sh` and `skills/run/references/route-{gitlab,local}.md`
+  (after deep-review; `install-hint.sh` is replaced); both READMEs; `tests/setup/*`, `tests/contract/test_contract.sh`. Out of scope: `merge.sh`
   (unchanged), GitLab boards, agent teams / cross-session messaging, SessionStart's landed-plan test
   in remote-less repos (`session-start.sh:78`), the uncommitted statusline work on
   `feat/statusline-subagent-models`.
@@ -111,18 +130,19 @@ mattpocock's file).
 - [x] [machine] Without jq, doctor names jq as the reason companion checks were skipped and says the
   SessionStart plan restore is off; "could not list installed plugins" appears only when the list
   command itself failed — checked by: `test_doctor.sh`
-- [x] [machine] doctor prints the detected host: `gh` and its auth are checked (and an
-  unauthenticated `gh` is a `MISS`) only for `github`, `glab` and its auth only for `gitlab`; for
-  `gitlab`, `local` and `other` it reports whether the delivery-route block exists and matches its
-  asset (WARN with `/cc-tuner:setup install delivery-route` when missing or drifted) — checked by: `test_doctor.sh`
+- [ ] [machine] doctor prints the host `host.sh` detected; the CLI of that host is checked, and a missing
+  or unauthenticated `gh` (github) or `glab` (gitlab, also one lacking `mr merge --sha/--auto-merge`)
+  is a `MISS`; no other host's CLI is checked; for gitlab, local and other it prints what
+  `route.sh check` reports (WARN with `/cc-tuner:setup install delivery-route` unless current) —
+  checked by: `test_doctor.sh`
 - [x] [machine] prereq-check without a usable `codex`: the missing bridge is a `NOTE` (review: none),
   exit 0 when mattpocock-skills is complete — checked by: `test_prereq.sh`
 - [x] [machine] `merge.sh` and its suite are untouched — checked by:
   `git diff --exit-code origin/main -- plugins/cc-tuner/scripts/merge.sh plugins/cc-tuner/tests/flow/test_merge.sh`
-- [x] [machine] `route-gitlab.md` names the author filter (`glab api user`), `review-state.sh check`,
+- [ ] [machine] `skills/run/references/route-gitlab.md` names the author filter (`glab api user | jq -r .username`, notes `sort=asc`), `review-state.sh check`,
   the verify-record ancestry, `head_pipeline` at the current head, the target-tip ancestry check,
   `glab mr merge` with `--sha` and `--auto-merge=false`, and the four record lines; `route-local.md`
-  names `git notes --ref cc-tuner append`, `ci: none`, the ancestry check, `--ff-only`, the
+  names `git notes --ref cc-tuner append -F`, `ci: none`, the ancestry check, `--ff-only`, the
   `update-ref` compare-and-swap, the dirty-worktree hand-off and "no squash" — checked by:
   `bash plugins/cc-tuner/tests/contract/test_contract.sh`
 - [x] [machine] setup has the companions node (with its three fallbacks and the codex-login gate)
@@ -132,6 +152,20 @@ mattpocock's file).
   route and stops when the block is missing or the host differs; shared-task names the per-host
   preflight; README no longer claims standalone operation without mattpocock-skills — checked by:
   `test_contract.sh`
+- [ ] [machine] `host.sh` classifies without network: exact URL host, SSH alias via `ssh -G`, configured
+  gh/glab hosts, origin-or-only-remote, ambiguous, local, other with the login hint — checked by:
+  `bash plugins/cc-tuner/tests/setup/test_host.sh`
+- [ ] [machine] `companion.sh` answers state (installed/disabled/absent/unknown with the scope rule of
+  plugin-here.sh), hint (enable, install, marketplace add, stop on a same-named marketplace from another
+  repo), codex state and the opt-out; doctor and prereq-check call it — checked by:
+  `bash plugins/cc-tuner/tests/setup/test_companion.sh`
+- [ ] [machine] `route.sh write` output is accepted by `route.sh check` and by doctor (the real
+  producer through the real checker); check reports missing, mismatch, drift, malformed, CRLF-safe,
+  stale-on-github; write replaces the legacy header and never touches text outside the markers —
+  checked by: `bash plugins/cc-tuner/tests/setup/test_route.sh`
+- [ ] [machine] the route references' record lines are the forms merge.sh accepts, and
+  `rule.template.md` is byte-identical to origin/main — checked by: `test_route.sh`,
+  `git diff --exit-code origin/main -- plugins/cc-tuner/assets/task-flow/rule.template.md`
 - [ ] [eyes] `/cc-tuner:setup install` in a session with an empty `CLAUDE_CONFIG_DIR` and a
   remote-less repository installs the companions on one yes, writes the local route block, and its
   report is correct — checked by: user, per `tests/setup/setup-manual-checks.md`; machine
