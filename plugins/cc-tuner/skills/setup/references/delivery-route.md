@@ -1,132 +1,110 @@
 # Node: the delivery route
 
-Procedure for the **delivery route** node of `/cc-tuner:setup`. `/cc-tuner:run` merges through
-`merge.sh` only on GitHub. For any other host it follows a route written in the repository: the
-plugin's asset for GitLab or a remote-less repository, or the user's own words for another host. The
-route lives in `.claude/rules/task-flow.local.md` between two markers, so the file stays the
-repository's and setup owns only the block.
+Procedure for the **delivery route** node of `/cc-tuner:setup`. `/cc-tuner:run` merges through `merge.sh`
+only on GitHub. For any other host it follows a route text that lives in the plugin
+(`skills/run/references/route-gitlab.md`, `route-local.md`), never in a copy the candidate can edit. The
+repository holds a short key block in `.claude/rules/task-flow.local.md` between two markers, and
+`scripts/setup/route.sh` is the only program that writes or checks it. This node drives that script and
+restates none of what it knows: the block text, the marker counting, the legacy header and the atomic write
+are all its.
 
-**Shell state does not persist between Bash calls.** Claude Code keeps the working directory but NOT
-shell variables across separate Bash invocations, and the questions below guarantee the flow splits
-into several. Re-run the **Locate** block at the start of every Bash invocation that references
-`$HOST`, `$ROOT`, `$LOCAL`, `$SRC`, `$NEW`, `$OPEN` or `$CLOSE`: it is read-only and idempotent, so
-re-running it is always safe and never optional after a prompt.
+**Shell state does not persist between Bash calls.** Claude Code keeps the working directory but NOT shell
+variables across separate Bash invocations, and the questions below guarantee the flow splits into several.
+Re-run the **Locate** block at the start of every Bash invocation that references `$HOST`, `$ROOT`, `$LOCAL`,
+`$PLUGIN` or `$ROUTE`: it is read-only and idempotent.
 
 **Run the steps in the order they are numbered.**
 
 ## Contents
 
-- [Locate the host, the asset and the file](#locate-the-host-the-asset-and-the-file)
+- [Locate the host and the file](#locate-the-host-and-the-file)
 - [check](#check)
 - [install](#install)
 - [Verification](#verification)
 
-## Locate the host, the asset and the file
+## Locate the host and the file
 
-Set `HOST` to the word after `host:` in node 0's output (`github`, `gitlab`, `local` or `other`). When
-node 0 printed `host not detected`, this node is blocked: report it and stop.
+Run the **Plugin root** block from [SKILL.md](../SKILL.md#plugin-root) first, in the same Bash call, then:
 
 ```bash
-HOST=gitlab   # replace with node 0's host
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git repository"; exit 1; }
+ROUTE="$PLUGIN/scripts/setup/route.sh"
 LOCAL="$ROOT/.claude/rules/task-flow.local.md"
-OPEN='<!-- cc-tuner:delivery-route '
-CLOSE='<!-- /cc-tuner:delivery-route -->'
-case "$HOST" in
-  gitlab|local)
-    SRC="${CLAUDE_PLUGIN_ROOT:-}/assets/task-flow/route-$HOST.md"
-    if [ ! -f "$SRC" ]; then
-      SRC=$(find "$HOME/.claude/plugins" -path "*/cc-tuner/assets/task-flow/route-$HOST.md" 2>/dev/null | sort | tail -1)
-    fi
-    [ -f "$SRC" ] || { echo "Could not locate route-$HOST.md — is cc-tuner installed?"; exit 1; }
-    ;;
-esac
-[ -f "$LOCAL" ] || { echo "$LOCAL does not exist — run the task-flow rule node first"; exit 1; }
-N_OPEN=$(grep -c "^$OPEN" "$LOCAL"); N_CLOSE=$(grep -c "^$CLOSE\$" "$LOCAL")
-if [ "$N_OPEN" -gt 1 ] || [ "$N_OPEN" -ne "$N_CLOSE" ]; then
-  echo "ERROR: $LOCAL has $N_OPEN opening and $N_CLOSE closing delivery-route markers; expected one block or none — fix it by hand"; exit 1
-fi
-BLOCK=$(sed -n "/^$OPEN/,\#^$CLOSE\$#p" "$LOCAL")
-BLOCK_HOST=$(printf '%s\n' "$BLOCK" | head -n 1 | sed -n 's/^<!-- cc-tuner:delivery-route \([a-z][a-z]*\).*/\1/p')
+ROW=$(bash "$PLUGIN/scripts/setup/host.sh" "$ROOT") || { echo "host not detected"; exit 1; }
+HOST=${ROW%%$(printf '\t')*}
+[ -f "$LOCAL" ] || { echo "$LOCAL does not exist: run the task-flow rule node first"; exit 1; }
+echo "host: $HOST"
 ```
 
-`$BLOCK` is empty when there is no block; `$BLOCK_HOST` is the host named by its opening marker.
-The block of a `gitlab` or `local` route is the asset verbatim followed by the closing marker, so it
-is compared by content: the version in the marker is the plugin version at the asset's last change,
-and an older marker on an unchanged asset is expected. A block is at most one per file; the guard
-above stops on a half-written or duplicated one rather than guessing which part to replace.
+`$HOST` is `github`, `gitlab`, `local`, `other` or `ambiguous`. `ambiguous` (several remotes, none named
+`origin`) blocks this node: report it and stop. `/cc-tuner:spec` asks the user which remote counts.
 
 ## check
 
-Write nothing.
+Write nothing. `bash "$ROUTE" check "$HOST" "$ROOT"` prints one word (plus a host or two counts) and its exit
+code says the same:
 
-- `github` → "nothing to write: merge.sh is the route". When `$BLOCK` exists anyway, say it belongs
-  to another host and `/cc-tuner:run` will stop on the mismatch until it is removed by hand.
-- `gitlab`, `local` → compare `$BLOCK` with `$(cat "$SRC"; printf '%s\n' "$CLOSE")`:
-  - no block → "not written — run `/cc-tuner:setup install delivery-route`";
-  - identical → "up to date";
-  - `$BLOCK_HOST` is not `$HOST` → "block is for `$BLOCK_HOST`, this repository is `$HOST`", with the
-    diff;
-  - otherwise → "differs from the plugin's asset" with the `diff`, and the same install command.
-- `other` → no block → "not written"; a block → print it and say it is the user's description, not
-  compared with anything.
+| prints | meaning | report |
+|---|---|---|
+| `current` | `gitlab`/`local` block equals the plugin's key block | up to date |
+| `present-other` | `other` block is there; the user's words are not compared | present, user-described |
+| `none-needed` | `github`, no block | nothing to write: `merge.sh` is the route |
+| `missing` | no block | not written: `/cc-tuner:setup install delivery-route` |
+| `mismatch <host>` | the block is for another host | `/run` stops until it is replaced |
+| `drift` | the block differs from the plugin's key block | show `diff <(bash "$ROUTE" canonical "$HOST") <(the block)` |
+| `malformed <opens> <closes>` | markers do not pair, or more than one block | fix by hand; setup refuses to guess |
+| `stale-on-github <host>` | a block exists on a github repository | remove by hand, below |
 
 ## install
 
-1. **`github`** → report "nothing to write: merge.sh is the route" and finish; touch nothing.
-2. **Build the new block in a temp file** next to the target, fail-closed:
-   - `gitlab`, `local`:
-     ```bash
-     NEW=$(mktemp "$ROOT/.claude/rules/.route-new.XXXXXX") || { echo "ERROR: mktemp failed"; exit 1; }
-     if ! { cat "$SRC"; printf '%s\n' "$CLOSE"; } > "$NEW" || [ ! -s "$NEW" ]; then
-       rm -f "$NEW"; echo "ERROR: cannot build the route block"; exit 1
-     fi
-     ```
-   - `other` → the block is written from the user's own words, never from another host's asset.
-     Ask once, in plain text (the answer is free-form, not a choice): how is a candidate **opened**,
-     how are verdicts and verification **recorded**, how is it **checked** (review, CI), and how is it
-     **merged**? Write their answer as the body between `<!-- cc-tuner:delivery-route other -->` and
-     `$CLOSE`, tidied into steps but not extended. When the answer leaves out one of the four, name
-     which and ask once more; a gap that remains is written as "not described", never filled in from
-     the GitLab or local route.
-3. **Decide by what is there** (`$BLOCK`, `$BLOCK_HOST`):
-   - **No block** → additive, covered by the install request: append `$NEW` after a blank line
-     (writer below, mode `append`).
-   - **Block identical to `$NEW`** (`gitlab`, `local`) → report "up to date" and write nothing.
-   - **Block differs** (drift, another host's block, or a re-described `other`) → show
-     `diff <(printf '%s\n' "$BLOCK") "$NEW"` and ask before replacing (AskUserQuestion: overwrite /
-     keep). Hand edits inside the block would be lost, so say that; they belong outside the markers.
-     On **overwrite**, use the writer in mode `replace`. On **keep**, report "kept existing block —
-     not updated" and mark this node kept; the other nodes still run.
-4. **Write** atomically and fail-closed: a same-directory temp file, then `mv`.
-   Replace only the text between the markers, and never touch the rest of the file.
+1. **`github`** → `check` says `none-needed`: report "nothing to write: merge.sh is the route" and finish.
+   On `stale-on-github`, setup does not delete the block: show it with
+   `sed -n '/^<!-- cc-tuner:delivery-route /,/^<!-- \/cc-tuner:delivery-route -->$/p' "$LOCAL"`, say it
+   belongs to another host and `/run` will stop on it until the user removes those lines, from the opening
+   marker through the closing marker, by hand, and finish.
+2. **`malformed`** → report the counts, say the block is fixed by hand in `.claude/rules/task-flow.local.md`,
+   and finish. `route.sh write` would refuse it too (exit 3).
+3. **`other`** → the block body is written from the user's own words, never from another host's route. Ask
+   once, in plain text (the answer is free-form, not a choice): how is a candidate **opened**, how are
+   verdicts and verification **recorded**, how is it **checked** (review, CI), and how is it **merged**?
+   Tidy the answer into steps without extending it. When it leaves out one of the four, name which and ask
+   once more; a gap that remains is written as "not described", never filled in from the GitLab or local
+   route. Put it in a temp file with the Write tool, so quotes and backticks in it stay text:
+
    ```bash
-   TMP=$(mktemp "$ROOT/.claude/rules/.task-flow-local.XXXXXX") || { echo "ERROR: mktemp failed"; exit 1; }
-   if [ -z "$BLOCK" ]; then
-     { cat "$LOCAL"; printf '\n'; cat "$NEW"; } > "$TMP"
-   else
-     START=$(grep -n "^$OPEN" "$LOCAL" | cut -d: -f1)
-     END=$(grep -n "^$CLOSE\$" "$LOCAL" | cut -d: -f1)
-     { head -n $((START - 1)) "$LOCAL"; cat "$NEW"; tail -n +$((END + 1)) "$LOCAL"; } > "$TMP"
-   fi
-   if [ -s "$TMP" ] && mv "$TMP" "$LOCAL"; then
-     rm -f "$NEW"; echo "Wrote the $HOST delivery route to $LOCAL"
-   else
-     rm -f "$TMP" "$NEW"; echo "ERROR: failed to write $LOCAL"; exit 1
-   fi
+   BODY=$(mktemp) || { echo "ERROR: mktemp failed"; exit 1; }
+   echo "$BODY"    # write the description to this path
    ```
-   Report that the route is a copy: a later plugin release that changes it shows up as drift in
-   doctor, and this node offers the update then.
+4. **Decide by what `check` said.**
+   - `missing` → additive, covered by the install request: write it.
+   - `current` (`gitlab`, `local`) → report "up to date" and write nothing.
+   - `drift`, `mismatch`, or a re-described `other` block → show the diff (`route.sh canonical "$HOST"`
+     against the current block, or the new description against the old one) and ask before replacing
+     (AskUserQuestion: overwrite / keep). Hand edits inside the block would be lost, so say that; they
+     belong outside the markers. On **keep**, report "kept existing block, not updated" and mark this node
+     kept; the other nodes still run.
+5. **Write.** One command, which keeps everything outside the markers except the legacy header comment of an
+   older file ("setup never touches this file"), replaces that header with the current wording, writes
+   atomically and checks its own result:
+
+   ```bash
+   bash "$ROUTE" write "$HOST" "$LOCAL" ${BODY:+"$BODY"}    # prints written | replaced | unchanged
+   ```
+
+   Exit 3 is a malformed existing block (step 2), exit 2 a refusal such as an empty description (nothing was
+   written), exit 1 an operational failure. Report the printed word, never a success the script did not
+   print. Remove `$BODY` afterwards.
+6. **Say that the block must be committed.** `/run` works in task worktrees, which have only committed
+   files: the block is committed together with `task-flow.local.md`, or `/run` stops on a missing block
+   there. Setup writes the file and leaves the commit to the user.
 
 ## Verification
 
-- [ ] After a write, re-run **Locate**: `$BLOCK` equals the new block byte for byte
-      (`gitlab`, `local`: `$(cat "$SRC"; printf '%s\n' "$CLOSE")`), its first line is its opening
-      marker, and `grep -c "^$OPEN" "$LOCAL"` prints 1.
-- [ ] Everything outside the markers is unchanged: the file with the block deleted
-      (`sed "/^$OPEN/,\#^$CLOSE\$#d"`) is identical before and after the write.
-- [ ] Re-running the node reports "up to date" (`gitlab`, `local`) and writes nothing.
-- [ ] A failed read, mktemp or write reports ERROR and exits non-zero; success is never printed for
-      an operation that did not happen.
-- [ ] `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/doctor.sh" quick` now says `delivery route (<host>)`
-      with `ok`, not `WARN`.
+- [ ] After a write, `bash "$ROUTE" check "$HOST" "$ROOT"` prints `current` (`gitlab`, `local`) or
+      `present-other` (`other`).
+- [ ] `git diff -- "$LOCAL"` shows the block, and on an older file the rewritten header comment, and nothing
+      else.
+- [ ] Re-running the node says "up to date" (`gitlab`, `local`) and `route.sh write` prints `unchanged`.
+- [ ] A failed write reports the script's error and a non-zero exit; success is never printed for an
+      operation that did not happen.
+- [ ] `bash "$PLUGIN/scripts/setup/doctor.sh" quick` now says `delivery route (<host>)` with `ok`, not `WARN`.

@@ -500,11 +500,32 @@ need "setup-table-has-delivery-route"      '| 3b | delivery route |' "$SETUP"
 need "setup-routes-delivery-route-node"    'references/delivery-route.md' "$SETUP"
 if [ -f "$DELIVERY_REF" ]; then echo "PASS setup-delivery-route-reference-exists"; else echo "FAIL setup-delivery-route-reference-exists"; fails=1; fi
 need "setup-route-github-is-merge-sh"      'merge.sh is the route' "$DELIVERY_REF"
-need "setup-route-writes-between-markers"  'Replace only the text between the markers' "$DELIVERY_REF"
+need "setup-route-host-from-host-sh"       'scripts/setup/host.sh' "$DELIVERY_REF"
+need "setup-route-drives-route-sh-check"   'route.sh' "$DELIVERY_REF"
+need "setup-route-check-command"           'bash "$ROUTE" check "$HOST" "$ROOT"' "$DELIVERY_REF"
+need "setup-route-write-command"           'bash "$ROUTE" write "$HOST" "$LOCAL"' "$DELIVERY_REF"
 need "setup-route-diffs-and-asks"          'AskUserQuestion' "$DELIVERY_REF"
 need "setup-route-other-from-user-words"   "written from the user's own words" "$DELIVERY_REF"
-need "setup-route-atomic-write"            'mv "$TMP" "$LOCAL"' "$DELIVERY_REF"
+need "setup-route-other-body-is-a-temp-file" 'BODY=$(mktemp)' "$DELIVERY_REF"
+need "setup-route-block-is-committed"      'committed together with `task-flow.local.md`' "$DELIVERY_REF"
+need "setup-route-stale-block-by-hand"     'by hand' "$DELIVERY_REF"
 need "setup-route-reruns-locate"           'Re-run the **Locate** block' "$DELIVERY_REF"
+if grep -qF 'sed -n "/^$OPEN' "$DELIVERY_REF" || grep -qF 'mv "$TMP" "$LOCAL"' "$DELIVERY_REF"; then
+  echo "FAIL setup-route-has-no-inline-writer"; fails=1
+else
+  echo "PASS setup-route-has-no-inline-writer"
+fi
+# The plugin-root fallback is written once, in SKILL.md, and resolves the applicable installation; the old
+# `find ~/.claude/plugins ... | sort | tail -1` could pick a fork or a lexically later, older version.
+need "setup-plugin-root-section"           '## Plugin root' "$SETUP"
+need "setup-plugin-root-keeps-the-env"     'PLUGIN="${CLAUDE_PLUGIN_ROOT:-}"' "$SETUP"
+need "setup-plugin-root-asks-the-cli"      'claude plugin list --json' "$SETUP"
+for ref in "$DELIVERY_REF" "$TASK_FLOW_REF" "$ROOT/plugins/cc-tuner/skills/setup/references/statusline.md"; do
+  need "setup-reference-uses-the-plugin-root-block ($(basename "$ref"))" 'Plugin root' "$ref"
+  if grep -qF 'sort | tail -1' "$ref"; then echo "FAIL setup-reference-no-find-fallback ($(basename "$ref"))"; fails=1; else echo "PASS setup-reference-no-find-fallback ($(basename "$ref"))"; fi
+done
+need "setup-node-3b-names-route-sh"        '`scripts/setup/route.sh`' "$SETUP"
+need "setup-node-3b-names-the-run-reference" 'skills/run/references/route-<host>.md' "$SETUP"
 need "local-header-says-markers-only"      'setup writes only between cc-tuner markers' "$TASK_FLOW_REF"
 if grep -qF 'setup never touches this file' "$TASK_FLOW_REF"; then
   echo "FAIL local-header-no-longer-says-never-touches"; fails=1

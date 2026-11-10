@@ -16,6 +16,32 @@ install request authorises **additive** repository edits — a block between mar
 missing key — and nothing more. A rewrite of the repository's own instructions is not additive and has
 its own confirmation boundary in node 2.
 
+## Plugin root
+
+The references below read the plugin's own files (a template, a script) through `$PLUGIN`. Claude Code
+fills `${CLAUDE_PLUGIN_ROOT}` in this skill's text, and the block below keeps that value when it is a
+directory. When it is not (a reference run from a fresh shell), the block asks `claude plugin list --json`
+for the installation that applies to this repository, by the rule `plugin-here.sh` uses: local before
+project before user scope, a project or local install only for its own `projectPath`, disabled installs
+skipped. `plugin-here.sh` itself lives in the plugin root, so it cannot be the fallback. Shell state does
+not persist between Bash calls, so every Bash call that uses `$PLUGIN` starts with this block.
+
+```bash
+PLUGIN="${CLAUDE_PLUGIN_ROOT:-}"
+if [ ! -d "$PLUGIN" ]; then
+  REPO=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+  PLUGIN=$(claude plugin list --json 2>/dev/null | jq -r --arg repo "$REPO" '
+    [ .[] | select(.id == "cc-tuner@cc-tuner" and .enabled != false
+        and (.scope == "user" or ((.scope == "project" or .scope == "local") and .projectPath == $repo))) ]
+    | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
+    | (.[0].installPath // "")')
+fi
+[ -d "$PLUGIN" ] || { echo "Could not locate the cc-tuner plugin: is it installed and enabled?"; exit 1; }
+```
+
+Never pick an installation by listing `~/.claude/plugins` and taking the last path: that can be a fork's
+copy or a lexically later, older version.
+
 ## The nodes
 
 Every node has the same shape — **detect** the current state, **propose** the change as a diff,
@@ -31,7 +57,7 @@ stop the command because one node stopped.
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
-| 3b | delivery route | 0 (its `host:` line), 3 | one block between `cc-tuner:delivery-route` markers in `task-flow.local.md`; nothing on `github` |
+| 3b | delivery route | 0 (its `host:` line), 3 | one short key block between `cc-tuner:delivery-route` markers in `task-flow.local.md`, written by `route.sh`; nothing on `github` |
 | 4 | session env | 0, after 0c | `~/.claude/settings.json` — up to two `env` keys |
 | 5 | statusline | 0, after 0c; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
@@ -162,19 +188,23 @@ writes that line right after it creates the file (step 6 of the reference).
 
 ### 3b. Delivery route
 
-Outside GitHub no script refuses a bad merge, so `/cc-tuner:run` follows a route written in the
-repository instead of `merge.sh`. Read [references/delivery-route.md](references/delivery-route.md)
-and run it in the current mode. It takes the host from node 0's `host:` line and needs node 3, which
-guarantees `task-flow.local.md` exists:
+Outside GitHub no script refuses a bad merge, so `/cc-tuner:run` follows a route text instead of
+`merge.sh`. That text is a plugin reference (`skills/run/references/route-<host>.md`) that `/run` reads
+from the plugin at Delivery; the repository holds only a short key block saying delivery goes by that
+route and never by a web or bare CLI merge. Read [references/delivery-route.md](references/delivery-route.md)
+and run it in the current mode. It takes the host from `scripts/setup/host.sh` and needs node 3, which
+guarantees `task-flow.local.md` exists. Everything about the block is asked of, and written by,
+`scripts/setup/route.sh`:
 
-- `github` — nothing to write; `merge.sh` is the route.
-- `gitlab`, `local` — the plugin's route for that host, copied between markers; a block that differs
-  from it is shown as a diff and asked about once.
-- `other` — written from the user's own description of how a candidate is opened, recorded, checked
-  and merged, and never compared with anything.
+- `github` — nothing to write; `merge.sh` is the route. A block left from another host is reported and
+  removed by hand.
+- `gitlab`, `local` — the canonical key block; a block that differs is shown as a diff and asked about once.
+- `other` — the block body is the user's own description of how a candidate is opened, recorded, checked
+  and merged, and it is the route; it is never compared with anything.
 
-Only the text between the markers is replaced; the rest of the file is the repository's. An absent
-block is an additive edit, covered by the install request; replacing one is not, and is confirmed.
+Only the text between the markers is replaced, plus the legacy header comment of an older
+`task-flow.local.md`. An absent block is an additive edit, covered by the install request; replacing one is
+confirmed. The block is committed together with `task-flow.local.md`, so task worktrees have it.
 
 ### 4. Session env
 

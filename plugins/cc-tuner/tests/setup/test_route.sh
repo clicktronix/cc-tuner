@@ -300,4 +300,45 @@ has "route-local-lookup-finds-the-last-record" "cc-tuner-verdict: APPROVE $HEAD_
 LAST="$(git -C "$T/lrepo" notes --ref cc-tuner show "$HEAD_SHA" | sed -n '/^$/,$p' | sed -n '2p')"
 eq "route-local-last-paragraph-wins" "cc-tuner-verdict: APPROVE $HEAD_SHA" "$LAST"
 
+# --- the Plugin root block in setup/SKILL.md: the fallback that replaced `find ... | sort | tail -1` -----
+# Extract the block from the skill and run it with a stub `claude plugin list --json`, so what the setup
+# references really execute is what is tested. The stub lists a fork, a disabled install, another
+# project's install and a user install, in an order where the last path sorts after the right one.
+SNIPPET="$(sed -n '/^## Plugin root$/,/^## The nodes$/p' "$PLUGIN/skills/setup/SKILL.md" | sed -n '/^```bash$/,/^```$/p' | sed '1d;$d')"
+[ -n "$SNIPPET" ] && pass "plugin-root-block-found" || fail "plugin-root-block-found"
+PR_REPO="$T/pr-repo"; mkdir -p "$PR_REPO/sub" "$T/inst/user" "$T/inst/project" "$T/inst/local" "$T/inst/other" "$T/inst/fork" "$T/inst/off" "$T/inst/env"
+( cd "$PR_REPO" && git init -q -b main )
+PR_REAL="$(cd "$PR_REPO" && pwd -P)"
+mkdir -p "$T/prbin"
+plugin_list() { # plugin_list <json with __REPO__ and __T__>
+  printf '#!/bin/sh\ncat <<%s\n' "'PL_EOF'" > "$T/prbin/claude"
+  printf '%s\n' "$1" | sed -e "s|__REPO__|$PR_REAL|g" -e "s|__T__|$T|g" >> "$T/prbin/claude"
+  printf 'PL_EOF\n' >> "$T/prbin/claude"; chmod +x "$T/prbin/claude"
+}
+resolve() { # resolve [env assignment]: prints $PLUGIN as the block leaves it, from inside the repo
+  ( cd "$PR_REPO/sub" && env -u CLAUDE_PLUGIN_ROOT "$@" PATH="$T/prbin:$PATH" bash -c "$SNIPPET"'; printf "%s" "$PLUGIN"' 2>&1 )
+}
+plugin_list '[
+ {"id":"cc-tuner@cc-tuner","scope":"user","enabled":true,"installPath":"__T__/inst/user"},
+ {"id":"cc-tuner@zzz-fork","scope":"user","enabled":true,"installPath":"__T__/inst/fork"},
+ {"id":"cc-tuner@cc-tuner","scope":"project","projectPath":"/somewhere/else","enabled":true,"installPath":"__T__/inst/other"},
+ {"id":"cc-tuner@cc-tuner","scope":"project","projectPath":"__REPO__","enabled":false,"installPath":"__T__/inst/off"}
+]'
+eq "plugin-root-user-install-beats-a-fork-a-foreign-project-and-a-disabled-one" "$T/inst/user" "$(resolve A=1)"
+plugin_list '[
+ {"id":"cc-tuner@cc-tuner","scope":"user","enabled":true,"installPath":"__T__/inst/user"},
+ {"id":"cc-tuner@cc-tuner","scope":"project","projectPath":"__REPO__","enabled":true,"installPath":"__T__/inst/project"}
+]'
+eq "plugin-root-project-beats-user" "$T/inst/project" "$(resolve A=1)"
+plugin_list '[
+ {"id":"cc-tuner@cc-tuner","scope":"project","projectPath":"__REPO__","enabled":true,"installPath":"__T__/inst/project"},
+ {"id":"cc-tuner@cc-tuner","scope":"local","projectPath":"__REPO__","enabled":true,"installPath":"__T__/inst/local"},
+ {"id":"cc-tuner@cc-tuner","scope":"user","enabled":true,"installPath":"__T__/inst/user"}
+]'
+eq "plugin-root-local-beats-project-beats-user" "$T/inst/local" "$(resolve A=1)"
+eq "plugin-root-keeps-the-env-when-it-is-a-directory" "$T/inst/env" "$(resolve CLAUDE_PLUGIN_ROOT="$T/inst/env")"
+plugin_list '[{"id":"cc-tuner@cc-tuner","scope":"user","enabled":false,"installPath":"__T__/inst/user"}]'
+OUT="$(resolve A=1)"
+has "plugin-root-none-applicable-is-an-error" "Could not locate the cc-tuner plugin" "$OUT"
+
 exit $fails

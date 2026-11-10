@@ -10,11 +10,10 @@ serialisation rule in `SKILL.md` (nodes table).
 
 ## Locate the bundled script
 
+Run the **Plugin root** block from [SKILL.md](../SKILL.md#plugin-root) first, in the same Bash call, then:
+
 ```bash
-SRC="${CLAUDE_PLUGIN_ROOT:-}/skills/statusline/statusline.sh"
-if [ ! -f "$SRC" ]; then
-  SRC=$(find "$HOME/.claude/plugins" -path '*/cc-tuner/skills/statusline/statusline.sh' 2>/dev/null | sort | tail -1)
-fi
+SRC="$PLUGIN/skills/statusline/statusline.sh"
 [ -f "$SRC" ] || { echo "Could not locate statusline.sh — is cc-tuner installed?"; exit 1; }
 ```
 

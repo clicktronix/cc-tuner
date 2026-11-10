@@ -6,7 +6,7 @@ Procedure for the **task-flow rule** node of `/cc-tuner:setup`. Claude Code plug
 **Shell state does not persist between Bash calls.** Claude Code keeps the working directory but
 NOT shell variables across separate Bash invocations — and the confirmation prompts in branches 4/5
 below guarantee the flow splits into separate calls. Re-run the **Locate** block at the start of
-every Bash invocation that references `$SRC` / `$ROOT` / `$DEST` / `$LOCAL` / `$RENDERED`: it is
+every Bash invocation that references `$PLUGIN` / `$SRC` / `$ROOT` / `$DEST` / `$LOCAL` / `$RENDERED`: it is
 read-only and idempotent, so re-running it is always safe and never optional after a prompt.
 
 **Run the steps in the order they are numbered.**
@@ -20,11 +20,10 @@ read-only and idempotent, so re-running it is always safe and never optional aft
 
 ## Locate the template and the repo
 
+Run the **Plugin root** block from [SKILL.md](../SKILL.md#plugin-root) first, in the same Bash call, then:
+
 ```bash
-SRC="${CLAUDE_PLUGIN_ROOT:-}/assets/task-flow/rule.template.md"
-if [ ! -f "$SRC" ]; then
-  SRC=$(find "$HOME/.claude/plugins" -path '*/cc-tuner/assets/task-flow/rule.template.md' 2>/dev/null | sort | tail -1)
-fi
+SRC="$PLUGIN/assets/task-flow/rule.template.md"
 [ -f "$SRC" ] || { echo "Could not locate rule.template.md — is cc-tuner installed?"; exit 1; }
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git repository"; exit 1; }
 DEST="$ROOT/.claude/rules/task-flow.md"
