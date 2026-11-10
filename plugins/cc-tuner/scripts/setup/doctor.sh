@@ -83,7 +83,7 @@ names_pointer() { # true when any file listed on stdin mentions docs/agents
 # Plain `if`, not `a && b || c`: that chain runs `c` whenever `b` fails, so one day a reporting
 # helper returns non-zero and the script starts claiming things are missing that are not.
 if command -v git     >/dev/null 2>&1; then ok "git";     else bad "git — required for every command here"; fi
-if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — the statusline node refuses to patch settings.json without it and the test runner will not start; both say so themselves. brew install jq"; fi
+if command -v jq      >/dev/null 2>&1; then ok "jq";      else warn "jq — the statusline node refuses to patch settings.json without it and the test runner will not start; both say so themselves. Install: https://jqlang.github.io/jq/download/"; fi
 if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 — agent-rules setup requires it; the statusline's usage segment also degrades without it"; fi
 
 # --- 1b. the native task tools -------------------------------------------------------------------
@@ -127,77 +127,83 @@ case "${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH:-}" in
 esac
 
 # --- 2. the repository's host, and the CLI that host needs ---------------------------------------
-# Detected by the CLI that can reach the remote, so an SSH alias (`git@work:org/repo`) resolves on its
-# own: `gh repo view` succeeding means github, `glab repo view` means gitlab. A remote both fail on is
-# still github/gitlab when its URL says so -- the CLI then is not authenticated, which is the finding.
-# No remote at all is `local`; any other remote is `other`, and delivery there needs a route the user
-# describes (section 2b checks it is written). Only the CLI of the detected host is checked: demanding `gh` auth of a GitLab or
-# remote-less repository was a blocker nobody could clear without installing a tool they never use.
+# scripts/setup/host.sh owns the answer, offline: the host comes from the origin remote's URL (or the
+# host a CLI is logged in to, for an SSH alias or a self-hosted forge), never from asking the network.
+# It was `gh repo view` here until 2026-11, which needed a connection and a live token to name a host,
+# and /spec, /run and setup each restated the rule in prose; they disagreed. Doctor only checks that
+# the CLI of the host host.sh names is installed and logged in to that host, which is the part that can
+# actually fail on this machine. `local` has no remote to authenticate against, `other` has no CLI to ask
+# (delivery there needs a route the user describes, section 2b checks it is written), `ambiguous` has no
+# answer until the user names an origin. A tool nobody on this host uses is not a finding.
+#
+# A missing or logged-out CLI is a MISS on both github and gitlab: delivery goes through it and cannot
+# run without it, and warning here let a run start and stop at the first merge. glab also needs
+# `mr merge --sha` (merge only the reviewed commit) and `--auto-merge`, which the route's pinned merge
+# uses; an older glab has neither, so that is a MISS too.
 #
 # `gh project *` fails with an opaque GraphQL error when the token lacks `project`. That error is the
 # single most common reason an agent silently gives up on the board, so name it before it happens.
 # It warns rather than blocks: a spec may say `board: none` (see skills/spec/SKILL.md), and such a
 # repo never runs a board command. The refusal belongs to step 4 of /cc-tuner:setup and to the board
 # recipes in the task-flow skill, which know whether a board is in play; this tool does not.
-HOST=""; HOST_VIA=""; REMOTE=""
+HOST=""; HOST_VIA=""; REMOTE=""; REMOTE_HOST=""
 if [ -n "$REPO_ROOT" ]; then
-  remotes="$(git -C "$REPO_ROOT" remote 2>/dev/null)"
-  if printf '%s\n' "$remotes" | grep -qx origin; then REMOTE=origin; else REMOTE="$(printf '%s\n' "$remotes" | head -n 1)"; fi
-  if command -v gh >/dev/null 2>&1 && (cd "$REPO_ROOT" && gh repo view) >/dev/null 2>&1; then
-    HOST=github; HOST_VIA=cli
-  elif command -v glab >/dev/null 2>&1 && (cd "$REPO_ROOT" && glab repo view) >/dev/null 2>&1; then
-    HOST=gitlab; HOST_VIA=cli
-  elif [ -z "$REMOTE" ]; then
-    HOST=local
-  else
-    remote_url="$(git -C "$REPO_ROOT" remote get-url "$REMOTE" 2>/dev/null)"
-    case "$remote_url" in
-      *github.com*) HOST=github; HOST_VIA=url ;;
-      *gitlab.com*) HOST=gitlab; HOST_VIA=url ;;
-      *)            HOST=other ;;
-    esac
+  host_row="$(bash "$(cd "$(dirname "$0")" && pwd)/host.sh" "$REPO_ROOT" 2>/dev/null)"
+  if [ -n "$host_row" ]; then
+    # Parameter expansion, not `read` with a tab IFS: empty fields (no remote) would collapse.
+    HOST="${host_row%%	*}";        rest="${host_row#*	}"
+    HOST_VIA="${rest%%	*}";       rest="${rest#*	}"
+    REMOTE="${rest%%	*}";         REMOTE_HOST="${rest#*	}"
   fi
 fi
 
 case "$HOST" in
   github)
-    if [ "$HOST_VIA" = cli ]; then ok "host: github"; else ok "host: github (remote $REMOTE names github.com; gh could not confirm it)"; fi
+    ok "host: github (remote $REMOTE, $REMOTE_HOST)"
     if ! command -v gh >/dev/null 2>&1; then
-      warn "gh — board and PR recipes in the task-flow skill need it; brew install gh"
+      bad "gh — the GitHub delivery route and the board recipes in the task-flow skill need it; install: https://cli.github.com"
+    elif ! gh auth status --hostname "$REMOTE_HOST" >/dev/null 2>&1; then
+      bad "gh is not authenticated for $REMOTE_HOST — run: gh auth login --hostname $REMOTE_HOST"
     else
-      ok "gh"
-      if gh auth status >/dev/null 2>&1; then
-        # Match the scope exactly rather than as a substring: `read:project` contains "project" but
-        # cannot run `project item-edit`, so a substring test would report a working board and be wrong.
-        if gh auth status 2>&1 | sed -n "s/.*Token scopes: //p" | tr -d "'" | tr ',' '\n' | tr -d ' ' \
-           | grep -qx project; then
-          ok "gh token has the 'project' scope"
-        else
-          warn "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; harmless for a repo whose spec says board: none. fix: gh auth refresh -s project"
-        fi
-        if [ "$HOST_VIA" = url ]; then
-          warn "gh is authenticated but 'gh repo view' cannot reach remote $REMOTE — check that the account can see the repository"
-        fi
+      ok "gh (authenticated for $REMOTE_HOST)"
+      # Match the scope exactly rather than as a substring: `read:project` contains "project" but
+      # cannot run `project item-edit`, so a substring test would report a working board and be wrong.
+      if gh auth status --hostname "$REMOTE_HOST" 2>&1 | sed -n "s/.*Token scopes: //p" | tr -d "'" | tr ',' '\n' | tr -d ' ' \
+         | grep -qx project; then
+        ok "gh token has the 'project' scope"
       else
-        bad "gh is not authenticated — run: gh auth login"
+        refresh="gh auth refresh -s project"
+        if [ "$REMOTE_HOST" != github.com ]; then refresh="gh auth refresh --hostname $REMOTE_HOST -s project"; fi
+        warn "gh token lacks the 'project' scope — board commands fail with an opaque GraphQL error; harmless for a repo whose spec says board: none. fix: $refresh"
       fi
     fi
     ;;
   gitlab)
-    if [ "$HOST_VIA" = cli ]; then ok "host: gitlab"; else ok "host: gitlab (remote $REMOTE names gitlab.com; glab could not confirm it)"; fi
+    ok "host: gitlab (remote $REMOTE, $REMOTE_HOST)"
     if ! command -v glab >/dev/null 2>&1; then
-      warn "glab — the GitLab delivery route needs it; brew install glab"
-    elif [ "$HOST_VIA" = cli ]; then
-      ok "glab (authenticated)"
-    elif glab auth status >/dev/null 2>&1; then
-      ok "glab"
-      warn "glab is authenticated but 'glab repo view' cannot reach remote $REMOTE — check that the account can see the project"
+      bad "glab — the GitLab delivery route needs it; install: https://gitlab.com/gitlab-org/cli#installation"
     else
-      warn "glab is not authenticated — run: glab auth login"
+      if glab auth status --hostname "$REMOTE_HOST" >/dev/null 2>&1; then
+        ok "glab (authenticated for $REMOTE_HOST)"
+      else
+        bad "glab is not authenticated for $REMOTE_HOST — run: glab auth login --hostname $REMOTE_HOST"
+      fi
+      merge_help="$(glab mr merge --help 2>&1)"
+      case "$merge_help" in
+        *--sha*--auto-merge*|*--auto-merge*--sha*) ;;
+        *) bad "glab is too old — 'glab mr merge' lacks --sha or --auto-merge, which the GitLab route's pinned merge needs; upgrade: https://gitlab.com/gitlab-org/cli#installation" ;;
+      esac
     fi
     ;;
   local) ok "host: local — no git remote, so nothing to authenticate against" ;;
-  other) warn "host: other — remote $REMOTE is not GitHub or GitLab (or its CLI cannot reach it); delivery needs a route you describe; /cc-tuner:setup install delivery-route records it" ;;
+  other)
+    if [ -n "$REMOTE_HOST" ]; then
+      warn "host: other — remote $REMOTE ($REMOTE_HOST) is not GitHub or GitLab, and neither gh nor glab is logged in to it. For GitHub Enterprise run: gh auth login --hostname $REMOTE_HOST; for a self-hosted GitLab run: glab auth login --hostname $REMOTE_HOST — either makes the host detectable. Otherwise delivery needs a route you describe; /cc-tuner:setup install delivery-route records it"
+    else
+      warn "host: other — remote $REMOTE has no host name to log in to (a local path or an unusable URL); delivery needs a route you describe; /cc-tuner:setup install delivery-route records it"
+    fi
+    ;;
+  ambiguous) warn "host: ambiguous — several remotes and none is origin; name one origin, or answer the question /cc-tuner:spec asks" ;;
   *) say "     host not detected (not inside a git repository)" ;;
 esac
 
@@ -325,7 +331,7 @@ triage_check() {
 if ! command -v jq >/dev/null 2>&1; then
   # Named as the reason because the list may be perfectly readable: reporting "could not list" here
   # sent people to debug `claude plugin list` when the only thing missing was jq.
-  warn "companion plugin checks skipped — jq is not installed, so this cannot read the plugin list (brew install jq); the SessionStart plan restore is off without it too"
+  warn "companion plugin checks skipped — jq is not installed, so this cannot read the plugin list (install: https://jqlang.github.io/jq/download/); the SessionStart plan restore is off without it too"
 elif [ -z "$PLUGIN_LIST" ]; then
   warn "could not list installed plugins — companion plugin checks skipped"
 else
