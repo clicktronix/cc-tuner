@@ -226,6 +226,18 @@ claude_plugins '[
 ]'
 OUT="$(run)"
 check "only-install-disabled-misses" "MISS mattpocock-skills@mattpocock" "$OUT"
+# A disabled copy needs `enable`; an install command for it is the wrong fix.
+check  "only-install-disabled-says-disabled" "MISS mattpocock-skills@mattpocock is disabled" "$OUT"
+check  "only-install-disabled-enable-hint"   "/plugin enable mattpocock-skills@mattpocock" "$OUT"
+absent "only-install-disabled-no-install-hint" "/plugin install mattpocock-skills"        "$OUT"
+# ...but only the copy that applies HERE: another project's disabled install is not this repo's to enable.
+claude_plugins '[
+  {"id":"mattpocock-skills@mattpocock","version":"2.0.0","scope":"project","enabled":false,"projectPath":"/somewhere/else"},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
+]'
+OUT="$(run)"
+check  "foreign-disabled-install-gets-install-hint" "/plugin marketplace add mattpocock/skills" "$OUT"
+absent "foreign-disabled-install-no-enable-hint"    "/plugin enable"                          "$OUT"
 rm -rf "$T"
 
 # --- legacy git-flow.md in the repo -> migration warning -----------------------------------------
@@ -381,6 +393,57 @@ codexstub 0
 OUT="$(run)"
 check  "triage-installed-codex-ready-ok"        "ok   cc-codex-triage@cc-codex-triage 0.10.0 (user)" "$OUT"
 absent "triage-installed-codex-ready-quiet"     "cannot run"                                        "$OUT"
+rm -rf "$T"
+
+# --- a same-named marketplace from another repository is a stop, not an install ---------------------
+# `marketplace list` rows carry `repo`. Matching by name alone sent a one-yes, user-scope install to
+# whatever repository owned the name; the hint now names both sources and offers no install.
+mkenv; tool git; tool jq; ghstub "'project'"; claude_plugins '[]'
+marketplaces '[{"installLocation":"/x/m","name":"mattpocock","repo":"someone-else/skills","source":"github"}]'
+OUT="$(run)"; rc=$?
+check  "conflict-misses-matt"        "MISS mattpocock-skills@mattpocock" "$OUT"
+check  "conflict-names-found-source" "configured from someone-else/skills" "$OUT"
+check  "conflict-names-expected-source" "expected mattpocock/skills"      "$OUT"
+absent "conflict-offers-no-install"  "/plugin install mattpocock-skills"  "$OUT"
+absent "conflict-offers-no-add"      "marketplace add mattpocock"         "$OUT"
+[ $rc -eq 1 ] && echo "PASS conflict-rc1" || { echo "FAIL conflict-rc1 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+mkenv; tool git; tool jq; ghstub "'project'"; matt_only; codexstub 0
+marketplaces '[{"installLocation":"/x/m","name":"cc-codex-triage","repo":"someone-else/triage","source":"github"}]'
+OUT="$(run)"
+check  "triage-conflict-misses"      "MISS cc-codex-triage@cc-codex-triage" "$OUT"
+check  "triage-conflict-names-both"  "someone-else/triage.*expected clicktronix/cc-codex-triage" "$OUT"
+absent "triage-conflict-no-install"  "/plugin install cc-codex-triage"     "$OUT"
+rm -rf "$T"
+
+# --- a disabled cc-codex-triage with a usable codex needs `enable` -------------------------------------
+mkenv; tool git; tool jq; ghstub "'project'"; codexstub 0
+claude_plugins '[
+  {"id":"mattpocock-skills@mattpocock","version":"1.0.0","scope":"user","enabled":true},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":false}
+]'
+OUT="$(run)"; rc=$?
+check  "triage-disabled-misses"       "MISS cc-codex-triage@cc-codex-triage is disabled" "$OUT"
+check  "triage-disabled-enable-hint"  "/plugin enable cc-codex-triage@cc-codex-triage"   "$OUT"
+absent "triage-disabled-no-install"   "/plugin install cc-codex-triage"                  "$OUT"
+[ $rc -eq 1 ] && echo "PASS triage-disabled-rc1" || { echo "FAIL triage-disabled-rc1 (rc=$rc)"; fails=1; }
+rm -rf "$T"
+
+# --- a repository that declined Codex review ----------------------------------------------------------
+# companion.sh owns the record: `cc-tuner-review: none:<reason>` in task-flow.local.md. With it, the
+# missing bridge is a plain line carrying the recorded reason, never a blocker, even with codex ready.
+mkenv; tool git; tool jq; ghstub "'project'"; matt_only; codexstub 0
+mkdir -p "$R/.claude/rules"; printf 'cc-tuner-review: none:declined-in-setup\n' > "$R/.claude/rules/task-flow.local.md"
+OUT="$(run)"; rc=$?
+absent "optout-triage-not-miss"        "MISS"                                   "$OUT"
+check  "optout-names-recorded-reason"  "review: none:declined-in-setup"         "$OUT"
+check  "optout-says-opted-out"         "cc-codex-triage.*opted out"             "$OUT"
+absent "optout-no-install-hint"        "plugin install cc-codex-triage"         "$OUT"
+[ $rc -eq 0 ] && echo "PASS optout-rc0" || { echo "FAIL optout-rc0 (rc=$rc)"; fails=1; }
+plugins_ok
+OUT="$(run)"
+absent "optout-installed-triage-no-warn" "WARN cc-codex-triage"                 "$OUT"
+check  "optout-installed-triage-names-reason" "cc-codex-triage@cc-codex-triage 0.10.0 .*review: none:declined-in-setup" "$OUT"
 rm -rf "$T"
 
 # --- without jq the list is not read at all, and the reason is jq, not the list -------------------

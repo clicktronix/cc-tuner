@@ -8,9 +8,9 @@
 # Test seams (all default to the real thing):
 #   CC_TUNER_PLUGIN_LIST_CMD  command whose stdout is the installed-plugin JSON
 #                             (default: claude plugin list --json)
-#   CC_TUNER_MARKETPLACE_LIST_CMD  command whose stdout is the configured-marketplace JSON, read only to
-#                             choose between "marketplace add + install" and "install" for a plugin that
-#                             is not installed (default: claude plugin marketplace list --json)
+#   CC_TUNER_MARKETPLACE_LIST_CMD  command whose stdout is the configured-marketplace JSON, read by
+#                             companion.sh to choose the fix for a plugin that is not installed
+#                             (default: claude plugin marketplace list --json)
 #   CC_TUNER_MCP_CMD     command whose stdout is parsed for MCP servers (default: claude mcp list)
 #   CC_TUNER_HOME        home dir for user-level checks (default: $HOME)
 set -u
@@ -245,85 +245,89 @@ case "$HOST" in
 esac
 
 # --- 3. companion plugins ------------------------------------------------------------------------
-# Which installation applies is asked of scripts/setup/plugin-here.sh, which prereq-check.sh also
-# uses. It was implemented here as well until 2026-08-14, and the two copies disagreed twice over: on
-# `enabled: false`, which this one filtered and the preflight did not, and on how many installs count,
-# where this one took the top row and the preflight searched them all. Both divergences produced the
-# same shape — doctor and the preflight answering one question differently — so there is now one
-# program and two callers.
-# Prints "<version> (<scope>)" and returns the resolver's own status: 0 found, 1 absent, 2 unknown.
-# Passing the status through is the whole point of the resolver having three outcomes. An earlier
-# version ended this line with `|| return 0`, flattening 1 and 2 into "nothing found", so a malformed
-# plugin list produced two confident MISS lines telling the user to reinstall plugins that were never
-# looked for -- while prereq-check, reading the same resolver, correctly said the answer is unknown.
-plugin_here() {
-  row="$(bash "$(cd "$(dirname "$0")" && pwd)/plugin-here.sh" "$1" "$REPO_ROOT" 2>/dev/null)"
-  rc=$?
-  [ "$rc" -eq 0 ] || return "$rc"
-  [ -n "$row" ] || return 1
-  # Split in bash rather than with awk or cut. This tool reports on environments that are missing
-  # things, so every external it adds is one more way for it to fail in exactly the situation it
-  # exists to diagnose -- its own suite runs it against a PATH holding seven utilities, and caught an
-  # awk here on the first run.
-  #
-  # Parameter expansion, not `read -r a b c` with IFS set to tab: tab is one of the default IFS
-  # whitespace characters, so `read` collapses empty fields and shifts everything left. A row whose
-  # installPath was empty then reported the scope as the version, and the scope as nothing.
-  rest="${row#*	}"
-  pv="${rest%%	*}"
-  ps="${rest#*	}"
-  printf '%s (%s)' "$pv" "$ps"
+# Every fact about the companions -- which plugin comes from which marketplace, whether codex is usable,
+# whether the repository opted out of Codex review, whether a plugin is installed, disabled or absent
+# here, and the command that fixes it -- is asked of scripts/setup/companion.sh, which prereq-check.sh
+# and the setup node also use. Those facts were restated here, in prereq-check and in the node's prose,
+# and the copies diverged: on `enabled: false` (one filtered it, one did not), and on a marketplace
+# matched by name alone. Which installation applies is companion.sh's question to plugin-here.sh.
+COMPANION="$(cd "$(dirname "$0")" && pwd)/companion.sh"
+TAB="$(printf '\t')"
+
+# state_of <id>: sets ST (installed | disabled | absent | unknown) and FOUND ("<version> (<scope>)").
+# The resolver's three outcomes stay distinct: an earlier version flattened "cannot tell" into "nothing
+# found", so a malformed plugin list produced confident MISS lines telling the user to reinstall plugins
+# that were never looked for. Split in bash, not awk or cut: this tool reports on environments missing
+# things, so every external it adds is one more way for it to fail where it is needed most.
+state_of() {
+  local out rest ver
+  out="$(bash "$COMPANION" state "$1" "$REPO_ROOT" 2>/dev/null)"
+  ST="${out%%$TAB*}"; FOUND=""
+  case "$ST" in
+    installed|disabled) rest="${out#*$TAB}"; ver="${rest%%$TAB*}"; FOUND="$ver (${rest#*$TAB})" ;;
+    absent) ;;
+    *) ST=unknown ;;
+  esac
 }
+
+# fix_of <id>: sets FIX to the command that fixes the state, or the CONFLICT text when a same-named
+# marketplace comes from another repository (FIXRC 3).
+fix_of() { FIX="$(bash "$COMPANION" hint "$1" "$REPO_ROOT" 2>&1)"; FIXRC=$?; }
+
+# needed_by <id>: what the plugin is for, from the companion table.
+needed_by() { local row; row="$(bash "$COMPANION" table "$1")"; printf '%s' "${row##*$TAB}"; }
 
 # codex is what makes cc-codex-triage necessary: the plugin only drives codex, so without a usable one
 # the review bridge cannot run, specs say `review: none:<reason>`, and a missing plugin is no blocker.
-# "Usable" is on PATH and logged in; `codex login status` exits 0 only when it is.
-CODEX_STATE=ok; CODEX_REASON=""; CODEX_WHY=""
-if ! command -v codex >/dev/null 2>&1; then
-  CODEX_STATE=absent; CODEX_REASON="codex-not-installed"; CODEX_WHY="codex is not on PATH"
-  say "     codex not on PATH (optional) — the review bridge is off; specs use review: none:$CODEX_REASON"
-elif codex login status >/dev/null 2>&1; then
-  ok "codex (logged in)"
-else
-  CODEX_STATE=nologin; CODEX_REASON="codex-not-logged-in"; CODEX_WHY="codex is not logged in (run: codex login)"
-  warn "codex is installed but not logged in — run: codex login; until then specs use review: none:$CODEX_REASON"
-fi
+case "$(bash "$COMPANION" codex)" in
+  ready)  ok "codex (logged in)" ;;
+  absent) say "     codex not on PATH (optional) — the review bridge is off" ;;
+  *)      warn "codex is installed but not logged in — run: codex login" ;;
+esac
 
 # Still asked once, only to tell "no plugins listed" from "that plugin is not installed": the first
 # is an environment this tool cannot see into, the second is a finding about the environment.
 PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
 
-# The command for a plugin that is not installed; install-hint.sh owns the answer for both callers.
-install_hint() { bash "$(cd "$(dirname "$0")" && pwd)/install-hint.sh" "$@"; }
-
-companion() {  # companion <id> <what needs it> <marketplace> <marketplace source>
-  found="$(plugin_here "$1")"
-  case $? in
-    0) ok "$1 $found — $2" ;;
+companion() {  # companion <id>
+  local id="$1" what; what="$(needed_by "$1")"
+  state_of "$id"
+  case "$ST" in
+    installed) ok "$id $FOUND — $what" ;;
+    # Disabled is its own finding with its own command: `install` fails on a plugin that is there.
+    disabled)  fix_of "$id"; bad "$id is disabled for this repo — $what; enable: $FIX" ;;
     # Not installed is a finding about the environment; unable to tell is a limit of this tool, and
     # naming an install command for a plugin nobody looked for sends the user to fix the wrong thing.
-    1) bad "$1 not installed for this repo — $2; install: $(install_hint "$3" "$4" "$1")" ;;
-    *) warn "$1 — could not determine which installation applies; $2" ;;
+    absent)    fix_of "$id"
+               if [ "$FIXRC" -eq 3 ]; then bad "$id not installed for this repo — $what; $FIX"
+               else bad "$id not installed for this repo — $what; install: $FIX"; fi ;;
+    *)         warn "$id — could not determine which installation applies; $what" ;;
   esac
 }
 
-# cc-codex-triage has a third state the other companion lacks: it can be fine to be absent. Installed
-# with no usable codex it is a plugin that cannot do its job, which is worth a WARN; not installed
-# with no usable codex is the normal state of a machine that does not use codex.
+# cc-codex-triage has a third state the other companion lacks: it can be fine to be absent. When the
+# review bridge is off -- no usable codex, or the repository declined Codex review -- the plugin is
+# optional and a missing one is a plain line. Installed with the bridge off is a plugin that cannot do
+# its job, which is worth a WARN unless the repository chose that.
 triage_check() {
-  local id='cc-codex-triage@cc-codex-triage' what='required-review gate in /cc-tuner:run'
-  found="$(plugin_here "$id")"
-  case $? in
-    0) if [ "$CODEX_STATE" = ok ]; then
-         ok "$id $found — $what"
-       else
-         warn "$id $found — installed, but $CODEX_WHY: the review bridge cannot run (specs use review: none:$CODEX_REASON)"
-       fi ;;
-    1) if [ "$CODEX_STATE" = ok ]; then
-         bad "$id not installed for this repo — $what; install: $(install_hint cc-codex-triage clicktronix/cc-codex-triage "$id")"
-       else
-         say "     $id not installed — optional, $CODEX_WHY (specs use review: none:$CODEX_REASON)"
-       fi ;;
+  local id='cc-codex-triage@cc-codex-triage' what review why opted=0 label
+  what="$(needed_by "$id")"
+  review="$(bash "$COMPANION" review "$REPO_ROOT")"; why="$(bash "$COMPANION" why "$REPO_ROOT")"
+  bash "$COMPANION" optout "$REPO_ROOT" >/dev/null 2>&1 && opted=1
+  state_of "$id"
+  case "$ST" in
+    installed)
+      if [ -z "$review" ]; then ok "$id $FOUND — $what"
+      elif [ "$opted" -eq 1 ]; then say "     $id $FOUND — installed, $why; specs use review: $review"
+      else warn "$id $FOUND — installed, but $why: the review bridge cannot run (specs use review: $review)"
+      fi ;;
+    disabled|absent)
+      if [ -n "$review" ]; then
+        label="not installed"; [ "$ST" = disabled ] && label="disabled"
+        say "     $id $label — optional, $why (specs use review: $review)"
+      else
+        companion "$id"
+      fi ;;
     *) warn "$id — could not determine which installation applies; $what" ;;
   esac
 }
@@ -335,13 +339,11 @@ if ! command -v jq >/dev/null 2>&1; then
 elif [ -z "$PLUGIN_LIST" ]; then
   warn "could not list installed plugins — companion plugin checks skipped"
 else
-  companion 'mattpocock-skills@mattpocock' \
-    'grilling + domain-modeling + codebase-design in /cc-tuner:spec; pr, code-review + diagnosing-bugs in /cc-tuner:run' \
-    mattpocock mattpocock/skills
+  companion 'mattpocock-skills@mattpocock'
   # The engineering skills expect the issue tracker to "have been provided": docs/agents/ holds the
   # config, and the instructions the session loads have to name it. Files nobody points at leave
   # code-review asking for /setup-matt-pocock-skills on every run. Repo config needs a repo.
-  if [ -n "$REPO_ROOT" ] && plugin_here 'mattpocock-skills@mattpocock' >/dev/null 2>&1; then
+  if [ -n "$REPO_ROOT" ] && { state_of 'mattpocock-skills@mattpocock'; [ "$ST" = installed ]; }; then
     if [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
       warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
     else

@@ -24,6 +24,8 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_HERE="$HERE/plugin-here.sh"
+COMPANION="$HERE/companion.sh"
+TAB="$(printf '\t')"
 missing=0
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -78,8 +80,24 @@ codex_contract() {
     && grep -q '^  check)' "$state"
 }
 
-# The command for a plugin that is not installed; install-hint.sh owns the answer for both callers.
-install_hint() { bash "$HERE/install-hint.sh" "$@"; }
+# Which plugin is installed, disabled or absent, and the command that fixes it, are companion.sh's
+# answers, shared with doctor.sh and the setup node; so are codex's state and the repository's opt-out
+# of Codex review. This script keeps only what is its own: whether the installed copy carries the
+# contract the flow needs.
+#
+# state_of <id>: ST is installed | disabled | absent | unknown.
+state_of() { local out; out="$(bash "$COMPANION" state "$1" "$PROJECT_ROOT" 2>/dev/null)"; ST="${out%%$TAB*}"; }
+# fix_line <id>: the fix for a plugin that is not usable here, as the line printed under its MISSING --
+# `install:` or `enable:` with the command, or the conflict text when a same-named marketplace comes
+# from another repository (nothing to run, so no label).
+fix_line() {
+  local fix
+  fix="$(bash "$COMPANION" hint "$1" "$PROJECT_ROOT" 2>&1)"
+  case $? in
+    0) if [ "$ST" = disabled ]; then echo "  enable: $fix" >&2; else echo "  install: $fix" >&2; fi ;;
+    3) echo "  $fix" >&2 ;;
+  esac
+}
 
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run
 # reviews the candidate SHA with `/mattpocock-skills:code-review`. This replaced the old superpowers
@@ -91,9 +109,14 @@ install_hint() { bash "$HERE/install-hint.sh" "$@"; }
 # fixes a stale copy and fails on a plugin that was never installed.
 MP='mattpocock-skills@mattpocock'
 MP_UPDATE='/plugin marketplace update mattpocock && /plugin update mattpocock-skills@mattpocock'
-if [ -z "$(root_of "$MP")" ]; then
-  echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
-  echo "  install: $(install_hint mattpocock mattpocock/skills "$MP")" >&2
+state_of "$MP"
+if [ "$ST" != installed ]; then
+  if [ "$ST" = disabled ]; then
+    echo "MISSING: mattpocock-skills is installed but disabled for this repo (skills: grilling, domain-modeling, code-review)" >&2
+  else
+    echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
+  fi
+  fix_line "$MP"
   missing=1
 else
   if ! has_skill "$MP" grilling; then
@@ -113,25 +136,26 @@ else
   fi
 fi
 
-# cc-codex-triage only drives codex, so it is required only where codex is usable: on PATH and logged
-# in (`codex login status` exits 0). Otherwise specs say `review: none:<reason>` and the missing
-# bridge is a NOTE, not a blocker -- a machine without codex has nothing to fix.
+# cc-codex-triage only drives codex, so it is required only where the review bridge can run: codex
+# usable and the repository not opted out of Codex review. Otherwise specs say `review: none:<reason>`
+# and the missing bridge is a NOTE, not a blocker -- a machine without codex, or a repository that
+# declined it, has nothing to fix.
 CT='cc-codex-triage@cc-codex-triage'
-CODEX_WHY=""
-if ! command -v codex >/dev/null 2>&1; then
-  CODEX_WHY="codex is not on PATH"; CODEX_REASON="codex-not-installed"
-elif ! codex login status >/dev/null 2>&1; then
-  CODEX_WHY="codex is not logged in (run: codex login)"; CODEX_REASON="codex-not-logged-in"
-fi
-if [ -n "$CODEX_WHY" ]; then
-  echo "NOTE: cc-codex-triage review bridge is off — $CODEX_WHY; specs use review: none:$CODEX_REASON"
+CT_REVIEW="$(bash "$COMPANION" review "$PROJECT_ROOT")"
+if [ -n "$CT_REVIEW" ]; then
+  echo "NOTE: cc-codex-triage review bridge is off — $(bash "$COMPANION" why "$PROJECT_ROOT"); specs use review: $CT_REVIEW"
 elif ! codex_contract; then
-  if [ -z "$(root_of "$CT")" ]; then
-    echo "MISSING: cc-codex-triage (the required-review gate in /cc-tuner:run; codex is logged in)" >&2
-    echo "  install: $(install_hint cc-codex-triage clicktronix/cc-codex-triage "$CT")" >&2
-  else
+  state_of "$CT"
+  if [ "$ST" = installed ]; then
     echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
     echo "  update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
+  else
+    if [ "$ST" = disabled ]; then
+      echo "MISSING: cc-codex-triage is installed but disabled for this repo (the required-review gate in /cc-tuner:run; codex is logged in)" >&2
+    else
+      echo "MISSING: cc-codex-triage (the required-review gate in /cc-tuner:run; codex is logged in)" >&2
+    fi
+    fix_line "$CT"
   fi
   missing=1
 fi

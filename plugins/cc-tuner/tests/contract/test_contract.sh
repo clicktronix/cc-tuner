@@ -485,11 +485,37 @@ need "setup-hint-names-companions"          '[companions|agent-rules|' "$SETUP"
 need "setup-table-has-companions"           '| 0c | companions |' "$SETUP"
 need "setup-routes-companions-node"         'references/companions.md' "$SETUP"
 if [ -f "$COMPANIONS_REF" ]; then echo "PASS setup-companions-reference-exists"; else echo "FAIL setup-companions-reference-exists"; fails=1; fi
-need "setup-companions-reuses-install-hint" 'install-hint.sh' "$COMPANIONS_REF"
+need "setup-companions-drives-companion-sh" 'companion.sh' "$COMPANIONS_REF"
+need "setup-companions-asks-per-plugin"     'multiSelect' "$COMPANIONS_REF"
+need "setup-companions-records-optout"      'cc-tuner-review: none:' "$COMPANIONS_REF"
+need "setup-declares-the-settings-write"    'enabledPlugins' "$SETUP"
+need "setup-codex-audit-gated-on-codex"     'companion.sh codex' "$SETUP"
+# install-hint.sh is gone: one owner of the hint, and no prose or script points at the old one.
+if [ ! -e "$ROOT/plugins/cc-tuner/scripts/setup/install-hint.sh" ]; then echo "PASS install-hint-script-is-gone"; else echo "FAIL install-hint-script-is-gone"; fails=1; fi
+if grep -rqF 'install-hint' "$ROOT/plugins/cc-tuner/scripts" "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/commands" 2>/dev/null; then
+  echo "FAIL nothing-names-install-hint"; fails=1
+else
+  echo "PASS nothing-names-install-hint"
+fi
+# The companion table and the codex test live in companion.sh alone.
+if grep -rnE 'codex login status|codex-not-logged-in|clicktronix/cc-codex-triage' "$ROOT/plugins/cc-tuner/scripts" | grep -v '/scripts/setup/companion.sh:' | grep -q .; then
+  echo "FAIL companion-facts-live-in-companion-sh"; fails=1
+else
+  echo "PASS companion-facts-live-in-companion-sh"
+fi
+# The companions node runs after the testing runbook (0b) and before session env (4), in table order.
+l0b="$(grep -nF '| 0b | testing runbook |' "$SETUP" | head -n 1 | cut -d: -f1)"
+l0c="$(grep -nF '| 0c | companions |' "$SETUP" | head -n 1 | cut -d: -f1)"
+l4="$(grep -nF '| 4 | session env |' "$SETUP" | head -n 1 | cut -d: -f1)"
+if [ -n "$l0b" ] && [ -n "$l0c" ] && [ -n "$l4" ] && [ "$l0b" -lt "$l0c" ] && [ "$l0c" -lt "$l4" ]; then
+  echo "PASS setup-companions-node-after-0b-before-4"
+else
+  echo "FAIL setup-companions-node-after-0b-before-4 (0b=$l0b 0c=$l0c 4=$l4)"; fails=1
+fi
 need "setup-companions-marketplace-add"     'claude plugin marketplace add' "$COMPANIONS_REF"
 need "setup-companions-install"             'claude plugin install' "$COMPANIONS_REF"
 need "setup-companions-enable-disabled"     'claude plugin enable' "$COMPANIONS_REF"
-need "setup-companions-codex-login-gate"    'codex login status' "$COMPANIONS_REF"
+need "setup-companions-codex-gate"          'companion.sh codex' "$COMPANIONS_REF"
 need "setup-companions-names-reload"        '/reload-plugins' "$COMPANIONS_REF"
 need "setup-companions-no-claude-fallback"  'is not on PATH' "$COMPANIONS_REF"
 need "setup-companions-no-jq-fallback"      'install nothing' "$COMPANIONS_REF"
