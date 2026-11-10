@@ -78,30 +78,72 @@ codex_contract() {
     && grep -q '^  check)' "$state"
 }
 
+# install_hint <marketplace> <source> <plugin-id> -- the command for a plugin that is not installed.
+# `marketplace update` and `plugin update` presuppose a marketplace and an installed copy; offering
+# them to someone with neither fails naming a marketplace they never added. An unreadable marketplace
+# list counts as "not configured": the add step is the safe one to repeat. doctor.sh carries the same
+# function, because sharing it would need a third file both scripts source.
+install_hint() {
+  local mkts; mkts="$(${CC_TUNER_MARKETPLACE_LIST_CMD:-claude plugin marketplace list --json} 2>/dev/null)" || mkts=""
+  if printf '%s' "$mkts" | jq -e --arg n "$1" 'any(.[]?; .name == $n)' >/dev/null 2>&1; then
+    printf '/plugin install %s' "$3"
+  else
+    printf '/plugin marketplace add %s && /plugin install %s' "$2" "$3"
+  fi
+}
+
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run
 # reviews the candidate SHA with `/mattpocock-skills:code-review`. This replaced the old superpowers
 # requirement, which gated skills that neither command invokes any more — blocking runs that did not
 # need it while letting the dependency they DO need go unchecked until the review step of an
 # unattended run.
-MP_INSTALL='/plugin marketplace add mattpocock/skills && /plugin install mattpocock-skills@mattpocock'
-if ! has_skill 'mattpocock-skills@mattpocock' grilling; then
+#
+# Not installed and installed-but-incomplete are different findings with different commands: `update`
+# fixes a stale copy and fails on a plugin that was never installed.
+MP='mattpocock-skills@mattpocock'
+MP_UPDATE='/plugin marketplace update mattpocock && /plugin update mattpocock-skills@mattpocock'
+if [ -z "$(root_of "$MP")" ]; then
   echo "MISSING: mattpocock-skills (skills: grilling, domain-modeling, code-review)" >&2
-  echo "  install: $MP_INSTALL" >&2
+  echo "  install: $(install_hint mattpocock mattpocock/skills "$MP")" >&2
   missing=1
+else
+  if ! has_skill "$MP" grilling; then
+    echo "MISSING: mattpocock-skills grilling skill (/spec grilling pass)" >&2
+    echo "  update: $MP_UPDATE" >&2
+    missing=1
+  fi
+  if ! has_skill "$MP" domain-modeling; then
+    echo "MISSING: mattpocock-skills domain-modeling skill (/spec vocabulary pass)" >&2
+    echo "  update: $MP_UPDATE" >&2
+    missing=1
+  fi
+  if ! has_skill "$MP" code-review; then
+    echo "MISSING: mattpocock-skills code-review skill (the review layer /cc-tuner:run requires)" >&2
+    echo "  update: $MP_UPDATE" >&2
+    missing=1
+  fi
 fi
-if ! has_skill 'mattpocock-skills@mattpocock' domain-modeling; then
-  echo "MISSING: mattpocock-skills domain-modeling skill (/spec vocabulary pass)" >&2
-  echo "  install: $MP_INSTALL" >&2
-  missing=1
+
+# cc-codex-triage only drives codex, so it is required only where codex is usable: on PATH and logged
+# in (`codex login status` exits 0). Otherwise specs say `review: none:<reason>` and the missing
+# bridge is a NOTE, not a blocker -- a machine without codex has nothing to fix.
+CT='cc-codex-triage@cc-codex-triage'
+CODEX_WHY=""
+if ! command -v codex >/dev/null 2>&1; then
+  CODEX_WHY="codex is not on PATH"; CODEX_REASON="codex-not-installed"
+elif ! codex login status >/dev/null 2>&1; then
+  CODEX_WHY="codex is not logged in (run: codex login)"; CODEX_REASON="codex-not-logged-in"
 fi
-if ! has_skill 'mattpocock-skills@mattpocock' code-review; then
-  echo "MISSING: mattpocock-skills code-review skill (the review layer /cc-tuner:run requires)" >&2
-  echo "  install: $MP_INSTALL" >&2
-  missing=1
-fi
-if ! codex_contract; then
-  echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
-  echo "  install/update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
+if [ -n "$CODEX_WHY" ]; then
+  echo "NOTE: cc-codex-triage review bridge is off — $CODEX_WHY; specs use review: none:$CODEX_REASON"
+elif ! codex_contract; then
+  if [ -z "$(root_of "$CT")" ]; then
+    echo "MISSING: cc-codex-triage (the required-review gate in /cc-tuner:run; codex is logged in)" >&2
+    echo "  install: $(install_hint cc-codex-triage clicktronix/cc-codex-triage "$CT")" >&2
+  else
+    echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
+    echo "  update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage" >&2
+  fi
   missing=1
 fi
 
