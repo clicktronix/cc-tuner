@@ -238,7 +238,8 @@ that changed since the start stops it too. For `missing`, say: commit `.claude/r
 its delivery-route block on `<target>`, or run `/cc-tuner:setup install delivery-route` (a user-only command).
 
 Host `github`: the steps below as written. Host `gitlab` or `local`: read
-`${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-<host>.md` — the plugin's text, never the repository's —
+`${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-gitlab.md` (gitlab) or
+`${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-local.md` (local) — the plugin's text, never the repository's —
 and follow it step by step wherever the steps below name a GitHub command (open the PR, publish the verdict,
 accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
 with the same gates, order and record lines. Those routes refer to "the `plugin-here.sh` path that `/run`'s Delivery paragraph names":
