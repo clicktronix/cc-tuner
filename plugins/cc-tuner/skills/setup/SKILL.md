@@ -1,6 +1,6 @@
 ---
-description: One user-run command that sets a repository up for cc-tuner and says exactly what it did — rule loading, the task-flow rule, task tools, an optional statusline, an optional board — as independent nodes that each detect, propose, apply and verify. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
-argument-hint: '[check|install|remove] [agent-rules|task-flow|task-tools|statusline|board|delivery-route]'
+description: One user-run command that sets a repository up for cc-tuner and says exactly what it did — the companion plugins, rule loading, the task-flow rule, task tools, an optional statusline, an optional board — as independent nodes that each detect, propose, apply and verify. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
+argument-hint: '[check|install|remove] [companions|agent-rules|task-flow|task-tools|statusline|board|delivery-route]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Skill
 disable-model-invocation: true
 ---
@@ -26,6 +26,7 @@ stop the command because one node stopped.
 | # | node | depends on | writes |
 |---|---|---|---|
 | 0 | environment | — | nothing |
+| 0c | companions | 0 | in install mode, after one confirmation, user-scope plugin installs: `mattpocock-skills`, and `cc-codex-triage` with a logged-in `codex`; nothing in `check` |
 | 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
@@ -51,12 +52,31 @@ server and can sit for 30 seconds on each unreachable one. That cost is why it i
 
 Show the output as-is. `MISS` lines block the nodes that need that tool and carry their own fix;
 `WARN` lines are degraded-but-usable. Do not paraphrase a `MISS` into "you may want to" — each one
-names a command that fails without it. Two fixes the user has to run themselves, in their own shell:
+names a command that fails without it. Fixes the user has to run themselves, in their own shell or
+session:
 
 - `gh auth login` — an interactive browser flow; you cannot complete it for them.
-- `/plugin install ...` — a Claude Code command, not a shell one.
+- `codex login` — likewise interactive.
+- `/plugin install ...` — a Claude Code command, not a shell one. Node 0c runs the shell form for a
+  missing companion plugin; the user types the `/plugin` form only when `claude` is not on PATH.
 
 A `MISS` does not end the command. Record which nodes it blocks and continue with the rest.
+
+### 0c. Companions
+
+`/cc-tuner:spec` and `/cc-tuner:run` need `mattpocock-skills`, and `/cc-tuner:run`'s required review
+needs `cc-codex-triage` plus a logged-in `codex`. Read [references/companions.md](references/companions.md)
+and run it in the current mode. It is user-global like the statusline, so it is offered and applied
+only after one confirmation that lists exactly what will be installed:
+
+- `mattpocock-skills` is offered whenever it is missing; `cc-codex-triage` only when `codex` is on
+  PATH and `codex login status` succeeds, otherwise it is optional and specs use `review: none:<reason>`.
+- It runs `claude plugin marketplace add` and `claude plugin install` at user scope, then verifies
+  with `claude plugin list --json`. The verify column reads "installed; run `/reload-plugins` or
+  restart to load its commands" — this command never claims the commands are loaded in this session.
+- No `claude` on PATH → it prints the `/plugin …` commands for the user and installs nothing. No `jq`
+  → it cannot tell what is installed and installs nothing. A disabled plugin gets `claude plugin
+  enable`, not an install.
 
 ### 0b. Testing runbook
 

@@ -19,6 +19,8 @@ RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
 ROUTE_GITLAB="$ROOT/plugins/cc-tuner/assets/task-flow/route-gitlab.md"
 ROUTE_LOCAL="$ROOT/plugins/cc-tuner/assets/task-flow/route-local.md"
 DELIVERY_REF="$ROOT/plugins/cc-tuner/skills/setup/references/delivery-route.md"
+COMPANIONS_REF="$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+SETUP_MANUAL="$ROOT/plugins/cc-tuner/tests/setup/setup-manual-checks.md"
 TASK_FLOW_REF="$ROOT/plugins/cc-tuner/skills/setup/references/task-flow-rule.md"
 UNIT="$ROOT/plugins/cc-tuner/agents/slice-unit.md"
 VERIFY="$ROOT/plugins/cc-tuner/skills/verify-feature/SKILL.md"
@@ -478,5 +480,21 @@ if grep -qF 'setup never touches this file' "$TASK_FLOW_REF"; then
 else
   echo "PASS local-header-no-longer-says-never-touches"
 fi
+
+need "setup-hint-names-companions"          '[companions|agent-rules|' "$SETUP"
+need "setup-table-has-companions"           '| 0c | companions |' "$SETUP"
+need "setup-routes-companions-node"         'references/companions.md' "$SETUP"
+if [ -f "$COMPANIONS_REF" ]; then echo "PASS setup-companions-reference-exists"; else echo "FAIL setup-companions-reference-exists"; fails=1; fi
+need "setup-companions-reuses-install-hint" 'install-hint.sh' "$COMPANIONS_REF"
+need "setup-companions-marketplace-add"     'claude plugin marketplace add' "$COMPANIONS_REF"
+need "setup-companions-install"             'claude plugin install' "$COMPANIONS_REF"
+need "setup-companions-enable-disabled"     'claude plugin enable' "$COMPANIONS_REF"
+need "setup-companions-codex-login-gate"    'codex login status' "$COMPANIONS_REF"
+need "setup-companions-names-reload"        '/reload-plugins' "$COMPANIONS_REF"
+need "setup-companions-no-claude-fallback"  'is not on PATH' "$COMPANIONS_REF"
+need "setup-companions-no-jq-fallback"      'install nothing' "$COMPANIONS_REF"
+need "setup-companions-one-confirmation"    'AskUserQuestion' "$COMPANIONS_REF"
+need "setup-companions-verifies-with-list"  'claude plugin list --json' "$COMPANIONS_REF"
+need "setup-manual-fresh-config-dir"        'CLAUDE_CONFIG_DIR' "$SETUP_MANUAL"
 
 exit "$fails"
