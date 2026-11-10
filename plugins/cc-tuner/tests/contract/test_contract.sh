@@ -567,7 +567,8 @@ need "task-flow-local-merged-check"        '`git rev-parse refs/heads/<target>`'
 need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$TASK_FLOW"
 need "task-flow-future-work-uses-the-tracker" '`docs/agents/issue-tracker.md` names when it is not GitHub' "$TASK_FLOW"
 need "rule-template-delivers-by-the-route" 'Outside GitHub, deliver only by the delivery-route block' "$RULE_TEMPLATE"
-need "rule-template-no-web-merge"          'never an unpinned or web merge' "$RULE_TEMPLATE"
+need "rule-template-no-web-merge"          'a web merge skips it.' "$RULE_TEMPLATE"
+need "rule-template-route-is-a-prohibition" '**Merge outside the delivery route.**' "$RULE_TEMPLATE"
 if [ "$(head -n 1 "$RULE_TEMPLATE" | sed -n 's/^<!-- cc-tuner:task-flow \(v[0-9.]*\) .*/\1/p')" = v0.23.0 ]; then
   echo "PASS rule-template-marker-is-v0.23.0"
 else

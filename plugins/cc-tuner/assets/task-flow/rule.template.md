@@ -15,8 +15,8 @@ Procedures — board recipes, epics, cleanup, merge strategies, release notes �
   unrelated WIP reach a commit.
 - **`--amend` after a hook rejected the commit.** That commit did not happen, so `--amend` rewrites
   the *previous* one and destroys work. Fix, re-stage, commit again.
-- **Merge by the route.** Outside GitHub, deliver only by the delivery-route block in `task-flow.local.md`,
-  never an unpinned or web merge.
+- **Merge outside the delivery route.** Outside GitHub, deliver only by the delivery-route block in
+  `task-flow.local.md`: a web merge skips it.
 - **Commit directly to the repository's integration target.** Resolve it from repo policy or the
   remote default branch, then branch first: `git switch -c <branch>`. On the target with uncommitted
   work: stash → branch → pop.
