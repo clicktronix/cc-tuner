@@ -26,6 +26,14 @@ DoD. If the argument is missing or names a plan, read the spec from the plan's `
 say which one you took. Stop if neither names a spec that exists. Refuse `--auto` unless
 `auto_ready: yes`.
 
+**Re-detect the host** as `/spec` does: `gh repo view` succeeds → `github`; otherwise `glab repo view`
+succeeds → `gitlab`; a remote both fail on whose URL names github.com or gitlab.com → that host; no remote →
+`local`; any other remote → `other`. Then compare it with the spec's `host:`.
+A spec without `host:` means `github`. For a host other than `github`, also compare it with the host in the
+opening marker of the `<!-- cc-tuner:delivery-route` block in `.claude/rules/task-flow.local.md`.
+A mismatch, or a missing block, stops the run: tell the user to run `/cc-tuner:setup install delivery-route`
+(a user-only command) or to correct the spec.
+
 For work spanning repositories or a spec naming `second-repo`/`shared-task`, read
 [shared-task.md](references/shared-task.md) before resolving plans. Apply it throughout this run,
 including combined verification and preflight of every candidate before the first merge.
@@ -159,7 +167,8 @@ their own read-only agent type/model; where silent, placement decides.
 ## Prepare the candidate
 
 After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
-archiving and update plan/spec links before the first required review; continue with the new spec
+archiving and update plan/spec links before the first required review, and under `tracker: local`,
+commit the issue file's status change (`Status: resolved`) with them; continue with the new spec
 path. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
 resolver/linter contract used at startup.
 
@@ -199,11 +208,18 @@ the skill yourself.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
 residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
-as one PR comment: its lines come from verify-feature alone, and a criterion it did not observe stays
-`NOT PROVED`. `merge.sh` requires the record, prints its `NOT PROVED` lines, and accepts any commit the
+as one record (a PR comment on GitHub, the route's record elsewhere): its lines come from verify-feature alone, and a criterion it did not observe stays
+`NOT PROVED`. `merge.sh`, or the route, requires the record, prints its `NOT PROVED` lines, and accepts any commit the
 head contains, so a later fix commit needs a new record only if the evidence no longer covers it.
 
 ## Delivery
+
+**The route.** Host `github`: the steps below as written. Any other host:
+follow the delivery-route block step by step wherever the steps below name a GitHub command (open the PR,
+publish the verdict, accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
+with the same gates, order and record lines.
+`--check-only` means running every route step up to the merge and handing the merge command over.
+`--auto` is allowed on every host.
 
 A new commit needs fresh authoritative approval and CI, with acceptance and DoD evidence covering
 the resulting candidate. Local checks follow the reuse rule in Proving a slice; a new SHA does not
@@ -303,7 +319,9 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery prerequisites
-   are complete, and then move the card to Done. When the issue was an epic's last open sub-issue,
+   are complete, through the tracker: `gh` and `glab` close it; under `local`, the
+   issue file's `Status: resolved` was committed on the task branch before the first required review, so it lands
+   with the merge — never a commit on the target. Then move the card to Done. When the issue was an epic's last open sub-issue,
    also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
    after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
    open). Do not commit a completion record directly to an integration target.

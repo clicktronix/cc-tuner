@@ -74,7 +74,7 @@ that directly exercises it. A plausible diff or an unrelated green suite is not 
 
 ## 5. Hand back
 
-Return a short record `/run` publishes verbatim as one PR comment. Its first line names the full SHA
+Return a short record `/run` publishes verbatim as one record where the host's route puts records (a PR comment on GitHub). Its first line names the full SHA
 the checks ran against; every line after it is one criterion, tagged with the instrument that
 observed it:
 
@@ -91,7 +91,7 @@ cc-tuner-verified: <full sha>
   diff or lint check.
 
 The tag is what you used, so a screen criterion proved by `[test]` reads as exactly that to the
-reviewer. `merge.sh` refuses a record with no tagged or `NOT PROVED` line and prints every
+reviewer. `merge.sh`, or the route, refuses a record with no tagged or `NOT PROVED` line and prints every
 `NOT PROVED` line at merge.
 
 Run e2e suites, full builds and other heavy checks as

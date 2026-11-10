@@ -143,8 +143,8 @@ else
   fails=1
 fi
 template_words="$(wc -w < "$RULE_TEMPLATE" | tr -d ' ')"
-[ "$template_words" -le 650 ] && echo "PASS template-stays-small ($template_words words)" \
-  || { echo "FAIL template-stays-small ($template_words words; keep it <= 650)"; fails=1; }
+[ "$template_words" -le 660 ] && echo "PASS template-stays-small ($template_words words)" \
+  || { echo "FAIL template-stays-small ($template_words words; keep it <= 660)"; fails=1; }
 # One general instruction was replayed as `renew --by` six times on one thread.
 need "run-renew-needs-this-threads-agreement" 'in this conversation, to more rounds of this thread' "$RUN"
 need "run-verdict-marker"           'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>' "$RUN"
@@ -317,7 +317,7 @@ else
   echo "PASS no-private-provenance-on-instruction-surfaces"
 fi
 
-if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" >/dev/null; then
+if grep -En 'effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"
   fails=1
 else
@@ -496,5 +496,98 @@ need "setup-companions-no-jq-fallback"      'install nothing' "$COMPANIONS_REF"
 need "setup-companions-one-confirmation"    'AskUserQuestion' "$COMPANIONS_REF"
 need "setup-companions-verifies-with-list"  'claude plugin list --json' "$COMPANIONS_REF"
 need "setup-manual-fresh-config-dir"        'CLAUDE_CONFIG_DIR' "$SETUP_MANUAL"
+
+# /spec and /run follow the tracker file and the route. The tracker comes from the file mattpocock's
+# setup writes, the host from the CLI that reaches the remote, and a non-github host delivers by the
+# block /cc-tuner:setup wrote. Each phrase below is what a reader acts on; github keeps merge.sh.
+need "spec-template-host-field"            'host: github|gitlab|local|other — detected as doctor does; github delivers through merge.sh, every other host through the delivery-route block in .claude/rules/task-flow.local.md' "$SPEC_TEMPLATE"
+need "spec-template-tracker-field"         'tracker: gh|glab|local|other|none — from docs/agents/issue-tracker.md' "$SPEC_TEMPLATE"
+need "spec-template-tracker-kinds"         'gh GitHub issues, glab GitLab issues, local markdown files, other as that file describes' "$SPEC_TEMPLATE"
+need "spec-template-none-is-the-record"    'none makes this spec the record' "$SPEC_TEMPLATE"
+need "spec-template-dod-names-the-head"    'the PR, MR or, with no remote, the branch' "$SPEC_TEMPLATE"
+need "spec-reads-the-tracker-file"         '`docs/agents/issue-tracker.md`, which owns where issues live' "$SPEC"
+need "spec-asks-when-tracker-absent"       'When `docs/agents/issue-tracker.md` is absent, ask once with `AskUserQuestion`' "$SPEC"
+need "spec-offers-matt-pocock-setup"       '`/setup-matt-pocock-skills` now (a user-only command' "$SPEC"
+need "spec-offers-tracker-none"            'or continue with `tracker: none`' "$SPEC"
+need "spec-never-writes-the-tracker-file"  'Do not write that file yourself' "$SPEC"
+need "spec-detects-host-after-tracker"     'Detect the host once the tracker is settled' "$SPEC"
+need "spec-host-github-by-gh"              '`gh repo view` succeeds' "$SPEC"
+need "spec-host-gitlab-by-glab"            '`glab repo view` succeeds' "$SPEC"
+need "spec-host-url-fallback"              'names github.com or gitlab.com' "$SPEC"
+need "spec-host-no-remote-is-local"        'no remote → `local`' "$SPEC"
+need "spec-host-other-is-asked"            'ask the user and record `other`' "$SPEC"
+need "spec-checks-the-route-block"         '`/cc-tuner:setup install delivery-route`' "$SPEC"
+need "spec-review-codex-needs-login"       '`codex login status` succeeds' "$SPEC"
+need "spec-local-host-ci-is-none"          'with `host: local`, `ci:` is always `none:<reason>`' "$SPEC"
+need "spec-tracker-comes-from-the-file"    'and `tracker:` from `docs/agents/issue-tracker.md`' "$SPEC"
+need "spec-glab-issue-create"              '`glab issue create` / `glab issue note`' "$SPEC"
+need "spec-local-issue-file"               'create the issue file where that file says' "$SPEC"
+need "spec-local-one-spec"                 'never a second spec in `.scratch/`' "$SPEC"
+need "spec-local-issue-committed-with-spec" 'commit it with the spec on the task branch' "$SPEC"
+need "spec-other-tracker-follows-the-file" '`other` — follow that file'"'"'s prose' "$SPEC"
+need "spec-groom-refuses-other-without-comments" 'under `other` unless' "$SPEC"
+need "spec-groom-glab-member-check"        'glab api projects/:id/members/all/<user id>' "$SPEC"
+need "spec-groom-glab-note"                'one note on the GitLab issue' "$SPEC"
+need "spec-groom-local-appends"            'append the record under `## Comments` in the issue file' "$SPEC"
+need "spec-groom-local-no-commit"          'without committing' "$SPEC"
+need "spec-groom-local-settled"            'a later `/spec` treats it as settled' "$SPEC"
+need "spec-groom-writes-nothing-in-git"    'uncommitted' "$SPEC"
+tracker_ask_line="$(grep -nF 'is absent, ask once with `AskUserQuestion`' "$SPEC" | head -1 | cut -d: -f1)"
+host_detect_line="$(grep -nF 'Detect the host once the tracker is settled' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$tracker_ask_line" ] && [ -n "$host_detect_line" ] && [ "$tracker_ask_line" -lt "$host_detect_line" ]; then
+  echo "PASS spec-detects-host-after-the-tracker-ask"
+else
+  echo "FAIL spec-detects-host-after-the-tracker-ask (ask=$tracker_ask_line detect=$host_detect_line)"; fails=1
+fi
+need "run-redetects-the-host"              'Re-detect the host' "$RUN"
+need "run-compares-with-the-spec-host"     "compare it with the spec's \`host:\`" "$RUN"
+need "run-legacy-spec-is-github"           'A spec without `host:` means `github`' "$RUN"
+need "run-compares-with-the-route-marker"  'opening marker of the `<!-- cc-tuner:delivery-route`' "$RUN"
+need "run-stops-on-mismatch-or-no-block"   'A mismatch, or a missing block, stops the run' "$RUN"
+need "run-names-the-route-setup-command"   '`/cc-tuner:setup install delivery-route`' "$RUN"
+need "run-github-keeps-the-steps"          'Host `github`: the steps below as written' "$RUN"
+need "run-other-hosts-follow-the-route"    'follow the delivery-route block step by step' "$RUN"
+need "run-route-keeps-gates-and-records"   'with the same gates, order and record lines' "$RUN"
+need "run-route-check-only"                '`--check-only` means running every route step up to the merge' "$RUN"
+need "run-auto-on-every-host"              '`--auto` is allowed on every host' "$RUN"
+need "run-record-where-the-host-publishes" "as one record (a PR comment on GitHub, the route's record elsewhere)" "$RUN"
+need "run-closes-through-the-tracker"      'through the tracker' "$RUN"
+need "run-local-status-in-the-candidate"   "issue file's \`Status: resolved\` was committed on the task branch before the first required review" "$RUN"
+need "run-local-status-never-on-target"    'never a commit on the target' "$RUN"
+need "run-prepare-commits-local-status"    'commit the issue file'"'"'s status change' "$RUN"
+LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
+SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
+need "local-ci-record-goes-where-route-says" 'where the delivery-route block says' "$LOCAL_CI"
+need "local-ci-host-local-is-none"         'with host `local`, `ci:` is always `none:<reason>`' "$LOCAL_CI"
+need "shared-task-per-host-preflight"      '`merge.sh --check-only` for a GitHub candidate and every route step up to the merge for the others' "$SHARED_TASK"
+need "shared-task-preflight-before-first-merge" 'All must pass' "$SHARED_TASK"
+need "verify-record-goes-where-route-puts-it" "where the host's route puts records (a PR comment on GitHub)" "$VERIFY"
+need "task-flow-gitlab-merged-check"       '`glab mr view <iid>`' "$TASK_FLOW"
+need "task-flow-local-merged-check"        '`git rev-parse refs/heads/<target>`' "$TASK_FLOW"
+need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$TASK_FLOW"
+need "task-flow-future-work-uses-the-tracker" '`docs/agents/issue-tracker.md` names when it is not GitHub' "$TASK_FLOW"
+need "rule-template-delivers-by-the-route" 'Outside GitHub, deliver only by the delivery-route block' "$RULE_TEMPLATE"
+need "rule-template-no-web-merge"          'never an unpinned or web merge' "$RULE_TEMPLATE"
+if [ "$(head -n 1 "$RULE_TEMPLATE" | sed -n 's/^<!-- cc-tuner:task-flow \(v[0-9.]*\) .*/\1/p')" = v0.23.0 ]; then
+  echo "PASS rule-template-marker-is-v0.23.0"
+else
+  echo "FAIL rule-template-marker-is-v0.23.0"; fails=1
+fi
+README_ROOT="$ROOT/README.md"
+for readme in "$README_ROOT" "$README_PLUGIN"; do
+  rn="${readme#$ROOT/}"
+  need "readme-names-the-tracker-file ($rn)"  'docs/agents/issue-tracker.md' "$readme"
+  need "readme-names-the-delivery-route ($rn)" 'delivery route' "$readme"
+  need "readme-keeps-merge-sh-for-github ($rn)" 'merge.sh' "$readme"
+  need "readme-names-setup-install-companions ($rn)" 'installs both after one confirmation' "$readme"
+  if grep -qiF 'standalone without' "$readme"; then
+    echo "FAIL readme-no-standalone-claim ($rn)"; fails=1
+  else
+    echo "PASS readme-no-standalone-claim ($rn)"
+  fi
+done
+need "readme-mattpocock-is-required"       '**mattpocock-skills** is required by `/spec` and `/run`' "$README_PLUGIN"
+need "readme-codex-triage-is-optional"     '**cc-codex-triage** is optional' "$README_PLUGIN"
+need "readme-codex-needs-login"            'logged-in Codex CLI' "$README_PLUGIN"
 
 exit "$fails"

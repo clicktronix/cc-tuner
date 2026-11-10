@@ -24,3 +24,6 @@ gh pr comment <pr> --body "cc-tuner-local-ci: <candidate-sha> <the command that 
 
 Use a comment: `gh pr edit --body` replaces the description. The script checks the record but does
 not rerun its command.
+
+On a host other than GitHub the `cc-tuner-local-ci` record goes where the delivery-route block says: an
+MR note on GitLab, a git note on the head commit with no remote; with host `local`, `ci:` is always `none:<reason>`.

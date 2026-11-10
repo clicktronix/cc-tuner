@@ -93,7 +93,7 @@ builds on that record.
 `/cc-tuner:run [--auto] <spec>` works that plan to a merged pull request: it proves each slice
 RED→GREEN, reviews the candidate (Matt Pocock review, or `cc-tuner:deep-review` for large or sensitive
 changes), obtains the review the spec names (Codex's by default, or none with a recorded reason) at the
-exact final SHA, and merges only through `scripts/merge.sh`. Where the spec names a board, `/run`
+exact final SHA, and on GitHub merges only through `scripts/merge.sh` (other hosts: see Delivery routes below). Where the spec names a board, `/run`
 moves the card to In Progress, In review and Done as it goes, and the epic's card with its first and
 last sub-issue. Implementation may be handed to
 `cc-tuner:slice-unit` subagents, one per slice, capped at `maxTurns: 300` so an over-long slice returns
@@ -130,12 +130,30 @@ cc-tuner registers no global raw-command interceptor, so a raw CLI call, the mer
 github.com, `git push` and the REST API can all bypass `merge.sh`. It is workflow discipline, not a
 local security boundary.
 
-Uses the **mattpocock-skills** plugin for grilling, domain modelling, module design, prototypes, PR
-bodies, hard-bug diagnosis and ordinary review, and **cc-codex-triage** for the default `review: codex`
-gate (both checked at runtime via prereq-check). Without cc-codex-triage a spec declares
-`review: none:<reason>` and the run's owner publishes the verdict; cc-tuner works standalone without
-either. Integration rounds outside the review cap and `renew` need cc-codex-triage 0.14+; with an older
-companion prereq-check prints a NOTE and `/run` uses a normal round and the companion's reset.
+### Delivery routes and the tracker
+
+`/spec` records the repository's `host:` (`github`, `gitlab`, `local` for no remote, or `other`) in the
+spec, detected by the CLI that reaches the remote, and `/run` re-detects it and stops when it differs. On
+GitHub nothing changes: delivery is `merge.sh`. On GitLab, with no remote, or on another host `/run`
+follows a delivery route written in the repository: `/cc-tuner:setup install delivery-route` copies the
+plugin's route for GitLab or a remote-less repository (or records the user's own description for another
+host) into `.claude/rules/task-flow.local.md` between `cc-tuner:delivery-route` markers, and doctor warns
+when the copy drifts from the plugin's. A route keeps the gate's order and records, but its steps are
+performed by the agent, so no script refuses on its behalf. `/run --auto` is allowed on every host.
+
+Where issues live comes from `docs/agents/issue-tracker.md`, which `/setup-matt-pocock-skills` writes; the
+spec's `tracker:` is `gh`, `glab`, `local` (markdown files under `.scratch/`), `other` or `none`. `/spec`
+asks once when the file is absent. Boards stay GitHub-only.
+
+### Companions
+
+**mattpocock-skills** is required by `/spec` and `/run`: grilling, domain modelling, module design,
+prototypes, PR bodies, hard-bug diagnosis and ordinary review. **cc-codex-triage** is optional: it
+supplies the default `review: codex` gate and needs a logged-in Codex CLI (`codex login`); without it a
+spec declares `review: none:<reason>` and the run's owner publishes the verdict. `/cc-tuner:setup install`
+installs both after one confirmation, and prereq-check reports what is missing. Integration rounds
+outside the review cap and `renew` need cc-codex-triage 0.14+; with an older companion prereq-check
+prints a NOTE and `/run` uses a normal round and the companion's reset.
 
 ## Output style
 

@@ -40,7 +40,8 @@ The branch and PR attach to the **sub-issue**. The epic closes when its children
 
 ## Board recipes (GitHub Projects)
 
-Use these recipes only when the repository has a configured board. With `board: none`, omit
+Boards are GitHub-only: outside GitHub the spec says `board: none`. Use these recipes only when the repository
+has a configured board. With `board: none`, omit
 `--project` from issue creation and skip project commands, fields and project-scope setup.
 
 **Create an issue directly on the board (preferred):**
@@ -100,7 +101,9 @@ related findings into one schedulable change. Create a new issue only for a dist
 that is still needed. An optional suggestion with no planned outcome can remain a review note.
 
 Include the observed problem, the intended result and its source review. Follow the board recipes
-above when a board is configured; otherwise create or update the issue without project commands.
+above when a board is configured; otherwise create or update the issue without project commands. Create it
+through the tracker `docs/agents/issue-tracker.md` names when it is not GitHub: `glab issue create`, a new issue
+file where that file says, or what it describes.
 
 ## Runtime cleanup
 
@@ -135,6 +138,10 @@ local tip, so nothing local is left out of what merged:
 ```
 
 A local tip that differs holds commits the PR never carried: look at them, do not delete.
+
+Other hosts check the same fact. On GitLab, `glab mr view <iid>` must show state `merged` with its sha equal to
+the local tip. With no remote, `git rev-parse refs/heads/<target>` must equal the merged head, and the local tip
+must equal it too. The route's after-merge step names the same check.
 
 `--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
 something to look at, not to paper over with a merge commit.

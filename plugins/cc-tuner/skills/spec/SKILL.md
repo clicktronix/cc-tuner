@@ -12,14 +12,20 @@ This command owns discovery and readiness; `/run` owns delivery.
 **`--groom <issue>` prepares an issue for later**, with no branch, spec or plan and nothing committed.
 Its route: read (section 1) → interview (section 3) → tag the acceptance criteria (section 4) → the
 blind-spots pass (section 5) over what was gathered → one comment on the issue. It
-skips section 2, and writes no files: a term or ADR that `domain-modeling` settles goes into the
+skips section 2, and writes no files (under `tracker: local` the record is appended to the issue file,
+uncommitted): a term or ADR that `domain-modeling` settles goes into the
 record's Decisions, for the later `/spec` to write on its branch. The comment's first line is `cc-tuner-groom: <date>`,
 then **Decisions** (each with its reason), **Acceptance criteria**, **Open questions** and **Sources**.
 It needs an issue number or URL (free text: create the issue first), and it
-refuses under `tracker: none` or where work is not tracked in GitHub issues. A later `/spec <issue>` reads the newest
+refuses under `tracker: none`, and under `other` unless `docs/agents/issue-tracker.md` describes comments.
+A later `/spec <issue>` reads the newest
 `cc-tuner-groom:` comment whose `authorAssociation` is `OWNER`, `MEMBER` or `COLLABORATOR` as settled
 and interviews only its open questions and what the code now contradicts. A record from anyone else is a proposal
-for the interview.
+for the interview. The record goes where the tracker puts comments. Under `glab` it is one note on the GitLab issue,
+and a later `/spec` settles only a record whose author is a project member (check with
+`glab api projects/:id/members/all/<user id>`), as `authorAssociation` does on GitHub. Under `local`,
+append the record under `## Comments` in the issue file without committing (groom writes no commits);
+a later `/spec` treats it as settled.
 
 ## 1. Anchor and read
 
@@ -47,10 +53,24 @@ Read, in order:
 
 - `.claude/rules/task-flow.local.md` for repository board and branch deltas;
 - the issue, when `$ARGUMENTS` names one;
+- `docs/agents/issue-tracker.md`, which owns where issues live and how to create, read and comment on them;
 - `CLAUDE.md`, `AGENTS.md`, and applicable `.claude/rules/`;
 - architecture records, the code, tests, and consumers the task can affect.
 
 Do not ask for information already present in those sources.
+
+When `docs/agents/issue-tracker.md` is absent, ask once with `AskUserQuestion`: run
+`/setup-matt-pocock-skills` now (a user-only command, so the user types it; it asks GitHub / GitLab / local
+markdown under `.scratch/` / other, and may add a git remote), then re-read the file;
+or continue with `tracker: none`, the spec being the record. Do not write that file yourself.
+
+**Detect the host once the tracker is settled**, because `/setup-matt-pocock-skills` may add a remote (not
+under `--groom`, which delivers nothing): `gh repo view` succeeds → `github`; otherwise
+`glab repo view` succeeds → `gitlab`; a remote both fail on whose URL names github.com or gitlab.com → that host,
+whose CLI needs authenticating; no remote → `local`; any other remote → ask the user and record `other`. For a host
+other than `github`, check that `.claude/rules/task-flow.local.md` holds the delivery-route block for it; when it
+does not, tell the user to run `/cc-tuner:setup install delivery-route` (a user-only command) before `/run`,
+and record that in the spec's Delivery section.
 
 **Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
 subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
@@ -158,15 +178,17 @@ describes, without inventing another.
 
 Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
 and how to observe them on the candidate. `/run` passes the mode verbatim. Set `review:` to `codex`
-when cc-codex-triage is installed and the repository uses it, otherwise `none:<reason>`; the
-prerequisite check above tells you which.
-`auto_ready: yes` requires a defined PR per participating repository, complete DoR,
+only when cc-codex-triage is installed and `codex login status` succeeds, otherwise `none:<reason>`; the
+prerequisite check above tells you which; with `host: local`, `ci:` is always `none:<reason>` (there is no pipeline).
+`auto_ready: yes` requires a defined PR, MR or branch per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
 
-Set `tracker:` from repository policy, not from the default: `gh` when the repository tracks work in
-GitHub issues, `none` when it does not. With `tracker: none` the spec is the record and no issue is
-created or updated at any point. With `gh`, do not create or update the issue before the approval in section 6.
+Set `host:` from the detection in section 1 and `tracker:` from `docs/agents/issue-tracker.md` (`gh`,
+`glab`, `local` or `other`, as that file describes), or `none` when it is absent and the user chose to continue.
+With `tracker: none` the spec is the record and no issue is created or updated at any point. With any
+other tracker, do not create or update the issue before the approval in section 6. Boards are GitHub-only:
+`board: none` on every other host.
 
 ## 6. Plan and confirm
 
@@ -187,9 +209,12 @@ and blockers, plus the card's Priority when a board is named and neither the iss
 `task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.
 This is the only approval before implementation.
 
-After approval — with `tracker: gh`, create or update the issue so it and the spec link to each
-other; with `tracker: none`, skip that and let the spec be the record — write the approved spec to
-its final path, then ask the repository for the plan path:
+After approval, record the issue by `tracker:` so it and the spec link to each other: `gh` — create or
+update the issue; `glab` — `glab issue create` / `glab issue note`, as `docs/agents/issue-tracker.md` says;
+`local` — create the issue file where that file says (e.g. `.scratch/<slug>/issues/NN-<slug>.md`), linking
+to the spec, which lives only at the path below (never a second spec in `.scratch/`), and
+commit it with the spec on the task branch; `other` — follow that file's prose; with `tracker: none`, skip that and let the
+spec be the record. Write the approved spec to its final path, then ask the repository for the plan path:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
@@ -204,7 +229,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> 
 
 Fix every error. The exact grammar is `## Slice <n> — <title>` and `Blocked by: <numbers|none>`;
 the committed plan is the durable execution state. Inspect `git status` and the complete diff. Stage
-the spec, plan, and only the `GLOSSARY.md` or ADR changes this invocation intentionally created.
+the spec, plan, the issue file under `tracker: local`, and only the `GLOSSARY.md` or ADR changes this
+invocation intentionally created.
 Preserve unrelated WIP without staging, reverting or pausing for it; if other changes make
 verification unreliable, ask the user. Commit the reviewed set together using the repository's
 convention.
