@@ -26,10 +26,12 @@ Owned paths: plugins/cc-tuner/assets/task-flow/route-gitlab.md,plugins/cc-tuner/
 Deciding check: bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: `/cc-tuner:setup install delivery-route` writes the route for the detected host between cc-tuner markers in task-flow.local.md, and doctor reports it missing, current or drifted
 
-- [ ] route-gitlab.md names the author filter, `review-state.sh check`, verify-record ancestry, `head_pipeline` at the current head, the target-tip ancestry check, `glab mr merge --sha <head> --auto-merge=false`, and the four record lines
-- [ ] route-local.md names `git notes --ref cc-tuner append`, `ci: none`, the ancestry check, `--ff-only`, the `update-ref` compare-and-swap, the dirty-worktree hand-off and no squash commit
-- [ ] the setup delivery-route node writes, diffs and asks; `other` is written from the user's words; the new task-flow.local.md header says setup writes only between cc-tuner markers
-- [ ] doctor WARNs with `/cc-tuner:setup install delivery-route` when the block is missing or differs from its asset, and says ok when it matches
+- [x] route-gitlab.md names the author filter, `review-state.sh check`, verify-record ancestry, `head_pipeline` at the current head, the target-tip ancestry check, `glab mr merge --sha <head> --auto-merge=false`, and the four record lines
+- [x] route-local.md names `git notes --ref cc-tuner append`, `ci: none`, the ancestry check, `--ff-only`, the `update-ref` compare-and-swap, the dirty-worktree hand-off and no squash commit
+- [x] the setup delivery-route node writes, diffs and asks; `other` is written from the user's words; the new task-flow.local.md header says setup writes only between cc-tuner markers
+- [x] doctor WARNs with `/cc-tuner:setup install delivery-route` when the block is missing or differs from its asset, and says ok when it matches
+
+Evidence: bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh → 143 PASS / 205 PASS, rc=0 (RED first: FAIL route-local-missing-warns, 55 contract FAILs) @ 4a544ce
 
 ## Slice 3 — setup installs the companions on one yes
 Blocked by: 2

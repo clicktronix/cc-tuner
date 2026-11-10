@@ -111,7 +111,7 @@ mattpocock's file).
 - [x] [machine] Without jq, doctor names jq as the reason companion checks were skipped and says the
   SessionStart plan restore is off; "could not list installed plugins" appears only when the list
   command itself failed — checked by: `test_doctor.sh`
-- [ ] [machine] doctor prints the detected host: `gh` and its auth are checked (and an
+- [x] [machine] doctor prints the detected host: `gh` and its auth are checked (and an
   unauthenticated `gh` is a `MISS`) only for `github`, `glab` and its auth only for `gitlab`; for
   `gitlab`, `local` and `other` it reports whether the delivery-route block exists and matches its
   asset (WARN with `/cc-tuner:setup install delivery-route` when missing or drifted) — checked by: `test_doctor.sh`
@@ -119,7 +119,7 @@ mattpocock's file).
   exit 0 when mattpocock-skills is complete — checked by: `test_prereq.sh`
 - [ ] [machine] `merge.sh` and its suite are untouched — checked by:
   `git diff --exit-code origin/main -- plugins/cc-tuner/scripts/merge.sh plugins/cc-tuner/tests/flow/test_merge.sh`
-- [ ] [machine] `route-gitlab.md` names the author filter (`glab api user`), `review-state.sh check`,
+- [x] [machine] `route-gitlab.md` names the author filter (`glab api user`), `review-state.sh check`,
   the verify-record ancestry, `head_pipeline` at the current head, the target-tip ancestry check,
   `glab mr merge` with `--sha` and `--auto-merge=false`, and the four record lines; `route-local.md`
   names `git notes --ref cc-tuner append`, `ci: none`, the ancestry check, `--ff-only`, the
