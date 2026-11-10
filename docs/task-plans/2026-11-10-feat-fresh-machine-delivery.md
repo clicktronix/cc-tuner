@@ -11,12 +11,14 @@ Owned paths: plugins/cc-tuner/scripts/setup/doctor.sh,plugins/cc-tuner/scripts/s
 Deciding check: bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/setup/test_prereq.sh
 Delivers: a user without codex, without jq, or on a GitLab/remote-less repository runs doctor and sees no MISS for what they do not need, the right install command for what they do, and the detected host
 
-- [ ] codex absent or `codex login status` failing → cc-codex-triage reported optional, no MISS, `review: none:<reason>` named; not-logged-in names `codex login`
-- [ ] logged-in codex without cc-codex-triage → `marketplace add` + `install` hint when the marketplace is absent, `update` only for an installed copy missing the contract; same for mattpocock-skills; prereq-check agrees
-- [ ] cc-codex-triage installed but codex absent → WARN that the bridge cannot run
-- [ ] no jq → jq named as the reason and the SessionStart plan restore named as off; "could not list installed plugins" only when the list command failed
-- [ ] host detected by `gh repo view` / `glab repo view` / no remote / other; `gh` and its auth checked (MISS when unauthenticated) only for github, `glab` and its auth only for gitlab
-- [ ] prereq-check without a usable codex prints a NOTE and exits 0 when mattpocock-skills is complete
+- [x] codex absent or `codex login status` failing → cc-codex-triage reported optional, no MISS, `review: none:<reason>` named; not-logged-in names `codex login`
+- [x] logged-in codex without cc-codex-triage → `marketplace add` + `install` hint when the marketplace is absent, `update` only for an installed copy missing the contract; same for mattpocock-skills; prereq-check agrees
+- [x] cc-codex-triage installed but codex absent → WARN that the bridge cannot run
+- [x] no jq → jq named as the reason and the SessionStart plan restore named as off; "could not list installed plugins" only when the list command failed
+- [x] host detected by `gh repo view` / `glab repo view` / no remote / other; `gh` and its auth checked (MISS when unauthenticated) only for github, `glab` and its auth only for gitlab
+- [x] prereq-check without a usable codex prints a NOTE and exits 0 when mattpocock-skills is complete
+
+Evidence: bash plugins/cc-tuner/tests/setup/test_doctor.sh && bash plugins/cc-tuner/tests/setup/test_prereq.sh → 119 PASS / 42 PASS, rc=0 (RED first: FAIL codex-absent-triage-not-miss) @ worktree after db4b24c + install-hint.sh extraction
 
 ## Slice 2 — GitLab, remote-less and other hosts get a written delivery route
 Blocked by: 1

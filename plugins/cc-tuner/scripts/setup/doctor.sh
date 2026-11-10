@@ -250,21 +250,8 @@ fi
 # is an environment this tool cannot see into, the second is a finding about the environment.
 PLUGIN_LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || PLUGIN_LIST=""
 
-# The command for a plugin that is not installed. `marketplace update` only refreshes a marketplace
-# that is already configured, and `/plugin update` needs the plugin installed, so offering them to
-# someone with neither fails with an error naming a marketplace they never added. Asked of the
-# platform only when needed; a list that cannot be read counts as "not configured", because the
-# add step is the safe one to repeat. prereq-check.sh carries the same function: it is not shared
-# because the shared code would need a third file both scripts source, on a PATH this one is
-# deliberately kept small for.
-install_hint() { # install_hint <marketplace> <source> <plugin-id>
-  local mkts; mkts="$(${CC_TUNER_MARKETPLACE_LIST_CMD:-claude plugin marketplace list --json} 2>/dev/null)" || mkts=""
-  if printf '%s' "$mkts" | jq -e --arg n "$1" 'any(.[]?; .name == $n)' >/dev/null 2>&1; then
-    printf '/plugin install %s' "$3"
-  else
-    printf '/plugin marketplace add %s && /plugin install %s' "$2" "$3"
-  fi
-}
+# The command for a plugin that is not installed; install-hint.sh owns the answer for both callers.
+install_hint() { bash "$(cd "$(dirname "$0")" && pwd)/install-hint.sh" "$@"; }
 
 companion() {  # companion <id> <what needs it> <marketplace> <marketplace source>
   found="$(plugin_here "$1")"

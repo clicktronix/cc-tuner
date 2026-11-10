@@ -78,19 +78,8 @@ codex_contract() {
     && grep -q '^  check)' "$state"
 }
 
-# install_hint <marketplace> <source> <plugin-id> -- the command for a plugin that is not installed.
-# `marketplace update` and `plugin update` presuppose a marketplace and an installed copy; offering
-# them to someone with neither fails naming a marketplace they never added. An unreadable marketplace
-# list counts as "not configured": the add step is the safe one to repeat. doctor.sh carries the same
-# function, because sharing it would need a third file both scripts source.
-install_hint() {
-  local mkts; mkts="$(${CC_TUNER_MARKETPLACE_LIST_CMD:-claude plugin marketplace list --json} 2>/dev/null)" || mkts=""
-  if printf '%s' "$mkts" | jq -e --arg n "$1" 'any(.[]?; .name == $n)' >/dev/null 2>&1; then
-    printf '/plugin install %s' "$3"
-  else
-    printf '/plugin marketplace add %s && /plugin install %s' "$2" "$3"
-  fi
-}
+# The command for a plugin that is not installed; install-hint.sh owns the answer for both callers.
+install_hint() { bash "$HERE/install-hint.sh" "$@"; }
 
 # mattpocock-skills: /cc-tuner:spec grills with `grilling` + `domain-modeling`, and /cc-tuner:run
 # reviews the candidate SHA with `/mattpocock-skills:code-review`. This replaced the old superpowers
