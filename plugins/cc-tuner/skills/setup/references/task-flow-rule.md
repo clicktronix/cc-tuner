@@ -103,6 +103,9 @@ The template carries no substitution tokens; it installs verbatim.
      fi
    fi
    ```
+   If the companions node declined `cc-codex-triage` in this run while `$LOCAL` did not yet exist, its
+   decision was held for this step: now that the file exists, run the **Record the decline** block of
+   [companions.md](companions.md#record-the-decline).
 7. **Legacy cleanup.** Remove the superseded `git-flow.md` — but only once `$DEST` is actually in
    place, so an aborted install never strips a repo of its only rule file. Two files both claiming
    to govern branches is worse than either one alone:

@@ -26,19 +26,21 @@ stop the command because one node stopped.
 | # | node | depends on | writes |
 |---|---|---|---|
 | 0 | environment | — | nothing |
-| 0c | companions | 0 | in install mode, after one confirmation, user-scope plugin installs: `mattpocock-skills`, and `cc-codex-triage` with a logged-in `codex`; nothing in `check` |
 | 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
+| 0c | companions | 0, after 0b | in install mode, after one per-plugin confirmation, user-scope plugin installs and enables through `claude plugin install` / `enable`, which write `~/.claude/settings.json` (`enabledPlugins`): `mattpocock-skills`, and `cc-codex-triage` with a logged-in `codex`; declining `cc-codex-triage` adds one `cc-tuner-review: none:<reason>` line to `task-flow.local.md`; nothing in `check` |
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
 | 3b | delivery route | 0 (its `host:` line), 3 | one block between `cc-tuner:delivery-route` markers in `task-flow.local.md`; nothing on `github` |
-| 4 | session env | 0 | `~/.claude/settings.json` — up to two `env` keys |
-| 5 | statusline | 0; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
+| 4 | session env | 0, after 0c | `~/.claude/settings.json` — up to two `env` keys |
+| 5 | statusline | 0, after 0c; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
-| 7 | Codex audit | every applied node | nothing |
+| 7 | Codex audit | every applied node, and 0c's result | nothing |
 
-Nodes 4 and 5 patch the same file. Never do both in one Bash call, and re-read the file right
-before each patch so the second writer sees the first writer's result.
+Nodes 0c, 4 and 5 all write `~/.claude/settings.json`, in that order: 0c through the `claude`
+CLI (it sets `enabledPlugins`), 4 and 5 by patching. Never do two of them in one Bash call, and
+re-read the file right before each patch so a later writer sees the earlier writer's result — 4 and 5
+must not start from a copy of the file read before 0c ran.
 
 ### 0. Environment
 
@@ -59,24 +61,9 @@ session:
 - `codex login` — likewise interactive.
 - `/plugin install ...` — a Claude Code command, not a shell one. Node 0c runs the shell form for a
   missing companion plugin; the user types the `/plugin` form only when `claude` is not on PATH.
+  A `MISS` that names a `CONFLICT` has no command: the marketplace name is taken by another repository.
 
 A `MISS` does not end the command. Record which nodes it blocks and continue with the rest.
-
-### 0c. Companions
-
-`/cc-tuner:spec` and `/cc-tuner:run` need `mattpocock-skills`, and `/cc-tuner:run`'s required review
-needs `cc-codex-triage` plus a logged-in `codex`. Read [references/companions.md](references/companions.md)
-and run it in the current mode. It is user-global like the statusline, so it is offered and applied
-only after one confirmation that lists exactly what will be installed:
-
-- `mattpocock-skills` is offered whenever it is missing; `cc-codex-triage` only when `codex` is on
-  PATH and `codex login status` succeeds, otherwise it is optional and specs use `review: none:<reason>`.
-- It runs `claude plugin marketplace add` and `claude plugin install` at user scope, then verifies
-  with `claude plugin list --json`. The verify column reads "installed; run `/reload-plugins` or
-  restart to load its commands" — this command never claims the commands are loaded in this session.
-- No `claude` on PATH → it prints the `/plugin …` commands for the user and installs nothing. No `jq`
-  → it cannot tell what is installed and installs nothing. A disabled plugin gets `claude plugin
-  enable`, not an install.
 
 ### 0b. Testing runbook
 
@@ -92,6 +79,34 @@ runbook exists, append the missing commands, service requirements and environmen
 diff — that is an additive edit to an existing document and is covered by the install request. When
 no runbook exists, report the gaps for this node and continue the other nodes. Creating a new
 testing document is outside this additive setup step.
+
+### 0c. Companions
+
+`/cc-tuner:spec` and `/cc-tuner:run` need `mattpocock-skills`, and `/cc-tuner:run`'s required review
+needs `cc-codex-triage` plus a logged-in `codex`. Read [references/companions.md](references/companions.md)
+and run it in the current mode. Every fact about the two plugins — which marketplace and repository
+each comes from, whether `codex` is usable, whether this repository declined Codex review, whether a
+plugin is installed, disabled or absent, and the command that fixes it — is asked of
+`scripts/setup/companion.sh`; this node restates none of it. It runs after 0b and before 4: it is
+user-global like the statusline, and `claude plugin install` / `enable` write `~/.claude/settings.json`
+(`enabledPlugins`), so nodes 4 and 5 re-read that file after it. It is offered and applied only after
+one confirmation, asked per plugin, that shows each plugin's source:
+
+- `mattpocock-skills` is offered whenever it is absent or disabled; `cc-codex-triage` only when
+  `companion.sh codex` prints `ready` and the repository has not declined Codex review. Otherwise it is
+  optional and specs use `review: none:<reason>`.
+- Declining `cc-codex-triage` records the decline in `task-flow.local.md` as one
+  `cc-tuner-review: none:<reason>` line; doctor and the preflight then report the missing bridge as a
+  note and `/cc-tuner:spec` writes that reason into the spec.
+- It runs `claude plugin marketplace add` only when `companion.sh hint` says the marketplace is not
+  configured, then `claude plugin install`, at user scope, then verifies with `claude plugin list
+  --json`. The verify column reads "installed; run `/reload-plugins` or restart to load its
+  commands" — this command never claims the commands are loaded in this session.
+- A marketplace of the same name configured from another repository is a stop that names both sources;
+  nothing is installed from it.
+- No `claude` on PATH → it prints the `/plugin …` commands for the user and installs nothing. No `jq`
+  → it cannot tell what is installed and installs nothing. A disabled plugin gets `claude plugin
+  enable`, not an install.
 
 ### 1. Agent-rules discovery
 
@@ -142,6 +157,8 @@ The order inside it is load-bearing: the `git-flow.local.md` → `task-flow.loca
 before anything creates the deltas file, and the legacy `git-flow.md` is removed only after the new
 rule is in place. A differing or legacy rule file is shown as a diff and asked about once; "keep"
 is a terminal state for this node only.
+When node 0c recorded a declined `cc-codex-triage` before `task-flow.local.md` existed, this node
+writes that line right after it creates the file (step 6 of the reference).
 
 ### 3b. Delivery route
 
@@ -232,9 +249,12 @@ flow you cannot complete for them — and report the board as not wired.
 
 ### 7. Codex audit (optional, install mode)
 
-If `cc-codex-triage` is installed, spend one read-only call to have a second model check what this
-command claims it did, within the authorisation the install request already gave — no new
-permission question:
+Runs only when all three hold: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" codex` prints
+`ready`, `companion.sh state cc-codex-triage@cc-codex-triage` prints `installed`, and node 0c did not
+install or enable the plugin in this run — a plugin's commands load after `/reload-plugins`, so a
+call to `/cc-codex-triage:ask` from this session would fail. When it does, spend one read-only call to
+have a second model check what this command claims it did, within the authorisation the install
+request already gave — no new permission question:
 
 ```text
 /cc-codex-triage:ask --oneshot Here is the setup report for this repository: <the table below>.
@@ -242,7 +262,12 @@ Check the repository and say which rows you cannot confirm and why.
 ```
 
 Fix confirmed findings and re-verify only the affected nodes; do not start an external review
-loop. When the bridge is not installed, the row reads **"audit: skipped — bridge not installed"**.
+loop. When it does not run, the row says which condition failed:
+
+- **"audit: skipped — bridge not installed"**
+- **"audit: skipped — codex is not ready (absent or not logged in)"**
+- **"audit: skipped — bridge installed in this run, loads after /reload-plugins or a restart"**
+
 Never omit the row: an absent check reported as nothing is indistinguishable from a passed one.
 
 ## Report
