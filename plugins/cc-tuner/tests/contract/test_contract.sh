@@ -681,6 +681,23 @@ for readme in "$README_ROOT" "$README_PLUGIN"; do
     echo "PASS readme-no-standalone-claim ($rn)"
   fi
 done
+# Both Install sections end at the commands a fresh machine needs next, and the root README lists the nodes
+# a fresh machine meets (companions, then the delivery route).
+for readme in "$README_ROOT" "$README_PLUGIN"; do
+  rn="${readme#$ROOT/}"
+  install_section="$(sed -n '/^## Install/,/^## [^I]/p' "$readme")"
+  if printf '%s\n' "$install_section" | grep -qF '`/reload-plugins`' \
+     && printf '%s\n' "$install_section" | grep -qF '`/cc-tuner:setup install`'; then
+    echo "PASS readme-install-ends-with-reload-and-setup ($rn)"
+  else
+    echo "FAIL readme-install-ends-with-reload-and-setup ($rn)"; fails=1
+  fi
+done
+need "readme-root-lists-the-companions-node" 'environment, companions,' "$README_ROOT"
+need "readme-root-lists-the-route-node"      'the delivery route,' "$README_ROOT"
+need "readme-plugin-names-route-sh"          'scripts/setup/route.sh' "$README_PLUGIN"
+need "readme-plugin-names-host-sh"           'scripts/setup/host.sh' "$README_PLUGIN"
+need "readme-plugin-names-companion-sh"      'scripts/setup/companion.sh' "$README_PLUGIN"
 need "readme-mattpocock-is-required"       '**mattpocock-skills** is required by `/spec` and `/run`' "$README_PLUGIN"
 need "readme-codex-triage-is-optional"     '**cc-codex-triage** is optional' "$README_PLUGIN"
 need "readme-codex-needs-login"            'logged-in Codex CLI' "$README_PLUGIN"

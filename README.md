@@ -9,7 +9,7 @@ Skills:
 - **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed.
 - **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus the task-flow node of `/cc-tuner:setup` that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
 
-Start with **`/cc-tuner:setup`** — one command, run as independent nodes that each detect, propose, apply and verify: environment, instruction cleanup, rule loading, the task-flow rule, task tools, an optional statusline, an optional board, and an optional one-call Codex audit. `check` writes nothing; `install` applies the additive changes and asks only where a change is not additive. The task loop has two commands: **`/cc-tuner:spec`** turns a task into a committed spec and sliced plan (with `--groom`, it only records the decisions in the issue), and **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge, moving the board card as it goes; details in the [plugin README](plugins/cc-tuner/README.md). On GitHub `/run` delivers through the checked `merge.sh`; on GitLab, with no remote, or on another host it follows a delivery route that `/cc-tuner:setup` writes into the repository, and the issue tracker comes from `docs/agents/issue-tracker.md`. `/spec` and `/run` need the **mattpocock-skills** plugin; **cc-codex-triage** is optional, and `/cc-tuner:setup install` installs both after one confirmation.
+Start with **`/cc-tuner:setup`** — one command, run as independent nodes that each detect, propose, apply and verify: environment, companions, instruction cleanup, rule loading, the task-flow rule, the delivery route, task tools, an optional statusline, an optional board, and an optional one-call Codex audit. `check` writes nothing; `install` applies the additive changes and asks only where a change is not additive. The task loop has two commands: **`/cc-tuner:spec`** turns a task into a committed spec and sliced plan (with `--groom`, it only records the decisions in the issue), and **`/cc-tuner:run [--auto] <spec>`** works that plan through implementation, PR, review, CI, and merge, moving the board card as it goes; details in the [plugin README](plugins/cc-tuner/README.md). On GitHub `/run` delivers through the checked `merge.sh`; on GitLab, with no remote, or on another host it follows a delivery route that `/cc-tuner:setup` writes into the repository, and the issue tracker comes from `docs/agents/issue-tracker.md`. `/spec` and `/run` need the **mattpocock-skills** plugin; **cc-codex-triage** is optional, and `/cc-tuner:setup install` installs both after one confirmation.
 
 
 ## Why this exists
@@ -40,6 +40,8 @@ The instruction remains usable without the plugin; it is guidance, not an enforc
 /plugin marketplace add clicktronix/cc-tuner
 /plugin install cc-tuner@cc-tuner
 ```
+
+Then run `/reload-plugins` and `/cc-tuner:setup install`.
 
 ## Repo layout
 

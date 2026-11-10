@@ -93,9 +93,9 @@ builds on that record.
 `/cc-tuner:run [--auto] <spec>` works that plan to a merged pull request: it proves each slice
 RED→GREEN, reviews the candidate (Matt Pocock review, or `cc-tuner:deep-review` for large or sensitive
 changes), obtains the review the spec names (Codex's by default, or none with a recorded reason) at the
-exact final SHA, and on GitHub merges only through `scripts/merge.sh` (other hosts: see Delivery routes below). Where the spec names a board, `/run`
-moves the card to In Progress, In review and Done as it goes, and the epic's card with its first and
-last sub-issue. Implementation may be handed to
+exact final SHA, and on GitHub merges only through `scripts/merge.sh` (other hosts: see Delivery routes
+below). Where the spec names a board, `/run` moves the card to In Progress, In review and Done as it goes,
+and the epic's card with its first and last sub-issue. Implementation may be handed to
 `cc-tuner:slice-unit` subagents, one per slice, capped at `maxTurns: 300` so an over-long slice returns
 partial; the parent owns integration, proof, review and every later gate. Procedures:
 `skills/spec/SKILL.md`, `skills/run/SKILL.md`.
@@ -133,12 +133,14 @@ local security boundary.
 ### Delivery routes and the tracker
 
 `/spec` records the repository's `host:` (`github`, `gitlab`, `local` for no remote, or `other`) in the
-spec, detected by the CLI that reaches the remote, and `/run` re-detects it and stops when it differs. On
-GitHub nothing changes: delivery is `merge.sh`. On GitLab, with no remote, or on another host `/run`
-follows a delivery route written in the repository: `/cc-tuner:setup install delivery-route` copies the
-plugin's route for GitLab or a remote-less repository (or records the user's own description for another
-host) into `.claude/rules/task-flow.local.md` between `cc-tuner:delivery-route` markers, and doctor warns
-when the copy drifts from the plugin's. A route keeps the gate's order and records, but its steps are
+spec, as `scripts/setup/host.sh` reads it from the remote's URL without a network call; `/run` runs it again
+and stops when it differs. On GitHub nothing changes: delivery is `merge.sh`. On GitLab, with no remote, or on
+another host `/run` follows a delivery route. For GitLab and a remote-less repository the route text ships
+with the plugin (`skills/run/references/route-<host>.md`) and `/run` reads it from there, so a candidate
+cannot edit its own gate; for another host the route is the user's own description. The repository keeps
+only a short key block in `.claude/rules/task-flow.local.md` between `cc-tuner:delivery-route` markers,
+written by `/cc-tuner:setup install delivery-route` and checked by `scripts/setup/route.sh`: `/run` stops
+when it is missing or wrong, and doctor warns. A route keeps the gate's order and records, but its steps are
 performed by the agent, so no script refuses on its behalf. `/run --auto` is allowed on every host.
 
 Where issues live comes from `docs/agents/issue-tracker.md`, which `/setup-matt-pocock-skills` writes; the
@@ -151,7 +153,8 @@ asks once when the file is absent. Boards stay GitHub-only.
 prototypes, PR bodies, hard-bug diagnosis and ordinary review. **cc-codex-triage** is optional: it
 supplies the default `review: codex` gate and needs a logged-in Codex CLI (`codex login`); without it a
 spec declares `review: none:<reason>` and the run's owner publishes the verdict. `/cc-tuner:setup install`
-installs both after one confirmation, and prereq-check reports what is missing. Integration rounds
+installs both after one confirmation, and prereq-check reports what is missing. `scripts/setup/companion.sh`
+owns the companion table, the Codex check and the recorded opt-out. Integration rounds
 outside the review cap and `renew` need cc-codex-triage 0.14+; with an older companion prereq-check
 prints a NOTE and `/run` uses a normal round and the companion's reset.
 
@@ -179,6 +182,8 @@ their descriptions match; `deep-review` and `verify-feature` are also available 
 agent may also start `/cc-tuner:spec` and `/cc-tuner:run` itself when the user asks for a task to be
 planned or implemented; `--auto` stays the user's request. `/cc-tuner:setup` remains an explicit
 user command: it writes user-global settings.
+
+Then run `/reload-plugins` and `/cc-tuner:setup install`.
 
 ## Scope
 
