@@ -117,7 +117,7 @@ mattpocock's file).
   asset (WARN with `/cc-tuner:setup install delivery-route` when missing or drifted) — checked by: `test_doctor.sh`
 - [x] [machine] prereq-check without a usable `codex`: the missing bridge is a `NOTE` (review: none),
   exit 0 when mattpocock-skills is complete — checked by: `test_prereq.sh`
-- [ ] [machine] `merge.sh` and its suite are untouched — checked by:
+- [x] [machine] `merge.sh` and its suite are untouched — checked by:
   `git diff --exit-code origin/main -- plugins/cc-tuner/scripts/merge.sh plugins/cc-tuner/tests/flow/test_merge.sh`
 - [x] [machine] `route-gitlab.md` names the author filter (`glab api user`), `review-state.sh check`,
   the verify-record ancestry, `head_pipeline` at the current head, the target-tip ancestry check,
@@ -125,7 +125,7 @@ mattpocock's file).
   names `git notes --ref cc-tuner append`, `ci: none`, the ancestry check, `--ff-only`, the
   `update-ref` compare-and-swap, the dirty-worktree hand-off and "no squash" — checked by:
   `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [ ] [machine] setup has the companions node (with its three fallbacks and the codex-login gate)
+- [x] [machine] setup has the companions node (with its three fallbacks and the codex-login gate)
   and the delivery-route node; the spec template carries `host:` and
   `tracker: gh|glab|local|other|none`; `/spec` reads `docs/agents/issue-tracker.md`, asks when it is
   absent, and detects the host after it; `/run` re-detects the host, sends a non-github host to the

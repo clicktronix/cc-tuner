@@ -51,8 +51,10 @@ Owned paths: plugins/cc-tuner/skills/spec,plugins/cc-tuner/skills/run,plugins/cc
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh && bash tests/run.sh
 Delivers: in a GitLab or remote-less repository `/spec` records `host:` and the tracker from docs/agents/issue-tracker.md (asking when it is absent), and `/run` delivers by the route; on GitHub nothing changes
 
-- [ ] spec template has `host:` and `tracker: gh|glab|local|other|none`; `/spec` reads docs/agents/issue-tracker.md, asks when absent, detects the host after it
-- [ ] `/run` re-detects the host, uses merge.sh for github and the route otherwise, stops when the block is missing or the host differs; `--auto` allowed on every host
-- [ ] `--groom` works for glab (member-authored records settle) and local (append without commit); local tracker status changes are committed inside the candidate
-- [ ] shared-task preflight is per host; verify-feature and local-ci name where records go per host
-- [ ] both READMEs describe the host routes and no longer claim standalone operation without mattpocock-skills; rule.template.md version marker bumped
+- [x] spec template has `host:` and `tracker: gh|glab|local|other|none`; `/spec` reads docs/agents/issue-tracker.md, asks when absent, detects the host after it
+- [x] `/run` re-detects the host, uses merge.sh for github and the route otherwise, stops when the block is missing or the host differs; `--auto` allowed on every host
+- [x] `--groom` works for glab (member-authored records settle) and local (append without commit); local tracker status changes are committed inside the candidate
+- [x] shared-task preflight is per host; verify-feature and local-ci name where records go per host
+- [x] both READMEs describe the host routes and no longer claim standalone operation without mattpocock-skills; rule.template.md version marker bumped
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 295 PASS, rc=0 (RED first: 70 FAILs, e.g. spec-template-host-field) @ 699031c + invariant fix
