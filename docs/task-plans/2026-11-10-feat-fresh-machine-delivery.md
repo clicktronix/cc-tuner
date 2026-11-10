@@ -102,5 +102,7 @@ Owned paths: plugins/cc-tuner/skills/spec,plugins/cc-tuner/skills/run/SKILL.md,p
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: /spec and /run detect the host with host.sh, check the route with route.sh at start and at Delivery, read the route from the plugin, and say what a remote-less repository does instead of push/fetch/pull
 
-- [ ] review items S1–S9 are fixed in the skills and READMEs
-- [ ] the contract suite keeps command, marker and order pins and drops the generic-substring pins (S10)
+- [x] review items S1–S9 are fixed in the skills and READMEs
+- [x] the contract suite keeps command, marker and order pins and drops the generic-substring pins (S10)
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 367 PASS, rc=0 (RED first: 26 FAILs, first spec-asks-host-sh; then 7 README FAILs) @ a8e0c72
