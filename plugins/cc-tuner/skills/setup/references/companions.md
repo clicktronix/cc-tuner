@@ -84,8 +84,8 @@ command and `/cc-tuner:setup install companions`.
 
 1. **Fallbacks first.** Without `claude` or `jq` every state is `unknown`, so nothing counts as offered.
    - **`claude` is not on PATH** → print `bash "$C" commands <id>` for the user to type in their own session:
-     for mattpocock-skills, and for cc-codex-triage when it would be offered. Say that an installed one can
-     be skipped. The row reads "printed, not installed".
+     for mattpocock-skills, and for cc-codex-triage when `bash "$C" codex` prints `ready` and `optout` exits
+     1, whatever its state. Say that an installed one can be skipped. The row reads "printed, not installed".
    - **No jq, or `state` is `unknown`** → "cannot tell what is installed", with the reason. Install nothing;
      the row reads "blocked".
 2. **Nothing to do** → no companion is offered: report each companion's state (up to date, optional, declined, conflict) and finish.
@@ -97,7 +97,9 @@ command and `/cc-tuner:setup install companions`.
    - that a user-scope plugin applies to every repository on this machine and runs its hooks in every
      session.
 
-   An offered plugin left unticked is declined; its row reads "declined" and the other nodes still run.
+   **Install nothing** overrides every other tick: when it is selected, nothing is applied and every
+   offered plugin is declined. Otherwise an offered plugin left unticked is declined. A declined row reads
+   "declined" and the other nodes still run.
 4. **Apply** each ticked companion. Each plugin fails on its own: a failed marketplace add skips that
    plugin's install and never stops the other.
    ```bash

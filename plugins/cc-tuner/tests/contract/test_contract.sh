@@ -714,6 +714,9 @@ else echo "PASS prereq-update-hints-come-from-companion-table"; fi
 need "setup-plugin-root-uses-the-substituted-token" 'PLUGIN="${CLAUDE_PLUGIN_ROOT}"' "$SETUP"
 if grep -qF 'CLAUDE_PLUGIN_ROOT:-' "$SETUP"; then echo "FAIL setup-plugin-root-no-shell-default"; fails=1; else echo "PASS setup-plugin-root-no-shell-default"; fi
 need "companions-no-cli-prints-table-commands" '"$C" commands' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+need "route-gitlab-squash-read-back-must-equal" 'must equal the value sent' "$ROUTE_GITLAB"
+need "companions-install-nothing-overrides"  '**Install nothing** overrides every other tick' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+need "companions-no-cli-codex-whatever-state" '1, whatever its state' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
 need "route-gitlab-sets-squash-explicitly"   '-F squash=' "$ROUTE_GITLAB"
 need "route-gitlab-reads-project-squash-option" 'squash_option' "$ROUTE_GITLAB"
 need "run-other-route-from-the-fetched-target" 'git show FETCH_HEAD:.claude/rules/task-flow.local.md' "$RUN"

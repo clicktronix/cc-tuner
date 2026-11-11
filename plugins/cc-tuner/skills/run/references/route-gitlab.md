@@ -97,7 +97,8 @@ and never relabel a `REQUEST_CHANGES` as `APPROVE`.
    squash a `merge: merge` candidate. Read the project's `squash_option` (`glab api projects/:id`):
    `always` with `merge: merge`, or `never` with `merge: squash`, goes to the user. Otherwise run
    `glab api --method PUT "projects/:id/merge_requests/<iid>" -F squash=<true for squash, false for merge>`
-   and read `squash` back from the MR.
+   then `squash` read back from `glab api projects/:id/merge_requests/<iid>` must equal the value sent;
+   a mismatch is a stop, under `--check-only` too.
 8. **Merge, pinned.** Right before merging, re-read the head, the target tip, the MR's `squash` and the
    records; when any changed, restart from the step that covers it. Then merge, adding `--squash` for
    `merge: squash`:
