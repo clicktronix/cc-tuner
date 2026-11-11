@@ -7,9 +7,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 
 # /cc-tuner:run
 
-**Plugin root: `${CLAUDE_PLUGIN_ROOT}`.** This skill's references and the routes write scripts as
-`${CLAUDE_PLUGIN_ROOT}/…`; only this file has the variable filled in, and a Bash call does not expand it,
-so use the path printed here wherever a reference names it.
+**Plugin root: `${CLAUDE_PLUGIN_ROOT}`.** Only this file gets the variable filled in: wherever a reference
+or a route writes `${CLAUDE_PLUGIN_ROOT}/…` or `<plugin root>/…`, use this path.
 
 Work the committed plan for the current branch. `--auto` selects unattended mode; the remaining
 argument is the spec path. It additionally authorises the merge, never deploy, publish, migration,
@@ -36,20 +35,19 @@ say which one you took. Stop if neither names a spec that exists. Refuse `--auto
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
 ```
 
-It prints one line: the host, how it was found, the remote and the remote's host. The host is the first
-field; compare it with the spec's `host:`. A spec without `host:` means `github`. `ambiguous` (several
-remotes, none named `origin`) stops the run: ask the user which remote counts. A mismatch stops the run:
-tell the user to correct the spec's `host:`. When the spec names `github` or `gitlab` and host.sh says
-`other`, the CLI is not logged in to that host: the stop names `gh auth login --hostname <remote-host>`
-(`glab auth login --hostname <remote-host>` for gitlab) and offers no route rewrite.
+It prints the host, how it was found, the remote and the remote's host; compare it with the spec's `host:`.
+A spec without `host:` means `github`. `ambiguous` (several remotes, none named `origin`) stops the run: ask
+the user to rename one remote to `origin`. A mismatch stops the run too. When the spec says `github` or
+`gitlab` and host.sh says `other`, the CLI is not logged in to that host: name
+`gh auth login --hostname <remote-host>` (`glab auth login --hostname <remote-host>` for gitlab). Any other
+mismatch: tell the user to correct the spec's `host:`.
 
 Then check the host's CLI before any slice: `gh auth status --hostname <remote-host>` for `github`,
 `glab auth status --hostname <remote-host>` for `gitlab`. A failure stops the run with the same login
 command. `local` and `other` need no CLI.
 
-Host `local` has no remote: no push, no fetch, no pull, and "the target" means `refs/heads/<target>`.
-Prepare the candidate's "Fetch the integration target" and Delivery step 1's push and PR do not apply (the
-candidate is the branch tip), and cleanup syncs in the worktree that holds the target.
+Host `local` has no remote: no push, fetch or pull, and the target is `refs/heads/<target>`. Fetching the
+target in Prepare the candidate and the push and PR of Delivery step 1 do not apply.
 
 For work spanning repositories or a spec naming `second-repo`/`shared-task`, read
 [shared-task.md](references/shared-task.md) before resolving plans. Apply it throughout this run,
@@ -225,33 +223,37 @@ the skill yourself.
 
 The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
 residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
-as one record (a PR comment on GitHub, written to a file and posted with `gh pr comment <pr> --body-file <file>`; the route's record elsewhere): its lines come from verify-feature alone, and a criterion it did not observe stays
-`NOT PROVED`. `merge.sh`, or the route, requires the record, prints its `NOT PROVED` lines, and accepts any commit the
-head contains, so a later fix commit needs a new record only if the evidence no longer covers it.
+as one record: on GitHub a PR comment, written to a file and posted with
+`gh pr comment <pr> --body-file <file>`; elsewhere as the route says. Its lines come from verify-feature
+alone, and a criterion it did not observe stays `NOT PROVED`. `merge.sh`, or the route, requires the record,
+prints its `NOT PROVED` lines, and accepts any commit the head contains, so a later fix commit needs a new
+record only if the evidence no longer covers it.
 
 ## Delivery
 
-**The route.** At Delivery entry run `host.sh` again, then check the repository's key block:
+**The route.** At Delivery entry run `host.sh` again and check the repository's key block:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>
 ```
 
-`current`, `present-other` and `none-needed` go on; anything else stops the run, `--auto` included, and a host
-that changed since the start stops it too. For `missing`, say: commit `.claude/rules/task-flow.local.md` with
-its delivery-route block on `<target>`, or run `/cc-tuner:setup install delivery-route` (a user-only command).
+`current`, `present-other` and `none-needed` go on. Anything else stops the run, `--auto` included, and so
+does a host that changed since the start. For `missing`, tell the user to commit
+`.claude/rules/task-flow.local.md` with its delivery-route block on `<target>`, or to run
+`/cc-tuner:setup install delivery-route` (a user-only command).
 
-Host `github`: the steps below as written. Host `gitlab` or `local`: read
-`${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-gitlab.md` (gitlab) or
-`${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-local.md` (local) — the plugin's text, never the repository's —
-and follow it step by step wherever the steps below name a GitHub command (open the PR, publish the verdict,
-accepted, verified, DoD and local-ci records, mark ready, `merge.sh`),
-with the same gates, order and record lines. Those routes refer to "the `plugin-here.sh` path that `/run`'s Delivery paragraph names":
-`${CLAUDE_PLUGIN_ROOT}/scripts/setup/plugin-here.sh`. Host `other`: the block's body in
-`.claude/rules/task-flow.local.md`, as committed on the freshly fetched target (`git fetch <remote> <target>`, then
-`git show FETCH_HEAD:.claude/rules/task-flow.local.md`, with the remote `host.sh` printed; a single-branch clone has no
-`<remote>/<target>` ref), is the route; when the candidate's copy differs, stop — a candidate never edits its own gate; and a step it leaves undescribed stops the run and goes to
-the user. `--check-only` means running every route step up to the merge and handing the merge command over.
+- `github`: the steps below as written.
+- `gitlab`, `local`: read `${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-gitlab.md` (gitlab) or
+  `${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-local.md` (local), the plugin's copy and never the
+  repository's. Wherever a step below names a GitHub command (open the PR; publish the verdict, accepted,
+  verified, DoD and local-ci records; mark ready; `merge.sh`), do the route's step instead,
+  with the same gates, order and record lines.
+- `other`: the route is the block's body as committed on the target: `git fetch <remote> <target>` with the
+  remote host.sh printed, then `git show FETCH_HEAD:.claude/rules/task-flow.local.md`. Stop when the
+  candidate's copy differs, since a candidate never edits its own gate, and when a step reads
+  "not described".
+
+`--check-only` means running every route step up to the merge and handing over the merge command.
 `--auto` is allowed on every host.
 
 A new commit needs fresh authoritative approval and CI, with acceptance and DoD evidence covering
@@ -321,7 +323,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    it in this session, naming them and what they accepted:
 
    ```bash
-   cat > "$REC" <<'EOF'
+   REC=$(mktemp) && cat > "$REC" <<'EOF'
    cc-tuner-accepted: <head-sha> <who>: <what was accepted>
    EOF
    gh pr comment <pr> --body-file "$REC"
@@ -355,11 +357,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery
-   prerequisites are complete, the way `docs/agents/issue-tracker.md` says: `gh` and `glab` close it; under
-   `local` and `other`, as that file describes. Under `local`:
-   the tracker file's closing step was committed on the task branch before the first required review,
-   so it lands with the merge — never a commit on the target.
-   Then move the card to Done. When the issue was an epic's last open sub-issue,
+   prerequisites are complete, through the tracker `docs/agents/issue-tracker.md` names. Under `tracker: local`
+   the tracker file's closing step was committed on the task branch before the first required review, so it
+   lands with the merge — never a commit on the target. Then move the card to Done. When the issue was an
+   epic's last open sub-issue,
    also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
    after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
    open). Do not commit a completion record directly to an integration target.

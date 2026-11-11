@@ -25,7 +25,7 @@
 - Negative/mutation proof (name what the killed test must SAY, not only that it goes red): <how the test is shown to fail without the fix>
 
 ## Definition of Done
-Recorded on the PR before merge (an MR note, or the route's record, off GitHub), not ticked here (it would move the reviewed SHA).
+Recorded before merge where the host keeps records (PR comment, MR note, git note), not ticked here (it would move the reviewed SHA).
 - Regression check was observed failing for the expected reason before the fix
 - Targeted, full, static/build, runtime, and acceptance checks passed as specified; verify-feature's
   record is published where the route puts records
@@ -43,8 +43,8 @@ Reported after merge, not committed.
 ## Run config
 branch: <current task branch>
 target: <integration branch>
-host: github|gitlab|local|other — from scripts/setup/host.sh; github delivers through merge.sh, every other host through /run's route for it, which route.sh check confirms the repository's key block names
-merge: squash|merge|ff — ff only with host: local (the local route fast-forwards)
+host: github|gitlab|local|other — from scripts/setup/host.sh; github delivers through merge.sh, the others through /run's route
+merge: squash|merge|ff — ff only with host: local
 second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <contribution,
     prerequisites, merge order and why>. Omit for one repository; see ../run/references/shared-task.md
 shared-task: <primary repository, branch and spec path>. Only in the companion spec

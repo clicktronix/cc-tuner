@@ -132,16 +132,14 @@ local security boundary.
 
 ### Delivery routes and the tracker
 
-`/spec` records the repository's `host:` (`github`, `gitlab`, `local` for no remote, or `other`) in the
-spec, as `scripts/setup/host.sh` reads it from the remote's URL without a network call; `/run` runs it again
-and stops when it differs. On GitHub nothing changes: delivery is `merge.sh`. On GitLab, with no remote, or on
-another host `/run` follows a delivery route. For GitLab and a remote-less repository the route text ships
-with the plugin (`skills/run/references/route-<host>.md`) and `/run` reads it from there, so a candidate
-cannot edit its own gate; for another host the route is the user's own description. The repository keeps
-only a short key block in `.claude/rules/task-flow.local.md` between `cc-tuner:delivery-route` markers,
-written by `/cc-tuner:setup install delivery-route` and checked by `scripts/setup/route.sh`: `/run` stops
-when it is missing or wrong, and doctor warns. A route keeps the gate's order and records, but its steps are
-performed by the agent, so no script refuses on its behalf. `/run --auto` is allowed on every host.
+`/spec` records the repository's `host:` (`github`, `gitlab`, `local` for no remote, or `other`), which
+`scripts/setup/host.sh` reads from the remote URL without a network call; `/run` checks it again. On GitHub
+delivery is `merge.sh`. On GitLab and with no remote, `/run` follows a delivery route shipped with the plugin
+(`skills/run/references/route-<host>.md`), so a candidate cannot edit its own gate; on another host the
+route is the user's own description. The repository keeps only a short key block in
+`.claude/rules/task-flow.local.md`, written by `/cc-tuner:setup install delivery-route` and checked by
+`scripts/setup/route.sh`: `/run` stops when it is missing or wrong. A route keeps the gate's order and
+records, but the agent performs its steps, so no script refuses on its behalf.
 
 Where issues live comes from `docs/agents/issue-tracker.md`, which `/setup-matt-pocock-skills` writes; the
 spec's `tracker:` is `gh`, `glab`, `local` (markdown files under `.scratch/`), `other` or `none`. `/spec`
@@ -177,13 +175,13 @@ Nothing installs it: pick it in `/config` → Output style, then `/clear`. The p
 /plugin install cc-tuner@cc-tuner
 ```
 
+Then run `/reload-plugins` and `/cc-tuner:setup install`.
+
 The `claude-md-writer`, `task-flow`, `deep-review` and `verify-feature` skills are model-invoked when
 their descriptions match; `deep-review` and `verify-feature` are also available directly. The
 agent may also start `/cc-tuner:spec` and `/cc-tuner:run` itself when the user asks for a task to be
 planned or implemented; `--auto` stays the user's request. `/cc-tuner:setup` remains an explicit
 user command: it writes user-global settings.
-
-Then run `/reload-plugins` and `/cc-tuner:setup install`.
 
 ## Scope
 

@@ -50,8 +50,8 @@ Before combined verification, prepare all candidates through `/run`: synchronize
 specs and update cross-repository links before any required thread is pinned. Complete `/run`'s
 Delivery steps up to the merge for each repository before the first merge. Give each required
 review its local spec, the primary spec, companion diffs and SHAs. Record each repository's PR,
-candidate SHA, review thread and CI policy in the primary's PR or MR, or, with no remote, as an uncommitted
-note in the final report. A changed participant requires rechecking combined acceptance and refreshing
+candidate SHA, review thread and CI policy in the primary's PR or MR, or, with no remote, in the final
+report. A changed participant requires rechecking combined acceptance and refreshing
 affected reviews against the new set of commits.
 
 Each participant first runs `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"` and
@@ -59,14 +59,14 @@ Each participant first runs `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"`
 starting and Delivery entry say, since the hosts can differ.
 
 Before merging any participant, run the preflight in every candidate's checkout, using its own PR,
-SHA, strategy, CI mode and review thread:
-`merge.sh --check-only` for a GitHub candidate and every route step up to the merge for the others. All must pass.
+SHA, strategy, CI mode and review thread: `merge.sh --check-only` for a GitHub candidate, every route step
+up to the merge for the others. All must pass.
 Every participant carries its own committed plan; one without it is prepared and its candidate
 evidence re-earned. `merge.sh` refuses a PR with neither a plan nor a named review, and refuses
 `--unmanaged` for one that has either — never use `--unmanaged` to deliver a companion.
 
-Under `--auto`, merge in the primary spec's declared order with the checked command in each repository (`merge.sh`, or
-the route's merge step).
+Under `--auto`, merge in the primary spec's declared order with the checked command in each
+repository (`merge.sh`, or the route's merge step).
 Otherwise hand the passing candidates and ordered merge commands to the user; observe merges before
 reconciliation. If a target advances meanwhile, follow `/run` synchronization, refresh affected
 evidence and repeat all remaining participants' preflight before the next merge.

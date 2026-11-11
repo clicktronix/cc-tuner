@@ -18,22 +18,18 @@ its own confirmation boundary in node 2.
 
 ## Plugin root
 
-The references below read the plugin's own files (a template, a script) through `$PLUGIN`. Claude Code
-fills `${CLAUDE_PLUGIN_ROOT}` in this skill's text, and the block below keeps that value when it is a
-directory. When it is not (a reference run from a fresh shell), the block asks `claude plugin list --json`
-for the installation that applies to this repository, by the rule `plugin-here.sh` uses: local before
-project before user scope, a project or local install only for its own `projectPath`, disabled installs
-skipped. `plugin-here.sh` itself lives in the plugin root, so it cannot be the fallback. Shell state does
-not persist between Bash calls, so every Bash call that uses `$PLUGIN` starts with this block.
+References read the plugin's own files through `$PLUGIN`. Claude Code fills `${CLAUDE_PLUGIN_ROOT}` in this
+skill's text but not in a reference or a plain shell, so every Bash call that uses `$PLUGIN` starts with this
+block. When the filled value is not a directory, the block asks `claude plugin list --json` for the install
+that applies to this repository, by `plugin-here.sh`'s scope rule (that script lives in the plugin root, so
+it cannot locate it).
 
 ```bash
-# The exact token: Claude Code fills it in this file's text, so a default like `:-` would leave it to the
-# shell, where the variable is unset outside a skill and the fallback below would always run.
+# The exact token, no `:-` default: Claude Code fills it here, and the shell leaves it unset.
 PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 if [ ! -d "$PLUGIN" ]; then
   REAL=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && pwd -P)
-  # projectPath is recorded as typed, so it is resolved on the filesystem, as plugin-here.sh does; "-"
-  # stands in for an empty field because `read` with a tab IFS collapses empty ones.
+  # projectPath is stored as typed, so resolve it; "-" stands in for an empty field, which a tab IFS collapses.
   PLUGIN=$(claude plugin list --json 2>/dev/null | jq -r '.[]
       | select(.id == "cc-tuner@cc-tuner" and .enabled != false)
       | [ (if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end), .scope,
@@ -47,9 +43,6 @@ fi
 [ -d "$PLUGIN" ] || { echo "Could not locate the cc-tuner plugin: is it installed and enabled?"; exit 1; }
 ```
 
-Never pick an installation by listing `~/.claude/plugins` and taking the last path: that can be a fork's
-copy or a lexically later, older version.
-
 ## The nodes
 
 Every node has the same shape — **detect** the current state, **propose** the change as a diff,
@@ -61,7 +54,7 @@ stop the command because one node stopped.
 |---|---|---|---|
 | 0 | environment | — | nothing |
 | 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
-| 0c | companions | 0, after 0b | in install mode, after one per-plugin confirmation, user-scope plugin installs and enables through `claude plugin install` / `enable`, which write `~/.claude/settings.json` (`enabledPlugins`): `mattpocock-skills`, and `cc-codex-triage` with a logged-in `codex`; declining `cc-codex-triage` adds one `cc-tuner-review: none:<reason>` line to `task-flow.local.md`; nothing in `check` |
+| 0c | companions | 0, after 0b | in install mode, after one per-plugin confirmation: user-scope `claude plugin install` / `enable`, which write `enabledPlugins` in `~/.claude/settings.json`; a declined `cc-codex-triage` adds one line to `task-flow.local.md` |
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
@@ -71,10 +64,9 @@ stop the command because one node stopped.
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
 | 7 | Codex audit | every applied node, and 0c's result | nothing |
 
-Nodes 0c, 4 and 5 all write `~/.claude/settings.json`, in that order: 0c through the `claude`
-CLI (it sets `enabledPlugins`), 4 and 5 by patching. Never do two of them in one Bash call, and
-re-read the file right before each patch so a later writer sees the earlier writer's result — 4 and 5
-must not start from a copy of the file read before 0c ran.
+Nodes 0c, 4 and 5 all write `~/.claude/settings.json`, in that order: 0c through the `claude` CLI, 4 and
+5 by patching. Never do two of them in one Bash call, and re-read the file right before each patch, so a
+later writer never starts from a copy read before an earlier one ran.
 
 ### 0. Environment
 
@@ -116,31 +108,13 @@ testing document is outside this additive setup step.
 
 ### 0c. Companions
 
-`/cc-tuner:spec` and `/cc-tuner:run` need `mattpocock-skills`, and `/cc-tuner:run`'s required review
-needs `cc-codex-triage` plus a logged-in `codex`. Read [references/companions.md](references/companions.md)
-and run it in the current mode. Every fact about the two plugins — which marketplace and repository
-each comes from, whether `codex` is usable, whether this repository declined Codex review, whether a
-plugin is installed, disabled or absent, and the command that fixes it — is asked of
-`scripts/setup/companion.sh`; this node restates none of it. It runs after 0b and before 4: it is
-user-global like the statusline, and `claude plugin install` / `enable` write `~/.claude/settings.json`
-(`enabledPlugins`), so nodes 4 and 5 re-read that file after it. It is offered and applied only after
-one confirmation, asked per plugin, that shows each plugin's source:
-
-- `mattpocock-skills` is offered whenever it is absent or disabled; `cc-codex-triage` only when
-  `companion.sh codex` prints `ready` and the repository has not declined Codex review. Otherwise it is
-  optional and specs use `review: none:<reason>`.
-- Declining `cc-codex-triage` records the decline in `task-flow.local.md` as one
-  `cc-tuner-review: none:<reason>` line; doctor and the preflight then report the missing bridge as a
-  note and `/cc-tuner:spec` writes that reason into the spec.
-- It runs `claude plugin marketplace add` only when `companion.sh hint` says the marketplace is not
-  configured, then `claude plugin install`, at user scope, then verifies with `claude plugin list
-  --json`. The verify column reads "installed; run `/reload-plugins` or restart to load its
-  commands" — this command never claims the commands are loaded in this session.
-- A marketplace of the same name configured from another repository is a stop that names both sources;
-  nothing is installed from it.
-- No `claude` on PATH → it prints the `/plugin …` commands for the user and installs nothing. No `jq`
-  → it cannot tell what is installed and installs nothing. A disabled plugin gets `claude plugin
-  enable`, not an install.
+`/cc-tuner:spec` and `/cc-tuner:run` need `mattpocock-skills`; the required review of `/cc-tuner:run`
+needs `cc-codex-triage` and a logged-in `codex`. Read [references/companions.md](references/companions.md)
+and run it in the current mode; `scripts/setup/companion.sh` answers every question about the two plugins.
+The node installs or enables what is missing after one confirmation per plugin, offers `cc-codex-triage`
+only when `companion.sh codex` prints `ready` and the repository has not declined it, and records a decline in
+`task-flow.local.md`. Without `claude` on PATH it prints the `/plugin` commands instead; without `jq` it
+installs nothing.
 
 ### 1. Agent-rules discovery
 
@@ -191,28 +165,24 @@ The order inside it is load-bearing: the `git-flow.local.md` → `task-flow.loca
 before anything creates the deltas file, and the legacy `git-flow.md` is removed only after the new
 rule is in place. A differing or legacy rule file is shown as a diff and asked about once; "keep"
 is a terminal state for this node only.
-When node 0c recorded a declined `cc-codex-triage` before `task-flow.local.md` existed, this node
-writes that line right after it creates the file (step 6 of the reference).
+When node 0c held a declined `cc-codex-triage` because `task-flow.local.md` did not exist yet, this node
+records it right after creating the file (step 6 of the reference).
 
 ### 3b. Delivery route
 
-Outside GitHub no script refuses a bad merge, so `/cc-tuner:run` follows a route text instead of
-`merge.sh`. That text is a plugin reference (`skills/run/references/route-<host>.md`) that `/run` reads
-from the plugin at Delivery; the repository holds only a short key block saying delivery goes by that
-route and never by a web or bare CLI merge. Read [references/delivery-route.md](references/delivery-route.md)
-and run it in the current mode. It takes the host from `scripts/setup/host.sh` and needs node 3, which
-guarantees `task-flow.local.md` exists. Everything about the block is asked of, and written by,
+Outside GitHub no script refuses a bad merge, so `/cc-tuner:run` follows a route text from the plugin
+(`skills/run/references/route-<host>.md`) instead of `merge.sh`. The repository holds only a short key
+block naming that route. Read [references/delivery-route.md](references/delivery-route.md) and run it in
+the current mode. It needs node 3, takes the host from `scripts/setup/host.sh`, and leaves the block to
 `scripts/setup/route.sh`:
 
-- `github` — nothing to write; `merge.sh` is the route. A block left from another host is reported and
-  removed by hand.
-- `gitlab`, `local` — the canonical key block; a block that differs is shown as a diff and asked about once.
-- `other` — the block body is the user's own description of how a candidate is opened, recorded, checked
-  and merged, and it is the route; it is never compared with anything.
+- `github` — nothing to write; `merge.sh` is the route.
+- `gitlab`, `local` — the plugin's key block.
+- `other` — the user's own description of how a candidate is opened, recorded, checked and merged; that
+  description is the route.
 
-Only the text between the markers is replaced, plus the legacy header comment of an older
-`task-flow.local.md`. An absent block is an additive edit, covered by the install request; replacing one is
-confirmed. The block is committed together with `task-flow.local.md`, so task worktrees have it.
+Writing a missing block is additive; replacing one is confirmed. The block is committed with
+`task-flow.local.md`, so task worktrees have it.
 
 ### 4. Session env
 
@@ -287,11 +257,10 @@ flow you cannot complete for them — and report the board as not wired.
 
 ### 7. Codex audit (optional, install mode)
 
-Runs only when all three hold: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" codex` prints
-`ready`, `companion.sh state cc-codex-triage@cc-codex-triage` prints `installed`, and node 0c did not
-install or enable the plugin in this run — a plugin's commands load after `/reload-plugins`, so a
-call to `/cc-codex-triage:ask` from this session would fail. When it does, spend one read-only call to
-have a second model check what this command claims it did, within the authorisation the install
+Runs only when `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" codex` prints `ready`,
+`companion.sh state cc-codex-triage@cc-codex-triage` prints `installed`, and node 0c did not install or
+enable the plugin in this run (its commands load only after `/reload-plugins`). Then spend one read-only
+call to have a second model check what this command claims it did, within the authorisation the install
 request already gave — no new permission question:
 
 ```text

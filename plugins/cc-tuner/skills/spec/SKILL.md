@@ -11,21 +11,22 @@ This command owns discovery and readiness; `/run` owns delivery.
 
 **`--groom <issue>` prepares an issue for later**, with no branch, spec or plan and nothing committed.
 Its route: read (section 1) → interview (section 3) → tag the acceptance criteria (section 4) → the
-blind-spots pass (section 5) over what was gathered → one comment on the issue. It
-skips section 2, and writes no files (under `tracker: local` the record is appended to the issue file,
-uncommitted): a term or ADR that `domain-modeling` settles goes into the
-record's Decisions, for the later `/spec` to write on its branch. The comment's first line is `cc-tuner-groom: <date>`,
-then **Decisions** (each with its reason), **Acceptance criteria**, **Open questions** and **Sources**.
-It needs an issue number or URL (free text: create the issue first), and it
-refuses under `tracker: none`, and under `other` unless `docs/agents/issue-tracker.md` describes comments.
-A later `/spec <issue>` reads the newest
-`cc-tuner-groom:` comment whose `authorAssociation` is `OWNER`, `MEMBER` or `COLLABORATOR` as settled
-and interviews only its open questions and what the code now contradicts. A record from anyone else is a proposal
-for the interview. The record goes where the tracker puts comments. Under `glab` it is one note on the GitLab issue,
-and a later `/spec` settles only a record whose author's project membership has `access_level >= 30` and
-`state == "active"` (`glab api projects/:id/members/all/<user id>`), as `authorAssociation` does on GitHub. Under `local`,
-append the record under `## Comments` in the issue file without committing (groom writes no commits);
-a later `/spec` treats it as settled.
+blind-spots pass (section 5) over what was gathered → one record on the issue. It skips section 2 and
+writes nothing but that record: a term or ADR that `domain-modeling` settles goes into the record's
+Decisions, for the later `/spec` to write on its branch. The record's first line is `cc-tuner-groom: <date>`, then **Decisions** (each with its reason),
+**Acceptance criteria**, **Open questions** and **Sources**. It needs an issue number or URL (free text:
+create the issue first), and it refuses under `tracker: none`, and under `other` unless
+`docs/agents/issue-tracker.md` describes comments.
+
+The record goes where the tracker keeps comments. A later `/spec <issue>` treats the newest record from a
+maintainer as settled and interviews only its open questions and what the code now contradicts; a record
+from anyone else is a proposal for the interview.
+
+- `gh` — an issue comment; a maintainer's has `authorAssociation` `OWNER`, `MEMBER` or `COLLABORATOR`.
+- `glab` — one note on the GitLab issue; a maintainer's author has project membership with
+  `access_level >= 30` and `state == "active"` (`glab api projects/:id/members/all/<user id>`).
+- `local` — append the record under `## Comments` in the issue file, without committing;
+  a later `/spec` treats it as settled.
 
 ## 1. Anchor and read
 
@@ -74,12 +75,12 @@ under `--groom`, which delivers nothing):
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
 ```
 
-Its first field is `github`, `gitlab`, `local` (no remote), `other` or `ambiguous`. `other` → ask the user what
-this host is and record `other`; the words of its route go through `/cc-tuner:setup install delivery-route` (a
-user-only command). `ambiguous` → ask the user to name one remote `origin` (`git remote rename <remote> origin`), as doctor says, and detect again: `/run` stops on `ambiguous`. Record
-`host:`. For a host other than `github`, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>`
-and record its answer in the spec's Delivery section; when it is not `current` or `present-other`, tell the
-user to run `/cc-tuner:setup install delivery-route` before `/run`.
+Its first field is `github`, `gitlab`, `local` (no remote), `other` or `ambiguous`; record it as `host:`.
+`ambiguous` → ask the user to name one remote `origin` (`git remote rename <remote> origin`) and detect
+again. `other` → its route is the user's own description, which `/cc-tuner:setup install delivery-route` (a
+user-only command) writes. For a host other than `github`, run
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>`; when it prints neither `current` nor
+`present-other`, tell the user to run `/cc-tuner:setup install delivery-route` before `/run`.
 
 **Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
 subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
@@ -188,10 +189,10 @@ describes, without inventing another.
 
 Read [the CI policy](../run/references/local-ci.md) before choosing `ci`: it names the mode, checks
 and how to observe them on the candidate. `/run` passes the mode verbatim. Set `review:` from
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" review`: when it exits 1 write `review: codex`,
-otherwise write `review: $(companion.sh review)` verbatim, which carries a recorded opt-out;
-with `host: local`, `ci:` is always `none:<reason>` (there is no pipeline) and `merge:` is `merge: ff`:
-the local route fast-forwards and never squashes or merges.
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" review`: `codex` when it exits 1, otherwise the
+`none:<reason>` it prints (a recorded opt-out included). With `host: local`,
+`ci:` is always `none:<reason>` (there is no pipeline) and the spec says `merge: ff`, since the local route
+only fast-forwards.
 `auto_ready: yes` requires a defined PR, MR or branch per participating repository, complete DoR,
 nonblank `ci`, `target_test`, and `full_test`, and a replacement or waiver for every `[eyes]` item.
 Only `/run --auto` requests unattended execution.
@@ -221,14 +222,18 @@ and blockers, plus the card's Priority when a board is named and neither the iss
 `task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.
 This is the only approval before implementation.
 
-After approval, record the issue by `tracker:` so it and the spec link to each other: `gh` — create or
-update the issue; `glab` — `glab issue create` / `glab issue note`, as `docs/agents/issue-tracker.md` says;
-`local` — create the issue file where that file says (e.g. `.scratch/<slug>/issues/NN-<slug>.md`), linking
-to the spec, which stays at the path below, and also write a one-line link file `.scratch/<slug>/spec.md`
-pointing at it, so mattpocock's skills find it; commit them with the spec on the task branch, unless
-`.scratch/` is git-ignored: then record that in the spec's Delivery section and leave both uncommitted;
-`other` — create or update the issue as that file describes; with `tracker: none`, skip that and let the
-spec be the record. Write the approved spec to its final path, then ask the repository for the plan path:
+After approval, record the issue by `tracker:`, so that it and the spec link to each other:
+
+- `gh` — create or update the issue.
+- `glab` — `glab issue create` / `glab issue note`, as `docs/agents/issue-tracker.md` says.
+- `local` — create the issue file where that file says (e.g. `.scratch/<slug>/issues/NN-<slug>.md`), linking
+  to the spec, and a one-line link file `.scratch/<slug>/spec.md` pointing at the spec, so mattpocock's
+  skills find it. Then commit them with the spec on the task branch, unless `.scratch/` is git-ignored:
+  then say so in the spec's Delivery section and leave both uncommitted.
+- `other` — as that file describes.
+- `none` — nothing; the spec is the record.
+
+Then write the approved spec to its final path and ask the repository for the plan path:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create

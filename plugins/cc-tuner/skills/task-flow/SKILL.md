@@ -141,7 +141,7 @@ A local tip that differs holds commits the PR never carried: look at them, do no
 
 Other hosts check the same fact. On GitLab, `glab mr view <iid>` must show state `merged` with its sha equal to
 the local tip. With no remote, `git rev-parse refs/heads/<target>` must equal the merged head, and the local tip
-must equal it too. The route's after-merge step names the same check.
+must equal it too.
 
 On host `local` (no remote) skip `git pull` and `git fetch --prune`, and sync the target in the worktree that
 holds it (`git worktree list`).

@@ -1,19 +1,13 @@
 # Node: the delivery route
 
-Procedure for the **delivery route** node of `/cc-tuner:setup`. `/cc-tuner:run` merges through `merge.sh`
-only on GitHub. For any other host it follows a route text that lives in the plugin
-(`skills/run/references/route-gitlab.md`, `route-local.md`), never in a copy the candidate can edit. The
-repository holds a short key block in `.claude/rules/task-flow.local.md` between two markers, and
-`scripts/setup/route.sh` is the only program that writes or checks it. This node drives that script and
-restates none of what it knows: the block text, the marker counting, the legacy header and the atomic write
-are all its.
+Procedure for the **delivery route** node of `/cc-tuner:setup`. On GitHub `/cc-tuner:run` merges through
+`merge.sh`. On other hosts it follows a route text in the plugin (`skills/run/references/route-gitlab.md`,
+`route-local.md`), where a candidate cannot edit it. The repository holds only a short key block in
+`.claude/rules/task-flow.local.md`, between two markers. `scripts/setup/route.sh` alone writes and checks
+that block; this node runs it and restates none of its rules.
 
-**Shell state does not persist between Bash calls.** Claude Code keeps the working directory but NOT shell
-variables across separate Bash invocations, and the questions below guarantee the flow splits into several.
-Re-run the **Locate** block at the start of every Bash invocation that references `$HOST`, `$ROOT`, `$LOCAL`,
-`$PLUGIN` or `$ROUTE`: it is read-only and idempotent.
-
-**Run the steps in the order they are numbered.**
+**Shell state does not persist between Bash calls.** Re-run the **Locate** block at the start of every Bash
+call that uses `$HOST`, `$ROOT`, `$LOCAL`, `$PLUGIN` or `$ROUTE`; it is read-only.
 
 ## Contents
 
@@ -37,12 +31,13 @@ echo "host: $HOST"
 ```
 
 `$HOST` is `github`, `gitlab`, `local`, `other` or `ambiguous`. `ambiguous` (several remotes, none named
-`origin`) blocks this node: report it and stop. `/cc-tuner:spec` asks the user which remote counts.
+`origin`) blocks this node: report it and tell the user to rename one remote to `origin`
+(`git remote rename <remote> origin`).
 
 ## check
 
-Write nothing. `bash "$ROUTE" check "$HOST" "$ROOT"` prints one word (plus a host or two counts) and its exit
-code says the same:
+Write nothing. `bash "$ROUTE" check "$HOST" "$ROOT"` prints one word (with a host or two counts), and its
+exit code matches:
 
 | prints | meaning | report |
 |---|---|---|
@@ -57,19 +52,18 @@ code says the same:
 
 ## install
 
-1. **`github`** → `check` says `none-needed`: report "nothing to write: merge.sh is the route" and finish.
-   On `stale-on-github`, setup does not delete the block: show it with
-   `sed -n '/^<!-- cc-tuner:delivery-route /,/^<!-- \/cc-tuner:delivery-route -->$/p' "$LOCAL"`, say it
-   belongs to another host and `/run` will stop on it until the user removes those lines, from the opening
-   marker through the closing marker, by hand, and finish.
-2. **`malformed`** → report the counts, say the block is fixed by hand in `.claude/rules/task-flow.local.md`,
-   and finish. `route.sh write` would refuse it too (exit 3).
+1. **`github`** → `none-needed`: report "nothing to write: merge.sh is the route" and finish. On
+   `stale-on-github`, show the block with
+   `sed -n '/^<!-- cc-tuner:delivery-route /,/^<!-- \/cc-tuner:delivery-route -->$/p' "$LOCAL"`, say that
+   `/run` stops on it until the user deletes it by hand, opening marker through closing marker, and finish.
+2. **`malformed`** → report the counts, say the block is fixed by hand in
+   `.claude/rules/task-flow.local.md`, and finish. `route.sh write` refuses it too (exit 3).
 3. **`other`** → the block body is written from the user's own words, never from another host's route. Ask
-   once, in plain text (the answer is free-form, not a choice): how is a candidate **opened**, how are
-   verdicts and verification **recorded**, how is it **checked** (review, CI), and how is it **merged**?
-   Tidy the answer into steps without extending it. When it leaves out one of the four, name which and ask
-   once more; a gap that remains is written as "not described", never filled in from the GitLab or local
-   route. Put it in a temp file with the Write tool, so quotes and backticks in it stay text:
+   in plain text (the answer is free-form): how is a candidate **opened**, how are verdicts and verification
+   **recorded**, how is it **checked** (review, CI), and how is it **merged**? Tidy the answer into steps
+   without adding to it. If one of the four is missing, ask for it once more; if it is still missing, write
+   "not described", never a step taken from the GitLab or local route. Save the text to a temp file with
+   the Write tool, so quotes and backticks stay text:
 
    ```bash
    BODY=$(mktemp) || { echo "ERROR: mktemp failed"; exit 1; }
@@ -77,26 +71,24 @@ code says the same:
    ```
 4. **Decide by what `check` said.**
    - `missing` → additive, covered by the install request: write it.
-   - `current` (`gitlab`, `local`) → report "up to date" and write nothing.
+   - `current` → report "up to date" and write nothing.
    - `drift`, `mismatch`, or a re-described `other` block → show the diff (`route.sh canonical "$HOST"`
      against the current block, or the new description against the old one) and ask before replacing
-     (AskUserQuestion: overwrite / keep). Hand edits inside the block would be lost, so say that; they
-     belong outside the markers. On **keep**, report "kept existing block, not updated" and mark this node
-     kept; the other nodes still run.
-5. **Write.** One command, which keeps everything outside the markers except the legacy header comment of an
-   older file ("setup never touches this file"), replaces that header with the current wording, writes
+     (AskUserQuestion: overwrite / keep). Say that hand edits inside the block would be lost; they belong
+     outside the markers. On **keep**, report "kept existing block, not updated"; the other nodes still run.
+5. **Write.** `route.sh write` replaces only the block and an older file's legacy header comment, writes
    atomically and checks its own result:
 
    ```bash
    bash "$ROUTE" write "$HOST" "$LOCAL" ${BODY:+"$BODY"}    # prints written | replaced | unchanged
    ```
 
-   Exit 3 is a malformed existing block (step 2), exit 2 a refusal such as an empty description (nothing was
-   written), exit 1 an operational failure. Report the printed word, never a success the script did not
-   print. Remove `$BODY` afterwards.
+   Exit 3 is a malformed existing block (step 2), exit 2 a refusal such as an empty description (nothing
+   written), exit 1 an operational failure. Report the word it printed, never a success it did not print.
+   Remove `$BODY` afterwards.
 6. **Say that the block must be committed.** `/run` works in task worktrees, which have only committed
-   files: the block is committed together with `task-flow.local.md`, or `/run` stops on a missing block
-   there. Setup writes the file and leaves the commit to the user.
+   files: the block is committed together with `task-flow.local.md`, or `/run` stops on a missing block.
+   Setup leaves the commit to the user.
 
 ## Verification
 

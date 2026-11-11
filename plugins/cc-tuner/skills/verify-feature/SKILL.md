@@ -74,7 +74,7 @@ that directly exercises it. A plausible diff or an unrelated green suite is not 
 
 ## 5. Hand back
 
-Return a short record `/run` publishes verbatim as one record where the host's route puts records (a PR comment on GitHub). Its first line names the full SHA
+Return a short record that `/run` publishes verbatim where the host keeps records (a PR comment on GitHub). Its first line names the full SHA
 the checks ran against; every line after it is one criterion, tagged with the instrument that
 observed it:
 
