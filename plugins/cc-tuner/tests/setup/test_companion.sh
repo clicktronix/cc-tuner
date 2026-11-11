@@ -176,6 +176,16 @@ case "$ERR" in *"remove it or install by hand"*) pass "hint-conflict-says-what-t
 comp "$NOCODEX" "$LIST_NONE" "$(as_json '[{"name":"mattpocock","source":"git","url":"https://example.com/skills.git"}]')" hint "$MATT" "$REPO"
 eq "hint-conflict-without-repo-rc3" 3 "$RC"
 case "$ERR" in *"https://example.com/skills.git"*) pass "hint-conflict-shows-url-source" ;; *) fail "hint-conflict-shows-url-source ($ERR)" ;; esac
+# The expected GitHub repository added by URL is the same source, in any form the CLI stores.
+for u in https://github.com/mattpocock/skills.git https://github.com/MattPocock/skills git@github.com:mattpocock/skills.git ssh://git@github.com/mattpocock/skills.git; do
+  comp "$NOCODEX" "$LIST_NONE" "$(as_json '[{"name":"mattpocock","source":"git","url":"'"$u"'"}]')" hint "$MATT" "$REPO"
+  eq "hint-github-url-is-the-expected-source ($u)" "/plugin install $MATT" "$OUT"
+done
+# Another repository, or the expected path on another host, stays a conflict.
+for u in https://github.com/someone-else/skills.git https://evil.example/github.com/mattpocock/skills.git git@github.com.evil.example:mattpocock/skills.git; do
+  comp "$NOCODEX" "$LIST_NONE" "$(as_json '[{"name":"mattpocock","source":"git","url":"'"$u"'"}]')" hint "$MATT" "$REPO"
+  eq "hint-foreign-url-conflicts ($u)" 3 "$RC"
+done
 # An installed or disabled plugin never reaches the marketplace question.
 comp "$NOCODEX" "$INST" "$MKT_MATT_FORK" hint "$MATT" "$REPO"
 eq "hint-installed-ignores-conflict" 0 "$RC"

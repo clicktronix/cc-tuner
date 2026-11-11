@@ -229,7 +229,8 @@ After approval, record the issue by `tracker:`, so that it and the spec link to 
 - `local` — create the issue file where that file says (e.g. `.scratch/<slug>/issues/NN-<slug>.md`), linking
   to the spec, and a one-line link file `.scratch/<slug>/spec.md` pointing at the spec, so mattpocock's
   skills find it. Then commit them with the spec on the task branch, unless `.scratch/` is git-ignored:
-  then say so in the spec's Delivery section and leave both uncommitted.
+  then say so in the spec's Delivery section and leave both uncommitted; `/run` closes the issue file in
+  the main checkout after the merge.
 - `other` — as that file describes.
 - `none` — nothing; the spec is the record.
 

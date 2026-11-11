@@ -648,16 +648,22 @@ if [ -n "$tracker_read_line" ] && [ -n "$issue_read_line" ] && [ "$tracker_read_
 else
   echo "FAIL spec-reads-the-tracker-file-before-the-issue (tracker=$tracker_read_line issue=$issue_read_line)"; fails=1
 fi
-# /run asks host.sh in Before starting, and again at Delivery entry before it reads a route.
+# /run asks host.sh and checks the route block in Before starting, before any slice, so a route that
+# would stop delivery stops the run before work is spent; it checks the block again at Delivery entry.
 run_host_line="$(grep -nF 'scripts/setup/host.sh' "$RUN" | head -1 | cut -d: -f1)"
 run_check_line="$(grep -nF 'scripts/setup/route.sh" check' "$RUN" | head -1 | cut -d: -f1)"
+run_last_check_line="$(grep -nF 'scripts/setup/route.sh" check' "$RUN" | tail -1 | cut -d: -f1)"
+run_loop_line="$(grep -n '^## The loop' "$RUN" | head -1 | cut -d: -f1)"
 run_delivery_line="$(grep -n '^## Delivery' "$RUN" | head -1 | cut -d: -f1)"
-if [ -n "$run_host_line" ] && [ -n "$run_check_line" ] && [ -n "$run_delivery_line" ] \
-   && [ "$run_host_line" -lt "$run_delivery_line" ] && [ "$run_delivery_line" -lt "$run_check_line" ]; then
-  echo "PASS run-asks-host-sh-before-delivery-and-checks-the-block-at-it"
+if [ -n "$run_host_line" ] && [ -n "$run_check_line" ] && [ -n "$run_loop_line" ] && [ -n "$run_delivery_line" ] \
+   && [ "$run_host_line" -lt "$run_check_line" ] && [ "$run_check_line" -lt "$run_loop_line" ] \
+   && [ "$run_delivery_line" -lt "$run_last_check_line" ]; then
+  echo "PASS run-checks-the-route-before-the-loop-and-at-delivery"
 else
-  echo "FAIL run-asks-host-sh-before-delivery-and-checks-the-block-at-it (host=$run_host_line delivery=$run_delivery_line check=$run_check_line)"; fails=1
+  echo "FAIL run-checks-the-route-before-the-loop-and-at-delivery (host=$run_host_line check=$run_check_line loop=$run_loop_line delivery=$run_delivery_line last=$run_last_check_line)"; fails=1
 fi
+need "run-ignored-scratch-is-local-state"  'the issue file is local state of the main checkout' "$RUN"
+need "spec-ignored-scratch-closed-after-merge" '`/run` closes the issue file in' "$SPEC"
 LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
 SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
 need "local-ci-record-goes-where-route-says" "where the host's route reference says" "$LOCAL_CI"

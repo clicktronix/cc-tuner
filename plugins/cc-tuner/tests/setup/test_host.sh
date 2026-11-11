@@ -56,6 +56,9 @@ hosts:
         use_keyring: false
     "quoted.corp.example":
         user:
+    forge.corp.example:
+        ssh_host: ssh.forge.corp.example
+        api_host: forge.corp.example
 telemetry: true
 EOF
 
@@ -101,6 +104,11 @@ case_url gl-quoted-key      https://quoted.corp.example/a/b        gitlab config
 case_url glab-field-not-host https://user/a/b                      other  none user
 case_url glab-later-key-not-host https://telemetry/a/b             other  none telemetry
 case_url gh-field-not-host  https://someone/a/b                    other  none someone
+# glab's `ssh_host` maps a separate SSH endpoint to the configured host, which is also the host to log in to.
+case_url gl-ssh-host-scp    git@ssh.forge.corp.example:team/app.git          gitlab config forge.corp.example
+case_url gl-ssh-host-url    ssh://git@ssh.forge.corp.example/team/app.git    gitlab config forge.corp.example
+case_url gl-ssh-host-https  https://forge.corp.example/team/app.git          gitlab config forge.corp.example
+case_url glab-nested-key-not-host https://api_host/a/b                       other  none api_host
 
 mkrepo gl-env origin https://gl.env.example/a/b
 OUT="$(GITLAB_HOST=gl.env.example CC_TUNER_GH_HOSTS_FILE="$GH_HOSTS" CC_TUNER_GLAB_CONFIG_FILE="$GLAB_CFG" PATH="$BIN:$PATH" bash "$HOST" "$REPO" 2>&1)"; RC=$?

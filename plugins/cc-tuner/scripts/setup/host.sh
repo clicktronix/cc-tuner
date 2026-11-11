@@ -12,8 +12,9 @@
 #                config  the remote's host is one gh (hosts.yml) or glab (config.yml) is logged in to
 #                none    local, other and ambiguous
 #   remote       the remote that was read: `origin`, else the only remote; empty for local/ambiguous
-#   remote-host  the host the remote points at, lower case, after resolving an SSH alias; empty when the
-#                remote is a filesystem path or has no usable host
+#   remote-host  the host the remote points at, lower case, after resolving an SSH alias or a glab
+#                `ssh_host`; it is the host a CLI logs in to. Empty when the remote is a filesystem
+#                path or has no usable host
 #
 # Exit 0 with the line, 2 when the directory is not inside a git repository (nothing printed).
 #
@@ -44,6 +45,10 @@
 # alias (`Host github-work` / `HostName github.com`) from ssh_config, which reads local files only.
 # A literal github.com or gitlab.com is not resolved: `Host github.com` + `HostName ssh.github.com`
 # (port 443) is a real configuration and would otherwise stop being GitHub.
+#
+# glab `ssh_host`: a GitLab whose SSH endpoint differs from its web/API host (`ssh.forge.example` for
+# `forge.example`) records it under that host, and glab resolves remotes through it. So does this
+# script: a remote on the SSH endpoint is that GitLab, and the reported host is the configured one.
 #
 # Seams: CC_TUNER_SSH_CMD (default ssh), CC_TUNER_GH_HOSTS_FILE (default ${GH_CONFIG_DIR},
 # ${XDG_CONFIG_HOME}/gh or ~/.config/gh, plus hosts.yml), CC_TUNER_GLAB_CONFIG_FILE (default
@@ -76,8 +81,9 @@ gh_hosts() {
 
 # glab keeps its hosts one level under `hosts:`, next to nested fields (`user:`, `token:`) that look
 # the same, so the host indent is taken from the first entry and only keys at that indent count.
+# Prints `H <host>` per host and `S <ssh_host> <host>` per nested `ssh_host:` field.
 glab_hosts_in() { # glab_hosts_in <config.yml>
-  local line t ind="" lead in_hosts=0
+  local line t ind="" lead in_hosts=0 cur="" v
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in hosts:*) in_hosts=1; ind=""; continue ;; esac
     [ "$in_hosts" -eq 1 ] || continue
@@ -87,7 +93,12 @@ glab_hosts_in() { # glab_hosts_in <config.yml>
     if [ -z "$lead" ]; then in_hosts=0; continue; fi
     if [ -z "$ind" ]; then ind="$lead"; fi
     if [ "$lead" = "$ind" ]; then
-      case "$t" in *:*) printf '%s\n' "${t%%:*}" | tr -d "\"'" ;; esac
+      case "$t" in *:*) cur="$(printf '%s' "${t%%:*}" | tr -d "\"'")"; printf 'H %s\n' "$cur" ;; esac
+    elif [ -n "$cur" ]; then
+      case "$t" in ssh_host:*)
+        v="$(printf '%s' "${t#ssh_host:}" | tr -d "\"' ")"
+        [ -n "$v" ] && printf 'S %s %s\n' "$v" "$cur" ;;
+      esac
     fi
   done < "$1"
 }
@@ -103,21 +114,33 @@ glab_hosts() {
       [ -f "$f" ] && glab_hosts_in "$f"
     done
   fi
-  if [ -n "${GITLAB_HOST:-}" ]; then printf '%s\n' "$GITLAB_HOST"; fi
+  if [ -n "${GITLAB_HOST:-}" ]; then printf 'H %s\n' "$GITLAB_HOST"; fi
 }
 
 GH_LIST="$(gh_hosts | tr 'A-Z' 'a-z')"
-GLAB_LIST="$(glab_hosts | tr 'A-Z' 'a-z')"
+GLAB_ROWS="$(glab_hosts | tr 'A-Z' 'a-z')"
+GLAB_LIST="$(printf '%s\n' "$GLAB_ROWS" | sed -n 's/^h //p')"
+GLAB_SSH="$(printf '%s\n' "$GLAB_ROWS" | sed -n 's/^s //p')"
 
-# classify <lowercase host> -> C_HOST, C_VIA
+# classify <lowercase host> -> C_HOST, C_VIA, C_NAME (the host to report: a glab ssh_host maps to its host)
 classify() {
-  C_HOST=other; C_VIA=none
+  C_HOST=other; C_VIA=none; C_NAME="$1"
   case "$1" in
     github.com) C_HOST=github; C_VIA=url; return ;;
     gitlab.com) C_HOST=gitlab; C_VIA=url; return ;;
   esac
+  local ssh to mapped=""
+  while read -r ssh to; do
+    if [ "$ssh" = "$1" ]; then
+      case "$to" in ''|-*|*[!a-z0-9._-]*) ;; *) mapped="$to" ;; esac
+      break
+    fi
+  done <<EOF
+$GLAB_SSH
+EOF
   if printf '%s\n' "$GH_LIST" | grep -qxF -- "$1"; then C_HOST=github; C_VIA=config
   elif printf '%s\n' "$GLAB_LIST" | grep -qxF -- "$1"; then C_HOST=gitlab; C_VIA=config
+  elif [ -n "$mapped" ]; then C_HOST=gitlab; C_VIA=config; C_NAME="$mapped"
   fi
 }
 
@@ -154,7 +177,7 @@ case "$RHOST" in
 esac
 
 classify "$RHOST"
-if [ "$C_HOST" != other ] || [ "$KIND" != ssh ]; then emit "$C_HOST" "$C_VIA" "$REMOTE" "$RHOST"; fi
+if [ "$C_HOST" != other ] || [ "$KIND" != ssh ]; then emit "$C_HOST" "$C_VIA" "$REMOTE" "$C_NAME"; fi
 
 SSH_CMD="${CC_TUNER_SSH_CMD:-ssh}"
 if command -v "${SSH_CMD%% *}" >/dev/null 2>&1; then
@@ -164,4 +187,4 @@ if command -v "${SSH_CMD%% *}" >/dev/null 2>&1; then
     *) RHOST="$resolved"; classify "$RHOST" ;;
   esac
 fi
-emit "$C_HOST" "$C_VIA" "$REMOTE" "$RHOST"
+emit "$C_HOST" "$C_VIA" "$REMOTE" "$C_NAME"

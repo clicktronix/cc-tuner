@@ -1,6 +1,6 @@
 ---
 name: run
-description: Works this branch's committed cc-tuner plan to a merged PR — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued. It decides when the board card moves; the board recipes, branch cleanup and release notes belong to cc-tuner:task-flow.
+description: Works this branch's committed cc-tuner plan to a merged PR, GitLab MR or local branch — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued. It decides when the board card moves; the board recipes, branch cleanup and release notes belong to cc-tuner:task-flow.
 argument-hint: '[--auto] <path-to-spec>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
 ---
@@ -35,7 +35,8 @@ say which one you took. Stop if neither names a spec that exists. Refuse `--auto
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
 ```
 
-It prints the host, how it was found, the remote and the remote's host; compare it with the spec's `host:`.
+It prints the host, how it was found, the remote and the host to log in to (`<remote-host>`);
+compare it with the spec's `host:`.
 A spec without `host:` means `github`. `ambiguous` (several remotes, none named `origin`) stops the run: ask
 the user to rename one remote to `origin`. A mismatch stops the run too. When the spec says `github` or
 `gitlab` and host.sh says `other`, the CLI is not logged in to that host: name
@@ -45,6 +46,14 @@ mismatch: tell the user to correct the spec's `host:`.
 Then check the host's CLI before any slice: `gh auth status --hostname <remote-host>` for `github`,
 `glab auth status --hostname <remote-host>` for `gitlab`. A failure stops the run with the same login
 command. `local` and `other` need no CLI.
+
+Check the delivery route now too, so a route that would stop delivery stops the run before any work:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>
+```
+
+It has the outcomes and messages of **The route** under [Delivery](#delivery), which checks it again.
 
 Host `local` has no remote: no push, fetch or pull, and the target is `refs/heads/<target>`. Fetching the
 target in Prepare the candidate and the push and PR of Delivery step 1 do not apply.
@@ -183,8 +192,9 @@ their own read-only agent type/model; where silent, placement decides.
 
 After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
 archiving and update plan/spec links before the first required review, and under `tracker: local`,
-commit the tracker file's closing step with them; continue with the new spec
-path. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
+commit the tracker file's closing step with them; continue with the new spec path. When the spec records
+`.scratch/` as git-ignored, the issue file is local state of the main checkout instead: nothing is
+committed, and step 7 of Delivery closes it there. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
 resolver/linter contract used at startup.
 
 Fetch the integration target before the first candidate and before delivery. If it advanced beyond
@@ -359,7 +369,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery
    prerequisites are complete, through the tracker `docs/agents/issue-tracker.md` names. Under `tracker: local`
    the tracker file's closing step was committed on the task branch before the first required review, so it
-   lands with the merge — never a commit on the target. Then move the card to Done. When the issue was an
+   lands with the merge — never a commit on the target. With a git-ignored `.scratch/`, close the issue
+   file in the main checkout once the merge is observed. Then move the card to Done. When the issue was an
    epic's last open sub-issue,
    also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
    after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was

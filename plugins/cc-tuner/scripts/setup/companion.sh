@@ -147,8 +147,12 @@ cmd_hint() { # hint <id> <repo-root>
     unknown) exit 2 ;;
   esac
   mkts="$(${CC_TUNER_MARKETPLACE_LIST_CMD:-claude plugin marketplace list --json} 2>/dev/null)" || mkts=""
-  if printf '%s' "$mkts" | jq -e --arg n "$mkt" --arg s "$src" \
-       'any(.[]?; .name == $n and ((.repo // "") | ascii_downcase) == ($s | ascii_downcase))' >/dev/null 2>&1; then
+  # A marketplace added by URL is stored with `url`, not `repo`: a GitHub URL of the expected repository
+  # (https, ssh:// or scp-like, with or without .git) is the same source; any other host or path is not.
+  if printf '%s' "$mkts" | jq -e --arg n "$mkt" --arg s "$src" '
+       def slug: if (.repo // "") != "" then .repo
+         else [ (.url // "") | capture("^(?:(?:https?|ssh|git)://(?:[^@/]+@)?github\\.com(?::[0-9]+)?/|(?:[^@/:]+@)?github\\.com:)(?<s>[^/]+/[^/]+?)(?:\\.git)?/?$").s ][0] // "" end;
+       any(.[]?; .name == $n and (slug | ascii_downcase) == ($s | ascii_downcase))' >/dev/null 2>&1; then
     printf '/plugin install %s\n' "$id"
   elif printf '%s' "$mkts" | jq -e --arg n "$mkt" 'any(.[]?; .name == $n)' >/dev/null 2>&1; then
     repo="$(printf '%s' "$mkts" | jq -r --arg n "$mkt" \
