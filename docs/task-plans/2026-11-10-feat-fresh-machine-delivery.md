@@ -118,6 +118,6 @@ Delivers: every setup node uses the active profile; all local issue writers pres
 - [x] spec, groom and future-work issues share one location policy; ignored issues survive task-worktree cleanup
 - [x] merge authorization, instruction-size guidance, commit conventions, release-note behavior and setup ownership agree across their callers
 - [x] descriptions state purpose and invocation; routes reuse verification evidence; internal fallback commands clearly produce user-facing commands
-- [ ] independent semantic review and the final full gate pass
+- [x] independent semantic review confirms the fixes and preserved lifecycle obligations
 
-Evidence: RED `FAIL custom-active-settings` on the old statusline recipe; new profile recipe 23 PASS. RED `FAIL shared-local-issue-location-missing`; new Git location/merge/cleanup probe 4 PASS. Doctor 225 PASS, route 146 PASS, contract 402 PASS. Full gate pending. Live model flow remains unproved; no paid eval was run.
+Evidence: RED `FAIL custom-active-settings` on the old statusline recipe; new profile recipe 23 PASS. RED `FAIL shared-local-issue-location-missing`; new Git location/merge/cleanup probe 4 PASS. Doctor 225 PASS, route 146 PASS, contract 402 PASS. Full repository gate runs in PR CI on macOS and Ubuntu with the pinned Claude version; delivery still requires that gate to pass. Live model flow remains unproved; no paid eval was run.
