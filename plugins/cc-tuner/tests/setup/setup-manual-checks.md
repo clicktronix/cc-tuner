@@ -2,7 +2,7 @@
 
 Maintainer checklist, moved out of the skill: these need a live session, so no script runs them.
 
-- [ ] `check` mode leaves every file byte-identical, including `~/.claude/settings.json`.
+- [ ] `check` mode leaves every file byte-identical, including the active profile's `settings.json`.
 - [ ] Running `install` twice reports every node "up to date" the second time and writes nothing.
 - [ ] A repository with `git-flow.local.md` comes out with `task-flow.local.md` still holding its
       cached field IDs, and `git-flow.md` gone.
@@ -23,4 +23,6 @@ Maintainer checklist, moved out of the skill: these need a live session, so no s
 - [ ] With `claude` off PATH (the desktop app or an IDE terminal), the companions row prints the
       `/plugin marketplace add …` and `/plugin install …` commands and installs nothing; with `jq`
       off PATH it says it cannot tell what is installed and installs nothing.
+- [ ] With `CLAUDE_CONFIG_DIR` set, session env and statusline use that directory, leaving the default
+      profile unchanged; install/remove works when its path contains spaces or quotes.
 - [ ] A companion that is installed but disabled gets `claude plugin enable`, not a second install.

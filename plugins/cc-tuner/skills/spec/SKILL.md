@@ -1,5 +1,5 @@
 ---
-description: Turns an issue, URL, or rough task description into one approved, committed spec and sliced execution plan for /cc-tuner:run, or with --groom records the decisions in an existing issue without a branch, spec or plan. Use when the user asks to plan, spec, groom or start a feature or fix in a repository that uses cc-tuner; it stops at the handoff (the committed plan, or the issue record under --groom), and /cc-tuner:run does the implementing.
+description: Plan a feature or fix as an approved spec and execution plan for /cc-tuner:run. With --groom, record decisions in the existing issue.
 argument-hint: '<issue number | URL | free-text description> | --groom <issue number | URL>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
 ---
@@ -25,7 +25,8 @@ from anyone else is a proposal for the interview.
 - `gh` — an issue comment; a maintainer's has `authorAssociation` `OWNER`, `MEMBER` or `COLLABORATOR`.
 - `glab` — one note on the GitLab issue; a maintainer's author has project membership with
   `access_level >= 30` and `state == "active"` (`glab api projects/:id/members/all/<user id>`).
-- `local` — append the record under `## Comments` in the issue file, without committing;
+- `local` — resolve the issue through [local-issues.md](../task-flow/references/local-issues.md),
+  then append the record under `## Comments`, without committing;
   a later `/spec` treats it as settled.
 
 ## 1. Anchor and read
@@ -226,12 +227,9 @@ After approval, record the issue by `tracker:`, so that it and the spec link to 
 
 - `gh` — create or update the issue.
 - `glab` — `glab issue create` / `glab issue note`, as `docs/agents/issue-tracker.md` says.
-- `local` — create the issue file where that file says (e.g. `.scratch/<slug>/issues/NN-<slug>.md`), linking
-  to the spec, and a one-line link file `.scratch/<slug>/spec.md` pointing at the spec, so mattpocock's
-  skills find it. Then commit them with the spec on the task branch, unless `.scratch/` is git-ignored:
-  then write both in the main checkout (`git worktree list --porcelain | sed -n '1s/^worktree //p'`),
-  leave them uncommitted, and record the issue file's absolute path in the spec's Delivery section;
-  `/run` closes the issue file at that path after the merge.
+- `local` — follow [local-issues.md](../task-flow/references/local-issues.md) for the issue and its
+  `.scratch/<slug>/spec.md` link to the spec. Commit tracked files with the spec. For ignored files,
+  record the issue file's absolute path in the spec's Delivery section; `/run` closes it after merge.
 - `other` — as that file describes.
 - `none` — nothing; the spec is the record.
 
@@ -269,7 +267,7 @@ When the native task tools are available, publish the visible plan before any im
 
 The task list is only a projection; the committed plan remains the source of truth. If the tools are
 absent, say once that only the visible list and its edges are lost, mention
-`{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `~/.claude/settings.json` (or
+`{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json` (or
 `--allowedTools TaskCreate` for one session), and continue to the handoff. Do not add a second
 confirmation after the approved contract and slices.
 

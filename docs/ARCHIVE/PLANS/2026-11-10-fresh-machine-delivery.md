@@ -68,13 +68,17 @@ a double-quoted string, treats a failing step as a stop, and says these are step
 Shared-task preflight: `merge.sh --check-only` for GitHub candidates, every route step up to the
 merge for the others, all before the first merge.
 
+**Active profile.** Setup reads and writes user settings and the statusline under
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`. A custom profile must not change the default profile.
+
 **Tracker.** `docs/agents/issue-tracker.md` is the only source. The spec's `tracker:` becomes
 `gh|glab|local|other|none`, derived from it. When it is absent, `/spec` asks once: run
 `/setup-matt-pocock-skills` now (a user-only command; it asks GitHub / GitLab / local markdown under
 `.scratch/` / other) or continue with `tracker: none` (the spec is the record). With `local`, the
-spec lives only at the `plan-path.sh spec-dir` path and the issue file links to it; status changes
-are committed inside the candidate before review, so they land with the merge; `--groom` appends
-under `## Comments` without committing. `--groom` under `glab` posts an MR/issue note, and a later
+spec lives only at the `plan-path.sh spec-dir` path and the issue file links to it. All local issue
+writers follow `skills/task-flow/references/local-issues.md`: tracked closing changes enter the
+candidate before review; ignored issues and links stay in the main checkout and close after merge.
+`--groom` appends under `## Comments` without committing. `--groom` under `glab` posts an MR/issue note, and a later
 `/spec` settles only a groom record whose author is a project member.
 
 **Setup.** New node **companions** after environment: in install mode, one confirmation for what is

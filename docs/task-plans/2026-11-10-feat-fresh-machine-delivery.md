@@ -106,3 +106,18 @@ Delivers: /spec and /run detect the host with host.sh, check the route with rout
 - [x] the contract suite keeps command, marker and order pins and drops the generic-substring pins (S10)
 
 Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 367 PASS, rc=0 (RED first: 26 FAILs, first spec-asks-host-sh; then 7 README FAILs) @ a8e0c72
+
+
+## Slice 9 — active profiles, persistent local issues and concise instructions
+Blocked by: 8
+Owned paths: .claude-plugin/marketplace.json,README.md,plugins/cc-tuner/.claude-plugin/plugin.json,plugins/cc-tuner/README.md,plugins/cc-tuner/scripts/setup,plugins/cc-tuner/skills,plugins/cc-tuner/output-styles/mechanism-first.md,plugins/cc-tuner/tests/setup,plugins/cc-tuner/tests/flow/test_local_issues.sh,plugins/cc-tuner/tests/contract/test_contract.sh,docs/ARCHIVE/PLANS/2026-11-10-fresh-machine-delivery.md
+Deciding check: bash plugins/cc-tuner/tests/setup/test_profile.sh && bash plugins/cc-tuner/tests/flow/test_local_issues.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
+Delivers: every setup node uses the active profile; all local issue writers preserve ignored records across worktree cleanup; instructions have one permission policy and concise descriptions
+
+- [x] statusline check/install/remove use the active profile, preserve unrelated settings and handle spaces/quotes in paths; doctor detects the same profile
+- [x] spec, groom and future-work issues share one location policy; ignored issues survive task-worktree cleanup
+- [x] merge authorization, instruction-size guidance, commit conventions, release-note behavior and setup ownership agree across their callers
+- [x] descriptions state purpose and invocation; routes reuse verification evidence; internal fallback commands clearly produce user-facing commands
+- [ ] independent semantic review and the final full gate pass
+
+Evidence: RED `FAIL custom-active-settings` on the old statusline recipe; new profile recipe 23 PASS. RED `FAIL shared-local-issue-location-missing`; new Git location/merge/cleanup probe 4 PASS. Doctor 225 PASS, route 146 PASS, contract 402 PASS. Full gate pending. Live model flow remains unproved; no paid eval was run.

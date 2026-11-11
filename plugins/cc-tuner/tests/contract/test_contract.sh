@@ -352,8 +352,8 @@ need "spec-blind-spots-become-questions"  'its returns become grilling questions
 need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
 need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
 need "spec-skips-only-mechanical-work"    'Skip it only for a mechanical or' "$SPEC"
-need "spec-describes-the-groom-stop"      'or the issue record under --groom' "$SPEC"
-need "run-describes-its-board-moves"      'It decides when the board card moves' "$RUN"
+need "spec-describes-the-groom-stop" 'with no branch, spec or plan and nothing committed' "$SPEC"
+need "run-describes-its-board-moves" 'Set it In Progress before the first slice starts' "$RUN"
 need "spec-keeps-an-incomplete-pass"       'whatever questions came with it, and under `--groom` into the' "$SPEC"
 need "spec-approves-the-card-priority"     "plus the card's Priority when a board is named" "$SPEC"
 need "run-says-a-failed-move-at-once"      'recovery is said at once' "$RUN"
@@ -438,7 +438,7 @@ for rf in "$ROUTE_GITLAB" "$ROUTE_LOCAL"; do
   need "$rn-never-relabels"            'relabel a `REQUEST_CHANGES` as `APPROVE`' "$rf"
   need "$rn-records-from-a-quoted-heredoc" "<<'EOF'" "$rf"
   need "$rn-ci-none-needs-a-record"    'ci: none:<reason>' "$rf"
-  need "$rn-hand-over-is-the-whole-step" 'the hand-over is this whole step' "$rf"
+  need "$rn-hand-over-is-the-whole-step" 'hand over this whole step' "$rf"
   need "$rn-hand-over-not-the-merge-line" 'never the merge line alone' "$rf"
   need "$rn-cleanup-by-merged-head"    'merged head' "$rf"
   if grep -qF 'CLAUDE_PLUGIN_ROOT' "$rf"; then echo "FAIL $rn-no-plugin-root-variable (unset outside skill bodies)"; fails=1; else echo "PASS $rn-no-plugin-root-variable"; fi
@@ -523,7 +523,7 @@ for ref in "$DELIVERY_REF" "$TASK_FLOW_REF" "$ROOT/plugins/cc-tuner/skills/setup
 done
 need "setup-node-3b-names-route-sh"        '`scripts/setup/route.sh`' "$SETUP"
 need "setup-node-3b-names-the-run-reference" 'skills/run/references/route-<host>.md' "$SETUP"
-need "local-header-says-markers-only"      'setup writes only between cc-tuner markers' "$TASK_FLOW_REF"
+need "local-header-has-one-owner" 'bash "$PLUGIN/scripts/setup/route.sh" header' "$TASK_FLOW_REF"
 if grep -qF 'setup never touches this file' "$TASK_FLOW_REF"; then
   echo "FAIL local-header-no-longer-says-never-touches"; fails=1
 else
@@ -587,12 +587,12 @@ need "spec-checks-the-route-block"         '`/cc-tuner:setup install delivery-ro
 need "spec-local-host-ci-is-none"          '`ci:` is always `none:<reason>` (there is no pipeline)' "$SPEC"
 need "spec-tracker-comes-from-the-file"    'and `tracker:` from `docs/agents/issue-tracker.md`' "$SPEC"
 need "spec-glab-issue-create"              '`glab issue create` / `glab issue note`' "$SPEC"
-need "spec-local-issue-file"               'create the issue file where that file says' "$SPEC"
-need "spec-local-issue-committed-with-spec" 'commit them with the spec on the task branch' "$SPEC"
+need "spec-local-issue-file" '[local-issues.md](../task-flow/references/local-issues.md)' "$SPEC"
+need "spec-local-issue-committed-with-spec" 'Commit tracked files with the spec' "$SPEC"
 need "spec-groom-refuses-other-without-comments" 'under `other` unless' "$SPEC"
 need "spec-groom-glab-member-check"        'glab api projects/:id/members/all/<user id>' "$SPEC"
 need "spec-groom-glab-note"                'one note on the GitLab issue' "$SPEC"
-need "spec-groom-local-appends"            'append the record under `## Comments` in the issue file' "$SPEC"
+need "spec-groom-local-appends" 'append the record under `## Comments`, without committing' "$SPEC"
 need "spec-groom-local-no-commit"          'without committing' "$SPEC"
 need "spec-groom-local-settled"            'a later `/spec` treats it as settled' "$SPEC"
 tracker_ask_line="$(grep -nF 'is absent, ask once with `AskUserQuestion`' "$SPEC" | head -1 | cut -d: -f1)"
@@ -611,7 +611,7 @@ need "run-route-keeps-gates-and-records"   'with the same gates, order and recor
 need "run-route-check-only"                '`--check-only` means running every route step up to the merge' "$RUN"
 need "run-auto-on-every-host"              '`--auto` is allowed on every host' "$RUN"
 need "run-record-where-the-host-publishes" 'elsewhere as the route says' "$RUN"
-need "run-local-status-never-on-target"    'never a commit on the target' "$RUN"
+need "run-local-status-never-on-target" 'Do not commit a completion record directly to an integration target' "$RUN"
 # The host, the route check and the companion state are programs; /spec and /run call them and pin the
 # command, not a restatement of what it knows (the prose ladder these replaced had drifted from doctor).
 need "spec-asks-host-sh"                   'scripts/setup/host.sh' "$SPEC"
@@ -627,8 +627,8 @@ need "spec-checks-the-key-block"           'scripts/setup/route.sh" check' "$SPE
 need "run-reads-the-gitlab-route-from-the-plugin" '${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-gitlab.md` (gitlab)' "$RUN"
 need "run-reads-the-local-route-from-the-plugin"  '${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-local.md` (local)' "$RUN"
 need "run-reads-the-tracker-file"          'docs/agents/issue-tracker.md' "$RUN"
-need "run-local-closing-step-in-the-candidate" "tracker file's closing step was committed on the task branch before the first required review" "$RUN"
-need "run-prepare-commits-the-closing-step" "commit the tracker file's closing step" "$RUN"
+need "run-local-closing-step-in-the-candidate" 'tracked closing changes arrive with the merge' "$RUN"
+need "run-prepare-commits-the-closing-step" "commit a tracked issue's closing change" "$RUN"
 need "spec-review-from-companion-sh"       'scripts/setup/companion.sh" review' "$SPEC"
 need "spec-research-gated-on-codex-state"  'scripts/setup/companion.sh" codex' "$SPEC"
 need "spec-research-gated-on-install"      'companion.sh" state cc-codex-triage@cc-codex-triage' "$SPEC"
@@ -662,10 +662,18 @@ if [ -n "$run_host_line" ] && [ -n "$run_check_line" ] && [ -n "$run_loop_line" 
 else
   echo "FAIL run-checks-the-route-before-the-loop-and-at-delivery (host=$run_host_line check=$run_check_line loop=$run_loop_line delivery=$run_delivery_line last=$run_last_check_line)"; fails=1
 fi
-need "run-ignored-scratch-is-local-state"  'the issue file is local state at the absolute path the spec' "$RUN"
-need "spec-ignored-scratch-in-main-checkout" "git worktree list --porcelain | sed -n '1s/^worktree //p'" "$SPEC"
+need "run-ignored-scratch-is-local-state" 'leave an ignored issue uncommitted and close it at the recorded absolute path after merge' "$RUN"
+LOCAL_ISSUES="$ROOT/plugins/cc-tuner/skills/task-flow/references/local-issues.md"
+need "local-issues-resolve-persistent-checkout" "git worktree list --porcelain | sed -n '1s/^worktree //p'" "$LOCAL_ISSUES"
+need "task-flow-local-writes-use-shared-location" '[Local issue files](#local-issue-files)' "$TASK_FLOW"
+need "cleanup-preserves-local-tracker" 'check its tracker directory for ignored issues or link files' "$LOCAL_ISSUES"
+if [ "$(grep -cF '[local-issues.md](../task-flow/references/local-issues.md)' "$SPEC")" -ge 2 ]; then
+  echo "PASS spec-and-groom-share-local-issue-location"
+else
+  echo "FAIL spec-and-groom-share-local-issue-location"; fails=1
+fi
 need "spec-ignored-scratch-path-recorded"  'record the issue file'"'"'s absolute path in the spec'"'"'s Delivery section' "$SPEC"
-need "spec-ignored-scratch-closed-after-merge" '`/run` closes the issue file at that path' "$SPEC"
+need "spec-ignored-scratch-closed-after-merge" '`/run` closes it after merge' "$SPEC"
 LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
 SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
 need "local-ci-record-goes-where-route-says" "where the host's route reference says" "$LOCAL_CI"
@@ -681,7 +689,7 @@ for readme in "$README_ROOT" "$README_PLUGIN"; do
   rn="${readme#$ROOT/}"
   need "readme-names-the-tracker-file ($rn)"  'docs/agents/issue-tracker.md' "$readme"
   need "readme-names-the-delivery-route ($rn)" 'delivery route' "$readme"
-  need "readme-names-setup-install-companions ($rn)" 'installs both after one confirmation' "$readme"
+  need "readme-names-setup-install-companions ($rn)" 'after one confirmation' "$readme"
   if grep -qiF 'standalone without' "$readme"; then
     echo "FAIL readme-no-standalone-claim ($rn)"; fails=1
   else
@@ -732,5 +740,12 @@ need "route-gitlab-target-tip-from-fetch-head" 'TIP=$(git rev-parse FETCH_HEAD)'
 need "route-gitlab-strategy-before-check-only" '7. **Target and strategy.**' "$ROUTE_GITLAB"
 COMPANIONS_MD="$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
 if [ "$(grep -n '^1\. \*\*Fallbacks' "$COMPANIONS_MD" | cut -d: -f1)" != '' ] && [ "$(grep -n '^1\. \*\*Fallbacks' "$COMPANIONS_MD" | cut -d: -f1)" -lt "$(grep -n '^2\. \*\*Nothing to do' "$COMPANIONS_MD" | cut -d: -f1)" ]; then echo "PASS companions-fallbacks-before-nothing-to-do"; else echo "FAIL companions-fallbacks-before-nothing-to-do"; fails=1; fi
+
+# Permission is decided once in /run; every delivery route follows that decision.
+need "run-owns-merge-authorization" '**Merge authorization.**' "$RUN"
+need "run-check-only-without-authorization" 'Without merge authorization' "$RUN"
+for route in "$ROUTE_GITLAB" "$ROUTE_LOCAL" "$SHARED_TASK"; do
+  need "route-uses-shared-authorization ($(basename "$route"))" '**Merge authorization**' "$route"
+done
 
 exit "$fails"

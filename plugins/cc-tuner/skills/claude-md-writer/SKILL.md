@@ -98,7 +98,7 @@ of automatic instruction loading.
 
 Before reporting done, confirm each.
 
-- [ ] CLAUDE.md is under 200 lines, counting ancestor files that load in the same session; critical rules come first.
+- [ ] The loaded instruction chain has no unnecessary content; critical rules come first and remain even above the 200-line guideline.
 - [ ] Every line passes the golden-rule test; nothing Claude can derive from the codebase itself.
 - [ ] Every constraint checked against the linter and formatter: enforced ones deleted, unenforced ones kept.
 - [ ] Always-on memory holds no procedure, single-area detail or chronicle (dates, incidents, measurements).

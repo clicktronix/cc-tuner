@@ -39,9 +39,10 @@ field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 `docs/` fallback), and anti-pattern case studies with dated incidents.
 
 The always-on core installs per repo via the task-flow node of `/cc-tuner:setup` (plugins
-can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in an untouched
+can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in
 `task-flow.local.md`, migration of the legacy `git-flow*` files, and a diff-and-ask for a
-hand-maintained copy.
+hand-maintained copy. Setup manages the local file's delivery block, review opt-out and cached board IDs;
+it preserves other content.
 
 Previews, dedicated MCP servers and test containers run as Bash background tasks, which Claude Code
 stops when the session exits. A `/clear` does not stop them, so the plugin's hooks module
@@ -100,8 +101,9 @@ and the epic's card with its first and last sub-issue. Implementation may be han
 partial; the parent owns integration, proof, review and every later gate. Procedures:
 `skills/spec/SKILL.md`, `skills/run/SKILL.md`.
 
-Without `--auto`, `/run` works through slice commits, push and a draft PR and stops once, before the
-merge, which belongs to the user after checked preflight. With `--auto` it runs unattended only while
+`/run` continues through slice commits, push and a draft PR/MR. Merge requires `--auto` or an explicit
+user instruction for that delivery; otherwise it hands over the checked candidate and command.
+Unattended execution continues only while
 every gate is green, and never waives incomplete DoR, missing RED→GREEN evidence, failed tests, stale
 review, unresolved `[eyes]`, CI that ran and did not pass, or scope beyond the spec. Where a repository
 runs no CI at all, the spec says so in advance and a pull-request comment records what stood in for it
@@ -151,7 +153,7 @@ asks once when the file is absent. Boards stay GitHub-only.
 prototypes, PR bodies, hard-bug diagnosis and ordinary review. **cc-codex-triage** is optional: it
 supplies the default `review: codex` gate and needs a logged-in Codex CLI (`codex login`); without it a
 spec declares `review: none:<reason>` and the run's owner publishes the verdict. `/cc-tuner:setup install`
-installs both after one confirmation, and prereq-check reports what is missing. `scripts/setup/companion.sh`
+installs accepted companions after one confirmation, and prereq-check reports what is missing. `scripts/setup/companion.sh`
 owns the companion table, the Codex check and the recorded opt-out. Integration rounds
 outside the review cap and `renew` need cc-codex-triage 0.14+; with an older companion prereq-check
 prints a NOTE and `/run` uses a normal round and the companion's reset.
@@ -185,7 +187,8 @@ user command: it writes user-global settings.
 
 ## Scope
 
-Claude Code only. The plugin writes Claude Code's own surfaces — memory files (CLAUDE.md, `.claude/rules/`, `CLAUDE.local.md`), user settings (statusline), and per-repo rule installs — it does not manage other agents' instruction files.
+Runs in Claude Code; also installs the shared `AGENTS.md` rule-loading instruction used by Codex.
+Setup manages repository instructions and the active Claude profile's companions, session env and statusline.
 
 ## Maintaining
 

@@ -25,7 +25,7 @@ mkenv() { # builds $STUB (PATH) + $H (home) + $R (repo, physical path in $RP)
   STUB="$T/bin"; FAKE_HOME="$T/plugin-home"; H="$T/home"; R="$T/repo"
   mkdir -p "$STUB" "$FAKE_HOME" "$H/.claude" "$R"
   MKT="$T/marketplaces.json"; printf '[]' > "$MKT"   # `claude plugin marketplace list --json`: none configured
-  GH_AUTH_RC=0; GLAB_AUTH_RC=0; GLAB_HELP=both
+  GH_AUTH_RC=0; GLAB_AUTH_RC=0; GLAB_HELP=both; PROFILE=""
   CALLS="$T/calls"; : > "$CALLS"
   GH_HOSTS="$T/gh-hosts.yml"; GLAB_CFG="$T/glab-config.yml"   # absent until a case writes them
   for u in sed tr grep head dirname bash cat; do
@@ -84,7 +84,7 @@ plugins_ok() {   # both companions installed user-wide
     {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
   ]'
 }
-run() { ( cd "${1:-$R}" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+run() { ( cd "${1:-$R}" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
           CC_TUNER_GH_HOSTS_FILE="$GH_HOSTS" CC_TUNER_GLAB_CONFIG_FILE="$GLAB_CFG" \
           CC_TUNER_MARKETPLACE_LIST_CMD="cat $MKT" bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
 
@@ -268,14 +268,14 @@ rm -rf "$T"
 mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
 printf '#!/bin/sh\ncat <<EOF\ncontext7: https://mcp.context7.com/mcp (HTTP) - OK Connected\nchrome-devtools: npx chrome-devtools-mcp - X Failed to connect\nEOF\n' > "$STUB/mcpfix"
 chmod +x "$STUB/mcpfix"
-OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
         CC_TUNER_MCP_CMD="mcpfix" bash "$DOCTOR" full 2>&1 )"
 check  "mcp-connected-ok"      "ok   MCP 'context7' connected"                 "$OUT"
 check  "mcp-not-connected"     "WARN MCP 'chrome-devtools' configured but not" "$OUT"
 absent "mcp-not-a-blocker"     "MISS"                                          "$OUT"
 
 # quick mode must NOT probe -- the probe health-checks every server and can hang for 30s each
-OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
         CC_TUNER_MCP_CMD="mcpfix" bash "$DOCTOR" quick 2>&1 )"
 absent "quick-skips-mcp" "MCP 'context7'" "$OUT"
 rm -rf "$T"
@@ -293,14 +293,14 @@ check "todo-tools-unset-warns" "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set" "$OUT"
 check "spawn-depth-unset-warns" "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set" "$OUT"
 absent "spawn-depth-unset-not-a-blocker" "MISS CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" "$OUT"
 absent "todo-tools-unset-not-a-blocker" "MISS CLAUDE_CODE_ENABLE_TODO_TOOLS" "$OUT"
-OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
         CLAUDE_CODE_ENABLE_TODO_TOOLS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 bash "$DOCTOR" quick 2>&1 )"
 check "todo-tools-set-ok" "ok   CLAUDE_CODE_ENABLE_TODO_TOOLS is set" "$OUT"
 check "spawn-depth-set-ok" "ok   CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1" "$OUT"
-OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
         CLAUDE_CODE_ENABLE_TODO_TOOLS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2 bash "$DOCTOR" quick 2>&1 )"
 check "spawn-depth-2-ok" "ok   CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2" "$OUT"
-OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" \
+OUT="$( cd "$R" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
         CLAUDE_CODE_ENABLE_TODO_TOOLS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=3 bash "$DOCTOR" quick 2>&1 )"
 check "spawn-depth-3-warns" "WARN CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=3" "$OUT"
 rm -rf "$T"
@@ -335,6 +335,14 @@ check "statusline-absent" "statusline not installed" "$OUT"
 touch "$H/.claude/cc-tuner-statusline.sh"
 OUT="$(run)"
 check "statusline-present" "ok   statusline script installed" "$OUT"
+PROFILE="$T/custom profile"; mkdir -p "$PROFILE"
+OUT="$(run)"
+check "custom-profile-does-not-use-default-script" "statusline not installed" "$OUT"
+check "custom-profile-env-hint" "$PROFILE/settings.json" "$OUT"
+touch "$PROFILE/cc-tuner-statusline.sh"
+OUT="$(run)"
+check "custom-profile-script-present" "ok   statusline script installed" "$OUT"
+
 rm -rf "$T"
 
 # --- codex is what makes cc-codex-triage necessary ------------------------------------------------

@@ -1,5 +1,5 @@
 ---
-description: One user-run command that sets a repository up for cc-tuner and says exactly what it did — the companion plugins, rule loading, the task-flow rule, task tools, an optional statusline, an optional board — as independent nodes that each detect, propose, apply and verify. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
+description: Check or configure cc-tuner for this repository; report changes and remaining setup steps.
 argument-hint: '[check|install|remove] [companions|agent-rules|task-flow|task-tools|statusline|board|delivery-route]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Skill
 disable-model-invocation: true
@@ -8,8 +8,7 @@ disable-model-invocation: true
 # /cc-tuner:setup
 
 Parse `$ARGUMENTS`. The mode is `check` (default), `install`, or `remove`; `remove` applies only to
-the statusline, the one node that installs something user-global and so needs an undo. An optional
-node name limits the run to that node and the nodes it depends on.
+the statusline. An optional node name limits the run to that node and its dependencies.
 
 `check` writes nothing anywhere. `install` applies each node's change under one rule: an explicit
 install request authorises **additive** repository edits — a block between markers, a new file, a
@@ -43,6 +42,12 @@ fi
 [ -d "$PLUGIN" ] || { echo "Could not locate the cc-tuner plugin: is it installed and enabled?"; exit 1; }
 ```
 
+## Active profile
+
+Use `CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and `SETTINGS="$CONFIG_DIR/settings.json"`
+in each Bash call that reads or writes user settings. Companions, session env and statusline all use
+this profile. Repository settings stay in `.claude/`.
+
 ## The nodes
 
 Every node has the same shape — **detect** the current state, **propose** the change as a diff,
@@ -54,17 +59,17 @@ stop the command because one node stopped.
 |---|---|---|---|
 | 0 | environment | — | nothing |
 | 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
-| 0c | companions | 0, after 0b | in install mode, after one per-plugin confirmation: user-scope `claude plugin install` / `enable`, which write `enabledPlugins` in `~/.claude/settings.json`; a declined `cc-codex-triage` adds one line to `task-flow.local.md` |
+| 0c | companions | 0, after 0b | in install mode, after one per-plugin confirmation: user-scope `claude plugin install` / `enable`, which write `enabledPlugins` in `$SETTINGS`; a declined `cc-codex-triage` adds one line to `task-flow.local.md` |
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
 | 3b | delivery route | 0 (its `host:` line), 3 | one short key block between `cc-tuner:delivery-route` markers in `task-flow.local.md`, written by `route.sh`; nothing on `github` |
-| 4 | session env | 0, after 0c | `~/.claude/settings.json` — up to two `env` keys |
-| 5 | statusline | 0, after 0c; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
+| 4 | session env | 0, after 0c | `$SETTINGS` — up to two `env` keys |
+| 5 | statusline | 0, after 0c; serialised after 4 | `$SETTINGS`, `$CONFIG_DIR/cc-tuner-statusline.sh` |
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
 | 7 | Codex audit | every applied node, and 0c's result | nothing |
 
-Nodes 0c, 4 and 5 all write `~/.claude/settings.json`, in that order: 0c through the `claude` CLI, 4 and
+Nodes 0c, 4 and 5 all write `$SETTINGS`, in that order: 0c through the `claude` CLI, 4 and
 5 by patching. Never do two of them in one Bash call, and re-read the file right before each patch, so a
 later writer never starts from a copy read before an earlier one ran.
 
@@ -198,13 +203,13 @@ node 0 reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, add `"CLAUDE_CODE_ENABLE_
 `/cc-tuner:run` tells units not to delegate and deep-review's lenses carry no Agent tool. When node 0
 reported `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit can run its own
 `Explore` lookup, which the unit brief allows, while nothing below it can spawn. `"1"` is the strict
-form and forbids that lookup too. Say what either changes outside cc-tuner — every session on this
-machine, including `/code-review` at max effort, which dispatches a verifier per candidate from
+form and forbids that lookup too. Say what either changes outside cc-tuner — sessions using this
+profile, including `/code-review` at max effort, which dispatches a verifier per candidate from
 inside a subagent — because that is the user's call, not the plugin's. Heavy-check slots need no
 setting: `CC_TUNER_HEAVY_SLOTS` defaults to 1; a machine with memory to spare can raise it.
 
 Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
-key in `~/.claude/settings.json`?
+key in `$SETTINGS`?
 
 | tools | env | action |
 |---|---|---|
@@ -226,7 +231,7 @@ it in install mode only after the user says yes in this run. Read
 [references/statusline.md](references/statusline.md) for the copy, the guarded `settings.json`
 patch and the restart note. Serialise it after node 4 for the shared-file reason above.
 `/cc-tuner:setup remove statusline` runs the reference's **remove** section — the only `remove` this
-command has, because this is the only node that installs something outside the repository.
+command supports.
 
 The `Mechanism First` output style ships with the plugin, so there is nothing to install. Offer it
 once, as a preference: `/config` → Output style → `Mechanism First`, then `/clear`. Never select it

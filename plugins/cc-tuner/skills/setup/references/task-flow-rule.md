@@ -3,11 +3,7 @@
 Procedure for the **task-flow rule** node of `/cc-tuner:setup`. Claude Code plugins cannot ship
 `.claude/rules/*`, so the canonical rule is written into the repository from the plugin's template.
 
-**Shell state does not persist between Bash calls.** Claude Code keeps the working directory but
-NOT shell variables across separate Bash invocations — and the confirmation prompts in branches 4/5
-below guarantee the flow splits into separate calls. Re-run the **Locate** block at the start of
-every Bash invocation that references `$PLUGIN` / `$SRC` / `$ROOT` / `$DEST` / `$LOCAL` / `$RENDERED`: it is
-read-only and idempotent, so re-running it is always safe and never optional after a prompt.
+Rerun **Locate** at the start of each Bash call; shell variables do not persist between calls.
 
 **Run the steps in the order they are numbered.**
 
@@ -89,13 +85,8 @@ The template carries no substitution tokens; it installs verbatim.
    would echo "Created" even when the file already exists):
    ```bash
    if [ ! -f "$LOCAL" ]; then
-     if printf '%s\n' \
-       "# task-flow — repo-specific deltas" \
-       "" \
-       "<!-- Overrides and additions to task-flow.md live here; setup writes only between cc-tuner markers" \
-       "     (the delivery route) and caches board field IDs. Typical content: board name/number + cached field" \
-       "     IDs, label taxonomy, merge-policy exceptions. -->" \
-       > "$LOCAL"; then
+     if { printf '%s\n' "# task-flow — repo-specific deltas" "" &&
+          bash "$PLUGIN/scripts/setup/route.sh" header; } > "$LOCAL"; then
        echo "Created $LOCAL (edit it for repo-specific deltas)"
      else
        rm -f "$LOCAL"; echo "ERROR: failed to write $LOCAL"; exit 1

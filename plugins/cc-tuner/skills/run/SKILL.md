@@ -1,6 +1,6 @@
 ---
 name: run
-description: Works this branch's committed cc-tuner plan to a merged PR, GitLab MR or local branch — safe ready batches, ticked checkboxes, a verified feature, exact-candidate reviews, green CI, and a merge that pins the head. Use when a committed spec and plan exist for the current branch and the user wants the task implemented or continued. It decides when the board card moves; the board recipes, branch cleanup and release notes belong to cc-tuner:task-flow.
+description: Implement or resume this branch's committed cc-tuner plan through verification, review and authorized delivery.
 argument-hint: '[--auto] <path-to-spec>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
 ---
@@ -135,13 +135,11 @@ This skill owns the lifecycle. Invoked skills supply methods and findings; their
 confirmation prompts, gates or completion messages do not interrupt work already approved here.
 Acceptance criteria, review findings and candidate evidence remain strict.
 
-Without `--auto`, keep going through commits and, where the host has them, the push of the task branch and a
-draft PR or MR — those are reversible and inside the task — and stop once, before the merge: hand the verified candidate and
-the merge command to the user. A user instruction in this session to merge authorises it. In either
-mode, a real user decision, waiver or unproved acceptance may require input. Batch related pending
-decisions into one concise request and continue available work; do not wait for a finding count or
-claim the blocked outcome complete. Routine checks and successful reviews do not require another
-confirmation.
+**Merge authorization.** `--auto` or an explicit user instruction to merge authorizes this delivery.
+Without either, continue through commits, push and draft PR/MR, then run the preflight and hand the
+verified candidate and merge command to the user. Routine checks and reviews need no new confirmation.
+In either mode, unresolved acceptance, scope choices or waivers may require input. Batch those
+questions and continue available work; keep the blocked outcome pending.
 
 **Waiting is not stopping.** While units, CI or a review run in the background, do the next
 available work, or wait for their notification. Do not end the turn with a statement of what you
@@ -191,11 +189,11 @@ their own read-only agent type/model; where silent, placement decides.
 ## Prepare the candidate
 
 After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
-archiving and update plan/spec links before the first required review, and under `tracker: local`,
-commit the tracker file's closing step with them; continue with the new spec path. When the spec records
-`.scratch/` as git-ignored, the issue file is local state at the absolute path the spec's Delivery
-section records instead: nothing is committed, and step 7 of Delivery closes it there. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
-resolver/linter contract used at startup.
+archiving and update plan/spec links before the first required review. Under `tracker: local`, follow
+[local-issues.md](../task-flow/references/local-issues.md): commit a tracked issue's closing change;
+leave an ignored issue uncommitted and close it at the recorded absolute path after merge.
+Continue with the archived spec path. The plan stays where `plan-path.sh` put it; validate its updated
+headers with the resolver/linter contract used at startup.
 
 Fetch the integration target before the first candidate and before delivery. If it advanced beyond
 this branch, notify the user and integrate it, resolving conflicts within the agreed task. Prefer
@@ -345,7 +343,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 6. **Mark the PR ready and deliver through the checked script.** When the candidate is verified,
    judged and its DoD recorded, run `gh pr ready <pr>` if it is a draft and wait for the checks that
    start then.
-   Recheck target advancement as described above. Under `--auto`, merge with the spec's strategy,
+   Recheck target advancement as described above. When [Merge authorization](#who-may-stop-the-run)
+   permits delivery, merge with the spec's strategy,
    CI mode, pinned head and same review thread:
 
    ```bash
@@ -359,7 +358,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    For a shared task, complete the reference's preflight of **all** candidates before any merge,
    then follow its declared-order and partial-delivery recovery instructions.
 
-   Without `--auto`, run this command with `--check-only` and hand the passing candidate and merge
+   Without merge authorization, run this command with `--check-only` and hand the passing candidate and merge
    command to the user. `--check-only` requires everything a merge does; it only skips the final
    merge action. Keep deliver pending until the merge is observed.
 
@@ -367,10 +366,10 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
 7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
    `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery
-   prerequisites are complete, through the tracker `docs/agents/issue-tracker.md` names. Under `tracker: local`
-   the tracker file's closing step was committed on the task branch before the first required review, so it
-   lands with the merge — never a commit on the target. With a git-ignored `.scratch/`, close the issue
-   file at the path the spec records once the merge is observed. Then move the card to Done. When the issue was an
+   prerequisites are complete, through the tracker `docs/agents/issue-tracker.md` names. Under `tracker: local`,
+   tracked closing changes arrive with the merge; close the ignored task issue at its recorded absolute
+   path after observing the merge, following [local-issues.md](../task-flow/references/local-issues.md).
+   Then move the card to Done. When the issue was an
    epic's last open sub-issue,
    also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
    after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was

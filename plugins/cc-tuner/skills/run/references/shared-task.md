@@ -65,8 +65,8 @@ Every participant carries its own committed plan; one without it is prepared and
 evidence re-earned. `merge.sh` refuses a PR with neither a plan nor a named review, and refuses
 `--unmanaged` for one that has either — never use `--unmanaged` to deliver a companion.
 
-Under `--auto`, merge in the primary spec's declared order with the checked command in each
-repository (`merge.sh`, or the route's merge step).
+Follow `/run`'s **Merge authorization** for every participating repository. When authorized, merge
+in the primary spec's declared order with each repository's checked command (`merge.sh`, or its route).
 Otherwise hand the passing candidates and ordered merge commands to the user; observe merges before
 reconciliation. If a target advances meanwhile, follow `/run` synchronization, refresh affected
 evidence and repeat all remaining participants' preflight before the next merge.

@@ -59,7 +59,7 @@ and never relabel a `REQUEST_CHANGES` as `APPROVE`.
    `source_branch` equal to `<branch>` and `source_project_id` equal to `target_project_id`. Anything
    else, a fork MR included, is not this route: stop and hand over. The candidate is the MR's `sha`, equal
    to `git rev-parse HEAD` in a clean working tree.
-2. **Verify.** Run `cc-tuner:verify-feature` and publish its hand-back as the `cc-tuner-verified: <full sha>`
+2. **Verify.** Use the verification record returned by `/run` and publish it as the `cc-tuner-verified: <full sha>`
    note. Before merging, require `git merge-base --is-ancestor <verified sha> <head>`; otherwise verify the
    current candidate. A fix commit after verification needs no new record while `/run`'s evidence-reuse
    rule says the evidence still covers it. Print every `NOT PROVED` line in the merge report.
@@ -110,7 +110,7 @@ and never relabel a `REQUEST_CHANGES` as `APPROVE`.
    `--sha` makes GitLab refuse a moved head; `--auto-merge=false` stops it queueing a merge on a pipeline
    nobody checked. Leave out `--remove-source-branch`: step 9 cleans up by the merged head.
 
-   Under `--auto`, run it. Without `--auto`, the hand-over is this whole step: the re-read (head, target
+   Follow `/run`'s **Merge authorization**. When authorized, run it. Otherwise hand over this whole step: the re-read (head, target
    tip, latest records, approvals, pipeline) with the pinned command, never the merge line alone. Delivery
    stays pending until the merge is observed. `--check-only` stops here, after step 7.
 9. **After the merge.** Confirm with `glab mr view <iid>` that the state is `merged`, then sync the target and

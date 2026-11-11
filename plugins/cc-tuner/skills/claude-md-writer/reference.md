@@ -111,7 +111,7 @@ file below `cwd` is never read. "Nearest wins" is precedence, not deferred loadi
 |---|---|
 | Claude Code only | `.claude/rules/*.md` with `paths:`; genuinely lazy, fires on a matching read |
 | Claude Code and Codex, `agent-rules` block installed | keep `.claude/rules/` for Claude; the block and the plugin's `agent-rules` skill route Codex. Add nothing per repository |
-| Claude Code and Codex, no block | keep `.claude/rules/`, and bridge Codex with a pointer table in `AGENTS.md` (rule, glob, purpose) plus a skill in `.agents/skills/` mapping area to files. Advisory, not automatic; prefer installing the block |
+| Claude Code and Codex, no block | install the canonical `agent-rules` block; keep `.claude/rules/` as the rule owner |
 | A package with a hard ownership boundary and a launcher that controls `cwd` | nested `AGENTS.md` plus a one-line `CLAUDE.md` beside it |
 
 The bridge is weaker than the loader: Codex must classify the task and follow the routing. Keep

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The delivery-route key block: one owner of its text, its writer and its check.
 #
+#   route.sh header
 #   route.sh canonical <gitlab|local>
 #   route.sh write <gitlab|local|other> <task-flow.local.md> [body-file]
 #   route.sh check <github|gitlab|local|other> [repo-root]
@@ -54,7 +55,7 @@ LEGACY_RE='^<!-- Overrides and additions to [a-z-]*\.md live here; .*never touch
 LEGACY_NEXT='     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->'
 
 usage() {
-  printf 'usage: route.sh canonical <gitlab|local>\n       route.sh write <gitlab|local|other> <task-flow.local.md> [body-file]\n       route.sh check <github|gitlab|local|other> [repo-root]\n' >&2
+  printf 'usage: route.sh header\n       route.sh canonical <gitlab|local>\n       route.sh write <gitlab|local|other> <task-flow.local.md> [body-file]\n       route.sh check <github|gitlab|local|other> [repo-root]\n' >&2
   exit 2
 }
 fail() { printf 'route: %s\n' "$1" >&2; exit "${2:-1}"; }
@@ -65,11 +66,10 @@ canonical() { # canonical <gitlab|local>
   printf '%s\n' "$CLOSE_LINE"
 }
 
-header() { # the current wording of the task-flow.local.md header comment
+header() { # shared header for new files and legacy-header migration
   printf '%s\n' \
-    '<!-- Overrides and additions to task-flow.md live here; setup writes only between cc-tuner markers' \
-    '     (the delivery route) and caches board field IDs. Typical content: board name/number + cached field' \
-    '     IDs, label taxonomy, merge-policy exceptions. -->'
+    '<!-- Repository overrides live here. Setup manages the delivery block, review opt-out and cached board IDs;' \
+    '     preserve other content. -->'
 }
 
 count() { # count <regex> <file>: matching lines, always a number
@@ -229,6 +229,7 @@ cmd_write() {
 }
 
 case "${1:-}" in
+  header)    [ "$#" -eq 1 ] || usage; header ;;
   canonical) shift; cmd_canonical "$@" ;;
   write)     shift; cmd_write "$@" ;;
   check)     shift; cmd_check "$@" ;;

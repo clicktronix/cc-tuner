@@ -133,18 +133,14 @@ eq "legacy-write-replaces" replaced "$(bash "$ROUTE" write local "$F")"
 eq "legacy-write-checks-current" current "$(bash "$ROUTE" check local "$R")"
 LEGACY_OUT="$(cat "$F")"
 lacks "legacy-header-no-longer-says-never-touches" "never touches this file" "$LEGACY_OUT"
-has   "legacy-header-has-the-current-wording" "setup writes only between cc-tuner markers" "$LEGACY_OUT"
+has   "legacy-header-has-the-current-wording" "Setup manages the delivery block, review opt-out and cached board IDs" "$LEGACY_OUT"
 lacks "legacy-old-route-text-is-gone" "Old copied route text." "$LEGACY_OUT"
 has   "legacy-keeps-outside-text" "board: 3" "$LEGACY_OUT"
 has   "legacy-keeps-the-text-after-the-block" "more deltas" "$LEGACY_OUT"
-# the wording route.sh writes is the wording the setup reference writes into a new file
+# Migration and new-file setup both ask the same header owner.
 REF="$PLUGIN/skills/setup/references/task-flow-rule.md"
-for want in "Overrides and additions to task-flow.md live here; setup writes only between cc-tuner markers" \
-            "(the delivery route) and caches board field IDs. Typical content: board name/number + cached field" \
-            "IDs, label taxonomy, merge-policy exceptions. -->"; do
-  case "$LEGACY_OUT" in *"$want"*) ;; *) fail "header-line-in-route-sh-output" "$want" ;; esac
-  if grep -qF -- "$want" "$REF"; then pass "header-line-is-in-task-flow-rule-md"; else fail "header-line-is-in-task-flow-rule-md" "$want"; fi
-done
+has "migration-uses-shared-header" "$(bash "$ROUTE" header)" "$LEGACY_OUT"
+has "new-file-uses-shared-header" 'bash "$PLUGIN/scripts/setup/route.sh" header' "$(cat "$REF")"
 # only the exact legacy pair is rewritten: an edited second line is the user's text
 fresh
 printf '%s\n' '<!-- Overrides and additions to task-flow.md live here; setup never touches this file.' 'my own second line -->' > "$F"

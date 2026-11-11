@@ -18,6 +18,7 @@ set -u
 MODE="${1:-quick}"          # quick | full — full adds the MCP probe, which health-checks every
                             # configured server and can sit for 30s per unreachable one.
 UHOME="${CC_TUNER_HOME:-$HOME}"
+CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$UHOME/.claude}"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 miss=0
 
@@ -43,7 +44,7 @@ launch_files() { # launch_files claude|agents|rules
   while :; do
     if [ "$1" = claude ]; then
       for f in "$d/CLAUDE.md" "$d/.claude/CLAUDE.md" "$d/CLAUDE.local.md"; do
-        if [ -f "$f" ] && [ "$f" != "$UHOME/.claude/CLAUDE.md" ]; then printf '%s\n' "$f"; fi
+        if [ -f "$f" ] && [ "$f" != "$CONFIG_DIR/CLAUDE.md" ]; then printf '%s\n' "$f"; fi
       done
     else
       for f in "$d/AGENTS.md" "$d/.claude/AGENTS.md"; do
@@ -107,7 +108,7 @@ if command -v python3 >/dev/null 2>&1; then ok "python3"; else warn "python3 —
 # What is at stake is the visible task list and its edges.
 case "${CLAUDE_CODE_ENABLE_TODO_TOOLS:-}" in
   1|true|TRUE|yes) ok "CLAUDE_CODE_ENABLE_TODO_TOOLS is set (variable only; the tools are not probed)" ;;
-  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — /cc-tuner:spec may publish no visible task list; set {\"env\": {\"CLAUDE_CODE_ENABLE_TODO_TOOLS\": \"1\"}} in ~/.claude/settings.json (the session's tool list shows whether TaskCreate is present)" ;;
+  *) warn "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set — /cc-tuner:spec may publish no visible task list; set {\"env\": {\"CLAUDE_CODE_ENABLE_TODO_TOOLS\": \"1\"}} in $CONFIG_DIR/settings.json (the session's tool list shows whether TaskCreate is present)" ;;
 esac
 
 # --- 1c. nested delegation ---------------------------------------------------------------------
@@ -122,7 +123,7 @@ esac
 case "${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH:-}" in
   1) ok "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 — only the orchestrator can spawn; units and lenses cannot" ;;
   2) ok "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2 — units may run their own lookups; nothing below them can spawn" ;;
-  "") warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set — subagents may nest to depth 3 by default, so a unit told not to delegate can still spawn agents; set {\"env\": {\"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH\": \"1\"}} (orchestrator only) or \"2\" (units may run lookups) in ~/.claude/settings.json" ;;
+  "") warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH is not set — subagents may nest to depth 3 by default, so a unit told not to delegate can still spawn agents; set {\"env\": {\"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH\": \"1\"}} (orchestrator only) or \"2\" (units may run lookups) in $CONFIG_DIR/settings.json" ;;
   *) warn "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH} — a third layer of agents is possible; /cc-tuner:run expects 1 or 2" ;;
 esac
 
@@ -407,7 +408,7 @@ else
 fi
 
 # --- 6. user-level statusline --------------------------------------------------------------------
-if [ -f "$UHOME/.claude/cc-tuner-statusline.sh" ]; then
+if [ -f "$CONFIG_DIR/cc-tuner-statusline.sh" ]; then
   ok "statusline script installed"
 else
   say "     statusline not installed (optional — /cc-tuner:setup install statusline)"

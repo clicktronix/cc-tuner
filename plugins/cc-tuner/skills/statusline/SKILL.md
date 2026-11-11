@@ -5,7 +5,7 @@ description: Use when the user wants a Claude Code statusline that shows rate-li
 
 # Usage Statusline
 
-A two-line Claude Code statusline focused on **how much budget is left**:
+A two-line Claude Code statusline focused on **usage and reset times**:
 
 ```
 ➜ my-project git:(main) S:2 M:1 U:4 | Opus 4.8 xhigh | 1h12m
@@ -57,7 +57,7 @@ needs nothing beyond `jq` and `date`. The statusline JSON fields it reads
 
 ## Customizing
 
-Edit the installed copy at `~/.claude/cc-tuner-statusline.sh`: colours, thresholds and bar length are
+Edit `cc-tuner-statusline.sh` in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`: colours, thresholds and bar length are
 in `make_bar`, the cache TTL is `USAGE_CACHE_TTL` (default 300s), and each segment function
 (`git_info`, `model_info`, `duration_info`, `usage_info`, `context_info`) can be dropped from the
 final `printf`.

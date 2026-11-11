@@ -46,7 +46,7 @@ Notes live in this clone only: say so when handing the result over.
 
 1. **Candidate.** The branch's exact head SHA (`git rev-parse HEAD` in the candidate worktree), with a clean
    working tree.
-2. **Verify.** Run `cc-tuner:verify-feature` and record its hand-back as `cc-tuner-verified: <full sha>` on
+2. **Verify.** Use the verification record returned by `/run` and record it as `cc-tuner-verified: <full sha>` on
    the commit it verified. Find the records on the candidate's commits with
    `git log --notes=cc-tuner --format='%H%n%N' <target>..<candidate>`: the verified SHA must be one of them,
    which makes `git merge-base --is-ancestor <verified sha> <candidate>` hold. Otherwise verify the current
@@ -77,8 +77,8 @@ Notes live in this clone only: say so when handing the result over.
    - a dirty worktree has it: leave it alone. Hand the merge to the user with the exact command,
      `git -C <that worktree> merge --ff-only <candidate>`, and keep delivery pending until it is observed.
 
-   Never create a squash or merge commit on the target. Under `--auto`, run the merge. Without `--auto`,
-   the hand-over is this whole step: the re-read (candidate, target tip, latest records) with the merge
+   Never create a squash or merge commit on the target. Follow `/run`'s **Merge authorization**. When authorized, run the merge.
+   Otherwise hand over this whole step: the re-read (candidate, target tip, latest records) with the merge
    command, never the merge line alone. Delivery stays pending until the merge is observed. `--check-only`
    stops here, after step 5.
 7. **After the merge.** Confirm `git rev-parse refs/heads/<target>` equals the candidate, then clean up

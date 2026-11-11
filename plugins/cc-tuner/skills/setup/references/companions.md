@@ -83,7 +83,8 @@ command and `/cc-tuner:setup install companions`.
 ## install
 
 1. **Fallbacks first.** Without `claude` or `jq` every state is `unknown`, so nothing counts as offered.
-   - **`claude` is not on PATH** → print `bash "$C" commands <id>` for the user to type in their own session:
+   - **`claude` is not on PATH** → run `bash "$C" commands <id>` and show its output.
+     The user runs those `/plugin` commands in their session. Do this
      for mattpocock-skills, and for cc-codex-triage when `bash "$C" codex` prints `ready` and `optout` exits
      1, whatever its state. Say that an installed one can be skipped. The row reads "printed, not installed".
    - **No jq, or `state` is `unknown`** → "cannot tell what is installed", with the reason. Install nothing;
