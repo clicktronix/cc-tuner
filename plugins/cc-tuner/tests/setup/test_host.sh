@@ -94,6 +94,9 @@ case_url scp-gitlab         git@gitlab.com:acme/app.git            gitlab url gi
 # The old substring match called this github.
 case_url mirror-name-is-not-host  git@gitlab.com:acme/github.com-mirror.git  gitlab url gitlab.com
 case_url lookalike-host     https://github.com.evil.example/a/b    other  none github.com.evil.example
+# `?` and `#` end the authority, so a later `@github.com` is not the host.
+case_url query-before-at    'https://evil.example?@github.com/a/b'  other  none evil.example
+case_url fragment-before-at 'https://evil.example#@github.com/a/b'  other  none evil.example
 case_url unknown-host       git@git.example.org:acme/app.git       other  none git.example.org
 
 # --- hosts the CLIs are configured for -----------------------------------------------------------

@@ -182,7 +182,7 @@ for u in https://github.com/mattpocock/skills.git https://github.com/MattPocock/
   eq "hint-github-url-is-the-expected-source ($u)" "/plugin install $MATT" "$OUT"
 done
 # Another repository, or the expected path on another host, stays a conflict.
-for u in https://github.com/someone-else/skills.git https://evil.example/github.com/mattpocock/skills.git git@github.com.evil.example:mattpocock/skills.git; do
+for u in https://github.com/someone-else/skills.git https://evil.example/github.com/mattpocock/skills.git git@github.com.evil.example:mattpocock/skills.git 'https://evil.example?@github.com/mattpocock/skills.git' 'https://evil.example#@github.com/mattpocock/skills.git' 'https://github.com/mattpocock/skills.git?x=1'; do
   comp "$NOCODEX" "$LIST_NONE" "$(as_json '[{"name":"mattpocock","source":"git","url":"'"$u"'"}]')" hint "$MATT" "$REPO"
   eq "hint-foreign-url-conflicts ($u)" 3 "$RC"
 done

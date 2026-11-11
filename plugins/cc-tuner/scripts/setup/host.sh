@@ -37,7 +37,7 @@
 # the CLI answered first, so the caller asks instead. No remote is `local`.
 #
 # The host is parsed from the URL, never matched as a substring: `scheme://[user@]host[:port]/path`
-# (ssh, https, http, git) or scp-like `[user@]host:path`. A filesystem path or `file://` has no host
+# (ssh, https, http, git; the authority ends at the first `/`, `?` or `#`) or scp-like `[user@]host:path`. A filesystem path or `file://` has no host
 # and is `other`. A host that does not look like a hostname is dropped and is `other`, so it cannot
 # reach `ssh` as an option or a caller's command line.
 #
@@ -161,7 +161,7 @@ KIND=path; RHOST=""
 case "$URL" in
   file://*) ;;
   *://*)
-    scheme="${URL%%://*}"; rest="${URL#*://}"; auth="${rest%%/*}"; auth="${auth##*@}"
+    scheme="${URL%%://*}"; rest="${URL#*://}"; auth="${rest%%[/?#]*}"; auth="${auth##*@}"
     RHOST="${auth%%:*}"
     case "$(lower "$scheme")" in ssh|git+ssh|ssh+git) KIND=ssh ;; *) KIND=net ;; esac
     ;;

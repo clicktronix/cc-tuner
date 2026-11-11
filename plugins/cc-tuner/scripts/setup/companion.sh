@@ -151,7 +151,7 @@ cmd_hint() { # hint <id> <repo-root>
   # (https, ssh:// or scp-like, with or without .git) is the same source; any other host or path is not.
   if printf '%s' "$mkts" | jq -e --arg n "$mkt" --arg s "$src" '
        def slug: if (.repo // "") != "" then .repo
-         else [ (.url // "") | capture("^(?:(?:https?|ssh|git)://(?:[^@/]+@)?github\\.com(?::[0-9]+)?/|(?:[^@/:]+@)?github\\.com:)(?<s>[^/]+/[^/]+?)(?:\\.git)?/?$").s ][0] // "" end;
+         else [ (.url // "") | capture("^(?:(?:https?|ssh|git)://(?:[^@/?#]+@)?github\\.com(?::[0-9]+)?/|(?:[^@/:?#]+@)?github\\.com:)(?<s>[^/?#]+/[^/?#]+?)(?:\\.git)?/?$").s ][0] // "" end;
        any(.[]?; .name == $n and (slug | ascii_downcase) == ($s | ascii_downcase))' >/dev/null 2>&1; then
     printf '/plugin install %s\n' "$id"
   elif printf '%s' "$mkts" | jq -e --arg n "$mkt" 'any(.[]?; .name == $n)' >/dev/null 2>&1; then

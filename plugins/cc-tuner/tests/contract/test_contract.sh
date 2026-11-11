@@ -662,8 +662,10 @@ if [ -n "$run_host_line" ] && [ -n "$run_check_line" ] && [ -n "$run_loop_line" 
 else
   echo "FAIL run-checks-the-route-before-the-loop-and-at-delivery (host=$run_host_line check=$run_check_line loop=$run_loop_line delivery=$run_delivery_line last=$run_last_check_line)"; fails=1
 fi
-need "run-ignored-scratch-is-local-state"  'the issue file is local state of the main checkout' "$RUN"
-need "spec-ignored-scratch-closed-after-merge" '`/run` closes the issue file in' "$SPEC"
+need "run-ignored-scratch-is-local-state"  'the issue file is local state at the absolute path the spec' "$RUN"
+need "spec-ignored-scratch-in-main-checkout" "git worktree list --porcelain | sed -n '1s/^worktree //p'" "$SPEC"
+need "spec-ignored-scratch-path-recorded"  'record the issue file'"'"'s absolute path in the spec'"'"'s Delivery section' "$SPEC"
+need "spec-ignored-scratch-closed-after-merge" '`/run` closes the issue file at that path' "$SPEC"
 LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
 SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
 need "local-ci-record-goes-where-route-says" "where the host's route reference says" "$LOCAL_CI"

@@ -193,8 +193,8 @@ their own read-only agent type/model; where silent, placement decides.
 After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
 archiving and update plan/spec links before the first required review, and under `tracker: local`,
 commit the tracker file's closing step with them; continue with the new spec path. When the spec records
-`.scratch/` as git-ignored, the issue file is local state of the main checkout instead: nothing is
-committed, and step 7 of Delivery closes it there. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
+`.scratch/` as git-ignored, the issue file is local state at the absolute path the spec's Delivery
+section records instead: nothing is committed, and step 7 of Delivery closes it there. The plan itself stays where `plan-path.sh` put it. Validate the updated plan with the same
 resolver/linter contract used at startup.
 
 Fetch the integration target before the first candidate and before delivery. If it advanced beyond
@@ -370,7 +370,7 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
    prerequisites are complete, through the tracker `docs/agents/issue-tracker.md` names. Under `tracker: local`
    the tracker file's closing step was committed on the task branch before the first required review, so it
    lands with the merge — never a commit on the target. With a git-ignored `.scratch/`, close the issue
-   file in the main checkout once the merge is observed. Then move the card to Done. When the issue was an
+   file at the path the spec records once the merge is observed. Then move the card to Done. When the issue was an
    epic's last open sub-issue,
    also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
    after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
