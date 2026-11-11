@@ -118,9 +118,11 @@ make_bar() {
   [ "$filled" -gt "$len" ] && filled=$len
   local empty_count=$(( len - filled ))
 
+  # Append whole glyphs: GNU tr replaces bytes and corrupts multibyte symbols.
+  local i
   bar_result=""
-  [ "$filled" -gt 0 ] && bar_result=$(printf "%${filled}s" | tr ' ' '▓')
-  [ "$empty_count" -gt 0 ] && bar_result="${bar_result}$(printf "%${empty_count}s" | tr ' ' '░')"
+  for ((i = 0; i < filled; i++)); do bar_result="${bar_result}▓"; done
+  for ((i = 0; i < empty_count; i++)); do bar_result="${bar_result}░"; done
 }
 
 # Coerce a "66.6"-style utilization into a safe integer percent.

@@ -110,7 +110,7 @@ Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 367 PASS, rc
 
 ## Slice 9 — active profiles, persistent local issues and concise instructions
 Blocked by: 8
-Owned paths: .claude-plugin/marketplace.json,README.md,plugins/cc-tuner/.claude-plugin/plugin.json,plugins/cc-tuner/README.md,plugins/cc-tuner/scripts/setup,plugins/cc-tuner/skills,plugins/cc-tuner/output-styles/mechanism-first.md,plugins/cc-tuner/tests/setup,plugins/cc-tuner/tests/flow/test_local_issues.sh,plugins/cc-tuner/tests/contract/test_contract.sh,docs/ARCHIVE/PLANS/2026-11-10-fresh-machine-delivery.md
+Owned paths: .claude-plugin/marketplace.json,README.md,plugins/cc-tuner/.claude-plugin/plugin.json,plugins/cc-tuner/README.md,plugins/cc-tuner/scripts/setup,plugins/cc-tuner/skills,plugins/cc-tuner/output-styles/mechanism-first.md,plugins/cc-tuner/tests/setup,plugins/cc-tuner/tests/flow/test_local_issues.sh,plugins/cc-tuner/tests/flow/test_statusline.sh,plugins/cc-tuner/tests/contract/test_contract.sh,tests/run.sh,docs/ARCHIVE/PLANS/2026-11-10-fresh-machine-delivery.md
 Deciding check: bash plugins/cc-tuner/tests/setup/test_profile.sh && bash plugins/cc-tuner/tests/flow/test_local_issues.sh && bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: every setup node uses the active profile; all local issue writers preserve ignored records across worktree cleanup; instructions have one permission policy and concise descriptions
 
@@ -121,3 +121,5 @@ Delivers: every setup node uses the active profile; all local issue writers pres
 - [x] independent semantic review confirms the fixes and preserved lifecycle obligations
 
 Evidence: RED `FAIL custom-active-settings` on the old statusline recipe; new profile recipe 23 PASS. RED `FAIL shared-local-issue-location-missing`; new Git location/merge/cleanup probe 4 PASS. Doctor 225 PASS, route 146 PASS, contract 402 PASS. Full repository gate runs in PR CI on macOS and Ubuntu with the pinned Claude version; delivery still requires that gate to pass. Live model flow remains unproved; no paid eval was run.
+
+CI exposed invalid UTF-8 from statusline bars on Ubuntu. The runner now retains exceptions emitted before an assertion. Reproduced locally with `LC_ALL=C`: all three exact-bar checks failed before replacing byte-oriented `tr` with whole-glyph appends. Statusline suite: 15 PASS; profile suite under `LC_ALL=C`: 23 PASS. Full CI must pass again on the corrected head.

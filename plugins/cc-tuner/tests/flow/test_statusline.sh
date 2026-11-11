@@ -81,6 +81,12 @@ equals "native-path-exits-0"       "0"      "$STATUSLINE_RC"
 absent "native-path-skips-python3" "python3" "$(cat "$E1/stub-called" 2>/dev/null)"
 absent "native-path-skips-curl"    "curl"    "$(cat "$E1/stub-called" 2>/dev/null)"
 
+# Byte-oriented locales must still emit complete UTF-8 glyphs, as on GNU tr.
+LC_ALL=C run_statusline "$E1" "$PAYLOAD1"
+check "byte-locale-five-hour-bar" "5h:66%[▓▓▓▓▓░░░]" "$STATUSLINE_OUT"
+check "byte-locale-seven-day-bar" "7d:9%[▓░░░░░░░]" "$STATUSLINE_OUT"
+check "byte-locale-context-bar" "ctx:42% [▓▓▓▓░░░░░░]" "$STATUSLINE_OUT"
+
 # --- case 2: no rate_limits at all, and the OAuth fallback fails -> segment is dropped,
 # exit is still 0, and the rest of the line still renders ---
 E2="$(stub_env)"
