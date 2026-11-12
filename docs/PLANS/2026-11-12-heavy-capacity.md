@@ -49,12 +49,12 @@ command and state; the env var set user-wide gives the same number to every sess
 - [x] Delivery: branch feat/heavy-capacity, PR to main, tracker gh, CI validate.yml
 
 ## Acceptance criteria
-- [ ] [machine] With capacity 2, two weight-1 checks run at the same time and a weight-2 check starts
+- [x] [machine] With capacity 2, two weight-1 checks run at the same time and a weight-2 check starts
       only when both slots are free — checked by: `bash plugins/cc-tuner/tests/flow/test_heavy.sh`
-- [ ] [machine] Unset `CC_TUNER_HEAVY_SLOTS` gives capacity max(1, floor(total/8 GB)) (16 GB -> 2,
+- [x] [machine] Unset `CC_TUNER_HEAVY_SLOTS` gives capacity max(1, floor(total/8 GB)) (16 GB -> 2,
       7 GB -> 1, 64 GB -> 8 through `CC_TUNER_HEAVY_TOTAL_MB`); a set value wins; a weight above
       capacity runs alone and says it was clamped — checked by: test_heavy.sh
-- [ ] [machine] Arrival order: a weight-1 check that arrives while a weight-2 check waits does not start
+- [x] [machine] Arrival order: a weight-1 check that arrives while a weight-2 check waits does not start
       before it — checked by: test_heavy.sh
 - [ ] [machine] Memory pressure: under warn/critical the head waits and says so, starts once pressure
       is normal, starts with the warning line after `CC_TUNER_HEAVY_MEM_WAIT` and leaves a deficit
@@ -63,11 +63,11 @@ command and state; the env var set user-wide gives the same number to every sess
 - [ ] [machine] The real readers parse this machine's output: macOS `sysctl` and Linux
       `/proc/pressure/memory` / `/proc/meminfo` fixtures — checked by: test_heavy.sh (Linux fixtures)
       and `bash plugins/cc-tuner/scripts/heavy.sh status` here
-- [ ] [machine] A slot held by the pre-change heavy.sh (origin/main 45795a7) blocks the new one, and a
+- [x] [machine] A slot held by the pre-change heavy.sh (origin/main 45795a7) blocks the new one, and a
       pre-change waiter does not overtake a weight-2 head — checked by: test_heavy.sh
-- [ ] [machine] Queue hygiene: a dead waiter's ticket does not block, and a waiter whose parent died
+- [x] [machine] Queue hygiene: a dead waiter's ticket does not block, and a waiter whose parent died
       leaves the queue — checked by: test_heavy.sh
-- [ ] [machine] The existing guarantees still hold (passthrough, keeper, nested, interrupt, kill) —
+- [x] [machine] The existing guarantees still hold (passthrough, keeper, nested, interrupt, kill) —
       checked by: test_heavy.sh existing cases
 - [ ] [machine] `heavy.sh status` shows capacity, the pressure reading, holders with their weight and
       the queued waiters with pid and age — checked by: test_heavy.sh

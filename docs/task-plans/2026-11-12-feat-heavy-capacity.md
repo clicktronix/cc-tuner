@@ -11,13 +11,15 @@ Owned paths: plugins/cc-tuner/scripts/heavy.sh,plugins/cc-tuner/tests/flow/test_
 Deciding check: bash plugins/cc-tuner/tests/flow/test_heavy.sh
 Delivers: on a 16 GB machine two weight-1 checks run side by side, a weight-2 e2e runs alone, and checks start in the order they asked, with old heavy.sh copies still respected
 
-- [ ] `--weight w` holds w of the capacity's slots; capacity 2 runs two weight-1 checks together and a weight-2 check only when both slots are free
-- [ ] unset `CC_TUNER_HEAVY_SLOTS` gives max(1, floor(total/8 GB)) (16 GB -> 2, 7 GB -> 1, 64 GB -> 8 via `CC_TUNER_HEAVY_TOTAL_MB`; Linux MemTotal rounded up to a GiB); a set value wins; `--slots` is a synonym; an overweight check is clamped with a note
-- [ ] a weight-1 arrival does not start before a waiting weight-2 head; the head keeps slots it took
-- [ ] a slot held by heavy.sh from 45795a7 blocks the new one, and a pre-change waiter does not overtake a weight-2 head
-- [ ] a dead waiter's ticket does not block; a waiter whose parent died leaves the queue
-- [ ] `heavy.sh status` shows capacity, holders with weight, and queued waiters with pid and age
-- [ ] the existing passthrough, keeper, nested, interrupt and kill cases still pass; test_heavy_owner.py follows the new argv
+- [x] `--weight w` holds w of the capacity's slots; capacity 2 runs two weight-1 checks together and a weight-2 check only when both slots are free
+- [x] unset `CC_TUNER_HEAVY_SLOTS` gives max(1, floor(total/8 GB)) (16 GB -> 2, 7 GB -> 1, 64 GB -> 8 via `CC_TUNER_HEAVY_TOTAL_MB`; Linux MemTotal rounded up to a GiB); a set value wins; `--slots` is a synonym; an overweight check is clamped with a note
+- [x] a weight-1 arrival does not start before a waiting weight-2 head; the head keeps slots it took
+- [x] a slot held by heavy.sh from 45795a7 blocks the new one, and a pre-change waiter does not overtake a weight-2 head
+- [x] a dead waiter's ticket does not block; a waiter whose parent died leaves the queue
+- [x] `heavy.sh status` shows capacity, holders with weight, and queued waiters with pid and age
+- [x] the existing passthrough, keeper, nested, interrupt and kill cases still pass; test_heavy_owner.py follows the new argv
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_heavy.sh → 72 PASS, 0 FAIL, rc=0 (RED first: `FAIL capacity-16gb-is-2 (want /capacity 2/ in: heavy.sh: all slots free)`; the --weight cases hung to the wait helper's timeout instead of printing FAIL); mutation `oldest_live() == ticket` → `True` killed by head-starts-when-last-slot-frees and arrival-order-is-kept @ 6e1eca2
 
 ## Slice 2 — no heavy check starts into memory pressure
 Blocked by: 1
