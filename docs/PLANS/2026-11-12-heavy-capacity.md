@@ -71,7 +71,7 @@ command and state; the env var set user-wide gives the same number to every sess
       checked by: test_heavy.sh existing cases
 - [ ] [machine] `heavy.sh status` shows capacity, the pressure reading, holders with their weight and
       the queued waiters with pid and age — checked by: test_heavy.sh
-- [ ] [machine] placement.md gives the call with weights (e2e 2; full suite, build and container start
+- [x] [machine] placement.md gives the call with weights (e2e 2; full suite, build and container start
       1, saying the slot does not bound running containers), tells the caller to carry a
       "started under memory pressure" line into its report, and says the outer call's weight governs
       a nested one; README and setup describe derived capacity, `CC_TUNER_HEAVY_SLOTS` as user-wide

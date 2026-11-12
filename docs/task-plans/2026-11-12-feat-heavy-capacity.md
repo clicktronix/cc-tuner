@@ -39,6 +39,8 @@ Owned paths: plugins/cc-tuner/skills/run/references/placement.md,plugins/cc-tune
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: an agent following placement.md passes the right weight, carries a forced-start warning into its report, and a user reading README/setup knows how capacity is chosen and overridden
 
-- [ ] placement.md gives the call with `--weight` (e2e 2; full suite, build, container start 1, saying the slot does not bound running containers), the outer call's weight governing a nested one, and the forced-start line to carry into the report
-- [ ] README and setup describe derived capacity, `CC_TUNER_HEAVY_SLOTS` as user-wide units of weight, and `CC_TUNER_HEAVY_MEM_WAIT`
-- [ ] contract pins name the weight call, the forced-start line and the user-wide override
+- [x] placement.md gives the call with `--weight` (e2e 2; full suite, build, container start 1, saying the slot does not bound running containers), the outer call's weight governing a nested one, and the forced-start line to carry into the report
+- [x] README and setup describe derived capacity, `CC_TUNER_HEAVY_SLOTS` as user-wide units of weight, and `CC_TUNER_HEAVY_MEM_WAIT`
+- [x] contract pins name the weight call, the forced-start line and the user-wide override
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 411 PASS, 0 FAIL (RED first: 9 FAILs, first `FAIL placement-heavy-call-has-weight`) @ d576a44
