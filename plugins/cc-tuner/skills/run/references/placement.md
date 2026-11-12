@@ -49,12 +49,22 @@ when that is the deciding check, and anything else that finishes in seconds.
 Every heavy check, from whoever runs it, goes through the machine's slots:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --label "<repo>: <what>" -- <command>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --weight <w> --label "<repo>: <what>" -- <command>
 ```
 
-The slots are shared by every session on the machine (`CC_TUNER_HEAVY_SLOTS`, default 1), so the call
-may wait. Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read
-the output when it exits; the command's own output and exit code pass through unchanged.
+The weight is how many of the machine's slots the check holds:
+
+- e2e suite: `--weight 2`;
+- full suite, build, container start: `--weight 1`. The slot does not bound containers that keep running
+  after their start command returns.
+
+A heavy.sh call inside another one runs in its slots; the outer call's weight governs. Capacity is
+shared by every session on the machine, waiters start in arrival order, and a check waits while the
+system reports memory pressure, so the call may wait. Start it as a Bash call with
+`run_in_background: true`, do other work meanwhile, and read the output when it exits; the command's
+own output and exit code pass through unchanged. When the output has a line
+`heavy.sh: started under memory pressure after <n>s`, carry it into your report: a failure in that
+run may be the machine, not the code.
 
 ## Brief and return
 

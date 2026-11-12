@@ -206,7 +206,8 @@ reported `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit c
 form and forbids that lookup too. Say what either changes outside cc-tuner — sessions using this
 profile, including `/code-review` at max effort, which dispatches a verifier per candidate from
 inside a subagent — because that is the user's call, not the plugin's. Heavy-check slots need no
-setting: `CC_TUNER_HEAVY_SLOTS` defaults to 1; a machine with memory to spare can raise it.
+setting: heavy.sh gives one slot per 8 GB of RAM. To override, set `CC_TUNER_HEAVY_SLOTS` (slots, an
+e2e run holds two); set it user-wide, since sessions with different values see different capacities.
 
 Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
 key in `$SETTINGS`?

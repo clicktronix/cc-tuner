@@ -748,4 +748,21 @@ for route in "$ROUTE_GITLAB" "$ROUTE_LOCAL" "$SHARED_TASK"; do
   need "route-uses-shared-authorization ($(basename "$route"))" '**Merge authorization**' "$route"
 done
 
+# heavy.sh capacity (#72): callers pass a weight, carry a forced start into their report, and read
+# capacity as derived from memory; the old "default 1" wording must not survive anywhere.
+PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
+need "placement-heavy-call-has-weight"      'scripts/heavy.sh" --weight <w> --label' "$PLACEMENT"
+need "placement-e2e-weighs-two"             'e2e suite: `--weight 2`' "$PLACEMENT"
+need "placement-carries-forced-start"       'heavy.sh: started under memory pressure' "$PLACEMENT"
+need "placement-outer-weight-governs"       "the outer call's weight governs" "$PLACEMENT"
+need "placement-containers-not-bounded"     'does not bound containers that keep running' "$PLACEMENT"
+need "readme-heavy-capacity-from-ram"       'one slot per 8 GB of RAM' "$ROOT/plugins/cc-tuner/README.md"
+need "readme-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$ROOT/plugins/cc-tuner/README.md"
+need "setup-heavy-override-user-wide"       'set it user-wide' "$SETUP"
+if grep -rqF 'CC_TUNER_HEAVY_SLOTS`, default 1' "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/agents" "$ROOT/plugins/cc-tuner/README.md"; then
+  echo "FAIL heavy-no-default-one-wording"; fails=1
+else
+  echo "PASS heavy-no-default-one-wording"
+fi
+
 exit "$fails"
