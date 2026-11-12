@@ -1,6 +1,6 @@
 # heavy.sh starts heavy checks by machine capacity — plan
 
-**Spec:** docs/PLANS/2026-11-12-heavy-capacity.md
+**Spec:** docs/ARCHIVE/PLANS/2026-11-12-heavy-capacity.md
 **Branch:** feat/heavy-capacity
 
 full_test_cadence: per-candidate
