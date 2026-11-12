@@ -34,6 +34,7 @@ Delivers: while macOS or Linux reports memory pressure the head of the queue wai
 - [x] `status` shows the pressure reading and an active deficit mark
 
 Evidence: bash plugins/cc-tuner/tests/flow/test_heavy.sh → 110 PASS, 0 FAIL, rc=0 on the integrated branch (RED first: `FAIL pressure-warn-head-does-not-start (want '', got 'P-start')`, 28 FAILs); `heavy.sh status` here → `capacity 2`, `memory pressure: normal (kern.memorystatus_vm_pressure_level=1)`; full `bash tests/run.sh` → `cc-tuner validate ok` @ 938641f
+Fix after verify-feature: a pre-change waiter at the old default 2 s poll raced the head for its last slot; the head now polls every 0.1 s → `PASS head-polls-fast-for-its-last-slot` (RED first: `took 4.76s after the release`), test_heavy.sh 111 PASS
 
 ## Slice 3 — callers use weights and read the pressure warning
 Blocked by: 1
