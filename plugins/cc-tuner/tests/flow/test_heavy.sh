@@ -270,6 +270,28 @@ touch "$W/h.release"
 wait "$H"; wait "$C"; wait "$A"
 equals "arrival-order-is-kept" "A-start A-end H-start H-end C-start C-end" "$(order)"
 
+# The head polls fast, so a pre-change waiter polling at its default interval rarely wins the slot
+# the head still needs: with everyone else polling every 5 s, the head starts well within 1.5 s of
+# the release.
+: > "$LOG"; rm -f "$W/a.release" "$W/h.release"
+CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label fasthead -- sh -c "echo H-start >> '$LOG'" 2> "$W/h.err" &
+H=$!
+until_logged "$W/h.err" "waiting"
+sleep 5.2
+T0=$(python3 -c 'import time; print(time.time())')
+touch "$W/a.release"
+until_logged "$LOG" H-start
+T1=$(python3 -c 'import time; print(time.time())')
+wait "$H"; wait "$A"
+if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 1.5 else 1)"; then
+  pass "head-polls-fast-for-its-last-slot"
+else
+  fail "head-polls-fast-for-its-last-slot (took $(python3 -c "print(round($T1 - $T0, 2))")s after the release)"
+fi
+
 # A slot held by the pre-change heavy.sh (slot-1..N, weight 1, no queue) blocks the new one.
 OLD="$W/heavy-old.sh"
 git -C "$FLOW_PLUGIN" show 45795a7:plugins/cc-tuner/scripts/heavy.sh > "$OLD" 2>/dev/null || fail "pre-change heavy.sh not retrievable (fetch-depth 0 needed)"

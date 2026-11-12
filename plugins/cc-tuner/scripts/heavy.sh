@@ -365,7 +365,8 @@ while True:
         leave_queue()
         sys.stderr.write("heavy.sh: the caller is gone; leaving the queue: %s\n" % label)
         sys.exit(1)
-    if oldest_live() == ticket:
+    head = oldest_live() == ticket
+    if head:
         for i in range(1, slots + 1):
             if len(held) == weight:
                 break
@@ -387,7 +388,9 @@ while True:
         want = "one" if weight == 1 else str(weight)
         sys.stderr.write("heavy.sh: waiting for %s of %d heavy-check slot(s); held by:\n%s\n" % (want, slots, "\n".join(holders())))
         said = True
-    time.sleep(poll)
+    # The head polls fast: a pre-change heavy.sh waiter has no ticket and competes for the slot the
+    # head still needs at its own interval, so the head should see a release first.
+    time.sleep(min(poll, 0.1) if head else poll)
 
 leave_queue()
 env = dict(os.environ, CC_TUNER_HEAVY_HELD=",".join("slot-%d" % i for i in sorted(held)))
