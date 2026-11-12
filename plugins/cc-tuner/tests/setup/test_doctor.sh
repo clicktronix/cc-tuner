@@ -84,7 +84,8 @@ plugins_ok() {   # both companions installed user-wide
     {"id":"cc-codex-triage@cc-codex-triage","version":"0.10.0","scope":"user","enabled":true}
   ]'
 }
-run() { ( cd "${1:-$R}" && PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
+# `env -u`: both variables leak in from the developer's session and would decide its hints.
+run() { ( cd "${1:-$R}" && env -u CLAUDE_CODE_ENABLE_TODO_TOOLS -u CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH PATH="$STUB" HOME="$FAKE_HOME" CC_TUNER_HOME="$H" CLAUDE_CONFIG_DIR="$PROFILE" \
           CC_TUNER_GH_HOSTS_FILE="$GH_HOSTS" CC_TUNER_GLAB_CONFIG_FILE="$GLAB_CFG" \
           CC_TUNER_MARKETPLACE_LIST_CMD="cat $MKT" bash "$DOCTOR" "${2:-quick}" 2>&1 ); }
 
