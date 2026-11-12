@@ -14,7 +14,8 @@ the operating system reports memory pressure, including pressure from work outsi
 - *Arrival order.* A ticket per waiter in `queue/` under the slot directory, created already locked
   (temp name, flock, rename) and numbered by a counter under a short lock. Only the oldest live ticket
   takes slots; it keeps what it took and waits for the rest (only the head accumulates, so no
-  deadlock, and a pre-change waiter cannot starve it). The head removes dead tickets. A waiter whose
+  deadlock). It polls every 0.1 s while other waiters keep `CC_TUNER_HEAVY_POLL`, so a pre-change
+  waiter, which has no ticket, rarely takes the slot the head still needs. The head removes dead tickets. A waiter whose
   parent became PID 1 (its session died) leaves the queue.
 - *Memory pressure.* Before starting, the head waits while the OS reports pressure: macOS
   `kern.memorystatus_vm_pressure_level` >= 2 (warn/critical), Linux `/proc/pressure/memory` `some avg10`

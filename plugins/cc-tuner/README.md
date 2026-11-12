@@ -112,7 +112,8 @@ only the task lifecycle; deploy, publish and migration remain forbidden. Heavy c
 builds) go through `scripts/heavy.sh`, whose machine-wide slots keep several sessions from running them
 at once: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order,
 and a check waits while the system reports memory pressure, at most `CC_TUNER_HEAVY_MEM_WAIT` seconds
-(default 600). `CC_TUNER_HEAVY_SLOTS` overrides the slot count.
+(default 600). `CC_TUNER_HEAVY_SLOTS` overrides the slot count, in slots of weight; set it user-wide,
+since sessions with different values see different capacities.
 
 Run progress lives in the committed plan file (its `- [x]` ticks) and in Claude Code's task list; there
 is no state file. The task list survives `/compact` and resume unchanged. A new session (`startup` or

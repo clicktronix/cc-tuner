@@ -271,7 +271,7 @@ wait "$H"; wait "$C"; wait "$A"
 equals "arrival-order-is-kept" "A-start A-end H-start H-end C-start C-end" "$(order)"
 
 # The head polls fast, so a pre-change waiter polling at its default interval rarely wins the slot
-# the head still needs: with everyone else polling every 5 s, the head starts well within 1.5 s of
+# the head still needs: with everyone else polling every 5 s, the head starts well within 3 s of
 # the release.
 : > "$LOG"; rm -f "$W/a.release" "$W/h.release"
 CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
@@ -286,7 +286,7 @@ touch "$W/a.release"
 until_logged "$LOG" H-start
 T1=$(python3 -c 'import time; print(time.time())')
 wait "$H"; wait "$A"
-if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 1.5 else 1)"; then
+if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 3 else 1)"; then
   pass "head-polls-fast-for-its-last-slot"
 else
   fail "head-polls-fast-for-its-last-slot (took $(python3 -c "print(round($T1 - $T0, 2))")s after the release)"

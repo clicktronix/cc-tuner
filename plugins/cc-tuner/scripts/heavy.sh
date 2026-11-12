@@ -111,7 +111,7 @@ total_mb() {
   esac
 }
 
-case "${CC_TUNER_HEAVY_MEM_WAIT:-0}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_MEM_WAIT must be a number of seconds" ;; esac
+case "${CC_TUNER_HEAVY_MEM_WAIT:-600}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_MEM_WAIT must be a number of seconds" ;; esac
 case "${CC_TUNER_HEAVY_PRESSURE:-normal}" in normal|warn|critical|unknown) ;; *) die "CC_TUNER_HEAVY_PRESSURE must be normal, warn, critical or unknown" ;; esac
 case "${CC_TUNER_HEAVY_TOTAL_MB:-}" in *[!0-9]*) die "CC_TUNER_HEAVY_TOTAL_MB must be a number of MB" ;; esac
 if [ -z "$SLOTS" ]; then

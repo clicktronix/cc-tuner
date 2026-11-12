@@ -208,6 +208,8 @@ profile, including `/code-review` at max effort, which dispatches a verifier per
 inside a subagent — because that is the user's call, not the plugin's. Heavy-check slots need no
 setting: heavy.sh gives one slot per 8 GB of RAM. To override, set `CC_TUNER_HEAVY_SLOTS` (slots, an
 e2e run holds two); set it user-wide, since sessions with different values see different capacities.
+A check waits at most `CC_TUNER_HEAVY_MEM_WAIT` seconds (default 600) while the system reports memory
+pressure.
 
 Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
 key in `$SETTINGS`?

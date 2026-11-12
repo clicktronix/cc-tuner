@@ -759,6 +759,8 @@ need "placement-containers-not-bounded"     'does not bound containers that keep
 need "readme-heavy-capacity-from-ram"       'one slot per 8 GB of RAM' "$ROOT/plugins/cc-tuner/README.md"
 need "readme-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$ROOT/plugins/cc-tuner/README.md"
 need "setup-heavy-override-user-wide"       'set it user-wide' "$SETUP"
+need "setup-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$SETUP"
+need "readme-heavy-override-user-wide"      'set it user-wide' "$ROOT/plugins/cc-tuner/README.md"
 if grep -rqF 'CC_TUNER_HEAVY_SLOTS`, default 1' "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/agents" "$ROOT/plugins/cc-tuner/README.md"; then
   echo "FAIL heavy-no-default-one-wording"; fails=1
 else
