@@ -21,7 +21,7 @@ Delivers: on a 16 GB machine two weight-1 checks run side by side, a weight-2 e2
 
 Evidence: bash plugins/cc-tuner/tests/flow/test_heavy.sh → 72 PASS, 0 FAIL, rc=0 (RED first: `FAIL capacity-16gb-is-2 (want /capacity 2/ in: heavy.sh: all slots free)`; the --weight cases hung to the wait helper's timeout instead of printing FAIL); mutation `oldest_live() == ticket` → `True` killed by head-starts-when-last-slot-frees and arrival-order-is-kept @ 6e1eca2
 
-## Slice 2 — no heavy check starts into memory pressure
+## Slice 2 — bounded wait under memory pressure
 Blocked by: 1
 Owned paths: plugins/cc-tuner/scripts/heavy.sh,plugins/cc-tuner/tests/flow/test_heavy.sh,plugins/cc-tuner/tests/flow/test_heavy_owner.py
 Deciding check: bash plugins/cc-tuner/tests/flow/test_heavy.sh

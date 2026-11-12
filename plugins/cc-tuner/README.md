@@ -110,7 +110,7 @@ runs no CI at all, the spec says so in advance and a pull-request comment record
 for that commit; what a person approves is the **mode**, once, at spec time. After merge it reconciles
 only the task lifecycle; deploy, publish and migration remain forbidden. Heavy checks (full suite, e2e,
 builds) go through `scripts/heavy.sh`, whose machine-wide slots limit how many run at once across
-sessions: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order,
+sessions: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order (an older heavy.sh may overtake),
 and a check waits while the system reports memory pressure, at most `CC_TUNER_HEAVY_MEM_WAIT` seconds
 (default 600), then starts with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the slot count, in slots of weight; set it user-wide,
 since sessions with different values see different capacities.

@@ -59,7 +59,8 @@ The weight is how many of the machine's slots the check holds:
   after their start command returns.
 
 A heavy.sh call inside another one runs in its slots; the outer call's weight governs. Capacity is
-shared by every session on the machine and waiters start in arrival order, so the call may wait.
+shared by every session on the machine and waiters start in arrival order (an older heavy.sh without the
+queue may overtake), so the call may wait.
 Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read the output
 when it exits; the command's own output and exit code pass through unchanged.
 

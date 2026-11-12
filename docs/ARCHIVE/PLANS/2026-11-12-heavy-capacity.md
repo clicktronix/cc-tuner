@@ -68,7 +68,7 @@ command and state; the env var set user-wide gives the same number to every sess
       and `bash plugins/cc-tuner/scripts/heavy.sh status` here
 - [x] [machine] A slot held by the pre-change heavy.sh (origin/main 45795a7) blocks the new one.
       FIFO holds for queue-aware callers; a pre-change waiter shares the slot locks and may overtake,
-      which the head's 0.1 s poll makes rare (at its default schedule it yields) — checked by: test_heavy.sh
+      which the head's 0.1 s poll makes rare (the test: an old waiter polling every 5 s yields) — checked by: test_heavy.sh
 - [x] [machine] Queue hygiene: a dead waiter's ticket does not block, and a waiter whose parent died
       leaves the queue — checked by: test_heavy.sh
 - [x] [machine] The existing guarantees still hold (passthrough, keeper, nested, interrupt, kill) —
