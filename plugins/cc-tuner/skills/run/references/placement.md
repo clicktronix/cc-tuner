@@ -23,7 +23,7 @@ do not recalculate ownership from prose or substitute `frontier`.
 The concurrency cap counts running units plus proposed starts, not just a returned batch. Respect
 available host slots; on build-heavy repositories keep at most two implementation units active.
 Heavy checks queue through machine-wide slots ([below](#heavy-checks)), so parallel units and parallel
-sessions do not exhaust memory together. Candidate acceptance and delivery remain sequential.
+sessions run only as many of them at once as the machine's capacity allows. Candidate acceptance and delivery remain sequential.
 
 Independent read-only review is the exception to sequential review: its own skill defines the
 reviewers and packets, while one owner aggregates. `deep-review` owns its agent availability and
@@ -59,12 +59,15 @@ The weight is how many of the machine's slots the check holds:
   after their start command returns.
 
 A heavy.sh call inside another one runs in its slots; the outer call's weight governs. Capacity is
-shared by every session on the machine, waiters start in arrival order, and a check waits while the
-system reports memory pressure, so the call may wait. Start it as a Bash call with
-`run_in_background: true`, do other work meanwhile, and read the output when it exits; the command's
-own output and exit code pass through unchanged. When the output has a line
-`heavy.sh: started under memory pressure after <n>s`, carry it into your report: a failure in that
-run may be the machine, not the code.
+shared by every session on the machine and waiters start in arrival order, so the call may wait.
+Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read the output
+when it exits; the command's own output and exit code pass through unchanged.
+
+While the system reports memory pressure, a check waits up to `CC_TUNER_HEAVY_MEM_WAIT` (600 s), then
+starts anyway; for the next 600 s the wait is skipped for every check.
+Slots limit concurrency; they do not guarantee free memory. Carry into your report every output line
+that starts with `heavy.sh: started under memory pressure` or `heavy.sh: memory pressure not measured`:
+a failure in that run may be the machine, not the code.
 
 ## Brief and return
 

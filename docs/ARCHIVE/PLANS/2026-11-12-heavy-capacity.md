@@ -1,8 +1,9 @@
 # heavy.sh starts heavy checks by machine capacity
 
 **Goal:** a heavy check starts when the machine can take it: capacity follows the machine's memory,
-a check holds as many slots as it weighs, waiters start in arrival order, and no check starts while
-the operating system reports memory pressure, including pressure from work outside heavy.sh.
+a check holds as many slots as it weighs, queue-aware waiters start in arrival order, and while the
+operating system reports memory pressure (including pressure from work outside heavy.sh) a check
+waits up to a bound, then starts with a warning; checks in the next 600 s skip the wait and say so.
 **Issue:** #72
 **Architecture:** `plugins/cc-tuner/scripts/heavy.sh` stays the single owner of admission.
 
@@ -21,7 +22,8 @@ the operating system reports memory pressure, including pressure from work outsi
   `kern.memorystatus_vm_pressure_level` >= 2 (warn/critical), Linux `/proc/pressure/memory` `some avg10`
   >= 10. After `CC_TUNER_HEAVY_MEM_WAIT` (default 600 s) it starts with the warning line
   `heavy.sh: started under memory pressure after <n>s`, and writes a deficit mark in the slot directory;
-  for the next 600 s no check waits for pressure. Unreadable signal: start and say pressure was not
+  for the next 600 s no check waits for pressure, and each one under pressure says
+  `heavy.sh: started under memory pressure (...)`. Unreadable signal: start and say pressure was not
   measured.
 - *Unchanged.* Exit code and stdin passthrough, process-group supervision, keeper for leftovers, a
   nested call runs inside its parent's slots (the outer call's weight governs), interrupt stops the
@@ -64,8 +66,9 @@ command and state; the env var set user-wide gives the same number to every sess
 - [x] [machine] The real readers parse this machine's output: macOS `sysctl` and Linux
       `/proc/pressure/memory` / `/proc/meminfo` fixtures — checked by: test_heavy.sh (Linux fixtures)
       and `bash plugins/cc-tuner/scripts/heavy.sh status` here
-- [x] [machine] A slot held by the pre-change heavy.sh (origin/main 45795a7) blocks the new one, and a
-      pre-change waiter does not overtake a weight-2 head — checked by: test_heavy.sh
+- [x] [machine] A slot held by the pre-change heavy.sh (origin/main 45795a7) blocks the new one.
+      FIFO holds for queue-aware callers; a pre-change waiter shares the slot locks and may overtake,
+      which the head's 0.1 s poll makes rare (at its default schedule it yields) — checked by: test_heavy.sh
 - [x] [machine] Queue hygiene: a dead waiter's ticket does not block, and a waiter whose parent died
       leaves the queue — checked by: test_heavy.sh
 - [x] [machine] The existing guarantees still hold (passthrough, keeper, nested, interrupt, kill) —

@@ -321,10 +321,10 @@ L=$!
 until_logged "$W/l.err" "waiting"
 touch "$W/o.release"
 until_logged "$LOG" H-start
-equals "pre-change-waiter-does-not-overtake-head" "O-start O-end H-start" "$(order)"
+equals "pre-change-waiter-at-slow-poll-yields-to-head" "O-start O-end H-start" "$(order)"
 touch "$W/h.release"
 wait "$H"; wait "$L"; wait "$O"
-equals "pre-change-waiter-starts-after-head" "O-start O-end H-start H-end L-start" "$(order)"
+equals "pre-change-waiter-at-slow-poll-starts-after-head" "O-start O-end H-start H-end L-start" "$(order)"
 
 # A waiter that died leaves a ticket nobody holds; it must not block the ones behind it.
 : > "$LOG"; rm -f "$W/a.release"
@@ -459,7 +459,12 @@ check "status-shows-deficit-mark" "memory deficit mark: active" "$(CC_TUNER_HEAV
 OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- echo next-ran 2>&1)"
 check "check-under-deficit-mark-starts" "next-ran" "$OUT"
 absent "check-under-deficit-mark-does-not-wait" "waiting" "$OUT"
-absent "check-under-deficit-mark-no-second-forced-line" "started under memory pressure" "$OUT"
+check "check-under-deficit-mark-reports-the-skipped-wait" "heavy.sh: started under memory pressure (critical" "$OUT"
+check "skipped-wait-names-the-mark" "the wait is skipped" "$OUT"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=unknown bash "$HEAVY" -- echo unmeasured-ran 2>&1)"
+check "unmeasured-under-deficit-mark-says-so" "memory pressure not measured" "$OUT"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=normal bash "$HEAVY" -- echo calm-ran 2>&1)"
+absent "normal-under-deficit-mark-is-quiet" "memory pressure" "$OUT"
 n=0
 while CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status | grep -q "deficit mark" && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
 absent "deficit-mark-ends" "deficit mark" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
@@ -505,6 +510,12 @@ if python3 "$(dirname "$0")/test_heavy_owner.py"; then
   pass "owner-publication-is-atomic-to-status"
 else
   fail "owner-publication-is-atomic-to-status"
+fi
+
+if python3 "$(dirname "$0")/test_heavy_caller.py"; then
+  pass "work-never-starts-for-a-gone-caller"
+else
+  fail "work-never-starts-for-a-gone-caller"
 fi
 
 exit $fails

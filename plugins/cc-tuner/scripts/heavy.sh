@@ -5,7 +5,7 @@
 #   heavy.sh status
 #
 # Capacity is shared by every session and subagent on this machine, so five agents asking for e2e at
-# once do not run them together. The command runs unchanged: its output and exit code are its own;
+# once run only as many as the capacity allows. The command runs unchanged: its output and exit code are its own;
 # the only difference is when it starts.
 #
 # Capacity is a number of slots: CC_TUNER_HEAVY_SLOTS (or --slots), else one per 8 GB of RAM, at
@@ -32,7 +32,8 @@
 # (macOS kern.memorystatus_vm_pressure_level warn/critical; Linux /proc/pressure/memory some avg10 >=
 # 10). The wait is bounded by CC_TUNER_HEAVY_MEM_WAIT; after it the command starts anyway, with the
 # line "heavy.sh: started under memory pressure after <n>s", and a deficit mark in the slot directory
-# lets checks in the next 600 s start without waiting. A signal that cannot
+# lets checks in the next 600 s start without waiting; each of them still says
+# "heavy.sh: started under memory pressure (...)", so every report carries the caveat. A signal that cannot
 # be read starts the command and says "pressure not measured".
 #
 # What this bounds: concurrent heavy commands started through it. Not memory itself, not commands
@@ -317,14 +318,18 @@ pressure_since = None
 def memory_allows_start():
     # True: start now. False: the head keeps its slots and asks again after the next poll.
     global pressure_since
-    if deficit_left() > 0:
-        return True
     reading = read_pressure()
     if reading is None:
         sys.stderr.write("heavy.sh: memory pressure not measured; starting: %s\n" % label)
         return True
     level, detail = reading
     if level == "normal":
+        return True
+    left = deficit_left()
+    if left > 0:
+        # Every start inside the window says so: another session never sees the forced start's line.
+        sys.stderr.write("heavy.sh: started under memory pressure (%s, %s); the wait is skipped for %ds after a forced start: %s\n"
+                         % (level, detail, left, label))
         return True
     now = time.time()
     if pressure_since is None:
@@ -348,7 +353,24 @@ if mode == "status":
         print(line)
     sys.exit(0)
 
+def init_is_parent():
+    # PID 1 is the parent: an orphan when PID 1 is the system's init (launchd, systemd, init); a shell
+    # that is PID 1 in a container is a real caller.
+    comm = subprocess.run(["ps", "-p", "1", "-o", "comm="], capture_output=True, text=True).stdout.strip()
+    return os.path.basename(comm) in ("launchd", "systemd", "init")
+
 ppid = os.getppid()
+orphan_at_start = ppid == 1 and init_is_parent()
+
+def caller_gone():
+    return orphan_at_start or os.getppid() != ppid
+
+def leave_if_caller_gone():
+    if caller_gone():
+        leave_queue()
+        sys.stderr.write("heavy.sh: the caller is gone; leaving the queue: %s\n" % label)
+        sys.exit(1)
+
 ticket_fd, ticket_path = enqueue()
 ticket = os.path.basename(ticket_path)
 
@@ -363,10 +385,7 @@ held = {}
 notes = {}
 said = False
 while True:
-    if os.getppid() != ppid:
-        leave_queue()
-        sys.stderr.write("heavy.sh: the caller is gone; leaving the queue: %s\n" % label)
-        sys.exit(1)
+    leave_if_caller_gone()
     head = oldest_live() == ticket
     if head:
         for i in range(1, slots + 1):
@@ -395,6 +414,8 @@ while True:
     # head still needs at its own interval, so the head should see a release first.
     time.sleep(min(poll, 0.1) if head else poll)
 
+# Admission can block (the pressure reader); check the caller once more right before the work starts.
+leave_if_caller_gone()
 leave_queue()
 env = dict(os.environ, CC_TUNER_HEAVY_HELD=",".join("slot-%d" % i for i in sorted(held)))
 try:

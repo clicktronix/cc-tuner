@@ -14,7 +14,7 @@ Delivers: on a 16 GB machine two weight-1 checks run side by side, a weight-2 e2
 - [x] `--weight w` holds w of the capacity's slots; capacity 2 runs two weight-1 checks together and a weight-2 check only when both slots are free
 - [x] unset `CC_TUNER_HEAVY_SLOTS` gives max(1, floor(total/8 GB)) (16 GB -> 2, 7 GB -> 1, 64 GB -> 8 via `CC_TUNER_HEAVY_TOTAL_MB`; Linux MemTotal rounded up to a GiB); a set value wins; `--slots` is a synonym; an overweight check is clamped with a note
 - [x] a weight-1 arrival does not start before a waiting weight-2 head; the head keeps slots it took
-- [x] a slot held by heavy.sh from 45795a7 blocks the new one, and a pre-change waiter does not overtake a weight-2 head
+- [x] a slot held by heavy.sh from 45795a7 blocks the new one; FIFO holds for queue-aware callers, and a pre-change waiter (no ticket) may overtake, which the head's fast poll makes rare
 - [x] a dead waiter's ticket does not block; a waiter whose parent died leaves the queue
 - [x] `heavy.sh status` shows capacity, holders with weight, and queued waiters with pid and age
 - [x] the existing passthrough, keeper, nested, interrupt and kill cases still pass; test_heavy_owner.py follows the new argv
