@@ -10,8 +10,9 @@ HEAVY="$FLOW_PLUGIN/scripts/heavy.sh"
 W="$(flow_workdir)"
 # The machine's RAM must not decide any case: capacity is derived from this seam (16 GB -> 2 slots)
 # unless a case sets CC_TUNER_HEAVY_SLOTS itself.
-export CC_TUNER_HEAVY_DIR="$W/slots" CC_TUNER_HEAVY_POLL=0.1 CC_TUNER_HEAVY_TOTAL_MB=16384
-unset CC_TUNER_HEAVY_HELD CC_TUNER_HEAVY_SLOTS CC_TUNER_HEAVY_PROC
+# Memory pressure is pinned to normal the same way: no case may depend on how loaded this machine is.
+export CC_TUNER_HEAVY_DIR="$W/slots" CC_TUNER_HEAVY_POLL=0.1 CC_TUNER_HEAVY_TOTAL_MB=16384 CC_TUNER_HEAVY_PRESSURE=normal
+unset CC_TUNER_HEAVY_HELD CC_TUNER_HEAVY_SLOTS CC_TUNER_HEAVY_PROC CC_TUNER_HEAVY_MEM_WAIT
 
 # until_logged <file> <marker>: wait until the work under test has started, instead of guessing a
 # delay (the supervisor's start-up time is not a constant).
@@ -344,6 +345,111 @@ touch "$W/a.release"; wait "$A"
 equals "orphaned-waiter-never-ran" "A-start A-end" "$(order)"
 until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
 
+
+# --- Memory pressure ----------------------------------------------------------------------------
+# The head of the queue holds its slots and waits while the OS reports pressure; the wait is bounded.
+rm -f "$W/slots/memory-deficit"
+for LEVEL in warn critical; do
+  : > "$LOG"
+  CC_TUNER_HEAVY_PRESSURE=$LEVEL CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" --label pressured -- sh -c "echo P-start >> '$LOG'" 2> "$W/p.err" &
+  P=$!
+  until_waiting_or_started "$W/p.err" "$LOG" P-start
+  sleep 0.3
+  equals "pressure-$LEVEL-head-does-not-start" "" "$(order)"
+  check "pressure-$LEVEL-says-what-it-waits-for" "waiting for memory pressure" "$(cat "$W/p.err")"
+  STATUS="$(CC_TUNER_HEAVY_PRESSURE=$LEVEL bash "$HEAVY" status)"
+  check "pressure-$LEVEL-shown-by-status" "memory pressure: $LEVEL" "$STATUS"
+  check "pressure-$LEVEL-head-keeps-its-slot" "pressured" "$STATUS"
+  kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
+done
+
+# A reading that turns normal lets the head start; the reason is printed once. Driven through the real
+# Linux reader on a fixture the test rewrites.
+mkdir -p "$W/linux/proc/pressure"
+psi() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n' "$1" > "$W/linux/proc/pressure/memory"; }
+linux_env() { env -u CC_TUNER_HEAVY_PRESSURE PATH="$W/linux/bin:$PATH" CC_TUNER_HEAVY_PROC="$W/linux/proc" "$@"; }
+: > "$LOG"; psi 25.00
+linux_env CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- sh -c "echo P-start >> '$LOG'" 2> "$W/p.err" &
+P=$!
+until_waiting_or_started "$W/p.err" "$LOG" P-start
+sleep 0.3
+equals "pressure-holds-the-head-while-high" "" "$(order)"
+psi 3.00
+until_logged "$LOG" P-start
+wait "$P"
+equals "pressure-gone-head-starts" "P-start" "$(order)"
+equals "pressure-reason-printed-once" "1" "$(grep -c 'waiting for memory pressure' "$W/p.err")"
+absent "pressure-gone-no-forced-line" "started under memory pressure" "$(cat "$W/p.err")"
+
+# Normal pressure does not wait or say anything; an unreadable signal starts and says so.
+OUT="$(bash "$HEAVY" -- echo normal-ran 2>&1)"
+check "normal-pressure-starts" "normal-ran" "$OUT"
+absent "normal-pressure-is-silent" "memory pressure" "$OUT"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=unknown bash "$HEAVY" -- echo unknown-ran 2>&1)"
+check "unreadable-pressure-starts" "unknown-ran" "$OUT"
+check "unreadable-pressure-says-so" "pressure not measured" "$OUT"
+
+# The wait honours the caller going away.
+: > "$LOG"
+CC_TUNER_HEAVY_PRESSURE=warn CC_TUNER_HEAVY_MEM_WAIT=60 sh -c "bash '$HEAVY' --label orphanpressure -- sh -c 'echo Y-start >> $LOG' 2> '$W/y.err' & echo \$! > '$W/y.pid'; wait" &
+P=$!
+until_waiting_or_started "$W/y.err" "$LOG" Y-start
+Y="$(cat "$W/y.pid")"
+kill -9 "$P"; wait "$P" 2>/dev/null
+n=0
+while kill -0 "$Y" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.05; n=$((n + 1)); done
+if kill -0 "$Y" 2>/dev/null; then fail "pressure-wait-honours-caller-gone"; kill -9 "$Y" 2>/dev/null; else pass "pressure-wait-honours-caller-gone"; fi
+check "pressure-wait-says-caller-gone" "the caller is gone" "$(cat "$W/y.err")"
+equals "pressure-wait-orphan-never-ran" "" "$(order)"
+
+# The readers parse what the OS prints. Linux: some avg10 >= 10 is pressure; a missing file is not measured.
+read_linux() { linux_env bash "$HEAVY" status | grep 'memory pressure'; }
+psi 0.00;  check "linux-psi-idle-is-normal" "memory pressure: normal" "$(read_linux)"
+psi 9.99;  check "linux-psi-9.99-is-normal" "memory pressure: normal" "$(read_linux)"
+psi 10.00; check "linux-psi-10-is-warn" "memory pressure: warn" "$(read_linux)"
+psi 52.31; check "linux-psi-high-is-warn" "memory pressure: warn" "$(read_linux)"
+rm -f "$W/linux/proc/pressure/memory"
+check "linux-psi-missing-is-not-measured" "memory pressure: not measured" "$(read_linux)"
+# macOS: kern.memorystatus_vm_pressure_level 1 normal, 2 warn, 4 critical.
+mkdir -p "$W/mac/bin"
+printf '#!/bin/sh\necho Darwin\n' > "$W/mac/bin/uname"; chmod +x "$W/mac/bin/uname"
+printf '#!/bin/sh\n[ "$2" = kern.memorystatus_vm_pressure_level ] || exit 1\necho "$FAKE_LEVEL"\n' > "$W/mac/bin/sysctl"; chmod +x "$W/mac/bin/sysctl"
+read_mac() { env -u CC_TUNER_HEAVY_PRESSURE PATH="$W/mac/bin:$PATH" FAKE_LEVEL="$1" bash "$HEAVY" status | grep 'memory pressure'; }
+check "macos-level-1-is-normal" "memory pressure: normal" "$(read_mac 1)"
+check "macos-level-2-is-warn" "memory pressure: warn" "$(read_mac 2)"
+check "macos-level-4-is-critical" "memory pressure: critical" "$(read_mac 4)"
+check "macos-unreadable-is-not-measured" "memory pressure: not measured" "$(read_mac '')"
+check "macos-unknown-level-is-not-measured" "memory pressure: not measured" "$(read_mac 3)"
+# The real reader on this machine returns a reading, not "not measured".
+if [ "$(uname -s)" = Darwin ] || [ -r /proc/pressure/memory ]; then
+  REAL="$(env -u CC_TUNER_HEAVY_PRESSURE bash "$HEAVY" status | grep 'memory pressure')"
+  case "$REAL" in *"memory pressure: "[a-z]*) ;; *) REAL="" ;; esac
+  case "$REAL" in *"not measured"*|"") fail "real-pressure-reader-measures-this-machine ($REAL)" ;; *) pass "real-pressure-reader-measures-this-machine" ;; esac
+fi
+
+# After CC_TUNER_HEAVY_MEM_WAIT the head starts anyway, says so, and leaves a deficit mark: checks that
+# arrive while it is live do not wait again. Both the mark and its end are visible in status.
+rm -f "$W/slots/memory-deficit"; : > "$LOG"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=4 bash "$HEAVY" -- sh -c "echo F-start >> '$LOG'" 2>&1)"
+check "forced-start-says-so" "heavy.sh: started under memory pressure after 4s" "$OUT"
+equals "forced-start-runs-the-command" "F-start" "$(order)"
+check "status-shows-deficit-mark" "memory deficit mark: active" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- echo next-ran 2>&1)"
+check "check-under-deficit-mark-starts" "next-ran" "$OUT"
+absent "check-under-deficit-mark-does-not-wait" "waiting" "$OUT"
+absent "check-under-deficit-mark-no-second-forced-line" "started under memory pressure" "$OUT"
+n=0
+while CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status | grep -q "deficit mark" && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+absent "deficit-mark-ends" "deficit mark" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
+: > "$LOG"
+CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- sh -c "echo R-start >> '$LOG'" 2> "$W/r.err" &
+P=$!
+until_waiting_or_started "$W/r.err" "$LOG" R-start
+sleep 0.3
+equals "expired-deficit-mark-waits-again" "" "$(order)"
+kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
+rm -f "$W/slots/memory-deficit"
+until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
 
 check "no-command-refused" "no command" "$(bash "$HEAVY" -- 2>&1)"
 check "bad-slots-refused" "positive integer" "$(bash "$HEAVY" --slots 0 -- true 2>&1)"

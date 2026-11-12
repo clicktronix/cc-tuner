@@ -28,6 +28,13 @@
 # pid: the kernel releases the lock when its last holder exits. A heavy.sh started inside a slot's
 # work runs inside that slot at once.
 #
+# Memory pressure: once it holds its slots, the head of the queue waits while the OS reports pressure
+# (macOS kern.memorystatus_vm_pressure_level warn/critical; Linux /proc/pressure/memory some avg10 >=
+# 10). The wait is bounded by CC_TUNER_HEAVY_MEM_WAIT; after it the command starts anyway, with the
+# line "heavy.sh: started under memory pressure after <n>s", and a deficit mark in the slot directory
+# lets checks in the next CC_TUNER_HEAVY_MEM_WAIT seconds start without waiting. A signal that cannot
+# be read starts the command and says "pressure not measured".
+#
 # What this bounds: concurrent heavy commands started through it. Not memory itself, not commands
 # that bypass it (a repository hook calling the test runner directly), and not a container that
 # keeps running after its start command returned.
@@ -35,8 +42,12 @@
 #   CC_TUNER_HEAVY_SLOTS     capacity in slots (default: RAM / 8 GB, at least 1)
 #   CC_TUNER_HEAVY_DIR       slot directory (default ~/.cache/cc-tuner/heavy)
 #   CC_TUNER_HEAVY_POLL      seconds between attempts while waiting (default 2)
+#   CC_TUNER_HEAVY_MEM_WAIT  seconds the head waits for pressure to clear, and how long the deficit
+#                            mark lasts (default 600)
 #   CC_TUNER_HEAVY_TOTAL_MB  RAM in MB instead of the machine's (macOS hw.memsize; Linux MemTotal
-#                            rounded up to a whole GiB); CC_TUNER_HEAVY_PROC replaces /proc
+#                            rounded up to a whole GiB); CC_TUNER_HEAVY_PROC replaces /proc;
+#                            CC_TUNER_HEAVY_PRESSURE (normal|warn|critical|unknown) replaces the
+#                            pressure reading
 #
 # Needs python3 for the lock; without it the command runs unslotted, and says so.
 # bash 3.2 compatible: macOS ships 3.2.57.
@@ -100,6 +111,8 @@ total_mb() {
   esac
 }
 
+case "${CC_TUNER_HEAVY_MEM_WAIT:-0}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_MEM_WAIT must be a number of seconds" ;; esac
+case "${CC_TUNER_HEAVY_PRESSURE:-normal}" in normal|warn|critical|unknown) ;; *) die "CC_TUNER_HEAVY_PRESSURE must be normal, warn, critical or unknown" ;; esac
 case "${CC_TUNER_HEAVY_TOTAL_MB:-}" in *[!0-9]*) die "CC_TUNER_HEAVY_TOTAL_MB must be a number of MB" ;; esac
 if [ -z "$SLOTS" ]; then
   MB="$(total_mb)"
@@ -119,6 +132,8 @@ from contextlib import contextmanager
 mode, d, slots, weight, poll, label = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
 cmd = sys.argv[7:]
 qdir = os.path.join(d, "queue")
+mem_wait = float(os.environ.get("CC_TUNER_HEAVY_MEM_WAIT") or 600)
+deficit_path = os.path.join(d, "memory-deficit")
 
 def lock_path(i): return os.path.join(d, "slot-%d.lock" % i)
 def owner_path(i): return os.path.join(d, "slot-%d.owner" % i)
@@ -253,9 +268,80 @@ def holders():
         out.append("  slot-%d: %s" % (i, who))
     return out
 
+def command_output(argv):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True).stdout.strip()
+    except OSError:
+        return ""
+
+def read_pressure():
+    # (level, detail) with level normal|warn|critical, or None when the signal cannot be read.
+    seam = os.environ.get("CC_TUNER_HEAVY_PRESSURE")
+    if seam:
+        return (seam, "CC_TUNER_HEAVY_PRESSURE") if seam in ("normal", "warn", "critical") else None
+    system = command_output(["uname", "-s"])
+    if system == "Darwin":
+        raw = command_output(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"])
+        level = {"1": "normal", "2": "warn", "4": "critical"}.get(raw)
+        return (level, "kern.memorystatus_vm_pressure_level=" + raw) if level else None
+    if system == "Linux":
+        try:
+            with open(os.path.join(os.environ.get("CC_TUNER_HEAVY_PROC", "/proc"), "pressure", "memory")) as f:
+                first = f.readline().split()
+            avg10 = float(next(x[6:] for x in first if x.startswith("avg10=")))
+        except (OSError, StopIteration, ValueError):
+            return None
+        if first[0] != "some":
+            return None
+        return ("warn" if avg10 >= 10 else "normal", "some avg10=%s" % avg10)
+    return None
+
+def deficit_left():
+    # Seconds the deficit mark has left; 0 when there is none or it ran out.
+    try:
+        with open(deficit_path) as f:
+            return max(0.0, float(f.read().strip()) - time.time())
+    except (OSError, ValueError):
+        return 0.0
+
+def write_deficit():
+    tmp = "%s.%d.tmp" % (deficit_path, os.getpid())
+    with open(tmp, "w") as f:
+        f.write("%f\n" % (time.time() + mem_wait))
+    os.replace(tmp, deficit_path)
+
+pressure_since = None
+
+def memory_allows_start():
+    # True: start now. False: the head keeps its slots and asks again after the next poll.
+    global pressure_since
+    if deficit_left() > 0:
+        return True
+    reading = read_pressure()
+    if reading is None:
+        sys.stderr.write("heavy.sh: memory pressure not measured; starting: %s\n" % label)
+        return True
+    level, detail = reading
+    if level == "normal":
+        return True
+    now = time.time()
+    if pressure_since is None:
+        pressure_since = now
+        sys.stderr.write("heavy.sh: waiting for memory pressure to ease (%s, %s), at most %ds; holding %d slot(s): %s\n"
+                         % (level, detail, mem_wait, weight, label))
+    if now - pressure_since >= mem_wait:
+        write_deficit()
+        sys.stderr.write("heavy.sh: started under memory pressure after %ds\n" % (now - pressure_since))
+        return True
+    return False
+
 if mode == "status":
     h = holders()
     print("heavy.sh: capacity %d%s" % (slots, "" if h else ", all slots free"))
+    reading = read_pressure()
+    print("  memory pressure: %s" % ("%s (%s)" % reading if reading else "not measured"))
+    if deficit_left() > 0:
+        print("  memory deficit mark: active, %ds left" % deficit_left())
     for line in h + queued():
         print(line)
     sys.exit(0)
@@ -293,7 +379,10 @@ while True:
                 notes[i] = "%s weight=%d supervisor=%d since=%s cwd=%s\n" % (label, weight, os.getpid(), time.strftime("%H:%M:%S"), os.getcwd())
                 write_owner(i, notes[i])
         if len(held) == weight:
-            break
+            if memory_allows_start():
+                break
+            time.sleep(poll)
+            continue
     if not said:
         want = "one" if weight == 1 else str(weight)
         sys.stderr.write("heavy.sh: waiting for %s of %d heavy-check slot(s); held by:\n%s\n" % (want, slots, "\n".join(holders())))

@@ -11,6 +11,8 @@ import time
 import unittest
 
 HEAVY = Path(__file__).resolve().parents[2] / 'scripts/heavy.sh'
+# The cases below are about owner publication, not about how loaded this machine is.
+os.environ.setdefault('CC_TUNER_HEAVY_PRESSURE', 'normal')
 
 
 def wait_for(path, process=None):
