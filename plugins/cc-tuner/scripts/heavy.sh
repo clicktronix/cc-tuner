@@ -32,7 +32,7 @@
 # (macOS kern.memorystatus_vm_pressure_level warn/critical; Linux /proc/pressure/memory some avg10 >=
 # 10). The wait is bounded by CC_TUNER_HEAVY_MEM_WAIT; after it the command starts anyway, with the
 # line "heavy.sh: started under memory pressure after <n>s", and a deficit mark in the slot directory
-# lets checks in the next CC_TUNER_HEAVY_MEM_WAIT seconds start without waiting. A signal that cannot
+# lets checks in the next 600 s start without waiting. A signal that cannot
 # be read starts the command and says "pressure not measured".
 #
 # What this bounds: concurrent heavy commands started through it. Not memory itself, not commands
@@ -42,12 +42,12 @@
 #   CC_TUNER_HEAVY_SLOTS     capacity in slots (default: RAM / 8 GB, at least 1)
 #   CC_TUNER_HEAVY_DIR       slot directory (default ~/.cache/cc-tuner/heavy)
 #   CC_TUNER_HEAVY_POLL      seconds between attempts while waiting (default 2)
-#   CC_TUNER_HEAVY_MEM_WAIT  seconds the head waits for pressure to clear, and how long the deficit
-#                            mark lasts (default 600)
+#   CC_TUNER_HEAVY_MEM_WAIT  seconds the head waits for pressure to clear (default 600)
 #   CC_TUNER_HEAVY_TOTAL_MB  RAM in MB instead of the machine's (macOS hw.memsize; Linux MemTotal
 #                            rounded up to a whole GiB); CC_TUNER_HEAVY_PROC replaces /proc;
 #                            CC_TUNER_HEAVY_PRESSURE (normal|warn|critical|unknown) replaces the
-#                            pressure reading
+#                            pressure reading; CC_TUNER_HEAVY_DEFICIT sets how long the deficit
+#                            mark lasts (default 600 s)
 #
 # Needs python3 for the lock; without it the command runs unslotted, and says so.
 # bash 3.2 compatible: macOS ships 3.2.57.
@@ -111,6 +111,7 @@ total_mb() {
   esac
 }
 
+case "${CC_TUNER_HEAVY_DEFICIT:-600}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_DEFICIT must be a number of seconds" ;; esac
 case "${CC_TUNER_HEAVY_MEM_WAIT:-600}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_MEM_WAIT must be a number of seconds" ;; esac
 case "${CC_TUNER_HEAVY_PRESSURE:-normal}" in normal|warn|critical|unknown) ;; *) die "CC_TUNER_HEAVY_PRESSURE must be normal, warn, critical or unknown" ;; esac
 case "${CC_TUNER_HEAVY_TOTAL_MB:-}" in *[!0-9]*) die "CC_TUNER_HEAVY_TOTAL_MB must be a number of MB" ;; esac
@@ -133,6 +134,7 @@ mode, d, slots, weight, poll, label = sys.argv[1], sys.argv[2], int(sys.argv[3])
 cmd = sys.argv[7:]
 qdir = os.path.join(d, "queue")
 mem_wait = float(os.environ.get("CC_TUNER_HEAVY_MEM_WAIT") or 600)
+deficit_ttl = float(os.environ.get("CC_TUNER_HEAVY_DEFICIT") or 600)
 deficit_path = os.path.join(d, "memory-deficit")
 
 def lock_path(i): return os.path.join(d, "slot-%d.lock" % i)
@@ -307,7 +309,7 @@ def deficit_left():
 def write_deficit():
     tmp = "%s.%d.tmp" % (deficit_path, os.getpid())
     with open(tmp, "w") as f:
-        f.write("%f\n" % (time.time() + mem_wait))
+        f.write("%f\n" % (time.time() + deficit_ttl))
     os.replace(tmp, deficit_path)
 
 pressure_since = None
@@ -382,7 +384,8 @@ while True:
         if len(held) == weight:
             if memory_allows_start():
                 break
-            time.sleep(poll)
+            # Never sleep past the bound: the forced start happens at CC_TUNER_HEAVY_MEM_WAIT.
+            time.sleep(max(0.01, min(poll, pressure_since + mem_wait - time.time())))
             continue
     if not said:
         want = "one" if weight == 1 else str(weight)

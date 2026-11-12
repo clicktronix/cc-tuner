@@ -452,7 +452,7 @@ fi
 # After CC_TUNER_HEAVY_MEM_WAIT the head starts anyway, says so, and leaves a deficit mark: checks that
 # arrive while it is live do not wait again. Both the mark and its end are visible in status.
 rm -f "$W/slots/memory-deficit"; : > "$LOG"
-OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=4 bash "$HEAVY" -- sh -c "echo F-start >> '$LOG'" 2>&1)"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=4 CC_TUNER_HEAVY_DEFICIT=6 bash "$HEAVY" -- sh -c "echo F-start >> '$LOG'" 2>&1)"
 check "forced-start-says-so" "heavy.sh: started under memory pressure after 4s" "$OUT"
 equals "forced-start-runs-the-command" "F-start" "$(order)"
 check "status-shows-deficit-mark" "memory deficit mark: active" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
@@ -472,6 +472,22 @@ equals "expired-deficit-mark-waits-again" "" "$(order)"
 kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
 rm -f "$W/slots/memory-deficit"
 until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
+
+# The deficit mark lasts 600 s whatever the wait bound was: a 1 s bound still leaves the next ten
+# minutes free of pressure waits.
+CC_TUNER_HEAVY_PRESSURE=warn CC_TUNER_HEAVY_MEM_WAIT=1 bash "$HEAVY" -- true 2>/dev/null
+LEFT="$(CC_TUNER_HEAVY_PRESSURE=warn bash "$HEAVY" status | sed -n 's/.*deficit mark: active, \([0-9]*\)s left.*/\1/p')"
+if [ -n "$LEFT" ] && [ "$LEFT" -gt 590 ]; then pass "deficit-mark-lasts-600s"; else fail "deficit-mark-lasts-600s (left: '$LEFT')"; fi
+rm -f "$W/slots/memory-deficit"
+
+# The bound is kept even when the poll interval is longer than the time left.
+T0=$(python3 -c 'import time; print(time.time())')
+OUT="$(CC_TUNER_HEAVY_POLL=3 CC_TUNER_HEAVY_PRESSURE=warn CC_TUNER_HEAVY_MEM_WAIT=1 bash "$HEAVY" -- true 2>&1)"
+T1=$(python3 -c 'import time; print(time.time())')
+check "forced-start-at-the-bound" "started under memory pressure after 1s" "$OUT"
+if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 2.5 else 1)"; then pass "pressure-wait-keeps-its-bound"
+else fail "pressure-wait-keeps-its-bound (took $(python3 -c "print(round($T1 - $T0, 2))")s)"; fi
+rm -f "$W/slots/memory-deficit"
 
 check "no-command-refused" "no command" "$(bash "$HEAVY" -- 2>&1)"
 check "bad-slots-refused" "positive integer" "$(bash "$HEAVY" --slots 0 -- true 2>&1)"
