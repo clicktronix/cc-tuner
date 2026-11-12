@@ -9,7 +9,7 @@
 - [x] Scope: <owned modules and consumers>; out of scope: <boundaries>
 - [x] Acceptance: every criterion below has a deciding check
 - [x] Test plan: commands, expected first failure, environment, and data are explicit
-- [x] Delivery: each repository's branch, PR, target, tracker, and CI source are explicit
+- [x] Delivery: each repository's branch, PR or MR, target, host, tracker, and CI source are explicit
 
 ## Acceptance criteria
 - [ ] [machine] <criterion> — checked by: <exact command or MCP step>
@@ -25,25 +25,26 @@
 - Negative/mutation proof (name what the killed test must SAY, not only that it goes red): <how the test is shown to fail without the fix>
 
 ## Definition of Done
-Recorded on the PR before merge, not ticked here (it would move the reviewed SHA).
+Recorded before merge where the host keeps records (PR comment, MR note, git note), not ticked here (it would move the reviewed SHA).
 - Regression check was observed failing for the expected reason before the fix
 - Targeted, full, static/build, runtime, and acceptance checks passed as specified; verify-feature's
-  record is on the PR
+  record is published where the route puts records
 - Complete diff and formatter/autofix output were read; no unexplained files remain
 - One advisory route ran (with at most one escalation to deep-review); valid findings were addressed
   or concretely refuted; the required review `review:` names approved the exact candidate SHA
-- PR head equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares
+- The head of the PR, MR or, with no remote, the branch equals the reviewed SHA, and CI is green on that SHA under the mode `ci:` declares
   (`../run/references/local-ci.md`)
 
 ## Completion and reconciliation
 Reported after merge, not committed.
-- PR is merged with the configured method
+- The PR or MR is merged with the configured method (with no remote, the branch is fast-forwarded into the target)
 - Spec/archive, issue/board, target sync, branches, and worktrees are reconciled
 
 ## Run config
 branch: <current task branch>
 target: <integration branch>
-merge: squash|merge
+host: github|gitlab|local|other — from scripts/setup/host.sh; github delivers through merge.sh, the others through /run's route
+merge: squash|merge|ff — ff only with host: local
 second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <contribution,
     prerequisites, merge order and why>. Omit for one repository; see ../run/references/shared-task.md
 shared-task: <primary repository, branch and spec path>. Only in the companion spec
@@ -51,11 +52,11 @@ auto_ready: yes|no — <reason when no>
 ci: <mode> — <the checks, and how to observe them>
     mode is required (default), any, or none:<reason>; ../run/references/local-ci.md owns what each
     means and what `none` must record
-review: codex|none:<reason> — codex when cc-codex-triage reviews this repository (merge.sh then
-    requires its exact-candidate approval); none records why no second-provider review is required
+review: codex|none:<reason> — codex when cc-codex-triage reviews this repository (merge.sh or the route
+    then requires its exact-candidate approval); none records why no second-provider review is required
 target_test: <exact command>
 full_test: <exact command>
 full_test_cadence: per-candidate|per-batch — per-candidate by default; per-batch for a full suite
     cheap enough to run after every integrated batch. ../run/SKILL.md (Test cadence) owns what each means
-tracker: gh|none — gh when the repository tracks work in GitHub issues; none makes this spec the record
+tracker: gh|glab|local|other|none — from docs/agents/issue-tracker.md (gh GitHub issues, glab GitLab issues, local markdown files, other as that file describes); none makes this spec the record
 board: <project title + owner | none>

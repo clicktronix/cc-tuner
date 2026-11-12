@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Which installation of a plugin applies to THIS repository?
 #
-#   plugin-here.sh <plugin-id> [project-root]
+#   plugin-here.sh [--with-disabled] <plugin-id> [project-root]
 #
 # Prints exactly ONE row -- the installation that applies -- tab separated:
 #
@@ -33,12 +33,22 @@
 # `enabled: false` is excluded. A disabled plugin does not load its commands, so a check that reports
 # it as present greenlights a run whose gate will never fire.
 #
+# `--with-disabled` keeps disabled rows and prints a fourth column, `enabled` or `disabled`, so a caller
+# can tell "disabled here" (`/plugin enable`) from "absent" (install). The scope rule is the same one,
+# project path included -- a disabled install belonging to another project is not this repository's to
+# enable. Enabled rows still come first: an applicable enabled install answers exactly as it does without
+# the flag, and a disabled row answers only when no enabled one applies, so the two modes can never
+# disagree about whether the plugin is installed. Without the flag the output is unchanged.
+#
 # CC_TUNER_PLUGIN_LIST_CMD overrides the source command, which is how the tests install a fixture.
 # bash 3.2 compatible: macOS ships 3.2.57.
 set -u
 
+WITH_DISABLED=""
+if [ "${1:-}" = "--with-disabled" ]; then WITH_DISABLED=1; shift; fi
+
 ID="${1:-}"
-[ -n "$ID" ] || { printf 'plugin-here: usage: plugin-here.sh <plugin-id> [project-root]\n' >&2; exit 2; }
+[ -n "$ID" ] || { printf 'plugin-here: usage: plugin-here.sh [--with-disabled] <plugin-id> [project-root]\n' >&2; exit 2; }
 
 PROJECT="${2:-}"
 if [ -z "$PROJECT" ]; then
@@ -67,10 +77,12 @@ LIST="$(${CC_TUNER_PLUGIN_LIST_CMD:-claude plugin list --json} 2>/dev/null)" || 
 # Candidates in precedence order, scope filtering left to the walk. `// ""` on every field, never
 # `// empty`: inside an array constructor `empty` DELETES the element rather than yielding a blank
 # one, so a row with no installPath emitted three columns instead of four and every reader shifted.
-CANDIDATES="$(printf '%s' "$LIST" | jq -r --arg id "$ID" '
-  [ .[]? | select(.id == $id and (.enabled != false)) ]
-  | sort_by(if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end)
-  | .[] | [ (.installPath // ""), (.version // ""), (.scope // ""), (.projectPath // "") ] | @tsv
+CANDIDATES="$(printf '%s' "$LIST" | jq -r --arg id "$ID" --arg all "$WITH_DISABLED" '
+  [ .[]? | select(.id == $id and ($all != "" or .enabled != false)) ]
+  | sort_by([ (if .enabled == false then 1 else 0 end),
+              (if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end) ])
+  | .[] | [ (.installPath // ""), (.version // ""), (.scope // ""), (.projectPath // ""),
+            (if .enabled == false then "disabled" else "enabled" end) ] | @tsv
 ' 2>/dev/null)" || {
   printf 'plugin-here: could not read the installed-plugin list\n' >&2; exit 2
 }
@@ -81,7 +93,8 @@ while IFS= read -r row; do
   # shifts the rest left, because tab is one of the default IFS whitespace characters.
   path="${row%%	*}";  rest="${row#*	}"
   ver="${rest%%	*}";  rest="${rest#*	}"
-  scope="${rest%%	*}"; ppath="${rest#*	}"
+  scope="${rest%%	*}"; rest="${rest#*	}"
+  ppath="${rest%%	*}"; state="${rest#*	}"
 
   case "$scope" in
     user) ;;
@@ -96,7 +109,11 @@ while IFS= read -r row; do
     *) continue ;;
   esac
 
-  printf '%s\t%s\t%s\n' "$path" "$ver" "$scope"
+  if [ -n "$WITH_DISABLED" ]; then
+    printf '%s\t%s\t%s\t%s\n' "$path" "$ver" "$scope" "$state"
+  else
+    printf '%s\t%s\t%s\n' "$path" "$ver" "$scope"
+  fi
   exit 0
 done <<EOF
 $CANDIDATES

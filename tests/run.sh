@@ -26,7 +26,12 @@ for t in "$PLUGIN"/tests/*/test_*.sh; do
     ok "$rel"
   else
     bad "$rel"
-    printf '%s\n' "$out" | grep -i '^FAIL' | sed 's/^/       /'
+    if printf '%s\n' "$out" | grep -qi '^FAIL'; then
+      printf '%s\n' "$out" | grep -i '^FAIL' | sed 's/^/       /'
+    else
+      # A fixture exception can exit before its assertion helper prints FAIL.
+      printf '%s\n' "$out" | tail -n 30 | sed 's/^/       /'
+    fi
   fi
 done
 [ "$suites" -gt 0 ] || bad "no test suites found under plugins/cc-tuner/tests/"

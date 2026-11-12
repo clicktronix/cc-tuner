@@ -81,6 +81,12 @@ equals "native-path-exits-0"       "0"      "$STATUSLINE_RC"
 absent "native-path-skips-python3" "python3" "$(cat "$E1/stub-called" 2>/dev/null)"
 absent "native-path-skips-curl"    "curl"    "$(cat "$E1/stub-called" 2>/dev/null)"
 
+# Byte-oriented locales must still emit complete UTF-8 glyphs, as on GNU tr.
+LC_ALL=C run_statusline "$E1" "$PAYLOAD1"
+check "byte-locale-five-hour-bar" "5h:66%[▓▓▓▓▓░░░]" "$STATUSLINE_OUT"
+check "byte-locale-seven-day-bar" "7d:9%[▓░░░░░░░]" "$STATUSLINE_OUT"
+check "byte-locale-context-bar" "ctx:42% [▓▓▓▓░░░░░░]" "$STATUSLINE_OUT"
+
 # --- case 2: no rate_limits at all, and the OAuth fallback fails -> segment is dropped,
 # exit is still 0, and the rest of the line still renders ---
 E2="$(stub_env)"
@@ -115,5 +121,36 @@ run_statusline "$E3" "$PAYLOAD3"; OUT3="$STATUSLINE_OUT"
 check  "partial-native-five-hour-renders" "5h:66%" "$OUT3"
 absent "partial-native-seven-day-absent"  "7d:"    "$OUT3"
 equals "partial-native-exits-0"           "0"      "$STATUSLINE_RC"
+
+
+# --- case 4: the OAuth fallback reads credentials of the active profile only ---
+# macOS keeps the default profile's token in the Keychain entry `Claude Code-credentials`. A session on
+# another CLAUDE_CONFIG_DIR must not read it: that would show the default account's usage. Real python3
+# runs here; `security` is a stub that records the call and returns no token, so nothing reaches the
+# network in either case.
+keychain_env() { # keychain_env -> envdir with real python3 and a recording `security`
+  local d; d="$(stub_env)"
+  ln -sf "$(command -v python3)" "$d/bin/python3"
+  printf '#!/bin/sh\necho security >> "$STUB_MARKER"\nexit 44\n' > "$d/bin/security"; chmod +x "$d/bin/security"
+  printf '%s' "$d"
+}
+run_profile() { # run_profile <envdir> <config-dir> <payload>
+  STUB_MARKER="$1/stub-called" HOME="$1/home" CLAUDE_CONFIG_DIR="$2" TMPDIR="$1/tmp" \
+    PATH="$1/bin:/usr/bin:/bin" bash "$SCRIPT" <<<"$3" >/dev/null 2>&1
+}
+E4="$(keychain_env)"; mkdir -p "$E4/profile b"
+run_profile "$E4" "$E4/profile b" "$PAYLOAD2"
+if grep -qx security "$E4/stub-called" 2>/dev/null; then
+  echo "FAIL custom-profile-skips-default-keychain"; fails=$((fails+1))
+else
+  echo "PASS custom-profile-skips-default-keychain"
+fi
+E5="$(keychain_env)"
+run_profile "$E5" "$E5/home/.claude" "$PAYLOAD2"
+if grep -qx security "$E5/stub-called" 2>/dev/null; then
+  echo "PASS default-profile-reads-keychain"
+else
+  echo "FAIL default-profile-reads-keychain"; fails=$((fails+1))
+fi
 
 exit $fails

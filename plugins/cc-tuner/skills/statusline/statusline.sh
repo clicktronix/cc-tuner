@@ -118,9 +118,11 @@ make_bar() {
   [ "$filled" -gt "$len" ] && filled=$len
   local empty_count=$(( len - filled ))
 
+  # Append whole glyphs: GNU tr replaces bytes and corrupts multibyte symbols.
+  local i
   bar_result=""
-  [ "$filled" -gt 0 ] && bar_result=$(printf "%${filled}s" | tr ' ' '▓')
-  [ "$empty_count" -gt 0 ] && bar_result="${bar_result}$(printf "%${empty_count}s" | tr ' ' '░')"
+  for ((i = 0; i < filled; i++)); do bar_result="${bar_result}▓"; done
+  for ((i = 0; i < empty_count; i++)); do bar_result="${bar_result}░"; done
 }
 
 # Coerce a "66.6"-style utilization into a safe integer percent.
@@ -204,8 +206,13 @@ import json, urllib.request, urllib.error, sys, subprocess, re, codecs, os, shut
 from datetime import datetime
 
 def get_token():
+    # The Keychain entry belongs to the default profile; another CLAUDE_CONFIG_DIR reads only its own
+    # credentials file, and no token means no usage segment rather than another account's usage.
+    default_cfg = os.path.join(os.path.expanduser('~'), '.claude')
+    cfg = os.environ.get('CLAUDE_CONFIG_DIR') or default_cfg
+    custom = os.path.realpath(cfg) != os.path.realpath(default_cfg)
     # macOS: Keychain
-    if shutil.which('security'):
+    if not custom and shutil.which('security'):
         try:
             r = subprocess.run(
                 ['security', 'find-generic-password', '-s', 'Claude Code-credentials', '-w'],
@@ -224,8 +231,7 @@ def get_token():
                         pass
         except Exception:
             pass
-    # Linux / Windows: credentials file (honors CLAUDE_CONFIG_DIR)
-    cfg = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(os.path.expanduser('~'), '.claude')
+    # Linux / Windows, or a custom profile: its credentials file
     try:
         with open(os.path.join(cfg, '.credentials.json')) as f:
             return json.load(f)['claudeAiOauth']['accessToken']

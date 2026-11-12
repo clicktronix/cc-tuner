@@ -3,11 +3,7 @@
 Procedure for the **task-flow rule** node of `/cc-tuner:setup`. Claude Code plugins cannot ship
 `.claude/rules/*`, so the canonical rule is written into the repository from the plugin's template.
 
-**Shell state does not persist between Bash calls.** Claude Code keeps the working directory but
-NOT shell variables across separate Bash invocations — and the confirmation prompts in branches 4/5
-below guarantee the flow splits into separate calls. Re-run the **Locate** block at the start of
-every Bash invocation that references `$SRC` / `$ROOT` / `$DEST` / `$LOCAL` / `$RENDERED`: it is
-read-only and idempotent, so re-running it is always safe and never optional after a prompt.
+Rerun **Locate** at the start of each Bash call; shell variables do not persist between calls.
 
 **Run the steps in the order they are numbered.**
 
@@ -20,11 +16,10 @@ read-only and idempotent, so re-running it is always safe and never optional aft
 
 ## Locate the template and the repo
 
+Run the **Plugin root** block from [SKILL.md](../SKILL.md#plugin-root) first, in the same Bash call, then:
+
 ```bash
-SRC="${CLAUDE_PLUGIN_ROOT:-}/assets/task-flow/rule.template.md"
-if [ ! -f "$SRC" ]; then
-  SRC=$(find "$HOME/.claude/plugins" -path '*/cc-tuner/assets/task-flow/rule.template.md' 2>/dev/null | sort | tail -1)
-fi
+SRC="$PLUGIN/assets/task-flow/rule.template.md"
 [ -f "$SRC" ] || { echo "Could not locate rule.template.md — is cc-tuner installed?"; exit 1; }
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git repository"; exit 1; }
 DEST="$ROOT/.claude/rules/task-flow.md"
@@ -90,18 +85,17 @@ The template carries no substitution tokens; it installs verbatim.
    would echo "Created" even when the file already exists):
    ```bash
    if [ ! -f "$LOCAL" ]; then
-     if printf '%s\n' \
-       "# task-flow — repo-specific deltas" \
-       "" \
-       "<!-- Overrides and additions to task-flow.md live here; setup never touches this file." \
-       "     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->" \
-       > "$LOCAL"; then
+     if { printf '%s\n' "# task-flow — repo-specific deltas" "" &&
+          bash "$PLUGIN/scripts/setup/route.sh" header; } > "$LOCAL"; then
        echo "Created $LOCAL (edit it for repo-specific deltas)"
      else
        rm -f "$LOCAL"; echo "ERROR: failed to write $LOCAL"; exit 1
      fi
    fi
    ```
+   If the companions node declined `cc-codex-triage` in this run while `$LOCAL` did not yet exist, its
+   decision was held for this step: now that the file exists, run the **Record the decline** block of
+   [companions.md](companions.md#record-the-decline).
 7. **Legacy cleanup.** Remove the superseded `git-flow.md` — but only once `$DEST` is actually in
    place, so an aborted install never strips a repo of its only rule file. Two files both claiming
    to govern branches is worse than either one alone:

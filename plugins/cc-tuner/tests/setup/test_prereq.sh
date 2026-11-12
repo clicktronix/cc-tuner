@@ -50,8 +50,26 @@ codex_root() {  # codex_root <dir> [broken: review|state]
 n=0
 as_list() { n=$((n + 1)); printf '%s' "$1" > "$W/list.$n.json"; printf 'cat %s' "$W/list.$n.json"; }
 
-run_with() { CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$1")" \
-             CLAUDE_PROJECT_DIR="$PROJECT" bash "$S" 2>&1; }
+# `codex login status` decides whether cc-codex-triage is needed at all, so every run gets a codex of a
+# known state first on PATH instead of whatever this machine has. CODEX_BIN is the one that is logged
+# in; the cases that need another state pass their own PATH.
+mkcodex() { mkdir -p "$W/$1"; printf '#!/bin/sh\nif [ "$1" = login ]; then\n  [ %s -eq 0 ] && echo "Logged in using ChatGPT"\n  exit %s\nfi\nexit 0\n' "$2" "$2" > "$W/$1/codex"; chmod +x "$W/$1/codex"; }
+mkcodex codex-in 0; mkcodex codex-out 1
+CODEX_BIN="$W/codex-in"
+# A PATH with the utilities the scripts use and no codex at all.
+NOCODEX="$W/nocodex-bin"; mkdir -p "$NOCODEX"
+for u in bash git jq cut find head grep dirname cat sed tr; do ln -s "$(command -v "$u")" "$NOCODEX/$u"; done
+# `claude plugin marketplace list --json`, through the seam the product reads.
+as_mkt() { n=$((n + 1)); printf '%s' "$1" > "$W/mkt.$n.json"; printf 'cat %s' "$W/mkt.$n.json"; }
+MKT_NONE="$(as_mkt '[]')"
+
+# Every run is on an isolated PATH: a logged-in codex stub and the utilities the scripts use, never the
+# developer's own PATH, where a real `codex` would decide what is reported. RUN_PROJECT overrides the repo.
+ISOLATED="$CODEX_BIN:$NOCODEX"
+run_on() { # run_on <PATH> <plugin list json> [marketplace list json]
+  CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$2")" CC_TUNER_MARKETPLACE_LIST_CMD="$(as_mkt "${3:-[]}")" \
+    CLAUDE_PROJECT_DIR="${RUN_PROJECT:-$PROJECT}" PATH="$1" /bin/bash "$S" 2>&1; }
+run_with() { run_on "$ISOLATED" "$1" "[]"; }
 
 rows() {  # rows <matt-root> <codex-root> [scope] [projectPath]
   jq -nc --arg m "$1" --arg c "$2" --arg scope "${3:-user}" --arg pp "${4:-}" '
@@ -107,6 +125,10 @@ DISABLED="$(jq -nc --arg m "$M" --arg c "$C" '
 OUT="$(run_with "$DISABLED")"
 case "$OUT" in *mattpocock-skills*) pass "disabled-plugin-is-not-installed" ;;
                *) fail "disabled-plugin-is-not-installed ($OUT)" ;; esac
+# A disabled copy needs `enable`; `install` would be the wrong fix, and a marketplace add worse.
+case "$OUT" in *"/plugin enable mattpocock-skills@mattpocock"*) pass "disabled-plugin-gets-the-enable-hint" ;;
+               *) fail "disabled-plugin-gets-the-enable-hint ($OUT)" ;; esac
+case "$OUT" in *"/plugin install"*|*"marketplace add"*) fail "disabled-plugin-no-install-hint ($OUT)" ;; *) pass "disabled-plugin-no-install-hint" ;; esac
 
 # --- scope ----------------------------------------------------------------------------------------
 OUT="$(run_with "$(rows "$M" "$C" project "$PROJECT")")"
@@ -119,7 +141,7 @@ case "$OUT" in *mattpocock-skills*) pass "foreign-project-scope-fails-closed" ;;
 # --- unanswerable is its own answer ---------------------------------------------------------------
 # Reporting "not installed" when the real problem is a missing jq sends someone to reinstall a plugin
 # they already have.
-OUT="$(CC_TUNER_PLUGIN_LIST_CMD=false CLAUDE_PROJECT_DIR="$PROJECT" bash "$S" 2>&1)"; rc=$?
+OUT="$(CC_TUNER_PLUGIN_LIST_CMD=false CC_TUNER_MARKETPLACE_LIST_CMD="$MKT_NONE" CLAUDE_PROJECT_DIR="$PROJECT" PATH="$ISOLATED" /bin/bash "$S" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && case "$OUT" in *"prerequisites are unknown"*) true ;; *) false ;; esac; } \
   && pass "unlistable-is-reported-as-unknown" || fail "unlistable-is-reported-as-unknown (rc=$rc $OUT)"
 
@@ -192,7 +214,7 @@ if ln -s "$REAL_REPO" "$LINK_REPO" 2>/dev/null; then
       {id:"cc-codex-triage@cc-codex-triage", version:"1", scope:"user", enabled:true, installPath:$c} ]')"
   # Entered through the symlink, so `git rev-parse --show-toplevel` hands prereq-check the physical
   # path while the recorded projectPath is the symlinked spelling -- the production shape exactly.
-  OUT="$(cd "$LINK_REPO" && CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$LEX")" bash "$S" 2>&1)"
+  OUT="$(cd "$LINK_REPO" && CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$LEX")" CC_TUNER_MARKETPLACE_LIST_CMD="$MKT_NONE" PATH="$ISOLATED" /bin/bash "$S" 2>&1)"
   case "$OUT" in *code-review*) pass "non-canonical-projectPath-still-selects-the-local-install" ;;
                  *) fail "non-canonical-projectPath-still-selects-the-local-install ($OUT)" ;; esac
 else
@@ -212,5 +234,88 @@ MASKED="$(jq -nc --arg t "$BROKEN_TOP" --arg b "$COMPLETE_BELOW" --arg c "$C" --
 OUT="$(run_with "$MASKED")"
 case "$OUT" in *code-review*) pass "lower-install-cannot-mask-a-broken-top-one" ;;
                *) fail "lower-install-cannot-mask-a-broken-top-one ($OUT)" ;; esac
+
+# --- codex decides whether cc-codex-triage is required --------------------------------------------
+# Without a usable codex the review bridge cannot run, so a missing plugin is a NOTE (specs use
+# `review: none:<reason>`), not a blocker -- and a complete mattpocock-skills still passes.
+ONLY_MATT="$(jq -nc --arg m "$M" '[ {id:"mattpocock-skills@mattpocock", version:"1.0.0", scope:"user", enabled:true, installPath:$m} ]')"
+OUT="$(run_on "$NOCODEX" "$ONLY_MATT")"; rc=$?
+{ [ "$rc" -eq 0 ] && case "$OUT" in *"prereqs OK"*) true ;; *) false ;; esac; } \
+  && pass "codex-absent-passes-without-triage" || fail "codex-absent-passes-without-triage (rc=$rc $OUT)"
+case "$OUT" in *"NOTE: cc-codex-triage"*"review: none:"*) pass "codex-absent-is-a-note" ;; *) fail "codex-absent-is-a-note ($OUT)" ;; esac
+case "$OUT" in *MISSING*) fail "codex-absent-no-missing ($OUT)" ;; *) pass "codex-absent-no-missing" ;; esac
+
+mkdir -p "$W/out-bin"; cp "$W/codex-out/codex" "$W/out-bin/codex"
+OUT="$(run_on "$W/out-bin:$NOCODEX" "$ONLY_MATT")"; rc=$?
+{ [ "$rc" -eq 0 ] && case "$OUT" in *"prereqs OK"*) true ;; *) false ;; esac; } \
+  && pass "codex-not-logged-in-passes-without-triage" || fail "codex-not-logged-in-passes-without-triage (rc=$rc $OUT)"
+case "$OUT" in *"NOTE: cc-codex-triage"*"codex login"*) pass "codex-not-logged-in-names-login" ;; *) fail "codex-not-logged-in-names-login ($OUT)" ;; esac
+
+# the NOTE must not hide a real blocker: matt missing still fails
+OUT="$(run_on "$NOCODEX" '[]')"; rc=$?
+{ [ "$rc" -eq 1 ] && case "$OUT" in *"MISSING: mattpocock-skills"*"NOTE: cc-codex-triage"*|*"NOTE: cc-codex-triage"*"MISSING: mattpocock-skills"*) true ;; *) false ;; esac; } \
+  && pass "codex-absent-does-not-hide-matt" || fail "codex-absent-does-not-hide-matt (rc=$rc $OUT)"
+
+# --- logged-in codex, triage absent: MISSING, with the install command the marketplace calls for ---
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" "$ONLY_MATT")"; rc=$?
+[ "$rc" -eq 1 ] && pass "codex-ready-triage-absent-fails" || fail "codex-ready-triage-absent-fails (rc=$rc $OUT)"
+case "$OUT" in *"/plugin marketplace add clicktronix/cc-codex-triage"*"/plugin install cc-codex-triage@cc-codex-triage"*) pass "triage-absent-adds-marketplace" ;;
+               *) fail "triage-absent-adds-marketplace ($OUT)" ;; esac
+case "$OUT" in *"marketplace update"*) fail "triage-absent-no-update-hint ($OUT)" ;; *) pass "triage-absent-no-update-hint" ;; esac
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" "$ONLY_MATT" '[{"installLocation":"/x/ct","name":"cc-codex-triage","repo":"clicktronix/cc-codex-triage","source":"github"}]')"
+case "$OUT" in *"/plugin install cc-codex-triage@cc-codex-triage"*) pass "triage-marketplace-configured-installs" ;; *) fail "triage-marketplace-configured-installs ($OUT)" ;; esac
+case "$OUT" in *"marketplace add clicktronix"*|*"marketplace update"*) fail "triage-marketplace-configured-no-add ($OUT)" ;; *) pass "triage-marketplace-configured-no-add" ;; esac
+
+# an installed copy that lacks the contract is the only case for `update`
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" "$(rows "$M" "$(codex_root codex-stale state)")")"
+case "$OUT" in *"/plugin marketplace update cc-codex-triage"*"/plugin update cc-codex-triage@cc-codex-triage"*) pass "triage-stale-gets-update" ;; *) fail "triage-stale-gets-update ($OUT)" ;; esac
+case "$OUT" in *"marketplace add"*) fail "triage-stale-no-add ($OUT)" ;; *) pass "triage-stale-no-add" ;; esac
+
+# --- mattpocock-skills: same split between not installed and installed-but-incomplete -------------
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" '[]')"
+case "$OUT" in *"/plugin marketplace add mattpocock/skills"*"/plugin install mattpocock-skills@mattpocock"*) pass "matt-absent-adds-marketplace" ;; *) fail "matt-absent-adds-marketplace ($OUT)" ;; esac
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" '[]' '[{"installLocation":"/x/m","name":"mattpocock","repo":"mattpocock/skills","source":"github"}]')"
+case "$OUT" in *"/plugin install mattpocock-skills@mattpocock"*) pass "matt-marketplace-configured-installs" ;; *) fail "matt-marketplace-configured-installs ($OUT)" ;; esac
+case "$OUT" in *"marketplace add mattpocock"*) fail "matt-marketplace-configured-no-add ($OUT)" ;; *) pass "matt-marketplace-configured-no-add" ;; esac
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" "$(rows "$(matt_root matt-incomplete engineering/code-review)" "$C")")"
+case "$OUT" in *"/plugin marketplace update mattpocock"*"/plugin update mattpocock-skills@mattpocock"*) pass "matt-incomplete-gets-update" ;; *) fail "matt-incomplete-gets-update ($OUT)" ;; esac
+case "$OUT" in *"marketplace add"*) fail "matt-incomplete-no-add ($OUT)" ;; *) pass "matt-incomplete-no-add" ;; esac
+
+# --- a same-named marketplace from another repository is a stop naming both sources -----------------
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" '[]' '[{"installLocation":"/x/m","name":"mattpocock","repo":"someone-else/skills","source":"github"}]')"; rc=$?
+[ "$rc" -eq 1 ] && pass "matt-marketplace-conflict-fails" || fail "matt-marketplace-conflict-fails (rc=$rc)"
+case "$OUT" in *"MISSING: mattpocock-skills"*) pass "matt-marketplace-conflict-is-missing" ;; *) fail "matt-marketplace-conflict-is-missing ($OUT)" ;; esac
+case "$OUT" in *"someone-else/skills"*"expected mattpocock/skills"*) pass "matt-marketplace-conflict-names-both-sources" ;; *) fail "matt-marketplace-conflict-names-both-sources ($OUT)" ;; esac
+case "$OUT" in *"/plugin install mattpocock-skills"*) fail "matt-marketplace-conflict-no-install ($OUT)" ;; *) pass "matt-marketplace-conflict-no-install" ;; esac
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" "$ONLY_MATT" '[{"installLocation":"/x/m","name":"cc-codex-triage","repo":"someone-else/triage","source":"github"}]')"; rc=$?
+[ "$rc" -eq 1 ] && pass "triage-marketplace-conflict-fails" || fail "triage-marketplace-conflict-fails (rc=$rc)"
+case "$OUT" in *"someone-else/triage"*"expected clicktronix/cc-codex-triage"*) pass "triage-marketplace-conflict-names-both-sources" ;; *) fail "triage-marketplace-conflict-names-both-sources ($OUT)" ;; esac
+case "$OUT" in *"/plugin install cc-codex-triage"*) fail "triage-marketplace-conflict-no-install ($OUT)" ;; *) pass "triage-marketplace-conflict-no-install" ;; esac
+
+# --- a disabled cc-codex-triage with a usable codex gets the enable hint ------------------------------
+TRIAGE_OFF="$(jq -nc --arg m "$M" --arg c "$C" '
+  [ {id:"mattpocock-skills@mattpocock", version:"1.0.0", scope:"user", enabled:true, installPath:$m},
+    {id:"cc-codex-triage@cc-codex-triage", version:"1.0.0", scope:"user", enabled:false, installPath:$c} ]')"
+OUT="$(run_on "$CODEX_BIN:$NOCODEX" "$TRIAGE_OFF")"; rc=$?
+[ "$rc" -eq 1 ] && pass "triage-disabled-fails" || fail "triage-disabled-fails (rc=$rc)"
+case "$OUT" in *"/plugin enable cc-codex-triage@cc-codex-triage"*) pass "triage-disabled-gets-the-enable-hint" ;; *) fail "triage-disabled-gets-the-enable-hint ($OUT)" ;; esac
+case "$OUT" in *"/plugin install cc-codex-triage"*|*"marketplace add"*) fail "triage-disabled-no-install-hint ($OUT)" ;; *) pass "triage-disabled-no-install-hint" ;; esac
+
+# --- a repository that declined Codex review ----------------------------------------------------------
+# companion.sh owns the record. With it, a missing or disabled bridge is a NOTE carrying the recorded
+# reason, even when codex is logged in, and a complete mattpocock-skills still passes.
+OPT_PROJECT="$W/optout-project"; mkdir -p "$OPT_PROJECT/.claude/rules"; OPT_PROJECT="$(cd "$OPT_PROJECT" && pwd -P)"
+printf 'cc-tuner-review: none:declined-in-setup\n' > "$OPT_PROJECT/.claude/rules/task-flow.local.md"
+OUT="$(RUN_PROJECT="$OPT_PROJECT" run_on "$CODEX_BIN:$NOCODEX" "$ONLY_MATT")"; rc=$?
+{ [ "$rc" -eq 0 ] && case "$OUT" in *"prereqs OK"*) true ;; *) false ;; esac; } \
+  && pass "optout-passes-without-triage" || fail "optout-passes-without-triage (rc=$rc $OUT)"
+case "$OUT" in *"NOTE: cc-codex-triage"*"review: none:declined-in-setup"*) pass "optout-is-a-note-with-the-recorded-reason" ;; *) fail "optout-is-a-note-with-the-recorded-reason ($OUT)" ;; esac
+case "$OUT" in *MISSING*) fail "optout-no-missing ($OUT)" ;; *) pass "optout-no-missing" ;; esac
+OUT="$(RUN_PROJECT="$OPT_PROJECT" run_on "$CODEX_BIN:$NOCODEX" "$TRIAGE_OFF")"; rc=$?
+[ "$rc" -eq 0 ] && pass "optout-disabled-triage-passes" || fail "optout-disabled-triage-passes (rc=$rc $OUT)"
+# the opt-out never hides a real blocker
+OUT="$(RUN_PROJECT="$OPT_PROJECT" run_on "$CODEX_BIN:$NOCODEX" '[]')"; rc=$?
+{ [ "$rc" -eq 1 ] && case "$OUT" in *"MISSING: mattpocock-skills"*) true ;; *) false ;; esac; } \
+  && pass "optout-does-not-hide-matt" || fail "optout-does-not-hide-matt (rc=$rc $OUT)"
 
 exit $fails

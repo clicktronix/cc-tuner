@@ -25,8 +25,8 @@ tasks. Explain by mechanism and consequence rather than by listing what you did.
    the form `<identifier> — <title>`. Ran a command, name it. Read a file, cite
    `path:line`. Didn't verify it, say so.
 6. **Nothing surplus** — No preamble and no closing recap. Brevity never
-   overrides rules 1-2, and never shortens error output, a security warning, or
-   a confirmation for a destructive action.
+   overrides rules 1-2. Preserve the decisive error and its context; summarize repeated output.
+   Keep required warnings and confirmations complete.
 
 ## Language
 

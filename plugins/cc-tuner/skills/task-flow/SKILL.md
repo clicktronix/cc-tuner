@@ -40,7 +40,8 @@ The branch and PR attach to the **sub-issue**. The epic closes when its children
 
 ## Board recipes (GitHub Projects)
 
-Use these recipes only when the repository has a configured board. With `board: none`, omit
+Boards are GitHub-only: outside GitHub the spec says `board: none`. Use these recipes only when the repository
+has a configured board. With `board: none`, omit
 `--project` from issue creation and skip project commands, fields and project-scope setup.
 
 **Create an issue directly on the board (preferred):**
@@ -100,7 +101,14 @@ related findings into one schedulable change. Create a new issue only for a dist
 that is still needed. An optional suggestion with no planned outcome can remain a review note.
 
 Include the observed problem, the intended result and its source review. Follow the board recipes
-above when a board is configured; otherwise create or update the issue without project commands.
+above when a board is configured; otherwise create or update the issue without project commands. Create it
+through the tracker `docs/agents/issue-tracker.md` names when it is not GitHub: `glab issue create`, a new issue
+file resolved through [Local issue files](#local-issue-files), or what it describes.
+
+## Local issue files
+
+Before any `tracker: local` read or write, follow [local-issues.md](references/local-issues.md).
+It owns location, persistence and closing for primary issues, groom comments and future work.
 
 ## Runtime cleanup
 
@@ -113,7 +121,8 @@ the final answer.
 
 ## After the merge
 
-Finishing is the merge plus a clean machine. Run this once the PR is merged, in the order given:
+Finishing is the merge plus a clean machine. Preserve local tracker files through
+[Local issue files](#local-issue-files) before removing any worktree. Then run these steps in order:
 
 ```bash
 git switch <target> && git pull --ff-only      # local target was stale the moment the PR merged
@@ -136,6 +145,13 @@ local tip, so nothing local is left out of what merged:
 
 A local tip that differs holds commits the PR never carried: look at them, do not delete.
 
+Other hosts check the same fact. On GitLab, `glab mr view <iid>` must show state `merged` with its sha equal to
+the local tip. With no remote, `git rev-parse refs/heads/<target>` must equal the merged head, and the local tip
+must equal it too.
+
+On host `local` (no remote) skip `git pull` and `git fetch --prune`, and sync the target in the worktree that
+holds it (`git worktree list`).
+
 `--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
 something to look at, not to paper over with a merge commit.
 
@@ -145,9 +161,9 @@ and the fix is to open the PR, not to erase the evidence.
 ## Commit conventions
 
 The message format, including attribution trailers, comes from the first of these that answers:
-`.claude/rules/task-flow.local.md`, `.claude/rules/task-flow.md`, `AGENTS.md`/`CLAUDE.md`/
-`CONTRIBUTING.md`, the shape of recent history. For trailers in a repository silent in all four, ask
-the user once and record the answer in `task-flow.local.md`. This section is the single owner of
+`.claude/rules/task-flow.local.md`, `AGENTS.md`/`CLAUDE.md`/`CONTRIBUTING.md`,
+the shape of recent history, then the defaults in `.claude/rules/task-flow.md`. For trailers in a
+repository silent in all four, ask the user once and record the answer in `task-flow.local.md`. This section is the single owner of
 that order; `/spec` and `/run` point here.
 
 **Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
@@ -167,8 +183,7 @@ commit messages, and optional where they are not. Two ways to consume them:
 - **`.github/release.yml`** — GitHub's built-in autogeneration. Cheaper to adopt, but it groups
   merged PRs by label, so it reads PR titles rather than commit history and does not bump versions.
 
-Whichever is in use, a commit outside the Conventional format is a commit that will be missing from
-the notes; that is the actual cost of an off-format commit.
+Follow the commit format configured for release-please. GitHub-generated notes use PR titles and labels.
 
 ## Merge strategies
 
@@ -209,7 +224,8 @@ for resume; record later DoD evidence on the PR. For shared tasks, update compan
 
 ## Pre-PR checklist
 
-- [ ] Branch is based on current `origin/<target>` (check, do not assume) and its PR is not already merged
+- [ ] Branch is based on the current target tip (`origin/<target>`, or `refs/heads/<target>` with no remote;
+      check, do not assume) and its PR is not already merged
 - [ ] Commits follow the repository's convention (Conventional Commits by default, required where release
       notes are generated), `!`/`BREAKING CHANGE:` where applicable
 - [ ] Issue is linked (`Closes #N` / `Refs #N`), or the PR explains why none is needed; when a board

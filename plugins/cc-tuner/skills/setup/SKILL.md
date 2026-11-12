@@ -1,6 +1,6 @@
 ---
-description: One user-run command that sets a repository up for cc-tuner and says exactly what it did — rule loading, the task-flow rule, task tools, an optional statusline, an optional board — as independent nodes that each detect, propose, apply and verify. Use for "set up cc-tuner", "проверь окружение", or diagnosing why a board/gate/statusline step is not working.
-argument-hint: '[check|install|remove] [agent-rules|task-flow|task-tools|statusline|board]'
+description: Check or configure cc-tuner for this repository; report changes and remaining setup steps.
+argument-hint: '[check|install|remove] [companions|agent-rules|task-flow|task-tools|statusline|board|delivery-route]'
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Skill
 disable-model-invocation: true
 ---
@@ -8,13 +8,45 @@ disable-model-invocation: true
 # /cc-tuner:setup
 
 Parse `$ARGUMENTS`. The mode is `check` (default), `install`, or `remove`; `remove` applies only to
-the statusline, the one node that installs something user-global and so needs an undo. An optional
-node name limits the run to that node and the nodes it depends on.
+the statusline. An optional node name limits the run to that node and its dependencies.
 
 `check` writes nothing anywhere. `install` applies each node's change under one rule: an explicit
 install request authorises **additive** repository edits — a block between markers, a new file, a
 missing key — and nothing more. A rewrite of the repository's own instructions is not additive and has
 its own confirmation boundary in node 2.
+
+## Plugin root
+
+References read the plugin's own files through `$PLUGIN`. Claude Code fills `${CLAUDE_PLUGIN_ROOT}` in this
+skill's text but not in a reference or a plain shell, so every Bash call that uses `$PLUGIN` starts with this
+block. When the filled value is not a directory, the block asks `claude plugin list --json` for the install
+that applies to this repository, by `plugin-here.sh`'s scope rule (that script lives in the plugin root, so
+it cannot locate it).
+
+```bash
+# The exact token, no `:-` default: Claude Code fills it here, and the shell leaves it unset.
+PLUGIN="${CLAUDE_PLUGIN_ROOT}"
+if [ ! -d "$PLUGIN" ]; then
+  REAL=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && pwd -P)
+  # projectPath is stored as typed, so resolve it; "-" stands in for an empty field, which a tab IFS collapses.
+  PLUGIN=$(claude plugin list --json 2>/dev/null | jq -r '.[]
+      | select(.id == "cc-tuner@cc-tuner" and .enabled != false)
+      | [ (if .scope == "local" then 0 elif .scope == "project" then 1 else 2 end), .scope,
+          (.projectPath // "-"), (.installPath // "-") ] | @tsv' | sort -n |
+    while IFS="$(printf '\t')" read -r _ scope ppath ipath; do
+      if [ "$scope" = user ] || [ "$(cd "$ppath" 2>/dev/null && pwd -P)" = "$REAL" ]; then
+        printf '%s\n' "$ipath"; break
+      fi
+    done)
+fi
+[ -d "$PLUGIN" ] || { echo "Could not locate the cc-tuner plugin: is it installed and enabled?"; exit 1; }
+```
+
+## Active profile
+
+Use `CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and `SETTINGS="$CONFIG_DIR/settings.json"`
+in each Bash call that reads or writes user settings. Companions, session env and statusline all use
+this profile. Repository settings stay in `.claude/`.
 
 ## The nodes
 
@@ -27,16 +59,19 @@ stop the command because one node stopped.
 |---|---|---|---|
 | 0 | environment | — | nothing |
 | 0b | testing runbook | — | in install mode, missing commands/services/limits appended to an existing runbook; never a new document |
+| 0c | companions | 0, after 0b | in install mode, after one per-plugin confirmation: user-scope `claude plugin install` / `enable`, which write `enabledPlugins` in `$SETTINGS`; a declined `cc-codex-triage` adds one line to `task-flow.local.md` |
 | 1 | agent-rules discovery | 0 | one marked block in the root `AGENTS.md` (or a non-empty `AGENTS.override.md`) |
 | 2 | instruction cleanup | 1 | `AGENTS.md` / `CLAUDE.md` / `.claude/rules/*` — only on confirmation; keeps the block first |
 | 3 | task-flow rule | 0 | `.claude/rules/task-flow.md`, `task-flow.local.md`; migrates `git-flow*` |
-| 4 | session env | 0 | `~/.claude/settings.json` — up to two `env` keys |
-| 5 | statusline | 0; serialised after 4 | `~/.claude/settings.json`, `~/.claude/cc-tuner-statusline.sh` |
+| 3b | delivery route | 0 (its `host:` line), 3 | one short key block between `cc-tuner:delivery-route` markers in `task-flow.local.md`, written by `route.sh`; nothing on `github` |
+| 4 | session env | 0, after 0c | `$SETTINGS` — up to two `env` keys |
+| 5 | statusline | 0, after 0c; serialised after 4 | `$SETTINGS`, `$CONFIG_DIR/cc-tuner-statusline.sh` |
 | 6 | board wiring | 3, `gh` auth, a repository that uses a board | `task-flow.local.md` cached field IDs |
-| 7 | Codex audit | every applied node | nothing |
+| 7 | Codex audit | every applied node, and 0c's result | nothing |
 
-Nodes 4 and 5 patch the same file. Never do both in one Bash call, and re-read the file right
-before each patch so the second writer sees the first writer's result.
+Nodes 0c, 4 and 5 all write `$SETTINGS`, in that order: 0c through the `claude` CLI, 4 and
+5 by patching. Never do two of them in one Bash call, and re-read the file right before each patch, so a
+later writer never starts from a copy read before an earlier one ran.
 
 ### 0. Environment
 
@@ -50,10 +85,14 @@ server and can sit for 30 seconds on each unreachable one. That cost is why it i
 
 Show the output as-is. `MISS` lines block the nodes that need that tool and carry their own fix;
 `WARN` lines are degraded-but-usable. Do not paraphrase a `MISS` into "you may want to" — each one
-names a command that fails without it. Two fixes the user has to run themselves, in their own shell:
+names a command that fails without it. Fixes the user has to run themselves, in their own shell or
+session:
 
 - `gh auth login` — an interactive browser flow; you cannot complete it for them.
-- `/plugin install ...` — a Claude Code command, not a shell one.
+- `codex login` — likewise interactive.
+- `/plugin install ...` — a Claude Code command, not a shell one. Node 0c runs the shell form for a
+  missing companion plugin; the user types the `/plugin` form only when `claude` is not on PATH.
+  A `MISS` that names a `CONFLICT` has no command: the marketplace name is taken by another repository.
 
 A `MISS` does not end the command. Record which nodes it blocks and continue with the rest.
 
@@ -71,6 +110,16 @@ runbook exists, append the missing commands, service requirements and environmen
 diff — that is an additive edit to an existing document and is covered by the install request. When
 no runbook exists, report the gaps for this node and continue the other nodes. Creating a new
 testing document is outside this additive setup step.
+
+### 0c. Companions
+
+`/cc-tuner:spec` and `/cc-tuner:run` need `mattpocock-skills`; the required review of `/cc-tuner:run`
+needs `cc-codex-triage` and a logged-in `codex`. Read [references/companions.md](references/companions.md)
+and run it in the current mode; `scripts/setup/companion.sh` answers every question about the two plugins.
+The node installs or enables what is missing after one confirmation per plugin, offers `cc-codex-triage`
+only when `companion.sh codex` prints `ready` and the repository has not declined it, and records a decline in
+`task-flow.local.md`. Without `claude` on PATH it prints the `/plugin` commands instead; without `jq` it
+installs nothing.
 
 ### 1. Agent-rules discovery
 
@@ -121,6 +170,24 @@ The order inside it is load-bearing: the `git-flow.local.md` → `task-flow.loca
 before anything creates the deltas file, and the legacy `git-flow.md` is removed only after the new
 rule is in place. A differing or legacy rule file is shown as a diff and asked about once; "keep"
 is a terminal state for this node only.
+When node 0c held a declined `cc-codex-triage` because `task-flow.local.md` did not exist yet, this node
+records it right after creating the file (step 6 of the reference).
+
+### 3b. Delivery route
+
+Outside GitHub no script refuses a bad merge, so `/cc-tuner:run` follows a route text from the plugin
+(`skills/run/references/route-<host>.md`) instead of `merge.sh`. The repository holds only a short key
+block naming that route. Read [references/delivery-route.md](references/delivery-route.md) and run it in
+the current mode. It needs node 3, takes the host from `scripts/setup/host.sh`, and leaves the block to
+`scripts/setup/route.sh`:
+
+- `github` — nothing to write; `merge.sh` is the route.
+- `gitlab`, `local` — the plugin's key block.
+- `other` — the user's own description of how a candidate is opened, recorded, checked and merged; that
+  description is the route.
+
+Writing a missing block is additive; replacing one is confirmed. The block is committed with
+`task-flow.local.md`, so task worktrees have it.
 
 ### 4. Session env
 
@@ -136,13 +203,13 @@ node 0 reported `CLAUDE_CODE_ENABLE_TODO_TOOLS` unset, add `"CLAUDE_CODE_ENABLE_
 `/cc-tuner:run` tells units not to delegate and deep-review's lenses carry no Agent tool. When node 0
 reported `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` unset, recommend `"2"`: a unit can run its own
 `Explore` lookup, which the unit brief allows, while nothing below it can spawn. `"1"` is the strict
-form and forbids that lookup too. Say what either changes outside cc-tuner — every session on this
-machine, including `/code-review` at max effort, which dispatches a verifier per candidate from
+form and forbids that lookup too. Say what either changes outside cc-tuner — sessions using this
+profile, including `/code-review` at max effort, which dispatches a verifier per candidate from
 inside a subagent — because that is the user's call, not the plugin's. Heavy-check slots need no
 setting: `CC_TUNER_HEAVY_SLOTS` defaults to 1; a machine with memory to spare can raise it.
 
 Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
-key in `~/.claude/settings.json`?
+key in `$SETTINGS`?
 
 | tools | env | action |
 |---|---|---|
@@ -164,7 +231,7 @@ it in install mode only after the user says yes in this run. Read
 [references/statusline.md](references/statusline.md) for the copy, the guarded `settings.json`
 patch and the restart note. Serialise it after node 4 for the shared-file reason above.
 `/cc-tuner:setup remove statusline` runs the reference's **remove** section — the only `remove` this
-command has, because this is the only node that installs something outside the repository.
+command supports.
 
 The `Mechanism First` output style ships with the plugin, so there is nothing to install. Offer it
 once, as a preference: `/config` → Output style → `Mechanism First`, then `/clear`. Never select it
@@ -195,9 +262,11 @@ flow you cannot complete for them — and report the board as not wired.
 
 ### 7. Codex audit (optional, install mode)
 
-If `cc-codex-triage` is installed, spend one read-only call to have a second model check what this
-command claims it did, within the authorisation the install request already gave — no new
-permission question:
+Runs only when `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/companion.sh" codex` prints `ready`,
+`companion.sh state cc-codex-triage@cc-codex-triage` prints `installed`, and node 0c did not install or
+enable the plugin in this run (its commands load only after `/reload-plugins`). Then spend one read-only
+call to have a second model check what this command claims it did, within the authorisation the install
+request already gave — no new permission question:
 
 ```text
 /cc-codex-triage:ask --oneshot Here is the setup report for this repository: <the table below>.
@@ -205,7 +274,12 @@ Check the repository and say which rows you cannot confirm and why.
 ```
 
 Fix confirmed findings and re-verify only the affected nodes; do not start an external review
-loop. When the bridge is not installed, the row reads **"audit: skipped — bridge not installed"**.
+loop. When it does not run, the row says which condition failed:
+
+- **"audit: skipped — bridge not installed"**
+- **"audit: skipped — codex is not ready (absent or not logged in)"**
+- **"audit: skipped — bridge installed in this run, loads after /reload-plugins or a restart"**
+
 Never omit the row: an absent check reported as nothing is indistinguishable from a passed one.
 
 ## Report

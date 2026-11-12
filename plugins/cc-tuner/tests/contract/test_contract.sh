@@ -16,6 +16,12 @@ TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
+ROUTE_GITLAB="$ROOT/plugins/cc-tuner/skills/run/references/route-gitlab.md"
+ROUTE_LOCAL="$ROOT/plugins/cc-tuner/skills/run/references/route-local.md"
+DELIVERY_REF="$ROOT/plugins/cc-tuner/skills/setup/references/delivery-route.md"
+COMPANIONS_REF="$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+SETUP_MANUAL="$ROOT/plugins/cc-tuner/tests/setup/setup-manual-checks.md"
+TASK_FLOW_REF="$ROOT/plugins/cc-tuner/skills/setup/references/task-flow-rule.md"
 UNIT="$ROOT/plugins/cc-tuner/agents/slice-unit.md"
 VERIFY="$ROOT/plugins/cc-tuner/skills/verify-feature/SKILL.md"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release-please.yml"
@@ -34,7 +40,7 @@ need() {
 
 need "spec-prereq" 'prereq-check.sh' "$SPEC"
 need "spec-prereq-does-not-block-spec" '/spec continues' "$SPEC"
-need "spec-tracker-none-skips-issue"    'with `tracker: none`, skip that' "$SPEC"
+need "spec-tracker-none-skips-issue"    '`none` — nothing; the spec is the record' "$SPEC"
 need "writer-honours-installed-agent-rules" 'do not generate a per-repository skill or a pointer table' "$CLAUDE_MD_WRITER"
 need "writer-knows-the-override-file" 'AGENTS.override.md` when that file is non-empty' "$CLAUDE_MD_WRITER"
 need "setup-installs-block-before-cleanup" 'runs **before** instruction cleanup on purpose' "$SETUP"
@@ -311,7 +317,7 @@ else
   echo "PASS no-private-provenance-on-instruction-surfaces"
 fi
 
-if grep -En 'glab|effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" >/dev/null; then
+if grep -En 'effort_tiering|small_diff_budget|assets/tiering|cheap_gate|≤50 changed lines|≤5 files' "$SPEC" "$RUN" >/dev/null; then
   echo "FAIL ignored-or-duplicated-policy"
   fails=1
 else
@@ -346,8 +352,8 @@ need "spec-blind-spots-become-questions"  'its returns become grilling questions
 need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
 need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
 need "spec-skips-only-mechanical-work"    'Skip it only for a mechanical or' "$SPEC"
-need "spec-describes-the-groom-stop"      'or the issue record under --groom' "$SPEC"
-need "run-describes-its-board-moves"      'It decides when the board card moves' "$RUN"
+need "spec-describes-the-groom-stop" 'with no branch, spec or plan and nothing committed' "$SPEC"
+need "run-describes-its-board-moves" 'Set it In Progress before the first slice starts' "$RUN"
 need "spec-keeps-an-incomplete-pass"       'whatever questions came with it, and under `--groom` into the' "$SPEC"
 need "spec-approves-the-card-priority"     "plus the card's Priority when a board is named" "$SPEC"
 need "run-says-a-failed-move-at-once"      'recovery is said at once' "$RUN"
@@ -377,7 +383,7 @@ fi
 # issue and nothing in git; a later /spec builds on that record instead of asking again.
 need "spec-groom-mode"                    '`--groom`' "$SPEC"
 need "spec-groom-leaves-git-alone"        'no branch, spec or plan' "$SPEC"
-need "spec-groom-writes-no-files"         'skips section 2, and writes no files' "$SPEC"
+need "spec-groom-writes-no-files"         'writes nothing but that record' "$SPEC"
 need "run-partial-merge-back-in-progress" 'after a partial `Refs` merge, move it back to In Progress' "$RUN"
 need "deep-review-prepares-past-the-limit" 'preparing a partition dispatches nothing' "$DEEP_REVIEW"
 need "spec-groom-needs-an-issue"          'refuses under `tracker: none`' "$SPEC"
@@ -400,5 +406,346 @@ if grep -Eq '^\| (tdd|research)' "$PLACEMENT"; then
 else
   echo "PASS placement-rows-have-triggers"
 fi
+
+# Outside GitHub no script refuses, so a written route is the whole gate: the same order and the same
+# records as merge.sh, as steps the agent performs. Every element merge.sh enforces is named here, so a
+# route that quietly drops one stops passing. The route texts are /run references read from the plugin;
+# the repository keeps only the key block route.sh writes, so the old copied assets must be gone.
+for gone in route-gitlab.md route-local.md; do
+  if [ ! -e "$ROOT/plugins/cc-tuner/assets/task-flow/$gone" ]; then echo "PASS route-asset-$gone-is-gone"; else echo "FAIL route-asset-$gone-is-gone"; fails=1; fi
+done
+if [ -f "$ROUTE_GITLAB" ] && [ -f "$ROUTE_LOCAL" ]; then echo "PASS route-references-exist"; else echo "FAIL route-references-exist"; fails=1; fi
+if grep -qF 'delivery-route' "$RULE_TEMPLATE"; then
+  echo "FAIL rule-template-does-not-carry-the-route"; fails=1
+else
+  echo "PASS rule-template-does-not-carry-the-route"
+fi
+for rf in "$ROUTE_GITLAB" "$ROUTE_LOCAL"; do
+  rn="${rf##*/}"
+  need "$rn-steps-not-a-script"        'No script checks these steps for you' "$rf"
+  need "$rn-failing-step-is-a-stop"    'A failing step is a stop' "$rf"
+  need "$rn-never-edit-the-route"      'never edit or skip this route' "$rf"
+  need "$rn-legacy-run-state-refused"  '.claude/execute-task-runs/*.state.json' "$rf"
+  need "$rn-codex-review-state"        'review-state.sh check <thread>' "$rf"
+  need "$rn-codex-seven-field-marker"  'CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…' "$rf"
+  need "$rn-codex-head-is-the-worktree-head" 'the worktree'"'"'s `git rev-parse HEAD`' "$rf"
+  need "$rn-codex-finds-install-by-plugin-here" 'plugin-here.sh' "$rf"
+  need "$rn-verdict-record"            'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <full sha>' "$rf"
+  need "$rn-verified-record"           'cc-tuner-verified: <full sha>' "$rf"
+  need "$rn-local-ci-record"           'cc-tuner-local-ci: <full sha> <command and result>' "$rf"
+  need "$rn-accepted-record"           'cc-tuner-accepted: <head sha> <who>: <what>' "$rf"
+  need "$rn-latest-record-wins"        'wins, whatever it says' "$rf"
+  need "$rn-never-relabels"            'relabel a `REQUEST_CHANGES` as `APPROVE`' "$rf"
+  need "$rn-records-from-a-quoted-heredoc" "<<'EOF'" "$rf"
+  need "$rn-ci-none-needs-a-record"    'ci: none:<reason>' "$rf"
+  need "$rn-hand-over-is-the-whole-step" 'hand over this whole step' "$rf"
+  need "$rn-hand-over-not-the-merge-line" 'never the merge line alone' "$rf"
+  need "$rn-cleanup-by-merged-head"    'merged head' "$rf"
+  if grep -qF 'CLAUDE_PLUGIN_ROOT' "$rf"; then echo "FAIL $rn-no-plugin-root-variable (unset outside skill bodies)"; fails=1; else echo "PASS $rn-no-plugin-root-variable"; fi
+  if grep -qE -- '--(message|body|m) "<record>"|append -m' "$rf"; then echo "FAIL $rn-no-inline-record"; fails=1; else echo "PASS $rn-no-inline-record"; fi
+done
+need "route-gitlab-opens-a-draft"          'glab mr create --draft --yes --target-branch <target> --source-branch <branch>' "$ROUTE_GITLAB"
+need "route-gitlab-requires-target-branch" 'require `target_branch` equal to `<target>`' "$ROUTE_GITLAB"
+need "route-gitlab-requires-source-branch" '`source_branch` equal to `<branch>`' "$ROUTE_GITLAB"
+need "route-gitlab-same-project"           '`source_project_id` equal to `target_project_id`' "$ROUTE_GITLAB"
+need "route-gitlab-records-as-mr-notes"    'glab mr note create <iid> --resolvable=false --message "$(cat "$REC")"' "$ROUTE_GITLAB"
+need "route-gitlab-notes-ascending"        'notes?sort=asc&order_by=created_at" --paginate' "$ROUTE_GITLAB"
+need "route-gitlab-excludes-system-notes"  '.system == false' "$ROUTE_GITLAB"
+need "route-gitlab-author-without-email"   'glab api user | jq -r .username' "$ROUTE_GITLAB"
+need "route-gitlab-latest-by-created-at"   'greatest `created_at`' "$ROUTE_GITLAB"
+need "route-gitlab-verify-record-ancestry" 'git merge-base --is-ancestor <verified sha> <head>' "$ROUTE_GITLAB"
+need "route-gitlab-approvals"              'merge_requests/<iid>/approvals' "$ROUTE_GITLAB"
+need "route-gitlab-approvals-left"         '`approvals_left` 0' "$ROUTE_GITLAB"
+need "route-gitlab-approvals-ask-a-human-under-auto" 'under `--auto` too' "$ROUTE_GITLAB"
+need "route-gitlab-pipeline-project"       '`head_pipeline.project_id` equals `target_project_id`' "$ROUTE_GITLAB"
+need "route-gitlab-pipeline-is-the-head"   'head_pipeline.sha' "$ROUTE_GITLAB"
+need "route-gitlab-merged-results"         'merged-results pipeline' "$ROUTE_GITLAB"
+need "route-gitlab-pipeline-success-only"  'status `success`' "$ROUTE_GITLAB"
+need "route-gitlab-target-is-the-mr-target" 'The target is the MR'"'"'s `target_branch`' "$ROUTE_GITLAB"
+need "route-gitlab-target-tip-ancestry"    'git merge-base --is-ancestor "$TIP" <head>' "$ROUTE_GITLAB"
+need "route-gitlab-ready"                  'glab mr update <iid> --ready' "$ROUTE_GITLAB"
+need "route-gitlab-pinned-merge"           'glab mr merge <iid> --sha <head> --auto-merge=false --yes' "$ROUTE_GITLAB"
+need "route-gitlab-squash-by-spec"         '--squash' "$ROUTE_GITLAB"
+need "route-gitlab-rereads-before-merge"   're-read the head, the target tip' "$ROUTE_GITLAB"
+need "route-local-notes-append-from-a-file" 'git notes --ref cc-tuner append -F "$REC" <judged sha>' "$ROUTE_LOCAL"
+need "route-local-notes-show"              'git notes --ref cc-tuner show <sha>' "$ROUTE_LOCAL"
+need "route-local-paragraph-is-a-record"   'treat each paragraph as one record' "$ROUTE_LOCAL"
+need "route-local-ancestor-lookup"         "git log --notes=cc-tuner --format='%H%n%N' <target>..<candidate>" "$ROUTE_LOCAL"
+need "route-local-decision-is-the-session-verdict" 'The merge decision is the verdict you made in this session' "$ROUTE_LOCAL"
+need "route-local-notes-are-the-audit-trail" 'The notes are the audit trail, not the decision' "$ROUTE_LOCAL"
+need "route-local-no-network"              'nothing here pushes, fetches or pulls' "$ROUTE_LOCAL"
+need "route-local-target-ref"              'refs/heads/<target>' "$ROUTE_LOCAL"
+need "route-local-ci-none"                 'the CI mode is always `ci: none:<reason>`' "$ROUTE_LOCAL"
+need "route-local-ancestry"                'git merge-base --is-ancestor <target tip> <candidate>' "$ROUTE_LOCAL"
+need "route-local-verify-ancestry"         'git merge-base --is-ancestor <verified sha> <candidate>' "$ROUTE_LOCAL"
+need "route-local-ff-only"                 'git merge --ff-only <candidate>' "$ROUTE_LOCAL"
+need "route-local-update-ref-cas"          'git update-ref refs/heads/<target> <candidate> <old target tip>' "$ROUTE_LOCAL"
+need "route-local-dirty-hand-off"          'Hand the merge to the user with the exact command' "$ROUTE_LOCAL"
+need "route-local-no-squash"               'Never create a squash or merge commit on the target' "$ROUTE_LOCAL"
+need "route-local-squash-spec-says-ff"     '`/spec` writes `merge: ff` for a `local` host' "$ROUTE_LOCAL"
+need "route-local-no-remote-no-pr"         'no remote and no pull request' "$ROUTE_LOCAL"
+need "local-ci-record-from-a-file"         'gh pr comment <pr> --body-file "$REC"' "$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
+if grep -qF -- '--body "cc-tuner-local-ci' "$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"; then
+  echo "FAIL local-ci-no-inline-record"; fails=1
+else
+  echo "PASS local-ci-no-inline-record"
+fi
+
+# The setup node that puts a route into the repository: argument-hint, the table row, a reference
+# that is linked and exists, the ask-before-overwrite and write-from-the-user's-words behaviours, and
+# the header that no longer promises setup never touches task-flow.local.md.
+need "setup-hint-names-delivery-route"     'statusline|board|delivery-route]' "$SETUP"
+need "setup-table-has-delivery-route"      '| 3b | delivery route |' "$SETUP"
+need "setup-routes-delivery-route-node"    'references/delivery-route.md' "$SETUP"
+if [ -f "$DELIVERY_REF" ]; then echo "PASS setup-delivery-route-reference-exists"; else echo "FAIL setup-delivery-route-reference-exists"; fails=1; fi
+need "setup-route-github-is-merge-sh"      'merge.sh is the route' "$DELIVERY_REF"
+need "setup-route-host-from-host-sh"       'scripts/setup/host.sh' "$DELIVERY_REF"
+need "setup-route-drives-route-sh-check"   'route.sh' "$DELIVERY_REF"
+need "setup-route-check-command"           'bash "$ROUTE" check "$HOST" "$ROOT"' "$DELIVERY_REF"
+need "setup-route-write-command"           'bash "$ROUTE" write "$HOST" "$LOCAL"' "$DELIVERY_REF"
+need "setup-route-other-from-user-words"   "written from the user's own words" "$DELIVERY_REF"
+need "setup-route-other-body-is-a-temp-file" 'BODY=$(mktemp)' "$DELIVERY_REF"
+need "setup-route-block-is-committed"      'committed together with `task-flow.local.md`' "$DELIVERY_REF"
+need "setup-route-stale-block-by-hand"     'by hand' "$DELIVERY_REF"
+need "setup-route-reruns-locate"           'Re-run the **Locate** block' "$DELIVERY_REF"
+if grep -qF 'sed -n "/^$OPEN' "$DELIVERY_REF" || grep -qF 'mv "$TMP" "$LOCAL"' "$DELIVERY_REF"; then
+  echo "FAIL setup-route-has-no-inline-writer"; fails=1
+else
+  echo "PASS setup-route-has-no-inline-writer"
+fi
+# The plugin-root fallback is written once, in SKILL.md, and resolves the applicable installation; the old
+# `find ~/.claude/plugins ... | sort | tail -1` could pick a fork or a lexically later, older version.
+need "setup-plugin-root-section"           '## Plugin root' "$SETUP"
+need "setup-plugin-root-asks-the-cli"      'claude plugin list --json' "$SETUP"
+for ref in "$DELIVERY_REF" "$TASK_FLOW_REF" "$ROOT/plugins/cc-tuner/skills/setup/references/statusline.md"; do
+  need "setup-reference-uses-the-plugin-root-block ($(basename "$ref"))" 'Plugin root' "$ref"
+  if grep -qF 'sort | tail -1' "$ref"; then echo "FAIL setup-reference-no-find-fallback ($(basename "$ref"))"; fails=1; else echo "PASS setup-reference-no-find-fallback ($(basename "$ref"))"; fi
+done
+need "setup-node-3b-names-route-sh"        '`scripts/setup/route.sh`' "$SETUP"
+need "setup-node-3b-names-the-run-reference" 'skills/run/references/route-<host>.md' "$SETUP"
+need "local-header-has-one-owner" 'bash "$PLUGIN/scripts/setup/route.sh" header' "$TASK_FLOW_REF"
+if grep -qF 'setup never touches this file' "$TASK_FLOW_REF"; then
+  echo "FAIL local-header-no-longer-says-never-touches"; fails=1
+else
+  echo "PASS local-header-no-longer-says-never-touches"
+fi
+
+need "setup-hint-names-companions"          '[companions|agent-rules|' "$SETUP"
+need "setup-table-has-companions"           '| 0c | companions |' "$SETUP"
+need "setup-routes-companions-node"         'references/companions.md' "$SETUP"
+if [ -f "$COMPANIONS_REF" ]; then echo "PASS setup-companions-reference-exists"; else echo "FAIL setup-companions-reference-exists"; fails=1; fi
+need "setup-companions-drives-companion-sh" 'companion.sh' "$COMPANIONS_REF"
+need "setup-companions-asks-per-plugin"     'multiSelect' "$COMPANIONS_REF"
+need "setup-companions-records-optout"      'cc-tuner-review: none:' "$COMPANIONS_REF"
+need "setup-declares-the-settings-write"    'enabledPlugins' "$SETUP"
+need "setup-codex-audit-gated-on-codex"     'companion.sh codex' "$SETUP"
+# install-hint.sh is gone: one owner of the hint, and no prose or script points at the old one.
+if [ ! -e "$ROOT/plugins/cc-tuner/scripts/setup/install-hint.sh" ]; then echo "PASS install-hint-script-is-gone"; else echo "FAIL install-hint-script-is-gone"; fails=1; fi
+if grep -rqF 'install-hint' "$ROOT/plugins/cc-tuner/scripts" "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/commands" 2>/dev/null; then
+  echo "FAIL nothing-names-install-hint"; fails=1
+else
+  echo "PASS nothing-names-install-hint"
+fi
+# The companion table and the codex test live in companion.sh alone.
+if grep -rnE 'codex login status|codex-not-logged-in|clicktronix/cc-codex-triage' "$ROOT/plugins/cc-tuner/scripts" | grep -v '/scripts/setup/companion.sh:' | grep -q .; then
+  echo "FAIL companion-facts-live-in-companion-sh"; fails=1
+else
+  echo "PASS companion-facts-live-in-companion-sh"
+fi
+# The companions node runs after the testing runbook (0b) and before session env (4), in table order.
+l0b="$(grep -nF '| 0b | testing runbook |' "$SETUP" | head -n 1 | cut -d: -f1)"
+l0c="$(grep -nF '| 0c | companions |' "$SETUP" | head -n 1 | cut -d: -f1)"
+l4="$(grep -nF '| 4 | session env |' "$SETUP" | head -n 1 | cut -d: -f1)"
+if [ -n "$l0b" ] && [ -n "$l0c" ] && [ -n "$l4" ] && [ "$l0b" -lt "$l0c" ] && [ "$l0c" -lt "$l4" ]; then
+  echo "PASS setup-companions-node-after-0b-before-4"
+else
+  echo "FAIL setup-companions-node-after-0b-before-4 (0b=$l0b 0c=$l0c 4=$l4)"; fails=1
+fi
+need "setup-companions-marketplace-add"     'claude plugin marketplace add' "$COMPANIONS_REF"
+need "setup-companions-install"             'claude plugin install' "$COMPANIONS_REF"
+need "setup-companions-enable-disabled"     'claude plugin enable' "$COMPANIONS_REF"
+need "setup-companions-codex-gate"          'companion.sh codex' "$COMPANIONS_REF"
+need "setup-companions-names-reload"        '/reload-plugins' "$COMPANIONS_REF"
+need "setup-companions-no-claude-fallback"  'is not on PATH' "$COMPANIONS_REF"
+need "setup-companions-verifies-with-list"  'claude plugin list --json' "$COMPANIONS_REF"
+need "setup-manual-fresh-config-dir"        'CLAUDE_CONFIG_DIR' "$SETUP_MANUAL"
+
+# /spec and /run follow the tracker file and the route. The tracker comes from the file mattpocock's
+# setup writes, the host from the CLI that reaches the remote, and a non-github host delivers by the
+# block /cc-tuner:setup wrote. Each phrase below is what a reader acts on; github keeps merge.sh.
+need "spec-template-tracker-field"         'tracker: gh|glab|local|other|none — from docs/agents/issue-tracker.md' "$SPEC_TEMPLATE"
+need "spec-template-tracker-kinds"         'gh GitHub issues, glab GitLab issues, local markdown files, other as that file describes' "$SPEC_TEMPLATE"
+need "spec-template-none-is-the-record"    'none makes this spec the record' "$SPEC_TEMPLATE"
+need "spec-template-dod-names-the-head"    'the PR, MR or, with no remote, the branch' "$SPEC_TEMPLATE"
+need "spec-reads-the-tracker-file"         '`docs/agents/issue-tracker.md`, which owns where issues live' "$SPEC"
+need "spec-asks-when-tracker-absent"       'When `docs/agents/issue-tracker.md` is absent, ask once with `AskUserQuestion`' "$SPEC"
+need "spec-offers-matt-pocock-setup"       '`/setup-matt-pocock-skills` now (a user-only command' "$SPEC"
+need "spec-offers-tracker-none"            'or continue with `tracker: none`' "$SPEC"
+need "spec-never-writes-the-tracker-file"  'Do not write that file yourself' "$SPEC"
+need "spec-detects-host-after-tracker"     'Detect the host once the tracker is settled' "$SPEC"
+need "spec-checks-the-route-block"         '`/cc-tuner:setup install delivery-route`' "$SPEC"
+need "spec-local-host-ci-is-none"          '`ci:` is always `none:<reason>` (there is no pipeline)' "$SPEC"
+need "spec-tracker-comes-from-the-file"    'and `tracker:` from `docs/agents/issue-tracker.md`' "$SPEC"
+need "spec-glab-issue-create"              '`glab issue create` / `glab issue note`' "$SPEC"
+need "spec-local-issue-file" '[local-issues.md](../task-flow/references/local-issues.md)' "$SPEC"
+need "spec-local-issue-committed-with-spec" 'Commit tracked files with the spec' "$SPEC"
+need "spec-groom-refuses-other-without-comments" 'under `other` unless' "$SPEC"
+need "spec-groom-glab-member-check"        'glab api projects/:id/members/all/<user id>' "$SPEC"
+need "spec-groom-glab-note"                'one note on the GitLab issue' "$SPEC"
+need "spec-groom-local-appends" 'append the record under `## Comments`, without committing' "$SPEC"
+need "spec-groom-local-no-commit"          'without committing' "$SPEC"
+need "spec-groom-local-settled"            'a later `/spec` treats it as settled' "$SPEC"
+tracker_ask_line="$(grep -nF 'is absent, ask once with `AskUserQuestion`' "$SPEC" | head -1 | cut -d: -f1)"
+host_detect_line="$(grep -nF 'Detect the host once the tracker is settled' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$tracker_ask_line" ] && [ -n "$host_detect_line" ] && [ "$tracker_ask_line" -lt "$host_detect_line" ]; then
+  echo "PASS spec-detects-host-after-the-tracker-ask"
+else
+  echo "FAIL spec-detects-host-after-the-tracker-ask (ask=$tracker_ask_line detect=$host_detect_line)"; fails=1
+fi
+need "run-redetects-the-host"              'Re-detect the host' "$RUN"
+need "run-compares-with-the-spec-host"     "compare it with the spec's \`host:\`" "$RUN"
+need "run-legacy-spec-is-github"           'A spec without `host:` means `github`' "$RUN"
+need "run-names-the-route-setup-command"   '`/cc-tuner:setup install delivery-route`' "$RUN"
+need "run-github-keeps-the-steps"          '`github`: the steps below as written' "$RUN"
+need "run-route-keeps-gates-and-records"   'with the same gates, order and record lines' "$RUN"
+need "run-route-check-only"                '`--check-only` means running every route step up to the merge' "$RUN"
+need "run-auto-on-every-host"              '`--auto` is allowed on every host' "$RUN"
+need "run-record-where-the-host-publishes" 'elsewhere as the route says' "$RUN"
+need "run-local-status-never-on-target" 'Do not commit a completion record directly to an integration target' "$RUN"
+# The host, the route check and the companion state are programs; /spec and /run call them and pin the
+# command, not a restatement of what it knows (the prose ladder these replaced had drifted from doctor).
+need "spec-asks-host-sh"                   'scripts/setup/host.sh' "$SPEC"
+need "run-asks-host-sh"                    'scripts/setup/host.sh' "$RUN"
+need "spec-template-host-from-host-sh"     'scripts/setup/host.sh' "$SPEC_TEMPLATE"
+need "run-stops-on-ambiguous-host"         '`ambiguous`' "$RUN"
+need "spec-ambiguous-names-one-origin"     'ask the user to name one remote `origin`' "$SPEC"
+need "run-github-cli-preflight"            'gh auth status --hostname' "$RUN"
+need "run-gitlab-cli-preflight"            'glab auth status --hostname' "$RUN"
+need "run-names-the-cli-login"             'auth login --hostname' "$RUN"
+need "run-checks-the-key-block"            'scripts/setup/route.sh" check' "$RUN"
+need "spec-checks-the-key-block"           'scripts/setup/route.sh" check' "$SPEC"
+need "run-reads-the-gitlab-route-from-the-plugin" '${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-gitlab.md` (gitlab)' "$RUN"
+need "run-reads-the-local-route-from-the-plugin"  '${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-local.md` (local)' "$RUN"
+need "run-reads-the-tracker-file"          'docs/agents/issue-tracker.md' "$RUN"
+need "run-local-closing-step-in-the-candidate" 'tracked closing changes arrive with the merge' "$RUN"
+need "run-prepare-commits-the-closing-step" "commit a tracked issue's closing change" "$RUN"
+need "spec-review-from-companion-sh"       'scripts/setup/companion.sh" review' "$SPEC"
+need "spec-research-gated-on-codex-state"  'scripts/setup/companion.sh" codex' "$SPEC"
+need "spec-research-gated-on-install"      'companion.sh" state cc-codex-triage@cc-codex-triage' "$SPEC"
+need "spec-local-host-merges-ff"           'merge: ff' "$SPEC"
+need "spec-template-allows-ff"             'merge: squash|merge|ff' "$SPEC_TEMPLATE"
+need "spec-local-tracker-link-file"        '.scratch/<slug>/spec.md' "$SPEC"
+need "spec-groom-glab-access-level"        'access_level' "$SPEC"
+need "shared-task-asks-host-sh"            'scripts/setup/host.sh' "$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
+need "shared-task-checks-the-key-block"    'scripts/setup/route.sh" check' "$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
+need "task-flow-local-target-ref"          'refs/heads/<target>' "$TASK_FLOW"
+need "task-flow-keeps-the-pull-for-remotes" 'git pull --ff-only' "$TASK_FLOW"
+# The issue tracker is read before the issue: the issue lives where that file says.
+tracker_read_line="$(grep -nF -- '- `docs/agents/issue-tracker.md`' "$SPEC" | head -1 | cut -d: -f1)"
+issue_read_line="$(grep -nF -- '- the issue, when `$ARGUMENTS` names one' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$tracker_read_line" ] && [ -n "$issue_read_line" ] && [ "$tracker_read_line" -lt "$issue_read_line" ]; then
+  echo "PASS spec-reads-the-tracker-file-before-the-issue"
+else
+  echo "FAIL spec-reads-the-tracker-file-before-the-issue (tracker=$tracker_read_line issue=$issue_read_line)"; fails=1
+fi
+# /run asks host.sh and checks the route block in Before starting, before any slice, so a route that
+# would stop delivery stops the run before work is spent; it checks the block again at Delivery entry.
+run_host_line="$(grep -nF 'scripts/setup/host.sh' "$RUN" | head -1 | cut -d: -f1)"
+run_check_line="$(grep -nF 'scripts/setup/route.sh" check' "$RUN" | head -1 | cut -d: -f1)"
+run_last_check_line="$(grep -nF 'scripts/setup/route.sh" check' "$RUN" | tail -1 | cut -d: -f1)"
+run_loop_line="$(grep -n '^## The loop' "$RUN" | head -1 | cut -d: -f1)"
+run_delivery_line="$(grep -n '^## Delivery' "$RUN" | head -1 | cut -d: -f1)"
+if [ -n "$run_host_line" ] && [ -n "$run_check_line" ] && [ -n "$run_loop_line" ] && [ -n "$run_delivery_line" ] \
+   && [ "$run_host_line" -lt "$run_check_line" ] && [ "$run_check_line" -lt "$run_loop_line" ] \
+   && [ "$run_delivery_line" -lt "$run_last_check_line" ]; then
+  echo "PASS run-checks-the-route-before-the-loop-and-at-delivery"
+else
+  echo "FAIL run-checks-the-route-before-the-loop-and-at-delivery (host=$run_host_line check=$run_check_line loop=$run_loop_line delivery=$run_delivery_line last=$run_last_check_line)"; fails=1
+fi
+need "run-ignored-scratch-is-local-state" 'leave an ignored issue uncommitted and close it at the recorded absolute path after merge' "$RUN"
+LOCAL_ISSUES="$ROOT/plugins/cc-tuner/skills/task-flow/references/local-issues.md"
+need "local-issues-resolve-persistent-checkout" "git worktree list --porcelain | sed -n '1s/^worktree //p'" "$LOCAL_ISSUES"
+need "task-flow-local-writes-use-shared-location" '[Local issue files](#local-issue-files)' "$TASK_FLOW"
+need "cleanup-preserves-local-tracker" 'check its tracker directory for ignored issues or link files' "$LOCAL_ISSUES"
+if [ "$(grep -cF '[local-issues.md](../task-flow/references/local-issues.md)' "$SPEC")" -ge 2 ]; then
+  echo "PASS spec-and-groom-share-local-issue-location"
+else
+  echo "FAIL spec-and-groom-share-local-issue-location"; fails=1
+fi
+need "spec-ignored-scratch-path-recorded"  'record the issue file'"'"'s absolute path in the spec'"'"'s Delivery section' "$SPEC"
+need "spec-ignored-scratch-closed-after-merge" '`/run` closes it after merge' "$SPEC"
+LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
+SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
+need "local-ci-record-goes-where-route-says" "where the host's route reference says" "$LOCAL_CI"
+need "local-ci-host-local-is-none"         'with host `local`, `ci:` is always `none:<reason>`' "$LOCAL_CI"
+need "shared-task-per-host-preflight"      '`merge.sh --check-only` for a GitHub candidate, every route step' "$SHARED_TASK"
+need "verify-record-goes-where-route-puts-it" "where the host keeps records (a PR comment on GitHub)" "$VERIFY"
+need "task-flow-gitlab-merged-check"       '`glab mr view <iid>`' "$TASK_FLOW"
+need "task-flow-local-merged-check"        '`git rev-parse refs/heads/<target>`' "$TASK_FLOW"
+need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$TASK_FLOW"
+need "task-flow-future-work-uses-the-tracker" '`docs/agents/issue-tracker.md` names when it is not GitHub' "$TASK_FLOW"
+README_ROOT="$ROOT/README.md"
+for readme in "$README_ROOT" "$README_PLUGIN"; do
+  rn="${readme#$ROOT/}"
+  need "readme-names-the-tracker-file ($rn)"  'docs/agents/issue-tracker.md' "$readme"
+  need "readme-names-the-delivery-route ($rn)" 'delivery route' "$readme"
+  need "readme-names-setup-install-companions ($rn)" 'after one confirmation' "$readme"
+  if grep -qiF 'standalone without' "$readme"; then
+    echo "FAIL readme-no-standalone-claim ($rn)"; fails=1
+  else
+    echo "PASS readme-no-standalone-claim ($rn)"
+  fi
+done
+# Both Install sections end at the commands a fresh machine needs next, and the root README lists the nodes
+# a fresh machine meets (companions, then the delivery route).
+for readme in "$README_ROOT" "$README_PLUGIN"; do
+  rn="${readme#$ROOT/}"
+  install_section="$(sed -n '/^## Install/,/^## [^I]/p' "$readme")"
+  if printf '%s\n' "$install_section" | grep -qF '`/reload-plugins`' \
+     && printf '%s\n' "$install_section" | grep -qF '`/cc-tuner:setup install`'; then
+    echo "PASS readme-install-ends-with-reload-and-setup ($rn)"
+  else
+    echo "FAIL readme-install-ends-with-reload-and-setup ($rn)"; fails=1
+  fi
+done
+need "readme-root-lists-the-companions-node" 'environment, companions,' "$README_ROOT"
+need "readme-root-lists-the-route-node"      'the delivery route,' "$README_ROOT"
+need "readme-plugin-names-route-sh"          'scripts/setup/route.sh' "$README_PLUGIN"
+need "readme-plugin-names-host-sh"           'scripts/setup/host.sh' "$README_PLUGIN"
+need "readme-plugin-names-companion-sh"      'scripts/setup/companion.sh' "$README_PLUGIN"
+need "readme-mattpocock-is-required"       '**mattpocock-skills** is required by `/spec` and `/run`' "$README_PLUGIN"
+need "readme-codex-triage-is-optional"     '**cc-codex-triage** is optional' "$README_PLUGIN"
+need "readme-codex-needs-login"            'logged-in Codex CLI' "$README_PLUGIN"
+
+need "run-states-its-plugin-root"            '**Plugin root: `${CLAUDE_PLUGIN_ROOT}`.**' "$RUN"
+need "run-accepted-from-a-file"              'gh pr comment <pr> --body-file "$REC"' "$RUN"
+need "companions-uses-the-plugin-root-block" 'C="$PLUGIN/scripts/setup/companion.sh"' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+if grep -q 'CLAUDE_PLUGIN_ROOT}/' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"; then
+  echo "FAIL companions-reference-does-not-expand-plugin-root"; fails=1
+else echo "PASS companions-reference-does-not-expand-plugin-root"; fi
+if grep -Eq 'marketplace update (mattpocock|cc-codex-triage) ' "$ROOT/plugins/cc-tuner/scripts/setup/prereq-check.sh"; then
+  echo "FAIL prereq-update-hints-come-from-companion-table"; fails=1
+else echo "PASS prereq-update-hints-come-from-companion-table"; fi
+
+need "setup-plugin-root-uses-the-substituted-token" 'PLUGIN="${CLAUDE_PLUGIN_ROOT}"' "$SETUP"
+if grep -qF 'CLAUDE_PLUGIN_ROOT:-' "$SETUP"; then echo "FAIL setup-plugin-root-no-shell-default"; fails=1; else echo "PASS setup-plugin-root-no-shell-default"; fi
+need "companions-no-cli-prints-table-commands" '"$C" commands' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+need "route-gitlab-squash-read-back-must-equal" 'must equal the value sent' "$ROUTE_GITLAB"
+need "companions-install-nothing-overrides"  '**Install nothing** overrides every other tick' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+need "companions-no-cli-codex-whatever-state" '1, whatever its state' "$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+need "route-gitlab-sets-squash-explicitly"   '-F squash=' "$ROUTE_GITLAB"
+need "route-gitlab-reads-project-squash-option" 'squash_option' "$ROUTE_GITLAB"
+need "run-other-route-from-the-fetched-target" 'git show FETCH_HEAD:.claude/rules/task-flow.local.md' "$RUN"
+need "route-gitlab-target-tip-from-fetch-head" 'TIP=$(git rev-parse FETCH_HEAD)' "$ROUTE_GITLAB"
+need "route-gitlab-strategy-before-check-only" '7. **Target and strategy.**' "$ROUTE_GITLAB"
+COMPANIONS_MD="$ROOT/plugins/cc-tuner/skills/setup/references/companions.md"
+if [ "$(grep -n '^1\. \*\*Fallbacks' "$COMPANIONS_MD" | cut -d: -f1)" != '' ] && [ "$(grep -n '^1\. \*\*Fallbacks' "$COMPANIONS_MD" | cut -d: -f1)" -lt "$(grep -n '^2\. \*\*Nothing to do' "$COMPANIONS_MD" | cut -d: -f1)" ]; then echo "PASS companions-fallbacks-before-nothing-to-do"; else echo "FAIL companions-fallbacks-before-nothing-to-do"; fails=1; fi
+
+# Permission is decided once in /run; every delivery route follows that decision.
+need "run-owns-merge-authorization" '**Merge authorization.**' "$RUN"
+need "run-check-only-without-authorization" 'Without merge authorization' "$RUN"
+for route in "$ROUTE_GITLAB" "$ROUTE_LOCAL" "$SHARED_TASK"; do
+  need "route-uses-shared-authorization ($(basename "$route"))" '**Merge authorization**' "$route"
+done
 
 exit "$fails"
