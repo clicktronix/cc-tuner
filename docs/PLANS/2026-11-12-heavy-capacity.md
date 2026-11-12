@@ -56,11 +56,11 @@ command and state; the env var set user-wide gives the same number to every sess
       capacity runs alone and says it was clamped — checked by: test_heavy.sh
 - [x] [machine] Arrival order: a weight-1 check that arrives while a weight-2 check waits does not start
       before it — checked by: test_heavy.sh
-- [ ] [machine] Memory pressure: under warn/critical the head waits and says so, starts once pressure
+- [x] [machine] Memory pressure: under warn/critical the head waits and says so, starts once pressure
       is normal, starts with the warning line after `CC_TUNER_HEAVY_MEM_WAIT` and leaves a deficit
       mark that lets the next check start without waiting; an unreadable signal starts with
       "pressure not measured" — checked by: test_heavy.sh
-- [ ] [machine] The real readers parse this machine's output: macOS `sysctl` and Linux
+- [x] [machine] The real readers parse this machine's output: macOS `sysctl` and Linux
       `/proc/pressure/memory` / `/proc/meminfo` fixtures — checked by: test_heavy.sh (Linux fixtures)
       and `bash plugins/cc-tuner/scripts/heavy.sh status` here
 - [x] [machine] A slot held by the pre-change heavy.sh (origin/main 45795a7) blocks the new one, and a
@@ -69,15 +69,15 @@ command and state; the env var set user-wide gives the same number to every sess
       leaves the queue — checked by: test_heavy.sh
 - [x] [machine] The existing guarantees still hold (passthrough, keeper, nested, interrupt, kill) —
       checked by: test_heavy.sh existing cases
-- [ ] [machine] `heavy.sh status` shows capacity, the pressure reading, holders with their weight and
+- [x] [machine] `heavy.sh status` shows capacity, the pressure reading, holders with their weight and
       the queued waiters with pid and age — checked by: test_heavy.sh
 - [x] [machine] placement.md gives the call with weights (e2e 2; full suite, build and container start
       1, saying the slot does not bound running containers), tells the caller to carry a
       "started under memory pressure" line into its report, and says the outer call's weight governs
       a nested one; README and setup describe derived capacity, `CC_TUNER_HEAVY_SLOTS` as user-wide
       units and `CC_TUNER_HEAVY_MEM_WAIT` — checked by: `bash plugins/cc-tuner/tests/contract/test_contract.sh`
-- [ ] [machine] On this machine `bash plugins/cc-tuner/scripts/heavy.sh status` reports capacity 2 and
-      a real available-memory figure — checked by: running it
+- [x] [machine] On this machine `bash plugins/cc-tuner/scripts/heavy.sh status` reports capacity 2 and
+      a real memory-pressure reading — checked by: running it
 
 ## Test plan
 - Regression test: new cases in `plugins/cc-tuner/tests/flow/test_heavy.sh`

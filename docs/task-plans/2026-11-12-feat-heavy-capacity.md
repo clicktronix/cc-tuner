@@ -27,11 +27,13 @@ Owned paths: plugins/cc-tuner/scripts/heavy.sh,plugins/cc-tuner/tests/flow/test_
 Deciding check: bash plugins/cc-tuner/tests/flow/test_heavy.sh
 Delivers: while macOS or Linux reports memory pressure the head of the queue waits (bounded), says so, and a forced start is visible and does not make the next checks wait again
 
-- [ ] under warn/critical the head waits and says what it waits for; normal pressure starts it
-- [ ] after `CC_TUNER_HEAVY_MEM_WAIT` it starts with `heavy.sh: started under memory pressure after <n>s` and writes a deficit mark that lets checks in the next 600 s start without waiting
-- [ ] an unreadable signal starts with "pressure not measured"
-- [ ] macOS `kern.memorystatus_vm_pressure_level` and Linux `/proc/pressure/memory` / `/proc/meminfo` readers parse fixtures, and `heavy.sh status` here shows a real pressure reading and capacity 2
-- [ ] `status` shows the pressure reading and an active deficit mark
+- [x] under warn/critical the head waits and says what it waits for; normal pressure starts it
+- [x] after `CC_TUNER_HEAVY_MEM_WAIT` it starts with `heavy.sh: started under memory pressure after <n>s` and writes a deficit mark that lets checks in the next 600 s start without waiting
+- [x] an unreadable signal starts with "pressure not measured"
+- [x] macOS `kern.memorystatus_vm_pressure_level` and Linux `/proc/pressure/memory` / `/proc/meminfo` readers parse fixtures, and `heavy.sh status` here shows a real pressure reading and capacity 2
+- [x] `status` shows the pressure reading and an active deficit mark
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_heavy.sh → 110 PASS, 0 FAIL, rc=0 on the integrated branch (RED first: `FAIL pressure-warn-head-does-not-start (want '', got 'P-start')`, 28 FAILs); `heavy.sh status` here → `capacity 2`, `memory pressure: normal (kern.memorystatus_vm_pressure_level=1)`; full `bash tests/run.sh` → `cc-tuner validate ok` @ 938641f
 
 ## Slice 3 — callers use weights and read the pressure warning
 Blocked by: 1
