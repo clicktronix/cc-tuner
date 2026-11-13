@@ -152,6 +152,9 @@ must equal it too.
 On host `local` (no remote) skip `git pull` and `git fetch --prune`, and sync the target in the worktree that
 holds it (`git worktree list`).
 
+When the guard stops the switch, take a worktree instead of overriding it: sync the target in the one that
+holds it (`git worktree list`), or `git worktree add <path> <target>`.
+
 `--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
 something to look at, not to paper over with a merge commit.
 

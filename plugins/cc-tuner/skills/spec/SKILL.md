@@ -218,6 +218,9 @@ For a wide mechanical change that cannot stay green slice by slice, use **expand
 contract**: introduce the new form beside the old, migrate consumers in independently checked batches,
 then remove the old form only after every batch.
 
+Before presenting, call `mcp__cc-tuner__peers_report` (when listed) and name any peer whose claim, edited
+paths or merge conflicts touch the slices' Owned paths.
+
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
 and blockers, plus the card's Priority when a board is named and neither the issue nor
 `task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.

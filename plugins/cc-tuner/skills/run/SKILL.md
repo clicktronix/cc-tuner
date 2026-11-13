@@ -124,6 +124,9 @@ them, update their text in the plan (and the spec if the fact changes its Source
 `plan-lint check` above. A change to acceptance, scope or an Owned path set is not yours to make:
 ask once.
 
+Peers: call `mcp__cc-tuner__peers_claim <plan>` before the first slice, after each tick and before integrating
+the target (when listed). Name a peer that overlaps an open slice's Owned paths before starting that slice.
+
 Mark tasks `in_progress` and `completed` as work advances. When a slice's criteria hold, tick the plan
 and whichever spec acceptance criteria it established **in the same commit**. When a unit did the
 slice, that is the commit integrating its work: the plan is outside the unit's Owned paths. DoD is recorded during
@@ -378,7 +381,8 @@ Shared-task delivery also covers the complete repository/SHA set defined in the 
 ## Ending the run
 
 Every final answer — after the merge, at the handoff before it, or on a block — first stops what this
-run started (TaskStop each background task, close the browser pages it opened, remove each container it created), as `task-flow`'s Runtime cleanup says. Something the user asked to keep running stays.
+run started (TaskStop each background task, close the browser pages it opened, remove each container it created), as `task-flow`'s Runtime cleanup says. Something the user asked to keep running stays, and so does a task the guard refuses to stop
+(name it under `retained`).
 The answer then carries one line:
 
 ```text

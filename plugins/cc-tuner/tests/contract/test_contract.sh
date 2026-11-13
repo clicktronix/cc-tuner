@@ -772,4 +772,23 @@ else
   echo "PASS heavy-no-default-one-wording"
 fi
 
+# Session coordination (#73): the module owns the mechanism (hooks/peers.ts and its tests); these pins
+# keep the texts that make an agent call its tools and take a worktree when the guard stops a switch.
+README="$ROOT/plugins/cc-tuner/README.md"
+need "spec-reports-peers-before-approval"   'call `mcp__cc-tuner__peers_report`' "$SPEC"
+need "run-claims-before-slice-tick-and-integration" 'call `mcp__cc-tuner__peers_claim <plan>` before the first slice, after each tick and before integrating' "$RUN"
+need "run-final-cleanup-leaves-a-guarded-task" 'a task the guard refuses to stop' "$RUN"
+need "rule-template-takes-a-worktree"       'take a worktree' "$RULE_TEMPLATE"
+need "task-flow-cleanup-takes-a-worktree"   'take a worktree' "$TASK_FLOW"
+need "setup-names-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$SETUP"
+need "setup-names-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$SETUP"
+need "readme-documents-peers-report"        '`peers_report`' "$README"
+need "readme-documents-peers-claim"         '`peers_claim <plan>`' "$README"
+need "readme-documents-peers-release"       '`peers_release <key>`' "$README"
+need "readme-documents-the-ack"             'CC_TUNER_ACK=<key>' "$README"
+need "readme-documents-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$README"
+need "readme-documents-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$README"
+need "readme-states-the-keep-limit"         'does not survive the exit of the Claude process' "$README"
+need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.23.0' "$RULE_TEMPLATE"
+
 exit "$fails"

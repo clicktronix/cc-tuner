@@ -285,6 +285,13 @@ loop. When it does not run, the row says which condition failed:
 
 Never omit the row: an absent check reported as nothing is indistinguishable from a passed one.
 
+## Resources files
+
+Session coordination reads two optional files that no node writes: `.claude/cc-tuner-resources.json` in a
+repository (its `product` key and the resources its sessions share or lease) and
+`~/.config/cc-tuner/resources.json` for machine resources such as Chrome's debugging port. Write one only
+when the user asks; the plugin README has the format.
+
 ## Report
 
 End with one table — `node | before | action | verification` — one row per node including the
