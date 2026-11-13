@@ -320,11 +320,12 @@ equals "start-hooks-json-matchers" "startup|clear resume" \
 stp() { local d="$1" o="$2"; shift 2; jq -nc --arg d "$d" --arg o "$o" --arg w "$*" '{words: ($w | split(" ")), dir: $d, op: $o, writes: false}'; }
 steps() { printf '%s\n' "$@" | jq -sc .; }
 
-# bash_event <pid> <session> <phase> <cwd> <steps> [seen] -> what `check` answers to one Bash event.
+# bash_event <pid> <session> <phase> <cwd> <steps> [seen] [ack] -> what `check` answers to one Bash event.
 bash_event() {
-  jq -nc --arg s "$2" --arg ph "$3" --arg c "$4" --argjson st "$5" --argjson seen "${6:-null}" \
+  jq -nc --arg s "$2" --arg ph "$3" --arg c "$4" --argjson st "$5" --argjson seen "${6:-null}" --arg ack "${7:-}" \
     '{session_id: $s, phase: $ph, tool: "Bash", cwd: $c}
-     + (if $st == null then {} else {steps: $st} end) + (if $seen == null then {} else {seen: $seen} end)' \
+     + (if $st == null then {} else {steps: $st} end) + (if $seen == null then {} else {seen: $seen} end)
+     + (if $ack == "" then {} else {ack: $ack} end)' \
     | CC_TUNER_PEERS_CLAUDE_PID="$1" bash "$PEERS" check
 }
 
@@ -425,6 +426,302 @@ call "$PE" g2 "$RE" "$(steps "$(stp "$RW" '' git switch other)")" "git -C '$RW' 
 equals "guard-switch-elsewhere-moves-that-checkout" "other" "$(expected_of g2 "$RW")"
 equals "guard-switch-elsewhere-leaves-the-cwd-checkout" "a" "$(expected_of g2 "$RE")"
 
+# --- the guard stops what would destroy a peer's checkout, files, branch or process -----------------------
+# world -> a fresh repository $R where a live peer $P (session p<P>) is a writer and this session $M (session
+# $ME) has been; one -> a single step in the cwd; verdict <name> <want> <cwd> <steps> [ack] -> this session's
+# Bash call, its answer left in $ANS; key -> the ack key the last stop printed.
+world() {
+  R="$(repo)"; peer; P=$SP; peer; M=$SP; ME="m$M"
+  event "$P" "p$P" before Bash "$R" >/dev/null
+  bash_event "$M" "$ME" before "$R" "$(steps "$(stp '' '' git status)")" >/dev/null
+}
+one() { steps "$(stp '' '' "$@")"; }
+inat() { local d="$1"; shift; steps "$(stp "$d" '' "$@")"; }
+verdict() {
+  ANS="$(bash_event "$M" "$ME" before "$3" "$4" null "${5:-}")"
+  equals "$1" "$2" "$(printf '%s' "$ANS" | jq -r .decision)"
+}
+key() { printf '%s' "$ANS" | jq -r '.reason // empty' | sed -n 's/.*CC_TUNER_ACK=\([0-9a-f]*\).*/\1/p'; }
+reason() { printf '%s' "$ANS" | jq -r '.reason // empty'; }
+mark_mine() { event "$M" "$ME" after Edit "$R" "$R/$1" >/dev/null; }
+peer_rec() { edit_rec "p$P" "$1"; }
+now="$(date +%s)"
+
+# Switching: a peer that writes in the checkout stops it; a peer that only sits there, or wrote over 2 h ago,
+# is a note; a dead peer is nothing. The stop names the peer and offers one way on.
+world; git -C "$R" branch x
+for c in "git switch x" "git switch -c y" "git checkout x" "git checkout -b y" "git switch --detach"; do
+  # shellcheck disable=SC2086
+  verdict "guard-switch-stops-next-to-a-writer ($c)" stop "$R" "$(one $c)"
+done
+check  "guard-stop-names-the-peer"        "pid $P" "$(reason)"
+check  "guard-stop-names-its-branch"      "main" "$(reason)"
+check  "guard-stop-names-the-checkout"    "$R" "$(reason)"
+check  "guard-stop-offers-the-ack"        "run the same command prefixed CC_TUNER_ACK=" "$(reason)"
+check  "guard-stop-leaves-the-choice-to-the-agent" "not a question for the user" "$(reason)"
+equals "guard-stop-is-short" "yes" "$([ "$(reason | wc -c)" -lt 300 ] && echo yes || echo no)"
+verdict "guard-switch-elsewhere-is-allowed"  allow "$R" "$(inat "$(repo)" git switch x)"
+verdict "guard-switch-compound-stops"        stop  "$R" "$(steps "$(stp '' '' git status)" "$(stp '' '&&' git switch x)")"
+verdict "guard-switch-behind-git-C-stops"    stop  "$(repo)" "$(inat "$R" git switch x)"
+verdict "guard-switch-behind-cd-stops"       stop  "$R" "$(steps "$(stp "$R/sub/.." '' git switch x)")"
+peer_rec ".checkouts[\"$R\"].writer = $((now - 3 * 3600))"
+verdict "guard-switch-after-2h-idle-is-a-note"   note "$R" "$(one git switch x)"
+check   "guard-switch-note-names-the-peer"       "pid $P" "$(reason)"
+peer_rec ".checkouts[\"$R\"].writer = $((now - 3600))"
+verdict "guard-switch-after-1h-idle-still-stops" stop "$R" "$(one git switch x)"
+peer_rec ".checkouts[\"$R\"].writer = null"
+verdict "guard-switch-next-to-a-cwd-is-a-note"   note "$R" "$(one git switch x)"
+peer_rec ".checkouts[\"$R\"].writer = $now"
+stop "$P"
+verdict "guard-switch-with-a-dead-peer-is-allowed" allow "$R" "$(one git switch x)"
+world; git -C "$R" branch x
+verdict "guard-switch-stop-sets-no-writer-mark" stop "$R" "$(one git switch x)"
+equals  "guard-stopped-call-makes-no-writer" "null" "$(writer_of "$ME" "$R")"
+verdict "guard-allowed-writer-call-marks-a-writer" allow "$R" "$(one git branch y)"
+equals  "guard-allowed-call-makes-a-writer" "number" "$(writer_of "$ME" "$R")"
+
+# Foreign files: dirty, staged or untracked files this session did not edit through Edit or Write. Every
+# stop has a neighbour that passes once the session owns the file. No peer is needed: the files are the
+# user's, Codex's or a tool's, and a dead peer's stay protected.
+world; commit_file "$R" g.txt one; mkdir -p "$R/sub"; commit_file "$R" sub/s.txt one
+printf 'x\n' >> "$R/.flow-seed"; printf 'u\n' > "$R/u.txt"; printf 'n\n' > "$R/sub/n.txt"
+stop "$P"
+FOREIGN=("git reset --hard" "git reset --hard HEAD~1" "git stash" "git stash push" "git stash -u" "git restore .flow-seed"
+  "git restore ." "git checkout -- .flow-seed" "git checkout ." "git clean -fd" "git commit -a -m m" "git commit -am m"
+  "git add -A" "git add --all" "git add ." "git add -u" "git add sub")
+for c in "${FOREIGN[@]}"; do
+  # shellcheck disable=SC2086
+  verdict "guard-foreign-stop ($c)" stop "$R" "$(one $c)"
+done
+verdict "guard-foreign-stop-unknown-owner"    stop "$R" "$(one git reset --hard)"
+check  "guard-foreign-stop-names-the-file"    ".flow-seed" "$(reason)"
+check  "guard-foreign-stop-says-unknown-owner" "unknown owner" "$(reason)"
+verdict "guard-foreign-stop-behind-git-C"     stop "$(repo)" "$(inat "$R" git reset --hard)"
+verdict "guard-foreign-stop-behind-wrappers"  stop "$R" "$(steps "$(stp ../x '&&' git status)" "$(stp '' '-' echo)" "$(stp '' ';' git reset --hard)")"
+verdict "guard-foreign-stop-in-a-compound"    stop "$R" "$(steps "$(stp '' '' git status)" "$(stp '' '&&' git reset --hard)")"
+# Neighbours that pass while the files are foreign: a dry run, a read, another path, a path that is not dirty.
+for c in "git clean -n" "git clean -nd" "git stash list" "git status" "git restore g.txt" "git checkout -- g.txt" "git add g.txt" "git add sub/s.txt" "git stash show"; do
+  # shellcheck disable=SC2086
+  verdict "guard-foreign-neighbour-allows ($c)" allow "$R" "$(one $c)"
+done
+verdict "guard-foreign-reset-in-a-clean-checkout-allows" allow "$(repo)" "$(one git reset --hard)"
+git -C "$R" add .flow-seed
+verdict "guard-foreign-staged-commit-stops"   stop "$R" "$(one git commit -m m)"
+verdict "guard-foreign-staged-amend-stops"    stop "$R" "$(one git commit --amend --no-edit)"
+git -C "$R" reset -q
+verdict "guard-add-f-then-commit-stops-for-a-foreign-f" stop "$R" "$(steps "$(stp '' '' git add .flow-seed)" "$(stp '' '&&' git commit -m m)")"
+verdict "guard-add-alone-of-a-named-file-allows"        allow "$R" "$(one git add .flow-seed)"
+for f in .flow-seed u.txt sub/n.txt; do mark_mine "$f"; done
+for c in "${FOREIGN[@]}"; do
+  # shellcheck disable=SC2086
+  verdict "guard-own-files-allow ($c)" allow "$R" "$(one $c)"
+done
+git -C "$R" add .flow-seed
+verdict "guard-own-staged-commit-allows"      allow "$R" "$(one git commit -m m)"
+verdict "guard-add-f-then-commit-allows-an-own-f" allow "$R" "$(steps "$(stp '' '' git add .flow-seed)" "$(stp '' '&&' git commit -m m)")"
+printf 'y\n' >> "$R/g.txt"
+verdict "guard-restore-of-a-dirty-file-nobody-edited-stops" stop "$R" "$(one git restore g.txt)"
+
+# The stop names the peer that edited a foreign file, and a dead peer's files stay protected.
+world; printf 'p\n' >> "$R/.flow-seed"; event "$P" "p$P" after Edit "$R" "$R/.flow-seed" >/dev/null
+verdict "guard-foreign-file-of-a-live-peer-stops" stop "$R" "$(one git reset --hard)"
+check  "guard-foreign-stop-names-the-peer"       "pid $P on main" "$(reason)"
+stop "$P"
+verdict "guard-foreign-file-of-a-dead-peer-stays-protected" stop "$R" "$(one git reset --hard)"
+check  "guard-foreign-stop-names-the-dead-peer"  "pid $P, exited" "$(reason)"
+
+# Stash drop and clear need a live peer in the repository.
+world
+for c in "git stash drop" "git stash clear" "git stash drop stash@{1}"; do
+  # shellcheck disable=SC2086
+  verdict "guard-stash-drop-stops-next-to-a-peer ($c)" stop "$R" "$(one $c)"
+done
+verdict "guard-stash-drop-behind-git-C-stops" stop "$(repo)" "$(inat "$R" git stash drop)"
+verdict "guard-stash-list-allows"             allow "$R" "$(one git stash list)"
+peer_rec ".checkouts[\"$R\"].writer = $((now - 3 * 3600))"
+verdict "guard-stash-drop-ignores-the-2h-window" stop "$R" "$(one git stash drop)"
+stop "$P"
+verdict "guard-stash-drop-with-a-dead-peer-allows" allow "$R" "$(one git stash drop)"
+
+# Commit, push and PR run on the branch this session expects, whoever switched it.
+world; git -C "$R" branch x; stop "$P"
+for c in "git commit -m m" "git push origin main" "gh pr create --fill" "gh pr merge 5" "gh pr merge --squash"; do
+  # shellcheck disable=SC2086
+  verdict "guard-on-the-expected-branch-allows ($c)" allow "$R" "$(one $c)"
+done
+git -C "$R" switch -q x
+for c in "git commit -m m" "git push origin x" "gh pr create --fill" "gh pr merge 5" "gh pr merge --squash"; do
+  # shellcheck disable=SC2086
+  verdict "guard-drifted-branch-stops ($c)" stop "$R" "$(one $c)"
+done
+check  "guard-drift-stop-names-both-branches" "x" "$(reason)"
+check  "guard-drift-stop-names-the-expected-one" "main" "$(reason)"
+verdict "guard-drifted-commit-behind-git-C-stops" stop "$(repo)" "$(inat "$R" git commit -m m)"
+verdict "guard-drifted-status-allows"             allow "$R" "$(one git status)"
+verdict "guard-switching-back-then-committing-allows" allow "$R" "$(steps "$(stp '' '' git switch main)" "$(stp '' '&&' git commit -m m)")"
+git -C "$R" switch -q main
+verdict "guard-switch-and-commit-in-one-call-allows" allow "$R" "$(steps "$(stp '' '' git switch -c z)" "$(stp '' '&&' git commit -m m)")"
+git -C "$R" switch -q --detach
+verdict "guard-detached-head-commit-stops-too" stop "$R" "$(one git commit -m m)"
+git -C "$R" switch -q main
+
+# Deleting a peer's expected branch.
+world; git -C "$R" branch feat-p; git -C "$R" branch spare
+peer_rec ".checkouts[\"$R\"].expected = \"feat-p\""
+for c in "git branch -D feat-p" "git branch -d feat-p" "git branch --delete feat-p spare" "git push origin --delete feat-p"
+do
+  # shellcheck disable=SC2086
+  verdict "guard-deleting-a-peers-branch-stops ($c)" stop "$R" "$(one $c)"
+done
+verdict "guard-push-colon-refspec-stops"      stop "$R" "$(one git push origin :feat-p)"
+verdict "guard-pr-merge-delete-branch-stops"  stop "$R" "$(one gh pr merge --squash --delete-branch feat-p)"
+verdict "guard-delete-branch-behind-git-C-stops" stop "$(repo)" "$(inat "$R" git branch -D feat-p)"
+check  "guard-branch-stop-names-the-peer"     "pid $P" "$(reason)"
+verdict "guard-deleting-another-branch-allows" allow "$R" "$(one git branch -D spare)"
+verdict "guard-push-delete-another-branch-allows" allow "$R" "$(one git push origin --delete spare)"
+verdict "guard-pr-merge-without-delete-allows" allow "$R" "$(one gh pr merge --squash feat-p)"
+verdict "guard-pr-merge-delete-by-number-is-a-note" note "$R" "$(one gh pr merge 7 --delete-branch)"
+verdict "guard-listing-branches-allows"       allow "$R" "$(one git branch --list)"
+stop "$P"
+verdict "guard-deleting-a-dead-peers-branch-allows" allow "$R" "$(one git branch -D feat-p)"
+
+# Removing a worktree that is a peer's cwd, or holds foreign files.
+world; git -C "$R" worktree add -q -b wt "$W/wt$P"; WT="$(cd "$W/wt$P" && pwd -P)"
+event "$P" "p$P" before Bash "$WT" >/dev/null
+for c in "git worktree remove $WT" "git worktree remove --force $WT" "rm -rf $WT" "rm -r $WT" "rm -fr $WT/"; do
+  # shellcheck disable=SC2086
+  verdict "guard-removing-a-peers-cwd-stops ($c)" stop "$R" "$(one $c)"
+done
+verdict "guard-removing-the-parent-of-a-peers-cwd-stops" stop "$R" "$(one rm -rf "$(dirname "$WT")")"
+verdict "guard-removal-behind-bash-c-stops"   stop "$R" "$(steps "$(stp "$W" '' rm -rf "wt$P")")"
+check  "guard-removal-stop-names-the-peer"    "pid $P" "$(reason)"
+verdict "guard-removing-another-directory-allows" allow "$R" "$(one rm -rf "$R/build")"
+verdict "guard-removing-a-file-allows"        allow "$R" "$(one rm "$WT/x")"
+git -C "$R" worktree add -q -b wt2 "$W/wt2$P"; WT2="$(cd "$W/wt2$P" && pwd -P)"
+verdict "guard-removing-a-clean-worktree-allows" allow "$R" "$(one git worktree remove "$WT2")"
+printf 'f\n' > "$WT2/foreign.txt"
+verdict "guard-removing-a-worktree-with-foreign-files-stops" stop "$R" "$(one git worktree remove --force "$WT2")"
+verdict "guard-rm-rf-of-a-worktree-with-foreign-files-stops" stop "$R" "$(one rm -rf "$WT2")"
+check  "guard-worktree-stop-names-the-file"   "foreign.txt" "$(reason)"
+event "$M" "$ME" after Write "$WT2" "$WT2/foreign.txt" >/dev/null
+verdict "guard-removing-a-worktree-of-own-files-allows" allow "$R" "$(one git worktree remove --force "$WT2")"
+stop "$P"
+verdict "guard-removing-a-dead-peers-worktree-allows" allow "$R" "$(one git worktree remove "$WT")"
+
+# Kill: a process that descends from a peer's Claude. A peer stand-in is a bash with a child; this session's
+# stand-in has one too, and nothing here is ever killed: the guard only reads the process table.
+TN=0
+tree() {  # tree [cmd] -> a stand-in Claude (pid $SP) with a child running cmd (default: sleep 300), child pid in $SC
+  TN=$((TN + 1))
+  bash -c "${1:-sleep 300} & echo \$! > \"\$1\"; wait" _ "$W/child.$TN" >/dev/null 2>&1 &
+  SP=$!; disown "$SP" 2>/dev/null; STARTED="$STARTED $SP"
+  local n=0; until [ -s "$W/child.$TN" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done
+  SC="$(cat "$W/child.$TN")"; STARTED="$STARTED $SC"
+}
+R="$(repo)"
+tree "sleep 3737"; P=$SP; PC=$SC; event "$P" "p$P" before Bash "$R" >/dev/null
+tree "sleep 3838"; M=$SP; MC=$SC; ME="m$M"; event "$M" "$ME" before Bash "$R" >/dev/null
+sleep 300 >/dev/null 2>&1 & UN=$!; disown "$UN" 2>/dev/null; STARTED="$STARTED $UN"
+verdict "guard-kill-of-a-peers-child-stops"      stop  "$R" "$(one kill "$PC")"
+check   "guard-kill-stop-names-the-peer"         "pid $P" "$(reason)"
+verdict "guard-kill-signal-of-a-peers-child-stops" stop "$R" "$(one kill -9 "$PC")"
+verdict "guard-kill-of-the-peer-itself-stops"    stop  "$R" "$(one kill "$P")"
+verdict "guard-kill-behind-git-C-dir-stops"      stop  "$(repo)" "$(inat "$R" kill "$PC")"
+verdict "guard-kill-of-an-own-child-allows"      allow "$R" "$(one kill "$MC")"
+verdict "guard-kill-of-an-unrelated-process-allows" allow "$R" "$(one kill "$UN")"
+verdict "guard-pkill-matching-a-peers-child-stops" stop "$R" "$(one pkill -f 3737)"
+verdict "guard-pkill-signal-matching-a-peers-child-stops" stop "$R" "$(one pkill -9 -f 3737)"
+verdict "guard-pkill-matching-an-own-child-allows" allow "$R" "$(one pkill -f 3838)"
+verdict "guard-pkill-matching-nothing-allows"    allow "$R" "$(one pkill -f 3939)"
+mkdir -p "$W/bin"; ln -sf /bin/sleep "$W/bin/peersleep"; ln -sf /bin/sleep "$W/bin/mysleep"
+tree "$W/bin/peersleep 300"; stop "$P"; P=$SP; event "$P" "p$P" before Bash "$R" >/dev/null
+tree "$W/bin/mysleep 300";   stop "$M"; M=$SP; ME="m$M"; event "$M" "$ME" before Bash "$R" >/dev/null
+verdict "guard-killall-a-peers-process-stops"    stop  "$R" "$(one killall peersleep)"
+verdict "guard-killall-an-own-process-allows"    allow "$R" "$(one killall mysleep)"
+# A port: `kill $(lsof -ti :N)` and `lsof -ti :N | xargs kill`, whose target is read from the same lsof.
+printf '%s\n' 'import socket, sys, time' 's = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)' \
+  'open(sys.argv[1], "w").write(str(s.getsockname()[1])); time.sleep(300)' > "$W/listen.py"
+tree "python3 '$W/listen.py' '$W/port.1'"; stop "$P"; P=$SP; PC2=$SC; event "$P" "p$P" before Bash "$R" >/dev/null
+n=0; until [ -s "$W/port.1" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done; PORT="$(cat "$W/port.1")"
+verdict "guard-kill-of-a-port-owner-stops"       stop  "$R" "$(steps "$(stp '' '' lsof -ti ":$PORT")" "$(stp '' '' kill)")"
+verdict "guard-xargs-kill-of-a-port-owner-stops" stop  "$R" "$(steps "$(stp '' '' lsof -ti ":$PORT")" "$(stp '' '|' kill)")"
+verdict "guard-kill-of-a-port-nobody-holds-allows" allow "$R" "$(steps "$(stp '' '' lsof -ti :1)" "$(stp '' '' kill)")"
+verdict "guard-kill-of-an-unreadable-pid-is-a-note" note "$R" "$(one kill '$PID')"
+stop "$P"
+verdict "guard-kill-of-a-dead-peers-child-allows" allow "$R" "$(one kill "$PC2")"
+
+# Notes: an edit next to a writer, or of a path a peer claims, runs; each is said once an hour.
+world
+edit_ev() { jq -nc --arg s "$ME" --arg c "$R" --arg p "$1" '{session_id: $s, phase: "before", tool: "Edit", cwd: $c, path: $p}' | CC_TUNER_PEERS_CLAUDE_PID="$M" bash "$PEERS" check; }
+ANS="$(edit_ev "$R/a.txt")"
+equals "guard-edit-next-to-a-writer-is-a-note" "note" "$(printf '%s' "$ANS" | jq -r .decision)"
+check  "guard-edit-note-names-the-peer"        "pid $P" "$(printf '%s' "$ANS" | jq -r .reason)"
+equals "guard-edit-note-once-an-hour"          "allow" "$(edit_ev "$R/b.txt" | jq -r .decision)"
+edit_rec "$ME" ".acks = (.acks | with_entries(.value = 1))"
+equals "guard-edit-note-again-after-the-hour"  "note" "$(edit_ev "$R/b.txt" | jq -r .decision)"
+equals "guard-edit-before-marks-no-writer"     "null" "$(writer_of "$ME" "$R")"
+peer_rec ".claims = {\"plan.md\": {\"repo\": \"$(rec "p$P" ".checkouts[\"$R\"].repo")\", \"paths\": [\"lib/\"]}} | .checkouts[\"$R\"].writer = null"
+ANS="$(edit_ev "$R/lib/x.ts")"
+equals "guard-edit-of-a-claimed-path-is-a-note" "note" "$(printf '%s' "$ANS" | jq -r .decision)"
+check  "guard-claim-note-names-the-claim"       "lib/" "$(printf '%s' "$ANS" | jq -r .reason)"
+equals "guard-edit-of-an-unclaimed-path-allows" "allow" "$(edit_ev "$R/src/x.ts" | jq -r .decision)"
+stop "$P"
+equals "guard-edit-with-a-dead-peer-allows"     "allow" "$(edit_ev "$R/lib/y.ts" | jq -r .decision)"
+world
+equals "guard-edit-in-another-repository-allows" "allow" "$(edit_ev "$(repo)/a.txt" | jq -r .decision)"
+world
+verdict "guard-git-with-an-option-first-is-a-note" note "$R" "$(one git --git-dir=x reset --hard)"
+
+# The ack: the key a stop printed passes that action on that target, for 30 min, and nothing else.
+world; printf 'x\n' >> "$R/.flow-seed"; printf 'u\n' > "$R/u.txt"; R2="$(repo)"; printf 'x\n' >> "$R2/.flow-seed"
+event "$M" "$ME" before Bash "$R2" >/dev/null
+verdict "guard-ack-setup-stops" stop "$R" "$(one git reset --hard)"; K="$(key)"
+equals  "guard-ack-key-is-printed" "8" "${#K}"
+verdict "guard-ack-passes-the-same-command" allow "$R" "$(one git reset --hard)" "$K"
+equals  "guard-ack-is-recorded" "number" "$(rec "$ME" ".acks[\"$K\"] | type")"
+verdict "guard-ack-holds-without-the-prefix-for-30-min" allow "$R" "$(one git reset --hard)"
+verdict "guard-ack-does-not-pass-another-action" stop "$R" "$(one git clean -fd)"
+verdict "guard-ack-does-not-pass-another-target" stop "$R2" "$(one git reset --hard)"
+verdict "guard-ack-does-not-pass-another-checkout-by-git-C" stop "$(repo)" "$(inat "$R2" git reset --hard)"
+verdict "guard-ack-passes-the-same-action-by-git-C" allow "$(repo)" "$(inat "$R" git reset --hard)"
+verdict "guard-ack-of-another-key-passes-nothing" stop "$R2" "$(one git reset --hard)" "deadbeef"
+edit_rec "$ME" ".acks[\"$K\"] = $((now - 31 * 60))"
+verdict "guard-ack-expires-after-30-min" stop "$R" "$(one git reset --hard)"
+verdict "guard-ack-prefix-renews-it" allow "$R" "$(one git reset --hard)" "$K"
+edit_rec "$ME" ".acks = {}"
+verdict "guard-ack-needs-the-printed-key-not-a-guess" stop "$R" "$(one git reset --hard)" "00000000"
+start "$M" "$ME" clear "$R" >/dev/null
+equals  "guard-ack-is-dropped-at-clear" "{}" "$(rec "$ME" '.acks | tojson')"
+
+# --- latency: the guard decides in at most 150 ms p95 over 50 calls with 10 records ------------------------
+# Ten live peers in the call's repository, none a writer, so a switch is a note and the commit after it is
+# read too: the checkout of each step, the process table entries of the ten, HEAD, and `git status`.
+OUTER_DIR="$CC_TUNER_PEERS_DIR"; export CC_TUNER_PEERS_DIR="$W/lat-peers"
+RL="$(repo)"; git -C "$RL" branch x
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  peer; event "$SP" "lat$i" before Bash "$RL" >/dev/null; edit_rec "lat$i" ".checkouts[\"$RL\"].writer = null"
+done
+peer; ML=$SP; bash_event "$ML" lat-me before "$RL" "$(steps "$(stp '' '' git status)")" >/dev/null
+LAT="$(python3 - "$PEERS" "$RL" "$ML" <<'PY'
+import json, os, subprocess, sys, time
+peers, repo, pid = sys.argv[1:4]
+steps = [{"words": ["git", "switch", "x"], "dir": "", "op": "", "writes": False},
+         {"words": ["git", "commit", "-m", "m"], "dir": "", "op": "&&", "writes": False}]
+ev = json.dumps({"session_id": "lat-me", "phase": "before", "tool": "Bash", "cwd": repo, "steps": steps})
+env = dict(os.environ, CC_TUNER_PEERS_CLAUDE_PID=pid)
+ts = []
+for _ in range(50):
+    t = time.perf_counter()
+    r = subprocess.run(["bash", peers, "check"], input=ev, text=True, capture_output=True, env=env)
+    ts.append((time.perf_counter() - t) * 1000)
+ts.sort()
+print(int(ts[47]), json.loads(r.stdout)["decision"])
+PY
+)"
+export CC_TUNER_PEERS_DIR="$OUTER_DIR"
+equals "latency-measures-the-whole-decision" "note" "${LAT#* }"
+if [ "${LAT%% *}" -le 150 ]; then pass "latency (p95 ${LAT%% *} ms over 50 calls with 10 records)"; else fail "latency (p95 ${LAT%% *} ms, want at most 150)"; fi
+
 # --- one test drives the shipped adapter end to end ----------------------------------------------------
 # A real `claude -p` loads the plugin and runs real tool calls; only the model is a stand-in, a few lines
 # of Python that answer each request with the next call of a script. The engine, hooks/register.ts,
@@ -432,6 +729,7 @@ equals "guard-switch-elsewhere-leaves-the-cwd-checkout" "a" "$(expected_of g2 "$
 cat > "$W/fake_api.py" <<'PY'
 import http.server, json, sys
 script = [json.loads(line) for line in open(sys.argv[1])]
+log = sys.argv[2]
 msg = [0]
 
 def sse(*events):
@@ -441,6 +739,7 @@ class Api(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        open(log, "w").write(json.dumps(body.get("messages", [])))
         asked = sum(1 for m in body.get("messages", []) if isinstance(m.get("content"), list)
                     for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_result")
         call = script[asked] if body.get("tools") and asked < len(script) else None
@@ -464,11 +763,12 @@ print(server.server_address[1], flush=True)
 server.serve_forever()
 PY
 
-# e2e <repo> <session id> <script line>... -> runs the script as one `claude -p` session in repo; leaves its pid in $CP.
+# e2e <repo> <session id> <script line>... -> runs the script as one `claude -p` session in repo; leaves its pid in $CP
+# and, in $W/api.log, everything the model was told over the session.
 e2e() {
   local repo="$1" sid="$2" n=0; shift 2
   printf '%s\n' "$@" > "$W/script.jsonl"
-  python3 "$W/fake_api.py" "$W/script.jsonl" > "$W/api.port" & API=$!; STARTED="$STARTED $API"
+  python3 "$W/fake_api.py" "$W/script.jsonl" "$W/api.log" > "$W/api.port" & API=$!; STARTED="$STARTED $API"
   until [ -s "$W/api.port" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done
   ( cd "$repo" && exec env CLAUDE_CONFIG_DIR="$W/claude-config" ANTHROPIC_BASE_URL="http://127.0.0.1:$(cat "$W/api.port")" \
       ANTHROPIC_API_KEY=sk-ant-stand-in DISABLE_TELEMETRY=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
@@ -489,6 +789,13 @@ outermost() {
   printf '%s' "$top"
 }
 
+# e2e_rec <jq filter> -> a field of the record of the session the last e2e ran as: inside Claude Code every
+# nested session is the outermost one's, so the record is found by pid, not by the session id.
+e2e_rec() {
+  local f pid; pid="$(outermost "$$" | grep . || printf %s "$CP")"
+  for f in "$CC_TUNER_PEERS_DIR"/*.json; do [ "$(jq -r .pid "$f" 2>/dev/null)" = "$pid" ] && { jq -r "$1" "$f"; return; }; done
+}
+
 if command -v claude >/dev/null 2>&1; then
   RT="$(repo)"; SID=00000000-0000-4000-8000-0000000000e2
   e2e "$RT" "$SID" \
@@ -500,6 +807,24 @@ if command -v claude >/dev/null 2>&1; then
   equals "guard-e2e-switch-moved-the-expectation" "e2e" "$(expected_of "$SID" "$RT")"
   equals "guard-e2e-edit-recorded-its-path"       "notes.txt" "$(paths_of "$SID" "$RT")"
   equals "guard-e2e-writer-call-marked-a-writer"  "number" "$(writer_of "$SID" "$RT")"
+  # A peer writes in the checkout: the wrapped switch is stopped, the same command prefixed with the printed key
+  # runs with the prefix stripped, and an edit next to the peer carries a note the model reads.
+  RB="$(repo)"; peer; PB2=$SP; peer; MB=$SP
+  event "$PB2" "pb$PB2" before Bash "$RB" >/dev/null
+  bash_event "$MB" "mb$MB" before "$RB" "$(one git status)" >/dev/null
+  bash_event "$MB" "mb$MB" before "$RB" "$(one git switch z)" > "$W/stop.json"
+  KEYB="$(jq -r .reason "$W/stop.json" | sed -n 's/.*CC_TUNER_ACK=\([0-9a-f]*\).*/\1/p')"
+  SIDB=00000000-0000-4000-8000-0000000000e3
+  e2e "$RB" "$SIDB" \
+    '{"name":"Bash","input":{"command":"bash -c '"'"'cd . && git switch -q -c z'"'"'"}}' \
+    "{\"name\":\"Bash\",\"input\":{\"command\":\"CC_TUNER_ACK=$KEYB bash -c 'cd . && git switch -q -c z'\"}}" \
+    "{\"name\":\"Write\",\"input\":{\"file_path\":\"$RB/b.txt\",\"content\":\"b\"}}"
+  check  "guard-e2e-stop-reaches-the-model"     "run the same command prefixed CC_TUNER_ACK=$KEYB" "$(cat "$W/api.log")"
+  check  "guard-e2e-stop-says-the-choice-is-the-agents" "not a question for the user" "$(cat "$W/api.log")"
+  equals "guard-e2e-acked-command-ran-without-the-prefix" "z" "$(git -C "$RB" branch --show-current)"
+  equals "guard-e2e-ack-is-recorded"            "number" "$(e2e_rec ".acks[\"$KEYB\"] | type")"
+  check  "guard-e2e-note-reaches-the-model"     "also writes in" "$(cat "$W/api.log")"
+  equals "guard-e2e-noted-edit-ran"             "b" "$(cat "$RB/b.txt" 2>/dev/null)"
 else
   fail "guard-e2e (claude is not on PATH; install @anthropic-ai/claude-code to drive the adapter)"
 fi
