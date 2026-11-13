@@ -15,7 +15,7 @@ never asked.
   Claude session in `${CC_TUNER_PEERS_DIR:-~/.cache/cc-tuner/sessions}`.
   - **Writing.** The record is written by rename under `flock`.
   - **Identity.** A session is its Claude process, identified by pid plus start time. A nested
-    `claude -p` or a subagent counts as its parent session.
+    `claude -p` counts as the outermost `claude` in its ancestry; a subagent shares its parent's pid.
   - **Per checkout, the record holds:**
     - the expected branch: the branch at first touch. It moves only when HEAD changed during this
       session's own call that contains a switch (HEAD read before and after that call). A failed
@@ -70,7 +70,8 @@ never asked.
   - **Stop reason.** It is short: who (the peer, or "unknown owner"), what would be lost, and one
     way on.
     - For a Bash stop, the way on is the same command prefixed `CC_TUNER_ACK=<key>`, which covers
-      one action on one target for 30 min.
+      one action on one target for 30 min. The guard records the ack and strips the prefix before
+      the call, so the user's allow rules still match. The reason says the choice is the agent's.
     - For a lease or a `TaskStop`, there is no ack. The way on is to wait, or to `SendMessage` the
       holder when that tool is available.
 - **Resources** are declared, not detected.
@@ -103,12 +104,11 @@ never asked.
   not the exit of the Claude process, which stops its background tasks itself.
 - **Git reads** by the guard use `GIT_OPTIONAL_LOCKS=0`, so they never write the index.
 - **Commands:** `peers.sh check` (the guard), `report`, `claim <plan>`, `release <key>`.
-- **Guard surface.** Slice 1 chooses between two surfaces:
-  - the `register.ts` module: in-process, reuses `commands()`, sees the result after `next`;
-  - `PreToolUse`/`PostToolUse` hooks calling `peers.sh check`.
-
-  It observes them on the CI-pinned engine, or updates the pin. For the module, it also probes
-  whether the module can read the record store and `ps`.
+- **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its
+  `tool.call` handler sees each call before and after `next`, reuses `commands()`, and calls
+  `peers.sh check` through `$.process.run`; the Claude pid is that child's `$PPID`, resolved once per
+  module load. A command-hook surface was rejected: same deny and cost, but the result is split
+  across `PostToolUse`/`PostToolUseFailure` and the parser would be ported.
 - **Rejected:**
   - messages as the record (best-effort delivery);
   - asking the user;

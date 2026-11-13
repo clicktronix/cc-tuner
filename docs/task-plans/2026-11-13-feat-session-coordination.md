@@ -9,11 +9,13 @@ Owned paths: docs/spike-guard-surface.md,plugins/cc-tuner/tests/flow/CLAUDE_CODE
 Deciding check: the orchestrator reads docs/spike-guard-surface.md against every checkbox below; each has an `Observed:` line naming the engine version and command
 Delivers: a recorded choice between the register.ts module and PreToolUse/PostToolUse hooks, each answer backed by an observation on the engine CI pins
 
-- [ ] a deny reaches the model and the user sees no prompt, in default and in bypass mode
-- [ ] how the surface learns its Claude pid for interactive, background and nested `claude -p` sessions, and whether it sees a call's result
-- [ ] whether a `CC_TUNER_ACK=` prefix still matches an allow rule like `Bash(git switch:*)`
-- [ ] whether SessionEnd fires, the decision latency of each surface, and whether the module can read the record store and `ps`
-- [ ] the pin is updated only if a needed observation requires a newer engine
+- [x] a deny reaches the model and the user sees no prompt, in default and in bypass mode
+- [x] how the surface learns its Claude pid for interactive, background and nested `claude -p` sessions, and whether it sees a call's result
+- [x] whether a `CC_TUNER_ACK=` prefix still matches an allow rule like `Bash(git switch:*)`
+- [x] whether SessionEnd fires, the decision latency of each surface, and whether the module can read the record store and `ps`
+- [x] the pin is updated only if a needed observation requires a newer engine
+
+Evidence: docs/spike-guard-surface.md → 10 `- Observed:` lines on 2.1.306, decision `register.ts` module; pin unchanged @ 6070ca1
 
 ## Slice 2 — sessions see each other
 Blocked by: 1
@@ -31,7 +33,7 @@ Delivers: a session starting next to live peers of its product sees one line abo
 Blocked by: 2
 Owned paths: plugins/cc-tuner/scripts/peers.sh,plugins/cc-tuner/tests/flow/test_peers.sh,plugins/cc-tuner/hooks/register.ts,plugins/cc-tuner/hooks/register.test.ts,plugins/cc-tuner/hooks/hooks.json,plugins/cc-tuner/tests/flow/test_mod.sh
 Deciding check: bash plugins/cc-tuner/tests/flow/test_peers.sh
-Delivers: on the chosen surface, every tool call resolves its repository and checkout from its target, and the record learns edited paths and the expected branch after each successful call
+Delivers: the `tool.call` handler in `register.ts` (the Slice 1 choice) resolves every call's repository and checkout from its target through `peers.sh check` (`$.process.run`, pid from its `$PPID`), and the record learns edited paths and the expected branch after each successful call
 
 - [ ] wrappers (`heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&`, `$(...)`) unwrap, each scope keeping its directory
 - [ ] a compound command is evaluated step by step (`switch -c x && commit`, `add f && commit`)
@@ -47,7 +49,7 @@ Delivers: the agent gets notes and stops for the checkout, foreign files, the in
 
 - [ ] every checkout, file, index, branch, worktree, stash and kill stop has a stop test and a neighbouring allow test; Bash cases also behind the shell wrappers, git cases behind `git -C`
 - [ ] a writer idle over 2 h lifts only the switch stop; a dead peer lifts the liveness-based stops; foreign files stay protected
-- [ ] the ack passes one action on one target for 30 min, and nothing else
+- [ ] the ack passes one action on one target for 30 min, and nothing else; the adapter records it and strips the prefix before the call; the reason says re-running is the agent's choice
 - [ ] the decision takes at most 150 ms p95 with 10 records
 
 ## Slice 5 — shared and exclusive resources
