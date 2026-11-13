@@ -7,9 +7,19 @@
 #   peers.sh report            the live peers of this repository and of its product
 #   peers.sh claim <plan>      publish the open Owned paths of a plan, then report their overlap
 #
-# `check` events carry session_id, phase (before | after | start), tool, cwd and, for an edit, path;
-# `after` adds ok (false for a failed call). `start` is the SessionStart hook: it takes source
-# (startup | clear | resume) and answers the one-line text session-start.sh prints, empty without peers.
+# `check` events, one per phase, carry session_id, phase (before | after | start), tool and cwd:
+#   Bash before   steps: [{words, dir, op, writes}] one per simple command, the unwrapped one that runs:
+#                 dir its directory (relative to cwd, or absolute), op the operator joining it to the
+#                 step before (&& || ; |, empty for the first), writes a redirection to a file. A step
+#                 that is not a known read-only form (git status/log/diff/show, ls, cat, grep, rg, find
+#                 without -delete, -exec, --output or --pre) makes the session a writer in its checkout.
+#                 The answer carries seen {checkout: branch} for each checkout holding a switch step.
+#   Bash after    seen, as answered: the expectation moves to a checkout's branch only if HEAD changed.
+#   Edit | Write | NotebookEdit after   path, sent after a call that succeeded.
+#   start         the SessionStart hook: source (startup | clear | resume); the answer is the line
+#                 session-start.sh prints, empty without peers.
+# The answer is {"decision":"allow"} plus seen; a stop or a note for a peer's sake comes with the guard's
+# policy. Whatever fails here, the caller lets the tool call go on.
 #
 # One JSON record per Claude session in the record directory, written by rename under a flock on
 # <dir>/.lock. A session is its Claude process: pid plus start time, and a nested `claude -p` counts
@@ -22,7 +32,8 @@
 #    checkouts: {<toplevel>: {repo, expected, writer, paths}}}
 #
 # repo is the git common directory, so worktrees of one repository share it. expected is the branch at
-# first touch, writer the epoch of the last writer call, paths what Edit/Write changed.
+# first touch, moved only when HEAD changed during this session's own call that held a switch; writer
+# the epoch of the last writer call; paths what Edit/Write changed.
 #
 #   CC_TUNER_PEERS_DIR         record directory (default ~/.cache/cc-tuner/sessions)
 #   CC_TUNER_PEERS_CLAUDE_PID  this session's Claude pid (default $CLAUDE_PID, else the `claude` above)
@@ -41,15 +52,25 @@ cmd, args = (sys.argv[2] if len(sys.argv) > 2 else ""), sys.argv[3:]
 DIR = os.environ.get("CC_TUNER_PEERS_DIR") or os.path.expanduser("~/.cache/cc-tuner/sessions")
 NOW = int(time.time())
 TOMBSTONE = 24 * 3600
-EDITS = ("Edit", "Write")
+EDITS = ("Edit", "Write", "NotebookEdit")
+READ_ONLY = ("ls", "cat", "grep", "rg", "find")
+READ_ONLY_GIT = ("status", "log", "diff", "show")
+SWITCH_GIT = ("switch", "checkout")
+WRITING_ARGS = ("-delete", "-exec", "-execdir", "-ok", "-okdir")
 GITENV = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
 
 def git(d, *a, env=GITENV):
     r = subprocess.run(["git", "-C", d] + list(a), capture_output=True, text=True, env=env)
     return r.stdout.strip() if r.returncode == 0 else None
 
+_where = {}
 def where(d):
     # (toplevel, common dir) of the checkout holding d, resolved from the target, not the session's cwd.
+    if d not in _where:
+        _where[d] = locate(d)
+    return _where[d]
+
+def locate(d):
     while d and not os.path.isdir(d):
         parent = os.path.dirname(d)
         if parent == d:
@@ -68,6 +89,21 @@ def product(top):
     except (OSError, ValueError, AttributeError):
         return None
     return p if isinstance(p, str) and p else None
+
+def read_only(step):
+    # A known read-only form without a redirection, -delete/-exec, --output or --pre; any other form is a
+    # writer call.
+    w = step.get("words") or []
+    if step.get("writes") or not w:
+        return False
+    name, args = os.path.basename(w[0]), w[1:]
+    if any(a in WRITING_ARGS or a.startswith(("--output", "--pre", "-fprint", "-fls")) for a in args):
+        return False
+    return bool(args) and args[0] in READ_ONLY_GIT if name == "git" else name in READ_ONLY
+
+def switches(step):
+    w = step.get("words") or []
+    return len(w) > 1 and os.path.basename(w[0]) == "git" and w[1] in SWITCH_GIT
 
 def branch(co, fallback=""):
     return git(co, "symbolic-ref", "-q", "--short", "HEAD") or fallback
@@ -286,7 +322,17 @@ def check():
         target = os.path.join(cwd, target)
     here = where(os.path.dirname(target) if target else cwd)
     pid = claude_pid()
-    line = ""
+    line, seen, touched = "", {}, []
+    if phase == "before" and tool == "Bash":
+        # Each step is read in its own directory. A writer step marks its checkout, a switch step takes the
+        # branch HEAD is on now; a known read-only step elsewhere touches nothing.
+        for st in ev["steps"] if "steps" in ev else [{}]:
+            writes, switch = not read_only(st), switches(st)
+            at = where(os.path.join(cwd, st.get("dir") or "")) if writes or switch else None
+            if at:
+                touched.append((at, writes))
+                if switch:
+                    seen[at[0]] = branch(at[0])
     if pid and here and (sid or phase != "start"):
         with locked():
             recs, _ = load()
@@ -297,18 +343,29 @@ def check():
                     r["session_id"], r["acks"], r["claims"] = sid, {}, {}
             name, r = session(recs, pid, sid)
             co = touch(r, here[0], here[1])
+            for (top, common), writes in touched:
+                c = touch(r, top, common)
+                if writes:
+                    c["writer"] = NOW
             if phase == "after" and tool in EDITS and ev.get("ok", True) and target:
                 rel = os.path.relpath(os.path.realpath(target), here[0])
                 if rel not in co["paths"]:
                     co["paths"].append(rel)
                 co["writer"] = NOW
+            if phase == "after" and tool == "Bash":
+                for top, old in (ev.get("seen") or {}).items():
+                    now = branch(top)
+                    if top in r["checkouts"] and now and now != old:
+                        r["checkouts"][top]["expected"] = now
             save(name, r)
         if phase == "start":
             line = start_line(recs, name, r, here)
+    else:
+        seen = {}
     if phase == "start":
         print(line)
     else:
-        print('{"decision":"allow"}')
+        print(json.dumps(dict({"decision": "allow"}, **({"seen": seen} if seen else {})), separators=(",", ":")))
 
 def claim(plan):
     here = where(os.getcwd())

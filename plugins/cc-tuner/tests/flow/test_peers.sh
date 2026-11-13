@@ -315,4 +315,114 @@ HOOKS="$FLOW_PLUGIN/hooks/hooks.json"
 equals "start-hooks-json-matchers" "startup|clear resume" \
   "$(jq -r '[.hooks.SessionStart[] | select(.hooks[].command | endswith("session-start.sh")) | .matcher] | join(" ")' "$HOOKS")"
 
+# --- the guard learns from commands: writers, and the branch a session expects ------------------------
+# stp <dir> <op> <word>... -> one command step as the adapter sends it; steps <step>... -> the array.
+stp() { local d="$1" o="$2"; shift 2; jq -nc --arg d "$d" --arg o "$o" --arg w "$*" '{words: ($w | split(" ")), dir: $d, op: $o, writes: false}'; }
+steps() { printf '%s\n' "$@" | jq -sc .; }
+
+# bash_event <pid> <session> <phase> <cwd> <steps> [seen] -> what `check` answers to one Bash event.
+bash_event() {
+  jq -nc --arg s "$2" --arg ph "$3" --arg c "$4" --argjson st "$5" --argjson seen "${6:-null}" \
+    '{session_id: $s, phase: $ph, tool: "Bash", cwd: $c}
+     + (if $st == null then {} else {steps: $st} end) + (if $seen == null then {} else {seen: $seen} end)' \
+    | CC_TUNER_PEERS_CLAUDE_PID="$1" bash "$PEERS" check
+}
+
+# call <pid> <session> <cwd> <steps> [shell command] -> a Bash call as the adapter makes it: `before`, the
+# command itself in cwd, and `after` with what `before` answered, sent only when it answered something.
+call() {
+  local ans seen
+  ans="$(bash_event "$1" "$2" before "$3" "$4")"
+  if [ -n "${5:-}" ]; then ( cd "$3" && eval "$5" ) >/dev/null 2>&1; fi
+  seen="$(printf '%s' "$ans" | jq -c '.seen // empty')"
+  if [ -n "$seen" ]; then bash_event "$1" "$2" after "$3" null "$seen" >/dev/null; fi
+}
+
+expected_of() { rec "$1" ".checkouts[\"$2\"].expected"; }
+writer_of() { rec "$1" ".checkouts[\"$2\"].writer | type"; }
+
+RG="$(repo)"; peer; PG=$SP
+call "$PG" g1 "$RG" "$(steps "$(stp '' '' git status)")"
+for form in "git status" "git log --oneline" "git diff" "git show HEAD" "ls -la" "cat x" "grep -r a ." "rg a" "find . -name x"; do
+  edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+  # shellcheck disable=SC2086
+  call "$PG" g1 "$RG" "$(steps "$(stp '' '' $form)")"
+  equals "guard-read-only-form-is-no-writer ($form)" "null" "$(writer_of g1 "$RG")"
+done
+for form in "npm test" "git commit -m m" "find . -delete" "find . -exec rm {} ;" "rg --pre cmd a" "git diff --output=f" "git" "git --git-dir=x log" "sed -i s/a/b/ f"; do
+  edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+  # shellcheck disable=SC2086
+  call "$PG" g1 "$RG" "$(steps "$(stp '' '' $form)")"
+  equals "guard-other-form-is-a-writer ($form)" "number" "$(writer_of g1 "$RG")"
+done
+edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+call "$PG" g1 "$RG" "$(steps "$(stp '' '' cat x | jq -c '.writes = true')")"
+equals "guard-redirection-makes-a-writer" "number" "$(writer_of g1 "$RG")"
+edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+call "$PG" g1 "$RG" "$(steps "$(stp '' '' git status)" "$(stp '' '&&' npm test)")"
+equals "guard-one-writer-step-makes-the-call-a-writer" "number" "$(writer_of g1 "$RG")"
+edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+call "$PG" g1 "$RG" "null"
+equals "guard-unparsed-command-is-a-writer" "number" "$(writer_of g1 "$RG")"
+edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+call "$PG" g1 "$RG" "[]"
+equals "guard-no-command-step-is-no-writer" "null" "$(writer_of g1 "$RG")"
+
+# A step's directory decides its checkout: a writer step elsewhere marks that checkout, not the cwd's.
+RX="$(repo)"
+edit_rec g1 ".checkouts[\"$RG\"].writer = null"
+call "$PG" g1 "$RG" "$(steps "$(stp "$RX" '' npm test)")"
+equals "guard-step-directory-marks-its-checkout" "number" "$(writer_of g1 "$RX")"
+equals "guard-step-directory-spares-the-cwd-checkout" "null" "$(writer_of g1 "$RG")"
+call "$PG" g1 "$RG" "$(steps "$(stp "$RG/sub/../" '' npm test)")"
+equals "guard-step-directory-inside-the-checkout" "number" "$(writer_of g1 "$RG")"
+RY="$(repo)"
+call "$PG" g1 "$RG" "$(steps "$(stp "$RY" '' git status)")"
+equals "guard-read-only-step-elsewhere-does-not-touch-it" "" "$(rec g1 ".checkouts[\"$RY\"].expected // empty")"
+
+# Edit, Write and NotebookEdit record the path after the call, and mark a writer.
+RN="$(repo)"; peer; PN=$SP
+event "$PN" g3 after NotebookEdit "$RN" "$RN/a.ipynb" >/dev/null
+equals "guard-notebook-edit-records-its-path" "a.ipynb" "$(paths_of g3 "$RN")"
+equals "guard-edit-makes-a-writer" "number" "$(writer_of g3 "$RN")"
+
+# The expected branch moves only when HEAD changed during the session's own call that holds a switch.
+RE="$(repo)"; peer; PE=$SP
+for b in a b c; do git -C "$RE" branch "$b"; done
+at() {  # at <expected> <head> -> the record expects the first, the checkout is on the second
+  git -C "$RE" switch -q "$2"; edit_rec g2 ".checkouts[\"$RE\"].expected = \"$1\""
+}
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' git status)")"
+equals "guard-expected-is-the-branch-at-first-touch" "main" "$(expected_of g2 "$RE")"
+SW="$(stp '' '' git switch -c x)"
+at a a
+call "$PE" g2 "$RE" "$(steps "$SW" "$(stp '' '&&' git commit -m m)")" "git switch -q -c x && git commit -q --allow-empty -m m"
+equals "guard-switch-and-commit-moves-the-expectation" "x" "$(expected_of g2 "$RE")"
+at a a
+call "$PE" g2 "$RE" "$(steps "$SW" "$(stp '' '&&' false)")" "git switch -q -c y; false"
+equals "guard-switch-then-failing-step-moves-the-expectation" "y" "$(expected_of g2 "$RE")"
+at a a
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' git add f)" "$(stp '' '&&' git commit -m m)")" "git switch -q b"
+equals "guard-head-changed-without-a-switch-step-keeps-it" "a" "$(expected_of g2 "$RE")"
+equals "guard-no-switch-step-takes-no-snapshot" '{"decision":"allow"}' "$(bash_event "$PE" g2 before "$RE" "$(steps "$(stp '' '' git add f)")")"
+# HEAD has already drifted from the expected a to b.
+at a b
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' git switch nosuch)")" "git switch -q nosuch"
+equals "guard-drifted-failed-switch-keeps-it" "a" "$(expected_of g2 "$RE")"
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' git switch nosuch)" "$(stp '' ';' true)")" "git switch -q nosuch; true"
+equals "guard-drifted-failed-switch-then-true-keeps-it" "a" "$(expected_of g2 "$RE")"
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' false)" "$(stp '' '&&' git switch c)")" "false && git switch -q c"
+equals "guard-drifted-skipped-switch-keeps-it" "a" "$(expected_of g2 "$RE")"
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' git switch c)")" "git switch -q c"
+equals "guard-drifted-successful-switch-moves-it" "c" "$(expected_of g2 "$RE")"
+at a b
+call "$PE" g2 "$RE" "$(steps "$(stp '' '' git checkout --detach)")" "git checkout -q --detach"
+equals "guard-detaching-keeps-it" "a" "$(expected_of g2 "$RE")"
+git -C "$RE" switch -q a
+# A switch in another checkout is read there: the cwd's record is not moved by it.
+RW="$(repo)"; git -C "$RW" branch other
+call "$PE" g2 "$RE" "$(steps "$(stp "$RW" '' git switch other)")" "git -C '$RW' switch -q other"
+equals "guard-switch-elsewhere-moves-that-checkout" "other" "$(expected_of g2 "$RW")"
+equals "guard-switch-elsewhere-leaves-the-cwd-checkout" "a" "$(expected_of g2 "$RE")"
+
 exit $fails
