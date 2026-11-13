@@ -185,14 +185,14 @@ test group in brackets.
   `git status && npm test` are writer calls.
 
   One test drives the shipped adapter end to end. (`guard-*`)
-- [ ] [machine] Ack:
+- [x] [machine] Ack:
   - the same Bash command with the printed `CC_TUNER_ACK=` key runs;
   - another action or target is still stopped;
   - the same command after 30 min is still stopped;
   - a lease or a `TaskStop` stop offers no ack.
 
   (`ack-*`)
-- [ ] [machine] Resources:
+- [x] [machine] Resources:
   - a shared stop command or a `TaskStop` is stopped while another product session is live, and
     runs when none is;
   - `/clear` keeps the task and the next start line names it;

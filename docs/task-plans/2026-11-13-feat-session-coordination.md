@@ -79,10 +79,12 @@ Owned paths: plugins/cc-tuner/hooks/register.ts,plugins/cc-tuner/hooks/peers.ts,
 Deciding check: bash plugins/cc-tuner/tests/flow/test_peers.sh && bash plugins/cc-tuner/tests/flow/test_mod.sh
 Delivers: a declared shared resource is not stopped under another live product session, and an exclusive one is used by one session at a time
 
-- [ ] a shared stop command or `TaskStop` is stopped while another product session is live; `/clear` keeps the task and the next start line names it; neither offers an ack for `TaskStop`
-- [ ] two simultaneous first users get one lease; a machine resource is leased across products
-- [ ] only the current holder's `release` frees a lease; a lease also moves after 10 min of silence and on death; an ack does not pass it
-- [ ] a repository without the resources file adds no repository rules; machine resources still apply
+- [x] a shared stop command or `TaskStop` is stopped while another product session is live; `/clear` keeps the task and the next start line names it; neither offers an ack for `TaskStop`
+- [x] two simultaneous first users get one lease; a machine resource is leased across products
+- [x] only the current holder's `release` frees a lease; a lease also moves after 10 min of silence and on death; an ack does not pass it
+- [x] a repository without the resources file adds no repository rules; machine resources still apply
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_peers.sh → rc 0, `PASS resource-lease-first-user-takes-it-with-mkdir`, `PASS resource-shared-stop-reaches-the-model`, `PASS latency (p95 195/204/70 ms per round ...)`; test_mod.sh → module tests pass incl. the lease race and `resource-lease-outside-a-repository`; tsc clean (RED first: `(fail) resource: two simultaneous first users get one lease ... TypeError: sr.peers.lease is not a function`); out-of-path: test_mod.sh inventory line for the other-MCP-tools hook @ 1800caf
 
 ## Slice 7 — cc-tuner's texts use it
 Blocked by: 6

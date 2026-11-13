@@ -960,6 +960,13 @@ test('resource: two simultaneous first users get one lease, across products', as
   expect(loser.reason).toContain(`pid ${holder.pid}`)
 })
 
+test('resource: a machine lease applies to sessions outside any repository', async () => {
+  const { m, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [a, b] = [await sr.peers.lease(CLICK, '/w', 'sr'), await sc.peers.lease(CLICK, '/tmp', 'sc')]
+  expect([a.decision, b.decision], 'resource-lease-outside-a-repository').toEqual(['note', 'stop'])
+})
+
 test('resource: the lease is the holder\'s until its release, 10 min of silence or its death; no ack passes it', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
