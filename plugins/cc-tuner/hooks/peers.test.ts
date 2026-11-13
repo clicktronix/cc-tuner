@@ -28,6 +28,8 @@ class Machine {
   mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
   put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); this.files.set(p, { text, mtimeMs: this.tick++ }) }
   advance(seconds: number) { this.clock += seconds * 1000 }
+  // What `$(cat file)` gives in the shell: the text without its trailing newlines.
+  cat(p: string) { return (this.files.get(p)?.text ?? '').replace(/\n+$/, '') }
   drop(dir: string) {
     for (const p of [...this.files.keys()]) if (p.startsWith(`${dir}/`)) this.files.delete(p)
     this.dirs.delete(dir)
@@ -106,14 +108,14 @@ class Machine {
     // The lease scripts, as the shell runs them: one atomic step each.
     if (cmd === '/bin/sh' && a[1]?.includes('mkdir')) {
       const [lock, seen, info] = a.slice(3) as [string, string, string]
-      if (this.dirs.has(lock) && (this.files.get(`${lock}/holder.json`)?.text ?? '') === seen) this.drop(lock)
+      if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen) this.drop(lock)
       if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
       this.put(`${lock}/holder.json`, info)
       this.dirTimes.set(lock, this.clock)
       return { stdout: '' }
     }
     if (cmd === '/bin/sh' && a[1]?.includes('holder.json') && a[1].includes('rm -rf')) {
-      if ((this.files.get(`${a[3]}/holder.json`)?.text ?? '') !== a[4]) return { exitCode: 1, stdout: '' }
+      if (this.cat(`${a[3]}/holder.json`) !== a[4]) return { exitCode: 1, stdout: '' }
       this.drop(a[3]!)
       return { stdout: '' }
     }
@@ -996,6 +998,18 @@ test('resource: a repository resource is leased too, and a lock with no holder f
   m.advance(601)
   expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock nobody ever wrote to').toBe('note')
   expect((await s2.peers.lease('mcp__chrome-devtools__click', r, 's2')).decision, 'another repository\'s resource does not apply').toBe('allow')
+})
+
+test('resource: a holder file with a trailing newline still lets a dead holder\'s lease move', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const [s1, s2] = [session('s1'), session('s2')]
+  await s1.peers.lease(CLICK, r, 's1')
+  m.put(`${DIR}/lease.chrome/holder.json`, `${m.files.get(`${DIR}/lease.chrome/holder.json`)!.text}\n`)
+  m.end(s1.pid)
+  expect((await s2.peers.lease(CLICK, r, 's2')).decision).toBe('note')
+  expect(await s2.peers.release('chrome')).toBe('cc-tuner: released chrome.')
 })
 
 test('resource: the module denies an MCP tool leased to another session, and answers peers_release', async ($, on) => {

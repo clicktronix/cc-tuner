@@ -550,6 +550,9 @@ export class Peers {
 
   private async lock(key: string) { return `${await this.w.dir()}/lease.${key.replace(/[^A-Za-z0-9_.-]/g, '_')}` }
 
+  // What a lock's holder file says, without a trailing newline: the shell compares it as `$(cat …)` does.
+  private async held(lock: string) { return (await this.w.read(`${lock}/holder.json`).catch(() => '')).replace(/\n+$/, '') }
+
   // The lease of every exclusive resource this tool belongs to: the first call takes it, the holder keeps it.
   async lease(tool: string, cwd: string, sid: string | null): Promise<Verdict> {
     const hits = (await this.rules((await this.where(cwd))?.[0])).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
@@ -569,7 +572,7 @@ export class Peers {
 
   private async hold(key: string, [pid, start]: [number, string], sid: string | null): Promise<Verdict> {
     const lock = await this.lock(key)
-    const [text, st] = [await this.w.read(`${lock}/holder.json`).catch(() => ''), await this.w.stat(lock)]
+    const [text, st] = [await this.held(lock), await this.w.stat(lock)]
     const [cur, now] = [holder(text), this.now()]
     const mine = JSON.stringify({ key, pid, start, session: sid, last: now })
     if (cur?.pid === pid && cur.start === start) {
@@ -583,7 +586,7 @@ export class Peers {
       if (!gone && now - last < LEASE_IDLE) return this.leased(key, cur, now)
     }
     const r = await this.w.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
-    if (r.exitCode !== 0) return this.leased(key, holder(await this.w.read(`${lock}/holder.json`).catch(() => '')), now)
+    if (r.exitCode !== 0) return this.leased(key, holder(await this.held(lock)), now)
     return { decision: 'note', reason: `cc-tuner: you hold ${key}; release it with peers_release when you are done.` }
   }
 
@@ -597,7 +600,7 @@ export class Peers {
     const refused = `cc-tuner: ${key} is not leased to this session.`
     return this.serial(async () => {
       const [me, lock] = [await this.self(), await this.lock(key)]
-      const text = await this.w.read(`${lock}/holder.json`).catch(() => '')
+      const text = await this.held(lock)
       const cur = holder(text)
       if (me === undefined || cur?.pid !== me[0] || cur.start !== me[1]) return refused
       return (await this.w.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])).exitCode === 0 ? `cc-tuner: released ${key}.` : refused

@@ -13,6 +13,10 @@ W="$(flow_workdir)"
 export CC_TUNER_PEERS_DIR="$W/peers"
 mkdir -p "$CC_TUNER_PEERS_DIR"
 
+# The machine's own resources file: an exclusive resource over the tools of the stand-in MCP server below.
+export CC_TUNER_PEERS_CONFIG="$W/machine-resources.json"
+printf '%s\n' '{"resources":[{"key":"lab","kind":"exclusive","tools":["mcp__lab__*"]}]}' > "$CC_TUNER_PEERS_CONFIG"
+
 # Every process this suite starts is stopped by its pid when the suite ends.
 STARTED=""
 cleanup() { for p in $STARTED; do kill "$p" 2>/dev/null; done; rm -rf "$FLOW_ROOT"; }
@@ -148,7 +152,7 @@ equals "record-keys-the-real-checkout-path" "true" "$(e2e_rec ".checkouts | has(
 equals "guard-switch-moved-the-expectation" "e2e" "$(e2e_rec ".checkouts[\"$RT\"].expected")"
 equals "guard-edit-recorded-its-path" "notes.txt" "$(e2e_rec ".checkouts[\"$RT\"].paths | join(\",\")")"
 equals "guard-writer-call-marked-a-writer" "number" "$(e2e_rec ".checkouts[\"$RT\"].writer | type")"
-check  "tool-release-answers" "cc-tuner: no leases yet." "$(cat "$W/api.log")"
+check  "tool-release-answers" "cc-tuner: chrome is not leased to this session." "$(cat "$W/api.log")"
 
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
@@ -215,12 +219,65 @@ check  "start-line-on-clear" "cc-tuner: live peers:" "$(grep -F 'after-clear' "$
 equals "record-clear-drops-acks" "null" "$(e2e_rec '.acks["0000abcd"]')"
 absent "record-clear-follows-the-new-session-id" "0000000000e3" "$(e2e_rec .session_id)"
 
+# --- resources: a shared stop and an exclusive lease, in real sessions --------------------------------------------
+# The stop is a `touch` of a marker file, so the file shows whether the command ran. The tool is the one of a
+# stand-in MCP server; the lease is taken by the real `mkdir`.
+RR="$(repo)"; mkdir -p "$RR/.claude"
+jq -nc --arg c "touch $W/stack-stopped" '{product: "res", resources: [{key: "stack", kind: "shared", start: [], stop: [$c]}]}' > "$RR/.claude/cc-tuner-resources.json"
+peer; PR=$SP; fixture pr "$PR" "$RR" null
+script "$(jq -nc --arg c "touch $W/stack-stopped" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+e2e "$RR" go
+check  "resource-shared-stop-reaches-the-model" "would stop stack, which pid $PR on main also uses" "$(cat "$W/api.log")"
+equals "resource-shared-stop-did-not-run" "no" "$([ -e "$W/stack-stopped" ] && echo yes || echo no)"
+kill "$PR"; until [ -z "$(lstart "$PR")" ]; do sleep 0.05; done
+e2e "$RR" go
+equals "resource-shared-stop-runs-when-no-peer-is-live" "yes" "$([ -e "$W/stack-stopped" ] && echo yes || echo no)"
+
+cat > "$W/mcp.py" <<'PY'
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if m.get("id") is None:
+        continue
+    method = m["method"]
+    r = {}
+    if method == "initialize":
+        r = {"protocolVersion": m["params"]["protocolVersion"], "capabilities": {"tools": {}}, "serverInfo": {"name": "lab", "version": "1"}}
+    elif method == "tools/list":
+        r = {"tools": [{"name": "ping", "description": "ping", "inputSchema": {"type": "object", "properties": {}}}]}
+    elif method == "tools/call":
+        r = {"content": [{"type": "text", "text": "pong-from-lab"}]}
+    print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": r}), flush=True)
+PY
+jq -nc --arg p "$W/mcp.py" '{mcpServers: {lab: {command: "python3", args: [$p]}}}' > "$W/mcp.json"
+LOCK="$CC_TUNER_PEERS_DIR/lease.lab"
+lab() { e2e "$RR" --mcp-config "$W/mcp.json" --strict-mcp-config --session-id "$1" go; }
+script "$(jq -nc '{when: "", calls: [{name: "mcp__lab__ping", input: {}}]}')"
+lab 00000000-0000-4000-8000-0000000000f1
+check  "resource-lease-tool-ran" "pong-from-lab" "$(cat "$W/api.log")"
+equals "resource-lease-first-user-takes-it-with-mkdir" "$(session_pid)" "$(jq -r .pid "$LOCK/holder.json")"
+peer; PL=$SP
+rm -rf "$LOCK"; mkdir "$LOCK"
+jq -nc --argjson pid "$PL" --arg st "$(lstart "$PL")" '{key: "lab", pid: $pid, start: $st, session: "x", last: (now | floor)}' > "$LOCK/holder.json"
+lab 00000000-0000-4000-8000-0000000000f2
+check  "resource-lease-deny-names-the-holder" "lab is leased to pid $PL" "$(cat "$W/api.log")"
+absent "resource-lease-deny-offers-no-ack" "CC_TUNER_ACK=" "$(grep -F 'lab is leased' "$W/api.log" | head -n 1)"
+absent "resource-lease-denied-tool-did-not-run" "pong-from-lab" "$(cat "$W/api.log")"
+equals "resource-lease-stays-with-the-holder" "$PL" "$(jq -r .pid "$LOCK/holder.json")"
+kill "$PL"; until [ -z "$(lstart "$PL")" ]; do sleep 0.05; done
+script "$(jq -nc '{when: "", calls: [{name: "mcp__lab__ping", input: {}}, {name: "mcp__cc-tuner__peers_release", input: {key: "lab"}}]}')"
+lab 00000000-0000-4000-8000-0000000000f3
+check  "resource-lease-moves-on-death" "pong-from-lab" "$(cat "$W/api.log")"
+check  "resource-lease-release-by-the-holder" "cc-tuner: released lab." "$(cat "$W/api.log")"
+equals "resource-lease-release-frees-the-lock" "no" "$([ -e "$LOCK" ] && echo yes || echo no)"
+
 # --- latency: the module decides in at most 150 ms p95 over 50 calls with 10 records --------------------------------
 # Ten live peers in the call's repository, none a writer, so a switch is a note and the commit after it is read too:
 # the checkout of each step, the start times of the ten, HEAD, and `git status`. The module logs each decision's time
 # to the debug log. Wall time includes the load of the machine, so up to three sessions run and the best p95 decides.
 OUTER_DIR="$CC_TUNER_PEERS_DIR"; export CC_TUNER_PEERS_DIR="$W/lat-peers"; mkdir -p "$CC_TUNER_PEERS_DIR"
 RL="$(repo)"; git -C "$RL" branch x
+mkdir -p "$RL/.claude"; printf '%s\n' '{"product":"lat","resources":[{"key":"stack","kind":"shared","start":["stack up"],"stop":["stack down"]}]}' > "$RL/.claude/cc-tuner-resources.json"
 for i in 1 2 3 4 5 6 7 8 9 10; do peer; fixture "lat$i" "$SP" "$RL" null; done
 calls=""; for i in $(seq 1 50); do calls="$calls$(bash_call 'git switch -q x && git commit -q -m m'),"; done
 script "{\"when\": \"\", \"calls\": [${calls%,}]}"

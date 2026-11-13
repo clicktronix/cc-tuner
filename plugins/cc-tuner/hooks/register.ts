@@ -4,7 +4,9 @@ import { Peers, world, type Event, type Verdict } from './peers'
 // Claude Code stops a session's background tasks when the process exits, but
 // a /clear ends the conversation and leaves them running under the next one.
 // The agent that started them no longer knows they exist, so they are stopped
-// here, except a shared resource's, which stays for the sessions using it and is named in the next start line. Ids are module state: a reload loses them, and exit still stops those.
+// here, except a shared resource's, which stays for the sessions using it and is
+// named in the next start line. Ids are module state: a reload loses them, and
+// exit still stops those.
 // An id leaves the set when the agent stops the task itself; a task that ends
 // on its own is not observable from a hook, and stopping it later is harmless.
 const started = new Set<string>()
@@ -325,6 +327,7 @@ export function steps(command: string): Step[] {
 // (the call runs and the agent reads it after the result) or a stop (the reason is the call's error). It
 // runs in this process; a failure there is never the tool call's: the call goes on.
 let peers: Peers | undefined
+const peersOf = ($: EngineInterface) => (peers ??= new Peers(world($)))
 
 // The way on from a stop is the same command prefixed with its key. The guard records the ack from the
 // event; the prefix goes before the call, so a user's allow rule such as `Bash(git switch:*)` still matches.
@@ -336,8 +339,7 @@ const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T,
 async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'phase'>): Promise<(Verdict & { line?: string }) | undefined> {
   try {
     const t = Date.now()
-    peers ??= new Peers(world($))
-    const verdict = await peers.check({ session_id: await $.session.id(), cwd: await $.session.cwd(), ...event })
+    const verdict = await peersOf($).check({ session_id: await $.session.id(), cwd: await $.session.cwd(), ...event })
     await Promise.resolve()
       .then(() => $.ui.log(`cc-tuner: peers decided ${verdict.decision} in ${Date.now() - t} ms`, { to: 'debug' }))
       .catch(() => undefined)
@@ -349,7 +351,7 @@ async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'ph
 
 async function withPeers<T>($: EngineInterface, f: (p: Peers) => Promise<T>): Promise<T | undefined> {
   try {
-    return await f(peers ??= new Peers(world($)))
+    return await f(peersOf($))
   } catch {
     return undefined
   }
@@ -374,11 +376,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {
-    peers ??= new Peers(world($))
-    const cwd = await $.session.cwd()
-    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await peers.release(String(e.key ?? '')) }
-    if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await peers.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
-    return { result: await peers.report(cwd) }
+    const [p, cwd] = [peersOf($), await $.session.cwd()]
+    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await p.release(String(e.key ?? '')) }
+    if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await p.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
+    return { result: await p.report(cwd) }
   })
 
   // Another MCP server's tool may belong to an exclusive resource: one session at a time uses it.
