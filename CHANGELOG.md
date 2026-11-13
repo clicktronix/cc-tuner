@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.23.0](https://github.com/clicktronix/cc-tuner/compare/v0.22.1...v0.23.0) (2026-11-13)
+
+
+### Features
+
+* fresh-machine onboarding and delivery routes beyond GitHub ([#71](https://github.com/clicktronix/cc-tuner/issues/71)) ([45795a7](https://github.com/clicktronix/cc-tuner/commit/45795a7977be8dd4e397525add955f2cf074beb6))
+* **heavy:** start heavy checks by machine capacity ([#72](https://github.com/clicktronix/cc-tuner/issues/72)) ([#75](https://github.com/clicktronix/cc-tuner/issues/75)) ([bc3b965](https://github.com/clicktronix/cc-tuner/commit/bc3b965c119a2b8776ac1d2fce2500215f843d49))
+
 ## [0.22.1](https://github.com/clicktronix/cc-tuner/compare/v0.22.0...v0.22.1) (2026-11-08)
 
 
