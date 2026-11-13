@@ -37,11 +37,14 @@ Owned paths: plugins/cc-tuner/scripts/peers.sh,plugins/cc-tuner/tests/flow/test_
 Deciding check: bash plugins/cc-tuner/tests/flow/test_peers.sh
 Delivers: the `tool.call` handler in `register.ts` (the Slice 1 choice) resolves every call's repository and checkout from its target through `peers.sh check` (`$.process.run`, pid from its `$PPID`), and the record learns edited paths and the expected branch after each successful call
 
-- [ ] wrappers (`heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&`, `$(...)`) unwrap, each scope keeping its directory
-- [ ] a compound command is evaluated step by step (`switch -c x && commit`, `add f && commit`)
-- [ ] edited paths are recorded only after a successful call; any call in the checkout except a known read-only one marks the session a writer
-- [ ] the expected branch moves only when HEAD changed during this session's own call containing a switch; with HEAD already drifted, a failed or skipped switch keeps it
-- [ ] one test drives the shipped adapter end to end; the hook inventory assertion follows any new registration
+- [x] wrappers (`heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&`, `$(...)`) unwrap, each scope keeping its directory
+- [x] a compound command is evaluated step by step (`switch -c x && commit`, `add f && commit`)
+- [x] edited paths are recorded only after a successful call; any call in the checkout except a known read-only one marks the session a writer
+- [x] the expected branch moves only when HEAD changed during this session's own call containing a switch; with HEAD already drifted, a failed or skipped switch keeps it
+- [x] one test drives the shipped adapter end to end; the hook inventory assertion follows any new registration
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_peers.sh → 132 PASS, 0 FAIL incl. `guard-e2e-*` (real `claude -p`, stubbed model API); test_mod.sh → module tests pass (RED first: `FAIL guard-switch-and-commit-moves-the-expectation (want 'x', got 'a')`) @ b9e2cd7
+Carry to Slice 4: the writer mark is set in `before` (move it after the decision); verify `$.session.cwd()` follows a Bash `cd` from an earlier call; `check` costs ~105 ms median today.
 
 ## Slice 4 — the guard stops what would destroy a peer's checkout or process
 Blocked by: 3

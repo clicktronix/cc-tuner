@@ -158,7 +158,7 @@ never asked.
 
 Each check is `bash plugins/cc-tuner/tests/flow/test_peers.sh`, test group in brackets.
 
-- [ ] [machine] The record lifecycle works as Architecture states:
+- [x] [machine] The record lifecycle works as Architecture states:
   - a dead pid becomes a tombstone, and so does a live pid with another start time;
   - a tombstone expires after 24 h;
   - resume adopts the record;
@@ -201,7 +201,7 @@ Each check is `bash plugins/cc-tuner/tests/flow/test_peers.sh`, test group in br
   - machine resources apply in a repository without its file.
 
   (`resource-*`)
-- [ ] [machine] Report:
+- [x] [machine] Report:
   - `report` lists the peers of the repository and of the product;
   - it prints merge-tree conflicts only for a conflicting same-repository branch;
   - it shows the Owned-path overlap after `claim`;
