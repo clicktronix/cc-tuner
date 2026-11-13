@@ -1,6 +1,6 @@
 # Guard surface spike — which surface can stop an action for the agent
 
-Spec: `docs/PLANS/2026-11-13-session-coordination.md` (Guard surface). Question: does the guard of #73
+Spec: `docs/ARCHIVE/PLANS/2026-11-13-session-coordination.md` (Guard surface). Question: does the guard of #73
 run as the `register.ts` module, or as `PreToolUse`/`PostToolUse` command hooks calling `peers.sh check`?
 
 **Method.** Two disposable plugins, one per surface, in a scratch git repository, driven with
