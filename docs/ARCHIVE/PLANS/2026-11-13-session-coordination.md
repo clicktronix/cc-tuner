@@ -88,9 +88,10 @@ never asked.
     silence, or the holder's death.
   - A repository without the file adds no repository rules; machine resources still apply.
 - **Visibility.**
-  - `session-start.sh` prints the line the module renders, on startup, clear and resume, when peers
-    are live or a task was kept at `/clear`. Resume gets
-    its own entry, so plan restore stays on `startup|clear`.
+  - The module adds one line to the first prompt after startup, clear and resume (`prompt.submit`
+    context), when peers are live or a task was kept at `/clear`. Not a `classic.SessionStart` hook:
+    on Team/Enterprise and managed machines the built-in `sec-default` plugin passes `classic.*` events
+    past user-installed modules.
   - `peers_report` lists the product's peers with branch, claims and edited paths. For peers in
     the same repository, it adds the `git merge-tree` conflicts of HEAD against their branch, run
     in a temporary object directory so the repository's object store is untouched, and cached per
@@ -108,7 +109,7 @@ never asked.
   itself is the `tool.call` handler.
 - **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its `tool.call`
   handler sees each call before and after `next` and reuses `commands()`. The start line comes from
-  the module too; `session-start.sh` keeps plan restore only.
+  the module too; `session-start.sh` keeps plan restore only and is unchanged.
 - **Rejected:**
   - messages as the record (best-effort delivery);
   - asking the user;

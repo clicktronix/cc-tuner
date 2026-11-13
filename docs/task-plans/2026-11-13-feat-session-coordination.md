@@ -98,3 +98,4 @@ Delivers: /spec and /run show peers and publish claims, the rule template and ta
 - [x] contract pins cover these texts
 
 Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 0 FAIL with 15 new pins (RED first: 15 FAIL, e.g. `FAIL spec-reports-peers-before-approval (missing 'call `mcp__cc-tuner__peers_report`' ...)`); rule template marker v0.23.0 @ 6481e94
+Fix after verify-feature: the start line reached no model on Team/Enterprise and managed machines (`classic.SessionStart` skipped by the built-in sec-default); it now rides `prompt.submit` context, and e2e runs under `--managed-settings` (RED first: `FAIL start-line-on-startup`); `kill -0` stopped as a kill, now a probe (RED first: `FAIL guard-kill-signal-0-is-a-probe-and-runs`) → test_peers.sh 48 PASS, module tests pass, tsc clean @ 2723859
