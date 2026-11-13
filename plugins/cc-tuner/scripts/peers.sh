@@ -328,7 +328,7 @@ def check():
         # branch HEAD is on now; a known read-only step elsewhere touches nothing.
         for st in ev["steps"] if "steps" in ev else [{}]:
             writes, switch = not read_only(st), switches(st)
-            at = where(os.path.join(cwd, st.get("dir") or "")) if writes or switch else None
+            at = where(os.path.normpath(os.path.join(cwd, st.get("dir") or ""))) if writes or switch else None
             if at:
                 touched.append((at, writes))
                 if switch:
