@@ -210,3 +210,154 @@ test('the status line clears once no tracked subagent runs', async ($, on) => {
   await $.agent.spawn(spawn('slice one'))
   expect(lines).toEqual([undefined])
 })
+
+// The guard talks to scripts/peers.sh through `$.process.run`. This stubs the engine beneath it: the
+// session, the one `echo $PPID` that names the Claude process, and `peers.sh check`, whose events are
+// recorded and whose answer `answer` gives (exit code and stdout).
+interface Step { words: string[]; dir: string; op: string; writes: boolean }
+interface Sent { session_id: string; cwd: string; phase: string; tool: string; steps?: Step[]; seen?: Record<string, string>; path?: string }
+const ALLOW = { exitCode: 0, stdout: '{"decision":"allow"}' }
+
+function peers(on: On, answer: (sent: Sent) => { exitCode: number; stdout: string } = () => ALLOW) {
+  const sent: Sent[] = []
+  const runs: { argv: readonly string[]; env?: Record<string, string> }[] = []
+  on('session.id', () => ({ value: 's1' }))
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('process.run', (_, e) => {
+    runs.push({ argv: e.argv, env: e.init?.env })
+    let out = { exitCode: 0, stdout: '4242\n' }
+    if (e.argv[0] !== '/bin/sh') {
+      const event = JSON.parse(e.init?.stdin ?? '{}') as Sent
+      sent.push(event)
+      out = answer(event)
+    }
+    return { value: { ...out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  return { sent, runs }
+}
+
+// One step as the test reads it: "<dir> <op> <words>", `>` after a step that writes a file.
+const show = (s: Step) => `${s.dir || '.'} ${s.op || '-'} ${s.words.join(' ')}${s.writes ? ' >' : ''}`
+
+const COMMANDS = [
+  ['npm test', ['. - npm test']],
+  ['FOO=1 npm test', ['. - npm test']],
+  ['bash "/p/scripts/heavy.sh" --weight 2 --label x -- npm test', ['. - npm test']],
+  ['heavy.sh -- git -C ../x switch y', ['../x - git switch y']],
+  ["bash -c 'cd x && git switch y'", ['x && git switch y']],
+  ['env FOO=1 git status', ['. - git status']],
+  ['env -i -u HOME git status', ['. - git status']],
+  ['env -C d git status', ['d - git status']],
+  ['echo a | xargs -n 1 git rm', ['. - echo a', '. | git rm']],
+  ['git -C ../x status', ['../x - git status']],
+  ['git -C a -C b --no-pager log', ['a/b - git log']],
+  ['git -c core.pager=cat log', ['. - git log']],
+  ['cd x && git reset --hard', ['x && git reset --hard']],
+  ['cd a; cd b; git log', ['a/b ; git log']],
+  ['cd /abs && git log', ['/abs && git log']],
+  ['cd x | git log', ['. | git log']],
+  ['(cd a; git status); git log', ['a ; git status', '. ; git log']],
+  ['{ cd a; git status; }; git log', ['a ; git status', 'a ; git log']],
+  ['echo "$(cd ../x && git status)"; git reset --hard', ['../x && git status', '. - echo ', '. ; git reset --hard']],
+  ['echo `cd x; git status`', ['x ; git status', '. - echo ']],
+  ['git switch -c x && git commit -m m', ['. - git switch -c x', '. && git commit -m m']],
+  ['git add f && git commit -m m', ['. - git add f', '. && git commit -m m']],
+  ['false || git switch c; true', ['. - false', '. || git switch c', '. ; true']],
+  ["a && bash -c 'b; c'", ['. - a', '. && b', '. ; c']],
+  ['cat x > f', ['. - cat x >']],
+  ['cat x >> f', ['. - cat x >']],
+  ['cat x &> f', ['. - cat x >']],
+  ['cat x 2>&1 > /dev/null', ['. - cat x']],
+  ['cat x 2>/dev/null', ['. - cat x']],
+  ["bash -c 'cat x' > f", ['. - cat x >']],
+] as const
+
+test('the guard sends each command as steps that keep their directory and operator', async ($, on) => {
+  const { sent } = peers(on)
+  reached(on)
+  for (const [command, expected] of COMMANDS) {
+    sent.length = 0
+    await $.tool.call({ tool: 'Bash', command })
+    expect((sent[0]?.steps ?? []).map(show), command).toEqual(expected as unknown as string[])
+  }
+})
+
+test('a Bash call asks before, and tells after only when the answer asked for it', async ($, on) => {
+  const { sent } = peers(on, e => e.phase === 'before' && e.steps?.some(s => s.words[1] === 'switch')
+    ? { exitCode: 0, stdout: '{"decision":"allow","seen":{"/work/repo":"main"}}' }
+    : ALLOW)
+  reached(on)
+
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  expect(sent.map(e => e.phase)).toEqual(['before'])
+  expect(sent[0]).toMatchObject({ session_id: 's1', cwd: '/work/repo', tool: 'Bash' })
+
+  sent.length = 0
+  await $.tool.call({ tool: 'Bash', command: 'git switch -c x && git commit -m m' })
+  expect(sent.map(e => e.phase)).toEqual(['before', 'after'])
+  expect(sent[1]?.seen).toEqual({ '/work/repo': 'main' })
+})
+
+test('the Claude pid is read once and handed to every check', async ($, on) => {
+  const { runs } = peers(on)
+  reached(on)
+
+  for (const command of ['ls', 'git status', 'npm test']) await $.tool.call({ tool: 'Bash', command })
+  expect(runs.filter(r => r.argv[0] === '/bin/sh').length).toBe(1)
+  const checks = runs.filter(r => r.argv[0] !== '/bin/sh')
+  expect(checks.length).toBe(3)
+  for (const r of checks) {
+    expect(r.argv.slice(-1)).toEqual(['check'])
+    expect(r.argv.join(' ')).toContain('scripts/peers.sh')
+    expect(r.env).toEqual({ CC_TUNER_PEERS_CLAUDE_PID: '4242' })
+  }
+})
+
+// Stubs the three native edit tools: a path ending in `.fail` comes back as an error.
+function edits(on: On) {
+  const answer = (path: string) => (path.endsWith('.fail') ? { result: {}, isError: true as const } : { result: {} })
+  on('tool.call', { tool: 'Edit' }, (_, e) => answer(e.file_path))
+  on('tool.call', { tool: 'Write' }, (_, e) => answer(e.file_path))
+  on('tool.call', { tool: 'NotebookEdit' }, (_, e) => answer(e.notebook_path))
+}
+
+test('an edit tells the record its path after it succeeded, and asks nothing before', async ($, on) => {
+  const { sent } = peers(on)
+  edits(on)
+
+  await $.tool.call({ tool: 'Edit', file_path: '/work/repo/a.ts', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Write', file_path: '/work/repo/b.ts', content: 'b' })
+  await $.tool.call({ tool: 'NotebookEdit', notebook_path: '/work/repo/c.ipynb', new_source: 'c' })
+  await $.tool.call({ tool: 'Write', file_path: '/work/repo/d.fail', content: 'd' })
+  expect(sent.map(e => `${e.phase} ${e.tool} ${e.path}`)).toEqual([
+    'after Edit /work/repo/a.ts', 'after Write /work/repo/b.ts', 'after NotebookEdit /work/repo/c.ipynb',
+  ])
+})
+
+test('a refused secret dump never reaches the guard', async ($, on) => {
+  const { sent } = peers(on)
+  const ran = reached(on)
+
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'cd app && env' })
+  expect(deny).toContain("awk 'BEGIN { for (k in ENVIRON) print k }'")
+  expect(sent).toEqual([])
+  expect(ran).toEqual([])
+})
+
+test('a guard that fails never blocks the call', async ($, on) => {
+  const failures = [
+    () => ({ exitCode: 1, stdout: '' }),
+    () => ({ exitCode: 0, stdout: 'not json' }),
+    () => { throw new Error('injected peers.sh failure') },
+  ]
+  let failing = failures[0]!
+  peers(on, () => failing())
+  const ran = reached(on)
+
+  for (const failure of failures) {
+    failing = failure
+    const { deny } = await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    expect(deny).toBeUndefined()
+  }
+  expect(ran).toEqual(['npm test', 'npm test', 'npm test'])
+})

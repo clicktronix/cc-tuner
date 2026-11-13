@@ -425,4 +425,83 @@ call "$PE" g2 "$RE" "$(steps "$(stp "$RW" '' git switch other)")" "git -C '$RW' 
 equals "guard-switch-elsewhere-moves-that-checkout" "other" "$(expected_of g2 "$RW")"
 equals "guard-switch-elsewhere-leaves-the-cwd-checkout" "a" "$(expected_of g2 "$RE")"
 
+# --- one test drives the shipped adapter end to end ----------------------------------------------------
+# A real `claude -p` loads the plugin and runs real tool calls; only the model is a stand-in, a few lines
+# of Python that answer each request with the next call of a script. The engine, hooks/register.ts,
+# `$.process.run`, peers.sh and git are the real ones, and the Claude pid is the process started here.
+cat > "$W/fake_api.py" <<'PY'
+import http.server, json, sys
+script = [json.loads(line) for line in open(sys.argv[1])]
+msg = [0]
+
+def sse(*events):
+    return "".join("event: %s\ndata: %s\n\n" % (e["type"], json.dumps(e)) for e in events).encode()
+
+class Api(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args): pass
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        asked = sum(1 for m in body.get("messages", []) if isinstance(m.get("content"), list)
+                    for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_result")
+        call = script[asked] if body.get("tools") and asked < len(script) else None
+        msg[0] += 1
+        block = {"type": "text", "text": ""} if call is None else {"type": "tool_use", "id": "toolu_%d" % asked, "name": call["name"], "input": {}}
+        delta = {"type": "text_delta", "text": "done"} if call is None else {"type": "input_json_delta", "partial_json": json.dumps(call["input"])}
+        usage = {"input_tokens": 1, "output_tokens": 1}
+        out = sse({"type": "message_start", "message": {"id": "m%d" % msg[0], "type": "message", "role": "assistant", "model": "fake", "content": [], "usage": usage}},
+                  {"type": "content_block_start", "index": 0, "content_block": block},
+                  {"type": "content_block_delta", "index": 0, "delta": delta},
+                  {"type": "content_block_stop", "index": 0},
+                  {"type": "message_delta", "delta": {"stop_reason": "end_turn" if call is None else "tool_use"}, "usage": usage},
+                  {"type": "message_stop"})
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.end_headers()
+        self.wfile.write(out)
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Api)
+print(server.server_address[1], flush=True)
+server.serve_forever()
+PY
+
+# e2e <repo> <session id> <script line>... -> runs the script as one `claude -p` session in repo; leaves its pid in $CP.
+e2e() {
+  local repo="$1" sid="$2" n=0; shift 2
+  printf '%s\n' "$@" > "$W/script.jsonl"
+  python3 "$W/fake_api.py" "$W/script.jsonl" > "$W/api.port" & API=$!; STARTED="$STARTED $API"
+  until [ -s "$W/api.port" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done
+  ( cd "$repo" && exec env CLAUDE_CONFIG_DIR="$W/claude-config" ANTHROPIC_BASE_URL="http://127.0.0.1:$(cat "$W/api.port")" \
+      ANTHROPIC_API_KEY=sk-ant-stand-in DISABLE_TELEMETRY=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+      claude -p go --model haiku --session-id "$sid" --plugin-dir "$FLOW_PLUGIN" --setting-sources project,local \
+      --dangerously-skip-permissions < /dev/null > "$W/claude.out" 2>&1 ) & CP=$!; STARTED="$STARTED $CP"
+  n=0; while kill -0 "$CP" 2>/dev/null && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
+  kill "$CP" "$API" 2>/dev/null; rm -f "$W/api.port"
+}
+
+# outermost <pid> -> the outermost `claude` from pid up, empty when there is none. A nested `claude -p`
+# is its outermost parent's session, so a suite run inside Claude Code expects that pid, else the stand-in's.
+outermost() {
+  local p="$1" top=""
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    [ "$(ps -o comm= -p "$p" | sed 's|.*/||')" = claude ] && top="$p"
+    p="$(ps -o ppid= -p "$p" | tr -d ' ')"
+  done
+  printf '%s' "$top"
+}
+
+if command -v claude >/dev/null 2>&1; then
+  RT="$(repo)"; SID=00000000-0000-4000-8000-0000000000e2
+  e2e "$RT" "$SID" \
+    '{"name":"Bash","input":{"command":"git status"}}' \
+    '{"name":"Bash","input":{"command":"git switch -q -c e2e && git commit -q --allow-empty -m e2e"}}' \
+    "{\"name\":\"Write\",\"input\":{\"file_path\":\"$RT/notes.txt\",\"content\":\"n\"}}"
+  check  "guard-e2e-the-model-stand-in-finished" "done" "$(cat "$W/claude.out")"
+  equals "guard-e2e-session-is-the-claude-process" "$(outermost "$$" | grep . || printf %s "$CP")" "$(rec "$SID" '.pid')"
+  equals "guard-e2e-switch-moved-the-expectation" "e2e" "$(expected_of "$SID" "$RT")"
+  equals "guard-e2e-edit-recorded-its-path"       "notes.txt" "$(paths_of "$SID" "$RT")"
+  equals "guard-e2e-writer-call-marked-a-writer"  "number" "$(writer_of "$SID" "$RT")"
+else
+  fail "guard-e2e (claude is not on PATH; install @anthropic-ai/claude-code to drive the adapter)"
+fi
+
 exit $fails
