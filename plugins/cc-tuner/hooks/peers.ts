@@ -18,6 +18,14 @@ import type { EngineInterface } from 'claude-code'
 // first touch, moved only when HEAD changed during this session's own call that held a switch; writer
 // the epoch of the last writer call; paths what Edit/Write changed. acks also hold the hourly notes.
 //
+// Resources are declared, not detected: `<toplevel>/.claude/cc-tuner-resources.json` (`product` and `resources`)
+// and the machine's own file (CC_TUNER_PEERS_CONFIG, else $XDG_CONFIG_HOME or ~/.config, cc-tuner/resources.json),
+// each read again when its mtime changes. A shared resource (`start` and `stop` command prefixes) is not stopped
+// while another session of the product is live; the machine's, while any session is. An exclusive one (`tools`,
+// MCP tool-name patterns) is leased to the first session that calls one: a lock directory `lease.<key>` in the
+// record directory, made by an atomic `mkdir` that carries {key, pid, start, session, last use}. The lease moves
+// on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
+//
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files, and the reads `peers_report` and `kill` need.
 
@@ -26,6 +34,9 @@ export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; ack?: string; source?: string; ok?: boolean
 }
+export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
+interface Config { product?: string; resources: Resource[] }
+interface Holder { key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
 interface Checkout { repo: string; expected: string; writer: number | null; paths: string[] }
 export interface Rec {
@@ -38,10 +49,11 @@ type Where = readonly [top: string, common: string]
 // What the guard reads and runs, from the engine in a session and from a fake in the tests.
 export interface World {
   dir: () => Promise<string>
+  config: () => Promise<string>
   read: (path: string) => Promise<string>
   write: (path: string, text: string) => Promise<void>
   list: (dir: string) => Promise<readonly { name: string; kind: string; size: number; mtimeMs: number }[]>
-  stat: (path: string) => Promise<{ kind: string; realPath?: string } | undefined>
+  stat: (path: string) => Promise<{ kind: string; realPath?: string; mtimeMs?: number; size?: number } | undefined>
   run: (argv: readonly string[], init?: { env?: Record<string, string> }) => Promise<{ exitCode: number; stdout: string }>
   now: () => number
 }
@@ -49,6 +61,8 @@ export interface World {
 export function world($: EngineInterface): World {
   return {
     dir: async () => (await $.env.get('CC_TUNER_PEERS_DIR')) || `${await $.env.get('HOME')}/.cache/cc-tuner/sessions`,
+    config: async () => (await $.env.get('CC_TUNER_PEERS_CONFIG')) ||
+      `${(await $.env.get('XDG_CONFIG_HOME')) || `${await $.env.get('HOME')}/.config`}/cc-tuner/resources.json`,
     read: path => $.fs.read(path),
     write: (path, text) => $.fs.write(path, text),
     list: dir => $.fs.list(dir),
@@ -63,6 +77,13 @@ const ACK_TTL = 30 * 60
 const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
 const PS_TTL = 60
+const LEASE_IDLE = 10 * 60
+const NONE: Config = { resources: [] }
+// The lease scripts: each is one step in the shell. TAKE moves a lock aside only while it still holds the text
+// the caller read, then makes it; RELEASE removes it only while it holds the caller's own text.
+const TAKE = 'd="$1"; if [ -d "$d" ] && [ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ]; then mv "$d" "$d.$$" && rm -rf "$d.$$"; fi; ' +
+  'mkdir "$d" 2>/dev/null && printf %s "$3" > "$d/holder.json"'
+const RELEASE = '[ "$(cat "$1/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$1"'
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
 const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show'])
@@ -106,7 +127,11 @@ const overlaps = (a: string, b: string) => {
   return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)
 }
 const listing = (files: readonly string[]) => files.slice(0, 3).join(', ') + (files.length > 3 ? ` and ${files.length - 3} more` : '')
-const who = (r: Rec, co: Checkout) => `pid ${r.pid} on ${co.expected || 'a detached HEAD'}`
+const who = (r: Rec, co?: Checkout) => `pid ${r.pid}${co === undefined ? '' : ` on ${co.expected || 'a detached HEAD'}`}`
+const prefixed = (words: readonly string[], prefix: string) => {
+  const p = prefix.trim().split(/\s+/)
+  return p.length <= words.length && p.every((x, i) => (i === 0 ? basename(x) === basename(words[0]!) : x === words[i]))
+}
 
 function readOnly(step: Partial<Step>): boolean {
   const w = step.words ?? []
@@ -134,6 +159,25 @@ function valid(r: unknown): r is Rec {
     && typeof x.checkouts === 'object' && x.checkouts !== null && !Array.isArray(x.checkouts)
 }
 
+function parseConfig(text: string): Config {
+  const j = JSON.parse(text) as { product?: unknown; resources?: unknown }
+  const strings = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : [])
+  const resources = (Array.isArray(j.resources) ? j.resources : []).flatMap((r: Record<string, unknown> | null): Resource[] =>
+    typeof r?.key === 'string' && (r.kind === 'shared' || r.kind === 'exclusive')
+      ? [{ key: r.key, kind: r.kind, start: strings(r.start), stop: strings(r.stop), tools: strings(r.tools) }]
+      : [])
+  return { product: typeof j.product === 'string' && j.product !== '' ? j.product : undefined, resources }
+}
+
+function holder(text: string): Holder | undefined {
+  try {
+    const h = JSON.parse(text) as Holder
+    return Number.isInteger(h.pid) && typeof h.start === 'string' && typeof h.last === 'number' ? h : undefined
+  } catch {
+    return undefined
+  }
+}
+
 class Halt extends Error {}
 
 // One module load's view of the record store: the Claude pid, start times read in the last minute, and
@@ -142,6 +186,8 @@ export class Peers {
   private claude: number | undefined
   private ps = new Map<number, { start: string | undefined; at: number }>()
   private cache = new Map<string, { key: string; rec: Rec }>()
+  private configs = new Map<string, { key: string | undefined; config: Config }>()
+  private user: string | undefined
   private swept = 0
   private queue: Promise<unknown> = Promise.resolve()
 
@@ -255,13 +301,30 @@ export class Peers {
     return head?.trim().startsWith('ref: refs/heads/') ? head.trim().slice('ref: refs/heads/'.length) : fallback
   }
 
-  private async product(top: string): Promise<string | undefined> {
+  // A resources file, read again only when its mtime or size changed; one that is missing or unreadable declares nothing.
+  private async config(path: string): Promise<Config> {
+    const st = await this.w.stat(path)
+    if (st === undefined) return NONE
+    const key = st.mtimeMs === undefined ? undefined : `${st.mtimeMs}:${st.size}`
+    const hit = this.configs.get(path)
+    if (hit !== undefined && key !== undefined && hit.key === key) return hit.config
+    let config = NONE
     try {
-      const p = (JSON.parse(await this.w.read(`${top}/.claude/cc-tuner-resources.json`)) as { product?: unknown }).product
-      return typeof p === 'string' && p !== '' ? p : undefined
-    } catch {
-      return undefined
-    }
+      config = parseConfig(await this.w.read(path))
+    } catch { /* declares nothing */ }
+    this.configs.set(path, { key, config })
+    return config
+  }
+
+  private async product(top: string): Promise<string | undefined> {
+    return (await this.config(`${top}/.claude/cc-tuner-resources.json`)).product
+  }
+
+  // The resources that apply at a checkout, with whether each is the machine's.
+  async rules(top: string | undefined): Promise<[Resource, boolean][]> {
+    const repo = top === undefined ? NONE : await this.config(`${top}/.claude/cc-tuner-resources.json`)
+    const machine = await this.config(this.user ??= await this.w.config())
+    return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
   private async git(top: string, ...args: string[]): Promise<string | undefined> {
@@ -372,10 +435,9 @@ export class Peers {
     return names
   }
 
-  async report(cwd: string): Promise<string> {
-    const here = await this.where(cwd)
-    if (here === undefined) return 'cc-tuner: not in a git repository'
-    const { recs, bad, name, me } = await this.serial(async () => {
+  // The records, and this session's own among them.
+  private view() {
+    return this.serial(async () => {
       const { recs, bad } = await this.load()
       await this.sweep(recs)
       const pid = await this.pid()
@@ -383,6 +445,12 @@ export class Peers {
       const [name, me] = (pid === undefined ? undefined : this.mine(recs, pid, start)) ?? [undefined, undefined]
       return { recs, bad, name, me }
     })
+  }
+
+  async report(cwd: string): Promise<string> {
+    const here = await this.where(cwd)
+    if (here === undefined) return 'cc-tuner: not in a git repository'
+    const { recs, bad, name, me } = await this.view()
     const lines = bad.map(n => `note: skipped malformed record ${n}`)
     const found = await this.peers(recs, name, here)
     if (found.length === 0) return [...lines, 'no live peers'].join('\n')
@@ -430,6 +498,110 @@ export class Peers {
       return true
     })
     return claimed ? this.report(cwd) : 'cc-tuner: no Claude process found for this session'
+  }
+
+  // --- resources ----------------------------------------------------------------------------------------
+  // The other live sessions that use a shared resource, as `who` names them: those next to `at`, or every
+  // one for the machine's.
+  async users(recs: Map<string, Rec>, me: string | undefined, at: Where | undefined, machine: boolean): Promise<string[]> {
+    if (!machine && at !== undefined) return (await this.peers(recs, me, at)).map(([r, cos]) => who(r, cos[0]![1]))
+    const others = [...recs].filter(([n]) => n !== me).map(([, r]) => r)
+    const live = await this.live(others)
+    return others.filter(r => live.has(r)).map(r => who(r, Object.values(r.checkouts)[0]))
+  }
+
+  // The shared resource a command starts, and the checkout it ran in, when it starts one.
+  async started(steps: readonly Step[], cwd: string): Promise<{ key: string; top: string | undefined } | undefined> {
+    for (const st of steps) {
+      const top = (await this.where(join(cwd, st.dir)))?.[0]
+      for (const [res] of await this.rules(top)) {
+        if (res.kind === 'shared' && res.start.some(p => prefixed(st.words, p))) return { key: res.key, top }
+      }
+    }
+    return undefined
+  }
+
+  // Why a task that started a shared resource must not be stopped now, or undefined when it may be.
+  async taskStop(task: string, key: string, top: string | undefined): Promise<string | undefined> {
+    const { recs, name } = await this.view()
+    const rule = (await this.rules(top)).find(([r]) => r.kind === 'shared' && r.key === key)
+    if (rule === undefined) return undefined
+    const [user] = await this.users(recs, name, top === undefined ? undefined : await this.where(top), rule[1])
+    return user === undefined ? undefined
+      : `cc-tuner: task ${task} runs ${key}, which ${user} also uses. Wait until it is done, or SendMessage it when that tool is available.`
+  }
+
+  // The tasks this session keeps running through /clear, for the next start line.
+  async keep(tasks: string[]) {
+    await this.serial(async () => {
+      const { recs } = await this.load()
+      const pid = await this.pid()
+      const own = pid === undefined ? undefined : this.mine(recs, pid, (await this.starts([pid])).get(pid))
+      if (own === undefined) return
+      own[1].kept = tasks
+      await this.save(...own)
+    })
+  }
+
+  private async self(): Promise<[pid: number, start: string] | undefined> {
+    const pid = await this.pid()
+    return pid === undefined ? undefined : [pid, (await this.starts([pid])).get(pid) ?? '']
+  }
+
+  private async lock(key: string) { return `${await this.w.dir()}/lease.${key.replace(/[^A-Za-z0-9_.-]/g, '_')}` }
+
+  // The lease of every exclusive resource this tool belongs to: the first call takes it, the holder keeps it.
+  async lease(tool: string, cwd: string, sid: string | null): Promise<Verdict> {
+    const hits = (await this.rules((await this.where(cwd))?.[0])).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
+    if (hits.length === 0) return { decision: 'allow' }
+    return this.serial(async () => {
+      const me = await this.self()
+      if (me === undefined) return { decision: 'allow' }
+      const notes: string[] = []
+      for (const [{ key }] of hits) {
+        const v = await this.hold(key, me, sid)
+        if (v.decision === 'stop') return v
+        if (v.reason !== undefined) notes.push(v.reason)
+      }
+      return notes.length > 0 ? { decision: 'note', reason: notes.join(' ') } : { decision: 'allow' }
+    })
+  }
+
+  private async hold(key: string, [pid, start]: [number, string], sid: string | null): Promise<Verdict> {
+    const lock = await this.lock(key)
+    const [text, st] = [await this.w.read(`${lock}/holder.json`).catch(() => ''), await this.w.stat(lock)]
+    const [cur, now] = [holder(text), this.now()]
+    const mine = JSON.stringify({ key, pid, start, session: sid, last: now })
+    if (cur?.pid === pid && cur.start === start) {
+      await this.w.write(`${lock}/holder.json`, mine)
+      return { decision: 'allow' }
+    }
+    if (st !== undefined) {
+      // A lock nobody wrote into yet is as old as its directory.
+      const last = cur?.last ?? Math.floor((st.mtimeMs ?? now * 1000) / 1000)
+      const gone = cur !== undefined && (await this.starts([cur.pid])).get(cur.pid) !== cur.start
+      if (!gone && now - last < LEASE_IDLE) return this.leased(key, cur, now)
+    }
+    const r = await this.w.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
+    if (r.exitCode !== 0) return this.leased(key, holder(await this.w.read(`${lock}/holder.json`).catch(() => '')), now)
+    return { decision: 'note', reason: `cc-tuner: you hold ${key}; release it with peers_release when you are done.` }
+  }
+
+  private leased(key: string, h: Holder | undefined, now: number): Verdict {
+    const by = h === undefined ? 'another session' : `pid ${h.pid}, used ${now - h.last} s ago`
+    return { decision: 'stop', reason: `cc-tuner: ${key} is leased to ${by}. Wait for it, or SendMessage it when that tool is available.` }
+  }
+
+  // Frees the lease only for its holder, checked against the holder file the shell removes it under.
+  async release(key: string): Promise<string> {
+    const refused = `cc-tuner: ${key} is not leased to this session.`
+    return this.serial(async () => {
+      const [me, lock] = [await this.self(), await this.lock(key)]
+      const text = await this.w.read(`${lock}/holder.json`).catch(() => '')
+      const cur = holder(text)
+      if (me === undefined || cur?.pid !== me[0] || cur.start !== me[1]) return refused
+      return (await this.w.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])).exitCode === 0 ? `cc-tuner: released ${key}.` : refused
+    })
   }
 
   // --- the guard ----------------------------------------------------------------------------------------
@@ -595,10 +767,20 @@ class Guard {
   // they are read from the cwd's.
   private async step(w: string[], at: Where | undefined, d: string, prev: string[]) {
     const name = basename(w[0]!)
+    await this.shared(w, at)
     if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') await this.kill(name, w.slice(1), at ?? this.here, prev)
     else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(at ?? this.here, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
+  }
+
+  // A shared resource's stop command, while another session uses the resource.
+  private async shared(w: string[], at: Where | undefined) {
+    for (const [res, machine] of await this.p.rules(at?.[0])) {
+      if (res.kind !== 'shared' || !res.stop.some(p => prefixed(w, p))) continue
+      const [user] = await this.p.users(this.recs, this.name, at, machine)
+      if (user !== undefined) this.stop('stop', res.key, `\`${w.join(' ').slice(0, 60)}\` would stop ${res.key}, which ${user} also uses.`)
+    }
   }
 
   private async git(w: string[], at: Where, d: string) {

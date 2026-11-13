@@ -7,6 +7,7 @@ import { Peers, ownedOpen, type Event, type Rec, type Step, type World } from '.
 // it with its own Claude pid, so records are written by the code that writes them in a session. Real git,
 // `ps` and the engine's `$.fs` are driven end to end by tests/flow/test_peers.sh.
 const DIR = '/peers'
+const USER = '/user/resources.json'
 const LSTART = 'Sat Nov 14 00:07:21 2026'
 
 class Machine {
@@ -17,6 +18,8 @@ class Machine {
   shas = new Map<string, string>()
   merges = new Map<string, string>()
   ports = new Map<number, number>()
+  stopped: string[] = []
+  dirTimes = new Map<string, number>()
   clock = 1_800_000_000_000
   ran: string[][] = []
   private tick = 1
@@ -25,6 +28,10 @@ class Machine {
   mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
   put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); this.files.set(p, { text, mtimeMs: this.tick++ }) }
   advance(seconds: number) { this.clock += seconds * 1000 }
+  drop(dir: string) {
+    for (const p of [...this.files.keys()]) if (p.startsWith(`${dir}/`)) this.files.delete(p)
+    this.dirs.delete(dir)
+  }
 
   // A process: a stand-in Claude by default, its start time distinct from every other one.
   spawn(ppid = 1, name = 'sleep', args = name): number {
@@ -68,14 +75,20 @@ class Machine {
   world(pid: number): World {
     return {
       dir: async () => DIR,
+      config: async () => USER,
       read: async p => { const f = this.files.get(p); if (f === undefined) throw new Error(`ENOENT ${p}`); return f.text },
       write: async (p, text) => this.put(p, text),
       list: async d => {
         if (!this.dirs.has(d)) throw new Error(`ENOENT ${d}`)
-        return [...this.files].filter(([p]) => p.slice(0, p.lastIndexOf('/')) === d)
+        const files = [...this.files].filter(([p]) => p.slice(0, p.lastIndexOf('/')) === d)
           .map(([p, f]) => ({ name: p.slice(d.length + 1), kind: 'file', size: f.text.length, mtimeMs: f.mtimeMs }))
+        const dirs = [...this.dirs].filter(p => p !== '/' && p.slice(0, p.lastIndexOf('/')) === d).map(p => ({ name: p.slice(d.length + 1), kind: 'dir', size: 0, mtimeMs: 0 }))
+        return [...files, ...dirs]
       },
-      stat: async p => (this.dirs.has(p) ? { kind: 'dir', realPath: p } : this.files.has(p) ? { kind: 'file', realPath: p } : undefined),
+      stat: async p => {
+        const f = this.files.get(p)
+        return this.dirs.has(p) ? { kind: 'dir', realPath: p, mtimeMs: this.dirTimes.get(p) } : f === undefined ? undefined : { kind: 'file', realPath: p, mtimeMs: f.mtimeMs, size: f.text.length }
+      },
       run: async argv => {
         this.ran.push([...argv])
         return { exitCode: 0, ...this.answer(pid, argv) }
@@ -90,6 +103,20 @@ class Machine {
     if (cmd === 'ps') return { stdout: this.ps(a.includes('-p') ? a[a.indexOf('-p') + 1]!.split(',').map(Number) : undefined) }
     if (cmd === 'git' && a[2] === 'status') return { stdout: (this.status.get(a[1]!) ?? []).map(e => `${e}\0`).join('') }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
+    // The lease scripts, as the shell runs them: one atomic step each.
+    if (cmd === '/bin/sh' && a[1]?.includes('mkdir')) {
+      const [lock, seen, info] = a.slice(3) as [string, string, string]
+      if (this.dirs.has(lock) && (this.files.get(`${lock}/holder.json`)?.text ?? '') === seen) this.drop(lock)
+      if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
+      this.put(`${lock}/holder.json`, info)
+      this.dirTimes.set(lock, this.clock)
+      return { stdout: '' }
+    }
+    if (cmd === '/bin/sh' && a[1]?.includes('holder.json') && a[1].includes('rm -rf')) {
+      if ((this.files.get(`${a[3]}/holder.json`)?.text ?? '') !== a[4]) return { exitCode: 1, stdout: '' }
+      this.drop(a[3]!)
+      return { stdout: '' }
+    }
     if (cmd === '/bin/sh' && a[1]?.includes('merge-tree')) {
       const out = this.merges.get(`${a[6]}-${a[7]}`)
       return out === undefined ? { exitCode: 0, stdout: 'tree\n' } : { exitCode: 1, stdout: `tree\n${out}\n\nCONFLICT\n` }
@@ -146,27 +173,35 @@ const writes = (text: string): Partial<Step> => ({ ...step(text), writes: true }
 // --- the adapter: the hooks module in front of the guard ----------------------------------------------------
 // The module reads and writes records with $.fs and runs `ps` and git with $.process.run; the test's hooks
 // stand for those, backed by the machine.
-function engine(on: On, m: Machine, pid: number, effect: (command: string) => void = () => {}, broken = () => false) {
+function engine(on: On, m: Machine, pid: number, effect: (command: string) => void = () => {}, broken = () => false,
+  task: (command: string) => string | undefined = () => undefined) {
   const w = m.world(pid)
   on('classic.SessionStart', () => ({}))
   on('session.id', () => ({ value: 'e1' }))
   on('session.cwd', () => ({ value: '/w/r' }))
   on('ui.log', () => ({ value: undefined }))
-  on('env.get', (_, e) => ({ value: e.name === 'CC_TUNER_PEERS_DIR' ? DIR : undefined }))
+  on('env.get', (_, e) => ({ value: e.name === 'CC_TUNER_PEERS_DIR' ? DIR : e.name === 'CC_TUNER_PEERS_CONFIG' ? USER : undefined }))
   on('fs.read', async (_, e) => ({ value: await w.read(e.path) }))
   on('fs.write', async (_, e) => { await w.write(e.path, e.text); return { value: undefined } })
-  on('fs.list', async (_, e) => ({ value: (await w.list(e.path ?? '.')).map(x => ({ ...x, kind: 'file' as const, isLink: false })) }))
+  on('fs.list', async (_, e) => ({ value: (await w.list(e.path ?? '.')).map(x => ({ ...x, kind: x.kind as 'file' | 'dir', isLink: false })) }))
   on('fs.stat', async (_, e) => {
     const st = await w.stat(e.path)
     if (st === undefined) throw new Error(`ENOENT ${e.path}`)
-    return { value: { kind: st.kind as 'file' | 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: st.realPath } }
+    return { value: { kind: st.kind as 'file' | 'dir', size: st.size ?? 0, mtimeMs: st.mtimeMs ?? 0, isLink: false, realPath: st.realPath } }
   })
   on('process.run', async (_, e) => {
     if (broken()) throw new Error('injected process failure')
     return { value: { ...await w.run(e.argv), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   const ran: string[] = []
-  on('tool.call', { tool: 'Bash' }, (_, e) => { ran.push(e.command); effect(e.command); return { result: { stdout: '', stderr: '', interrupted: false } } })
+  on('tool.call', { tool: 'Bash' }, (_, e) => {
+    ran.push(e.command)
+    effect(e.command)
+    return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: task(e.command) } }
+  })
+  on('tool.call', { tool: 'TaskStop' }, (_, e) => { m.stopped.push(String(e.task_id)); return { result: { message: 'stopped', task_id: String(e.task_id), task_type: 'bash' } } })
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, (_, e) => { ran.push(e.tool); return { result: {} } })
   const answer = (path: string) => (path.endsWith('.fail') ? { result: {}, isError: true as const } : { result: {} })
   on('tool.call', { tool: 'Edit' }, (_, e) => answer(e.file_path))
   on('tool.call', { tool: 'Write' }, (_, e) => answer(e.file_path))
@@ -303,7 +338,7 @@ test('peers_report, peers_claim and peers_release are tools the module answers',
   expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_report' })).result).toContain('1 live peer')
   expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_claim', plan: 'plan.md' })).result).toContain('1 live peer')
   expect(m.rec('e1').claims['plan.md']?.paths).toEqual(['lib/'])
-  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: no leases yet.')
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: chrome is not leased to this session.')
 })
 
 // --- records ---------------------------------------------------------------------------------------------
@@ -872,4 +907,145 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
   await decide(r, 'git switch x')
   expect(m.ran.slice(1).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
+})
+
+// --- resources: a shared one is not stopped under a live peer, an exclusive one is used by one session at a time ----
+const STACK = { key: 'stack', kind: 'shared', start: ['stack up'], stop: ['stack down', 'docker compose down'] }
+const CHROME = { key: 'chrome', kind: 'exclusive', tools: ['mcp__chrome-devtools__*'] }
+const CLICK = 'mcp__chrome-devtools__click'
+const declare = (m: Machine, top: string, ...resources: object[]) => m.put(`${top}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'acme', resources }))
+const declareMachine = (m: Machine, ...resources: object[]) => m.put(USER, JSON.stringify({ resources }))
+
+test('resource: a shared stop command stops while a product session is live, and runs when none is', async () => {
+  const { m, ra, rb, rc, rd, sr, sb, sc, sd } = products()
+  declare(m, ra, STACK)
+  for (const [s, top] of [[sr, ra], [sb, rb], [sc, rc], [sd, rd]] as const) await s.touch(top)
+  for (const c of ['stack down', 'docker compose down -v']) expect((await sr.bash(ra, c)).decision, c).toBe('stop')
+  const { reason } = await sr.bash(ra, 'stack down')
+  for (const part of ['stack', `pid ${sb.pid}`, 'run the same command prefixed CC_TUNER_ACK=']) expect(reason).toContain(part)
+  expect((await sr.bash(rc, at(ra, 'stack down'))).decision, 'behind git -C or cd').toBe('stop')
+  expect((await sr.bash(ra, 'bash', at(ra, 'stack down'))).decision, 'behind a wrapper').toBe('stop')
+  for (const c of ['stack up', 'stack status', 'docker compose up']) expect((await sr.bash(ra, c)).decision, c).toBe('allow')
+  expect((await sd.bash(rd, 'stack down')).decision, 'resource-a-repository-without-the-file-adds-no-rules').toBe('allow')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(reason!)![1]!
+  expect((await sr.check({ tool: 'Bash', cwd: ra, steps: [step('stack down')], ack: key })).decision, 'resource-shared-stop-takes-an-ack').toBe('allow')
+  m.edit('sr', r => { r.acks = {} })
+  m.end(sb.pid)
+  expect((await sr.bash(ra, 'stack down')).decision, 'the peer of the product has gone').toBe('allow')
+})
+
+test('resource: a machine resource applies in a repository without the file, and counts every live session', async () => {
+  const { m, session } = machine()
+  const [rx, ry] = [m.repo('/w/rx'), m.repo('/w/ry')]
+  declareMachine(m, { key: 'ports', kind: 'shared', stop: ['pnpm stack:down'] })
+  const [sx, sy] = [session('sx'), session('sy')]
+  await sx.touch(rx)
+  await sy.touch(ry)
+  const { decision, reason } = await sx.bash(rx, 'pnpm stack:down')
+  expect(decision).toBe('stop')
+  expect(reason).toContain(`pid ${sy.pid}`)
+  m.end(sy.pid)
+  expect((await sx.bash(rx, 'pnpm stack:down')).decision).toBe('allow')
+})
+
+test('resource: two simultaneous first users get one lease, across products', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [a, b] = await Promise.all([sr.peers.lease(CLICK, ra, 'sr'), sc.peers.lease(CLICK, rc, 'sc')])
+  expect([a.decision, b.decision].sort(), 'resource-two-first-users-get-one-lease').toEqual(['note', 'stop'])
+  const [holder, loser] = a.decision === 'note' ? [sr, b] : [sc, a]
+  expect(JSON.parse(m.files.get(`${DIR}/lease.chrome/holder.json`)!.text)).toMatchObject({ key: 'chrome', pid: holder.pid, start: m.procs.get(holder.pid)!.start })
+  expect(loser.reason).toContain(`pid ${holder.pid}`)
+})
+
+test('resource: the lease is the holder\'s until its release, 10 min of silence or its death; no ack passes it', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const use = (s: Session, top: string, tool = CLICK) => s.peers.lease(tool, top, s.sid)
+  const taken = await use(sr, ra)
+  expect(taken.decision).toBe('note')
+  expect(taken.reason).toContain('peers_release')
+  expect((await use(sr, ra)).decision, 'the holder goes on').toBe('allow')
+  expect((await use(sc, rc, 'mcp__other__x')).decision, 'a tool no resource names').toBe('allow')
+  const denied = await use(sc, rc)
+  expect(denied.decision).toBe('stop')
+  for (const part of [`pid ${sr.pid}`, 'chrome', 'SendMessage']) expect(denied.reason).toContain(part)
+  expect(denied.reason, 'a lease offers no ack').not.toContain('CC_TUNER_ACK')
+  expect(await sc.peers.release('chrome'), 'resource-non-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  m.advance(599)
+  expect((await use(sc, rc)).decision, 'resource-lease-held-within-10-min').toBe('stop')
+  expect((await use(sr, ra)).decision).toBe('allow')
+  m.advance(601)
+  expect((await use(sc, rc)).decision, 'resource-lease-moves-after-10-min-of-silence').toBe('note')
+  expect(await sr.peers.release('chrome'), 'resource-former-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect((await use(sr, ra)).decision, 'the former holder is a non-holder now').toBe('stop')
+  expect(await sc.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+  expect((await use(sr, ra)).decision, 'resource-lease-moves-on-release').toBe('note')
+  m.end(sr.pid)
+  expect((await use(sc, rc)).decision, 'resource-lease-moves-on-death').toBe('note')
+})
+
+test('resource: a repository resource is leased too, and a lock with no holder file yet is not up for grabs', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declare(m, r, { key: 'db', kind: 'exclusive', tools: ['mcp__db__*'] })
+  const [s1, s2] = [session('s1'), session('s2')]
+  m.dirs.add(`${DIR}/lease.db`)
+  m.dirTimes.set(`${DIR}/lease.db`, m.clock)
+  expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock just made, its holder not written yet').toBe('stop')
+  m.advance(601)
+  expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock nobody ever wrote to').toBe('note')
+  expect((await s2.peers.lease('mcp__chrome-devtools__click', r, 's2')).decision, 'another repository\'s resource does not apply').toBe('allow')
+})
+
+test('resource: the module denies an MCP tool leased to another session, and answers peers_release', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const peer = session('peer')
+  await peer.peers.lease(CLICK, '/w/r', 'peer')
+  const ran = engine(on, m, m.spawn())
+  const { deny } = await $.tool.call({ tool: CLICK })
+  expect(deny).toContain(`chrome is leased to pid ${peer.pid}`)
+  expect((await $.tool.call({ tool: 'mcp__chrome-devtools__list' })).deny).toContain('leased')
+  expect(ran).toEqual([])
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: chrome is not leased to this session.')
+  expect(await peer.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+  const ok = await $.tool.call({ tool: CLICK })
+  expect(ok.deny).toBeUndefined()
+  expect(ok.context?.join(' ')).toContain('peers_release')
+  expect(ran).toEqual([CLICK])
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: released chrome.')
+})
+
+test('resource: TaskStop of a shared task is denied with no ack while a product session is live', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  engine(on, m, m.spawn(), undefined, undefined, command => command.split(' ')[0] === 'stack' ? command.split(' ')[2] : command.startsWith('sleep') ? 'b9' : undefined)
+  await $.tool.call({ tool: 'Bash', command: 'stack up one', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'stack up two', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'one' })).deny, 'resource-taskstop-runs-when-none-is-live').toBeUndefined()
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  const { deny } = await $.tool.call({ tool: 'TaskStop', task_id: 'two' })
+  for (const part of ['two', 'stack', `pid ${peer.pid}`, 'SendMessage']) expect(deny).toContain(part)
+  expect(deny, 'resource-taskstop-offers-no-ack').not.toContain('CC_TUNER_ACK')
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b9' })).deny, 'a task that ran no shared start').toBeUndefined()
+  expect(m.stopped).toEqual(['one', 'b9'])
+})
+
+test('resource: /clear keeps a shared task running, and the next start line names it', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  engine(on, m, m.spawn(), undefined, undefined, command => (command === 'stack up' ? 'b1' : command === 'npm run dev' ? 'b2' : undefined))
+  await $.tool.call({ tool: 'Bash', command: 'stack up', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true })
+  await $.session.end({ sessionId: 'e1', resume: { id: 'e1' }, reason: 'clear' })
+  expect(m.stopped, 'resource-clear-stops-only-what-is-not-shared').toEqual(['b2'])
+  expect(m.rec('e1').kept).toEqual(['stack (b1)'])
+  const done = await $.classic.SessionStart({ source: 'clear', session_id: 'e1', cwd: '/w/r' })
+  expect(done.additionalContext?.join('\n'), 'resource-clear-start-line-names-the-task').toContain('kept at /clear: stack (b1)')
 })

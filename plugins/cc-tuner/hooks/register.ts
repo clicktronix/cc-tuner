@@ -4,10 +4,13 @@ import { Peers, world, type Event, type Verdict } from './peers'
 // Claude Code stops a session's background tasks when the process exits, but
 // a /clear ends the conversation and leaves them running under the next one.
 // The agent that started them no longer knows they exist, so they are stopped
-// here. Ids are module state: a reload loses them, and exit still stops those.
+// here, except a shared resource's, which stays for the sessions using it and is named in the next start line. Ids are module state: a reload loses them, and exit still stops those.
 // An id leaves the set when the agent stops the task itself; a task that ends
 // on its own is not observable from a hook, and stopping it later is harmless.
 const started = new Set<string>()
+// The tasks among them that run a shared resource's start command, with the checkout they started in.
+// /clear leaves them running, and the agent may stop one only while no other session of the product uses it.
+const shared = new Map<string, { key: string; top: string | undefined }>()
 
 // The subagent panel shows an agent's type and its live activity, never its model, and a plugin
 // cannot redraw that panel. The status line carries the models of the subagents still running.
@@ -344,6 +347,14 @@ async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'ph
   }
 }
 
+async function withPeers<T>($: EngineInterface, f: (p: Peers) => Promise<T>): Promise<T | undefined> {
+  try {
+    return await f(peers ??= new Peers(world($)))
+  } catch {
+    return undefined
+  }
+}
+
 const TOOLS = [
   { name: 'peers_report', description: 'Lists the live Claude sessions of this repository and product: branch, claims, edited paths, and merge conflicts with HEAD.', inputSchema: { type: 'object', properties: {} } },
   { name: 'peers_claim', description: 'Publishes the open Owned paths of a plan as this session\'s claim, then reports peers and their overlap with it.', inputSchema: { type: 'object', properties: { plan: { type: 'string', description: 'The plan file, relative to the cwd.' } }, required: ['plan'] } },
@@ -365,9 +376,16 @@ export const register: Register = on => {
   on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {
     peers ??= new Peers(world($))
     const cwd = await $.session.cwd()
-    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: 'cc-tuner: no leases yet.' }
+    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await peers.release(String(e.key ?? '')) }
     if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await peers.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
     return { result: await peers.report(cwd) }
+  })
+
+  // Another MCP server's tool may belong to an exclusive resource: one session at a time uses it.
+  on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, async ($, e, next) => {
+    const verdict = await withPeers($, async p => p.lease(e.tool, await $.session.cwd(), await $.session.id()))
+    if (verdict?.decision === 'stop') return { deny: verdict.reason ?? 'cc-tuner: stopped' }
+    return noted(await next(e), verdict)
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
@@ -381,6 +399,8 @@ export const register: Register = on => {
     if (before?.seen !== undefined) await guard($, { phase: 'after', tool: 'Bash', seen: before.seen })
     if (ran.deny === undefined && ran.isError !== true && ran.result.backgroundTaskId) {
       started.add(ran.result.backgroundTaskId)
+      const resource = await withPeers($, async p => p.started(steps(command), await $.session.cwd()))
+      if (resource !== undefined) shared.set(ran.result.backgroundTaskId, resource)
     }
     return noted(ran, before)
   })
@@ -394,8 +414,14 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
+    const task = shared.get(String(e.task_id))
+    const deny = task === undefined ? undefined : await withPeers($, p => p.taskStop(String(e.task_id), task.key, task.top))
+    if (deny !== undefined) return { deny }
     const ran = await next(e)
-    if (ran.deny === undefined && ran.isError !== true) started.delete(ran.result.task_id)
+    if (ran.deny === undefined && ran.isError !== true) {
+      started.delete(ran.result.task_id)
+      shared.delete(ran.result.task_id)
+    }
     return ran
   })
 
@@ -416,7 +442,7 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
-      const ids = [...started]
+      const ids = [...started].filter(id => !shared.has(id))
       const results = await Promise.allSettled(ids.map(task_id => $.tool.call({ tool: 'TaskStop', task_id })))
       // Only confirmed stops leave the set: an id whose stop failed stays for the next /clear (exit
       // still stops it; a task that already ended can answer with an error, harmless to retry), and
@@ -430,6 +456,7 @@ export const register: Register = on => {
       if (unstopped.length > 0) {
         $.ui.log(`cc-tuner: /clear could not confirm stopping ${unstopped.join(', ')}; retrying next /clear`, { to: 'debug' })
       }
+      await withPeers($, p => p.keep([...shared].map(([id, t]) => `${t.key} (${id})`)))
     }
     return next(e)
   })
