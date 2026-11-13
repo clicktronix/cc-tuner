@@ -216,7 +216,7 @@ test group in brackets.
   resume. (`start-*`)
 - [x] [machine] The guard decides in at most 150 ms p95 over 50 calls with 10 records, on the CI
   macOS runner. (`latency`)
-- [ ] [machine] The texts above are present. — `bash plugins/cc-tuner/tests/contract/test_contract.sh`
+- [x] [machine] The texts above are present. — `bash plugins/cc-tuner/tests/contract/test_contract.sh`
 - [ ] [eyes] Two real sessions in one scratch checkout:
   - the second session's `git switch` is stopped;
   - its agent picks a way on by itself;

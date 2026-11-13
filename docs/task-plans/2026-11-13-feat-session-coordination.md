@@ -92,7 +92,9 @@ Owned paths: plugins/cc-tuner/skills/spec,plugins/cc-tuner/skills/run,plugins/cc
 Deciding check: bash plugins/cc-tuner/tests/contract/test_contract.sh
 Delivers: /spec and /run show peers and publish claims, the rule template and task-flow cleanup take a worktree next to another writer, and setup and the README describe the resources file
 
-- [ ] `/spec` runs `report` before approval; `/run` runs `claim` before the first slice, after each tick and before integration
-- [ ] the rule template and post-merge cleanup use a worktree when another writer is live; `/run`'s final cleanup leaves a task the guard keeps
-- [ ] setup documents both resources files; the README documents the four commands and the ack
-- [ ] contract pins cover these texts
+- [x] `/spec` runs `report` before approval; `/run` runs `claim` before the first slice, after each tick and before integration
+- [x] the rule template and post-merge cleanup use a worktree when another writer is live; `/run`'s final cleanup leaves a task the guard keeps
+- [x] setup documents both resources files; the README documents the four commands and the ack
+- [x] contract pins cover these texts
+
+Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 0 FAIL with 15 new pins (RED first: 15 FAIL, e.g. `FAIL spec-reports-peers-before-approval (missing 'call `mcp__cc-tuner__peers_report`' ...)`); rule template marker v0.23.0 @ 6481e94
