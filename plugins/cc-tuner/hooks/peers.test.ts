@@ -1,6 +1,6 @@
 import type { On, PromptSubmitInput } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { Peers, ownedOpen, type Event, type Rec, type Step, type World } from './peers'
+import { Peers, UNKNOWN, ownedOpen, type Event, type Rec, type Step, type World } from './peers'
 
 // A machine in memory: files, git checkouts, a process table, and the answers of the few commands the guard
 // runs (`ps`, `git status`, `git rev-parse`, merge-tree, `pgrep`, `lsof`). Every session is a real Peers over
@@ -1168,4 +1168,60 @@ test('an ack is a printed key, as a prefix or on any step, and nothing a quoted 
   expect(Object.keys(m.rec('e1').acks)).toEqual([])
   expect((await $.tool.call({ tool: 'Bash', command: `true && CC_TUNER_ACK=${key} git reset --hard` })).deny, 'guard-ack-on-a-later-step').toBeUndefined()
   expect(typeof m.rec('e1').acks[key]).toBe('number')
+})
+
+// --- scope comes from the target, also outside a repository --------------------------------------------------------
+test('guard: a step that targets a repository is decided there, from a cwd that is none', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  m.mkdir('/w')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.bash(r1, 'npm test')
+  await me.touch(r1)
+  for (const c of ['git switch x', 'git branch -m y']) expect((await me.bash('/w', at(r1, c))).decision, `guard-outside-a-repository: ${c}`).toBe(c === 'git switch x' ? 'stop' : 'allow')
+  expect(m.rec('me').checkouts[r1], 'the checkout it acted on is recorded').toBeDefined()
+  m.dirty(r1, ' M f')
+  expect((await me.bash('/w', at(r1, 'git reset --hard'))).decision).toBe('stop')
+  expect((await me.bash('/w', 'git reset --hard')).decision, 'no checkout at all').toBe('allow')
+  const fresh = session('fresh')
+  expect((await fresh.bash('/w', at(r1, 'git reset --hard'))).decision, 'a session that has no record yet').toBe('stop')
+})
+
+test('claim and report read the repository from the plan, not the session cwd', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  m.mkdir('/w')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r1)
+  m.put(`${r1}/docs/p.md`, '## Slice 1 — A\nOwned paths: lib/\n- [ ] a\n')
+  const out = await me.peers.claim('/w', 'me', 'r1/docs/p.md')
+  expect(out, 'claim-from-a-workspace-root').toContain(`pid ${peer.pid}`)
+  expect(m.rec('me').claims['docs/p.md']).toMatchObject({ paths: ['lib/'] })
+  expect(await me.peers.claim(r2, 'me', '../r1/docs/p.md'), 'claim-of-another-repository-plan').toContain(`pid ${peer.pid}`)
+  expect(await me.peers.claim('/w', 'me', 'r1/docs/none.md')).toBe('cc-tuner: cannot read r1/docs/none.md')
+})
+
+test('guard: a step after a cd it could not read is a note, not a decision against the wrong checkout', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  await me.touch(r)
+  m.dirty(r, ' M f')
+  const blind = await me.bash(r, at(UNKNOWN, 'git reset --hard'))
+  expect(blind.decision, 'guard-unknown-directory-is-a-note').toBe('note')
+  expect(blind.reason).toContain('could not read the directory')
+  expect((await me.bash(r, at(UNKNOWN, 'git status'))).decision, 'a read-only step needs no directory').toBe('allow')
+  expect((await me.bash(r, at(UNKNOWN, 'npm test'))).decision).toBe('allow')
+})
+
+test('guard: a wrapper that starts another command it cannot unwrap is a note when that command is git, gh or kill', async () => {
+  const { r, ready, decide } = world()
+  await ready
+  for (const c of ['sudo git reset --hard', 'eval git reset --hard', 'eval git switch x', 'sudo kill 1', 'bash run.sh git push', 'watch gh pr merge']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-opaque-wrapper: ${c}`).toBe('note')
+    expect(v.reason).toContain('could not read')
+  }
+  for (const c of ['sudo ls', 'echo git reset --hard', 'grep git README', 'bash deploy-git.sh', 'bash run.sh']) expect((await decide(r, c)).decision, c).toBe('allow')
 })

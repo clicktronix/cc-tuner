@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { Peers, world, type Event, type Verdict } from './peers'
+import { Peers, UNKNOWN, world, type Event, type Verdict } from './peers'
 
 // Claude Code stops a session's background tasks when the process exits, but
 // a /clear ends the conversation and leaves them running under the next one.
@@ -66,7 +66,7 @@ const TEMPLATE = /\.(example|sample|template|dist)$/
 interface Simple { words: string[]; inputs: string[]; dir: string; op: string; writes: boolean }
 const METACHARS = ' \t\n;&|()<>'
 const OPERATORS = ['&&', '||', '|&', '|', ';', '&']
-const at = (dir: string, to: string) => to.startsWith('/') || dir === '' ? to : `${dir}/${to}`
+const at = (dir: string, to: string) => to.startsWith('/') || dir === '' ? to : dir === UNKNOWN ? UNKNOWN : `${dir}/${to}`
 
 function commands(text: string, base = '', first = ''): Simple[] {
   const found: Simple[] = []
@@ -89,7 +89,7 @@ function commands(text: string, base = '', first = ''): Simple[] {
         found.push(current)
         const [name, ...args] = current.words.slice(lead(current.words))
         const to = args.find(a => a !== '--' && !/^-[LPe@]+$/.test(a))
-        if (name === 'cd' && joined !== '|' && joined !== '&' && to !== undefined && to !== '-' && !to.startsWith('~')) dir = at(dir, to)
+        if (name === 'cd' && joined !== '|' && joined !== '&') dir = !to || to === '-' || to.startsWith('~') || to.includes('$') ? UNKNOWN : at(dir, to)
       }
       current = { words: [], inputs: [], dir, op, writes: false }
       if (joined !== undefined) op = joined === '&' ? ';' : joined === '|&' ? '|' : joined
@@ -245,7 +245,7 @@ function lead(words: string[]): number {
         else at += option === '-a' ? 2 : 1
         if (option === '--') break
       }
-    } else at++
+    } else if (words[at++] === 'time' && words[at] === '-p') at++
   }
   return at
 }
@@ -274,6 +274,10 @@ function secretLeak(command: string): string | undefined {
 type Step = Event['steps'] extends (infer S)[] | undefined ? S : never
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
 const XARGS_VALUED = new Set(['-n', '-I', '-L', '-P', '-d', '-E', '-s', '-a'])
+// Launchers that only start the command after them: their valued options, and the words that precede it.
+const LAUNCHERS = new Map<string, { valued: string[]; lead: number }>([
+  ['timeout', { valued: ['-s', '-k'], lead: 1 }], ['nice', { valued: ['-n'], lead: 0 }], ['nohup', { valued: [], lead: 0 }],
+])
 const GIT_QUIET = new Set(['--no-pager', '--no-optional-locks', '-P'])
 const base = (word: string | undefined) => (word ?? '').slice((word ?? '').lastIndexOf('/') + 1)
 
@@ -293,6 +297,11 @@ function unwrap(simple: Simple): Step[] {
       }
       if (k < args.length && args[k]!.startsWith('-')) break
       words = args.slice(k)
+    } else if (LAUNCHERS.has(name)) {
+      const { valued, lead: skip } = LAUNCHERS.get(name)!
+      let k = 0
+      while (k < args.length && args[k]!.startsWith('-')) k += valued.includes(args[k]!) ? 2 : 1
+      words = args.slice(k + skip)
     } else if (name === 'xargs') {
       let k = 0
       while (k < args.length && args[k]!.startsWith('-')) k += XARGS_VALUED.has(args[k]!) ? 2 : 1

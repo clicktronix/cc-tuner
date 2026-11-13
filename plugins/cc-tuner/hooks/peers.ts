@@ -29,6 +29,8 @@ import type { EngineInterface } from 'claude-code'
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files, and the reads `peers_report` and `kill` need.
 
+// A step's directory when a `cd` could not be read: the checkout it acts on is not known.
+export const UNKNOWN = '\0'
 export interface Step { words: string[]; dir: string; op: string; writes: boolean }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
@@ -87,6 +89,8 @@ const RELEASE = '[ "$(cat "$1/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$1"
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
 const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show'])
+const OPAQUE = new Set(['sudo', 'doas', 'su', 'eval', 'watch', 'bash', 'sh', 'zsh', 'dash'])
+const NAMES_A_COMMAND = /(^|[\s/])(git|gh|kill|pkill|killall)(\s|$)/
 const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
@@ -462,8 +466,8 @@ export class Peers {
     })
   }
 
-  async report(cwd: string): Promise<string> {
-    const here = await this.where(cwd)
+  async report(dir: string): Promise<string> {
+    const here = await this.where(dir)
     if (here === undefined) return 'cc-tuner: not in a git repository'
     const { recs, bad, name, me } = await this.view()
     const lines = bad.map(n => `note: skipped malformed record ${n}`)
@@ -494,9 +498,9 @@ export class Peers {
 
   // Publishes the open Owned paths of a plan as this session's claim, then reports their overlap.
   async claim(cwd: string, sid: string | null, plan: string): Promise<string> {
-    const here = await this.where(cwd)
-    if (here === undefined) return 'cc-tuner: not in a git repository'
     const path = join(cwd, plan)
+    const here = await this.where(dirname(path))
+    if (here === undefined) return 'cc-tuner: not in a git repository'
     const text = await this.w.read(path).catch(() => undefined)
     if (text === undefined) return `cc-tuner: cannot read ${plan}`
     const paths = ownedOpen(text)
@@ -512,7 +516,7 @@ export class Peers {
       await this.save(name, r)
       return true
     })
-    return claimed ? this.report(cwd) : 'cc-tuner: no Claude process found for this session'
+    return claimed ? this.report(dirname(path)) : 'cc-tuner: no Claude process found for this session'
   }
 
   // --- resources ----------------------------------------------------------------------------------------
@@ -628,15 +632,16 @@ export class Peers {
     const sid = ev.session_id || null
     const target = ev.path ? join(ev.cwd, ev.path) : undefined
     const here = await this.where(target !== undefined ? dirname(target) : ev.cwd)
-    const plan: { st: Partial<Step>; writes: boolean; switch: boolean; at: Where | undefined; d: string }[] = []
+    const plan: { st: Partial<Step>; writes: boolean; switch: boolean; blind: boolean; at: Where | undefined; d: string }[] = []
     if (ev.phase === 'before' && ev.tool === 'Bash') {
       for (const st of ev.steps ?? [{} as Partial<Step>]) {
-        const d = join(ev.cwd, st.dir ?? '')
+        const blind = st.dir === UNKNOWN
+        const d = join(ev.cwd, blind ? '' : st.dir ?? '')
         const [writes, sw] = [!readOnly(st), switches(st)]
-        plan.push({ st, writes, switch: sw, at: writes || sw ? await this.where(d) : undefined, d })
+        plan.push({ st, writes, switch: sw, blind: blind && writes, at: !blind && (writes || sw) ? await this.where(d) : undefined, d })
       }
     }
-    if (here === undefined || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
+    if ((here === undefined && !plan.some(p => p.at !== undefined)) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     return this.serial(async () => {
       const { recs } = await this.load()
       await this.sweep(recs)
@@ -648,7 +653,7 @@ export class Peers {
         if (own !== undefined && own[1].session_id !== sid) Object.assign(own[1], { session_id: sid, acks: {}, claims: {} })
       }
       const [name, r] = await this.session(recs, pid, sid)
-      const co = await this.touch(r, here)
+      const co = here === undefined ? undefined : await this.touch(r, here)
       for (const { at } of plan) if (at !== undefined) await this.touch(r, at)
       for (const k of ev.acks ?? []) r.acks[k] = now
       let verdict: Verdict = { decision: 'allow' }
@@ -659,7 +664,7 @@ export class Peers {
           if (at !== undefined && writes) r.checkouts[at[0]]!.writer = now
           if (at !== undefined && sw) seen[at[0]] = await this.branch(at[0])
         }
-        if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined) {
+        if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined && here !== undefined && co !== undefined) {
           const rel = relpath(await this.real(target), here[0])
           if (!co.paths.includes(rel)) co.paths.push(rel)
           co.writer = now
@@ -675,7 +680,7 @@ export class Peers {
       await this.save(name, r)
       const out: Verdict & { line?: string } = { ...verdict }
       if (Object.keys(seen).length > 0) out.seen = seen
-      if (ev.phase === 'start') out.line = await this.startLine(recs, name, r, here)
+      if (ev.phase === 'start' && here !== undefined) out.line = await this.startLine(recs, name, r, here)
       return out
     })
   }
@@ -742,18 +747,18 @@ class Guard {
   private staged = new Map<string, string[]>()
 
   constructor(private readonly p: Peers, private readonly recs: Map<string, Rec>, private readonly name: string,
-    private readonly r: Rec, private readonly pid: number, private readonly here: Where, private readonly now: number) {}
+    private readonly r: Rec, private readonly pid: number, private readonly here: Where | undefined, private readonly now: number) {}
 
-  async judge(ev: Event, plan: { st: Partial<Step>; at: Where | undefined; d: string }[], target: string | undefined): Promise<Verdict> {
+  async judge(ev: Event, plan: { st: Partial<Step>; blind: boolean; at: Where | undefined; d: string }[], target: string | undefined): Promise<Verdict> {
     try {
       if (ev.tool === 'Bash') {
         let prev: string[] = []
-        for (const { st, at, d } of plan) {
+        for (const { st, at, d, blind } of plan) {
           const w = st.words ?? []
-          if (w.length > 0) await this.step(w, at, d, prev)
+          if (w.length > 0) await this.step(w, at, d, prev, blind)
           prev = w
         }
-      } else if (target !== undefined) {
+      } else if (target !== undefined && this.here !== undefined) {
         await this.edit(this.here, relpath(await this.p.real(target), this.here[0]))
       }
     } catch (err) {
@@ -783,13 +788,16 @@ class Guard {
 
   // git and gh act on the checkout of their directory; rm and kill reach past it, so outside a repository
   // they are read from the cwd's.
-  private async step(w: string[], at: Where | undefined, d: string, prev: string[]) {
+  private async step(w: string[], at: Where | undefined, d: string, prev: string[], blind: boolean) {
     const name = basename(w[0]!)
+    const scope = at ?? this.here
     await this.shared(w, at)
-    if (name === 'git' && at !== undefined) await this.git(w, at, d)
+    if (blind && (name === 'git' || name === 'gh' || name === 'rm')) this.note(`could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
+    else if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at)
-    else if (name === 'kill' || name === 'pkill' || name === 'killall') await this.kill(name, w.slice(1), at ?? this.here, prev)
-    else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(at ?? this.here, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
+    else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
+    else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) { if (scope !== undefined) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1))) }
+    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) this.note(`could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
   }
 
   // A shared resource's stop command, while another session uses the resource.

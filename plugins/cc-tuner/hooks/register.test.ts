@@ -1,5 +1,6 @@
 import type { AgentSpawnInput, AgentStatus, On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
+import { UNKNOWN } from './peers'
 import { steps } from './register'
 
 const END = { sessionId: 's1', resume: { id: 's1' } }
@@ -262,8 +263,23 @@ const COMMANDS = [
   ['cat x 2>&1 > /dev/null', ['. - cat x']],
   ['cat x 2>/dev/null', ['. - cat x']],
   ["bash -c 'cat x' > f", ['. - cat x >']],
+  ['timeout 5 git reset --hard', ['. - git reset --hard']],
+  ['timeout -s KILL 5 git -C ../x reset --hard', ['../x - git reset --hard']],
+  ['nohup git stash drop', ['. - git stash drop']],
+  ['nice -n 5 git reset --hard', ['. - git reset --hard']],
+  ['nice git clean -fd', ['. - git clean -fd']],
+  ['time -p git reset --hard', ['. - git reset --hard']],
+  ['time git reset --hard', ['. - git reset --hard']],
 ] as const
 
 test('the guard reads each command as steps that keep their directory and operator', () => {
   for (const [command, expected] of COMMANDS) expect(steps(command).map(show), command).toEqual(expected as unknown as string[])
+})
+
+test('a cd the guard cannot resolve leaves the later steps in a directory it does not know', () => {
+  for (const command of ['cd "$X" && git reset --hard', 'cd ~/x && git reset --hard', 'cd - && git reset --hard', 'cd && git reset --hard',
+    'cd x && cd "$Y/z" && git reset --hard', 'cd "$(pwd)" && git reset --hard', 'cd "$X"; cd y; git reset --hard']) {
+    expect(steps(command).at(-1)?.dir, command).toBe(UNKNOWN)
+  }
+  expect(steps('(cd "$X"; git log); git reset --hard').map(s => s.dir), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
 })
