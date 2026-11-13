@@ -45,6 +45,7 @@ Delivers: the `tool.call` handler in `register.ts` (the Slice 1 choice) resolves
 
 Evidence: bash plugins/cc-tuner/tests/flow/test_peers.sh → 132 PASS, 0 FAIL incl. `guard-e2e-*` (real `claude -p`, stubbed model API); test_mod.sh → module tests pass (RED first: `FAIL guard-switch-and-commit-moves-the-expectation (want 'x', got 'a')`) @ b9e2cd7
 Carry to Slice 4: the writer mark is set in `before` (move it after the decision); verify `$.session.cwd()` follows a Bash `cd` from an earlier call; `check` costs ~105 ms median today.
+Closed in Slice 4: `$.session.cwd()` follows a Bash `cd` from an earlier call (probe: `cd sub`, then `pwd`, then `ls`; the module read `repo`, `repo/sub`, `repo/sub` on 2.1.306 and 2.1.323).
 
 ## Slice 4 — the guard stops what would destroy a peer's checkout or process
 Blocked by: 3
@@ -94,7 +95,7 @@ Delivers: /spec and /run show peers and publish claims, the rule template and ta
 
 - [x] `/spec` runs `report` before approval; `/run` runs `claim` before the first slice, after each tick and before integration
 - [x] the rule template and post-merge cleanup use a worktree when another writer is live; `/run`'s final cleanup leaves a task the guard keeps
-- [x] setup documents both resources files; the README documents the four commands and the ack
+- [x] setup documents both resources files; the README documents the three tools and the ack
 - [x] contract pins cover these texts
 
 Evidence: bash plugins/cc-tuner/tests/contract/test_contract.sh → 0 FAIL with 15 new pins (RED first: 15 FAIL, e.g. `FAIL spec-reports-peers-before-approval (missing 'call `mcp__cc-tuner__peers_report`' ...)`); rule template marker v0.23.0 @ 6481e94

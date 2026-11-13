@@ -132,7 +132,7 @@ needs a PR comment recording the local result for the same commit. No mode lets 
 A pull request with neither a plan nor a named review is refused, drafts are refused until marked ready,
 and `--unmanaged` merges only an ordinary pull request outside a run.
 
-cc-tuner registers no global raw-command interceptor, so a raw CLI call, the merge button on
+cc-tuner's hooks see only the agent's own tool calls, so a raw CLI call, the merge button on
 github.com, `git push` and the REST API can all bypass `merge.sh`. It is workflow discipline, not a
 local security boundary.
 
@@ -193,10 +193,10 @@ Resources are declared, never detected. `.claude/cc-tuner-resources.json` holds 
 ```
 
 A `shared` resource stays up while another session of the product is live; an `exclusive` one is leased to
-its first user. Setup writes neither file.
+its first user. Setup writes them only when asked.
 
-Known limit: a peer's liveness is cached for a minute, and the `/clear` keep
-does not survive the exit of the Claude process, which stops its background tasks itself.
+Known limits: a peer's liveness is cached for a minute. A kept task survives `/clear` and `/run`'s final
+cleanup, not the exit of the Claude process, which stops its background tasks itself.
 
 ### Companions
 

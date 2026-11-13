@@ -2,7 +2,7 @@
 name: run
 description: Implement or resume this branch's committed cc-tuner plan through verification, review and authorized delivery.
 argument-hint: '[--auto] <path-to-spec>'
-allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7, mcp__cc-tuner__peers_claim, mcp__cc-tuner__peers_report, mcp__cc-tuner__peers_release
 ---
 
 # /cc-tuner:run

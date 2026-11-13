@@ -138,6 +138,9 @@ variables do not survive a reload (state stays in the record store, as designed)
 
 ## Consequences for slices 3–5
 
+Superseded by Slice 5: the guard is TS in `hooks/peers.ts`, in-process; `scripts/peers.sh`, `$.process.run`
+per decision and `CC_TUNER_PEERS_CLAUDE_PID` are gone. The observations above still hold.
+
 - **Slice 3.** The adapter is the `tool.call` hook in `register.ts` (Bash, Edit, Write, TaskStop, MCP
   tools); `peers.sh check` is called with `$.process.run` and its decision JSON on stdin. The Claude
   pid is the `$PPID` of that child, resolved once per module load; set `CC_TUNER_PEERS_CLAUDE_PID`

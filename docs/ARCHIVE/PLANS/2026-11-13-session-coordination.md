@@ -144,8 +144,6 @@ never asked.
   - New: `hooks/peers.ts` and its tests (the python `scripts/peers.sh` of Slices 2–4 is ported and removed).
   - Changed:
     - the guard surface;
-    - `hooks/hooks.json`;
-    - `hooks/session-start.sh`;
     - the `spec`, `run`, `setup` and `task-flow` skills;
     - `assets/task-flow/rule.template.md`;
     - the plugin README;
@@ -232,7 +230,7 @@ test group in brackets.
   `plugins/cc-tuner/tests/flow/test_peers.sh` for end-to-end sessions (`claude -p`, stubbed model API).
 - **First failing check:** write the harness and its `record-written` case first, then run
   `bash plugins/cc-tuner/tests/flow/test_peers.sh`. Expected: `FAIL record-written`, because there
-  is no `scripts/peers.sh`.
+  is no session record yet.
 - **Targeted:** `test_peers.sh`, `tests/flow/test_mod.sh`, `tests/contract/test_contract.sh`.
 - **Full:** `bash tests/run.sh` (claude at `tests/flow/CLAUDE_CODE_VERSION`). The EVALUATED_SHA
   guard is handled as in #75.

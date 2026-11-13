@@ -1,7 +1,7 @@
 ---
 description: Plan a feature or fix as an approved spec and execution plan for /cc-tuner:run. With --groom, record decisions in the existing issue.
 argument-hint: '<issue number | URL | free-text description> | --groom <issue number | URL>'
-allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7, mcp__cc-tuner__peers_report
 ---
 
 # /cc-tuner:spec

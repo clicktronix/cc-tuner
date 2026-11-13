@@ -9,7 +9,7 @@ Input for `/cc-tuner:spec 73`; facts only, design questions at the end.
 |---|---|---|---|---|---|
 | product A | 68 of 205 | 8 | 4 | 17 / 54 | 43 |
 | product B | 41 of 221 | 8 | 4 | 33 / 28 | 24 |
-| product C (work) | 107 of 229 | 7 | 3 | 16 / 38 | 105 (least reliable) |
+| product C | 107 of 229 | 7 | 3 | 16 / 38 | 105 (least reliable) |
 | a notes repository | 11 of 48 | 5 | 1 | 25 / 0 | 11 |
 | cc-tuner family | 2.4 of 4.2 | 9 | 3 | 15 / 4 | 2.4 |
 
@@ -35,7 +35,7 @@ worktree-only coordination misses it; a **product spans repositories** (product 
 - `ListAgents`/`SendMessage`: on by default from 2.1.224; machine-wide; idle receiver gets a new
   turn; receiver queue 50; held messages up to 100; `crossSessionInbound` accept/hold/refuse;
   bypass-mode receivers hold messages from non-bypass senders. `SendMessage` is denied in
-  a notes repository `settings.local.json:16`; this session lists peers but cannot send.
+  one repository's local settings; that session lists peers but cannot send.
 - Socket: `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN` reach hooks and Bash, but only posting to the
   session's **own** socket is documented; the payload format and a peer's socket are not. A script
   cannot wake a peer; only the model can, via `SendMessage`.

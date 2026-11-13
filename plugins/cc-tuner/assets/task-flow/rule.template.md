@@ -17,7 +17,7 @@ Procedures — board recipes, epics, cleanup, merge strategies, release notes �
   the *previous* one and destroys work. Fix, re-stage, commit again.
 - **Commit directly to the repository's integration target.** Resolve it from repo policy or the
   remote default branch, then branch first: `git switch -c <branch>`. On the target with uncommitted
-  work: stash → branch → pop. If the guard stops the switch or stash, take a worktree.
+  work: stash → branch → pop. If cc-tuner's guard stops the switch or stash, take a worktree.
 
 ## Branches and commits — repository policy first, then these defaults
 
