@@ -5,17 +5,13 @@
 # has exactly the standing the plan itself has: advisory, and dependent on the agent following it.
 # Anything that claims a session "will" restore its tasks is claiming something about a model.
 #
-# Registered for `startup` and `clear` only (plan restore), plus a separate `resume` entry that says
-# only what peers.sh renders. Section 4 of docs/spike-native-flow.md measured the task
+# Registered for `startup` and `clear` only. Section 4 of docs/spike-native-flow.md measured the task
 # graph surviving /compact and resume byte for byte, so asking there would duplicate every row. The
 # instruction below is idempotent anyway -- read TaskList first, create only what is missing -- because
 # a rule that depends on the trigger being exactly right is one trigger change away from doubling the
 # plan.
 #
-# After the restore comes the line peers.sh renders about the live sessions of this repository and
-# product, and the tasks this session kept at /clear. Registered on its own for `resume`, where the
-# restore is skipped. Silence is a correct output, and the common one: no plan, or nothing left open,
-# and no peers.
+# Silence is a correct output, and the common one: no plan, or nothing left open.
 # bash 3.2 compatible: macOS ships 3.2.57.
 set -u
 
@@ -34,30 +30,10 @@ CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$ROOT" 2>/dev/null || exit 0
 
-SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // empty' 2>/dev/null)"
-SESSION="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)"
-
-# The Claude process is this script's parent unless a caller says otherwise (the tests do).
-PEERS=""
-if [ -n "$SESSION" ]; then
-  PEERS="$(jq -nc --arg s "$SESSION" --arg src "$SOURCE" --arg c "$ROOT" \
-             '{phase: "start", session_id: $s, source: $src, cwd: $c}' \
-    | CC_TUNER_PEERS_CLAUDE_PID="${CC_TUNER_PEERS_CLAUDE_PID:-$PPID}" bash "$SCRIPTS/peers.sh" check 2>/dev/null)" || PEERS=""
-fi
-
 emit() {  # emit <context text> -- jq builds the JSON so the text cannot break out of the string
-  local ctx="$1"
-  [ -z "$PEERS" ] || ctx="${ctx:+$ctx$'\n\n'}$PEERS"
-  jq -n --arg ctx "$ctx" \
+  jq -n --arg ctx "$1" \
     '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
 }
-
-# finish <context text> -- end without a restore: what is left to say (a legacy warning, the peers
-# line) is said, and nothing at all is a correct output.
-finish() { [ -z "$1$PEERS" ] || emit "$1"; exit 0; }
-
-# Resume keeps the task list, so only the peers line applies.
-[ "$SOURCE" != resume ] || finish ""
 
 # A leftover run-state file means this repository is mid-flight on a runtime that was deleted. Say so
 # before anything else, and say it even when there is no plan at all -- that combination is the most
@@ -92,7 +68,8 @@ version that created it, or $disposal. Merges are refused until it is gone.
 done
 
 if ! PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve 2>/dev/null)"; then
-  finish "$LEGACY"
+  [ -z "$LEGACY" ] || emit "$LEGACY"
+  exit 0
 fi
 
 # A plan whose exact content is already in the remote default branch belongs to work that landed;
@@ -101,7 +78,8 @@ fi
 DEFAULT_REF="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)"
 LANDED_BLOB="$( [ -z "$DEFAULT_REF" ] || git rev-parse -q --verify "$DEFAULT_REF:$PLAN" 2>/dev/null || true)"
 if [ -n "$LANDED_BLOB" ] && [ "$LANDED_BLOB" = "$(git hash-object -- "$PLAN" 2>/dev/null)" ]; then
-  finish "$LEGACY"
+  [ -z "$LEGACY" ] || emit "$LEGACY"
+  exit 0
 fi
 
 if ! SLICES="$(bash "$SCRIPTS/plan-lint.sh" slices "$PLAN" 2>/dev/null)"; then
@@ -155,7 +133,8 @@ END {
 }')"
 
 if [ -z "$BODY" ]; then
-  finish "$LEGACY"
+  [ -z "$LEGACY" ] || emit "$LEGACY"
+  exit 0
 fi
 
 emit "${LEGACY}cc-tuner: this branch has a committed plan with unfinished slices: $PLAN.

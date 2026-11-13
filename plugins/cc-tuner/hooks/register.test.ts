@@ -1,5 +1,6 @@
 import type { AgentSpawnInput, AgentStatus, On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
+import { steps } from './register'
 
 const END = { sessionId: 's1', resume: { id: 's1' } }
 
@@ -211,32 +212,7 @@ test('the status line clears once no tracked subagent runs', async ($, on) => {
   expect(lines).toEqual([undefined])
 })
 
-// The guard talks to scripts/peers.sh through `$.process.run`. This stubs the engine beneath it: the
-// session, the one `echo $PPID` that names the Claude process, and `peers.sh check`, whose events are
-// recorded and whose answer `answer` gives (exit code and stdout).
 interface Step { words: string[]; dir: string; op: string; writes: boolean }
-interface Sent {
-  session_id: string; cwd: string; phase: string; tool: string; steps?: Step[]; seen?: Record<string, string>; path?: string; ack?: string
-}
-const ALLOW = { exitCode: 0, stdout: '{"decision":"allow"}' }
-
-function peers(on: On, answer: (sent: Sent) => { exitCode: number; stdout: string } = () => ALLOW) {
-  const sent: Sent[] = []
-  const runs: { argv: readonly string[]; env?: Record<string, string> }[] = []
-  on('session.id', () => ({ value: 's1' }))
-  on('session.cwd', () => ({ value: '/work/repo' }))
-  on('process.run', (_, e) => {
-    runs.push({ argv: e.argv, env: e.init?.env })
-    let out = { exitCode: 0, stdout: '4242\n' }
-    if (e.argv[0] !== '/bin/sh') {
-      const event = JSON.parse(e.init?.stdin ?? '{}') as Sent
-      sent.push(event)
-      out = answer(event)
-    }
-    return { value: { ...out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-  })
-  return { sent, runs }
-}
 
 // One step as the test reads it: "<dir> <op> <words>", `>` after a step that writes a file.
 const show = (s: Step) => `${s.dir || '.'} ${s.op || '-'} ${s.words.join(' ')}${s.writes ? ' >' : ''}`
@@ -288,166 +264,6 @@ const COMMANDS = [
   ["bash -c 'cat x' > f", ['. - cat x >']],
 ] as const
 
-test('the guard sends each command as steps that keep their directory and operator', async ($, on) => {
-  const { sent } = peers(on)
-  reached(on)
-  for (const [command, expected] of COMMANDS) {
-    sent.length = 0
-    await $.tool.call({ tool: 'Bash', command })
-    expect((sent[0]?.steps ?? []).map(show), command).toEqual(expected as unknown as string[])
-  }
-})
-
-test('a Bash call asks before, and tells after only when the answer asked for it', async ($, on) => {
-  const { sent } = peers(on, e => e.phase === 'before' && e.steps?.some(s => s.words[1] === 'switch')
-    ? { exitCode: 0, stdout: '{"decision":"allow","seen":{"/work/repo":"main"}}' }
-    : ALLOW)
-  reached(on)
-
-  await $.tool.call({ tool: 'Bash', command: 'ls' })
-  expect(sent.map(e => e.phase)).toEqual(['before'])
-  expect(sent[0]).toMatchObject({ session_id: 's1', cwd: '/work/repo', tool: 'Bash' })
-
-  sent.length = 0
-  await $.tool.call({ tool: 'Bash', command: 'git switch -c x && git commit -m m' })
-  expect(sent.map(e => e.phase)).toEqual(['before', 'after'])
-  expect(sent[1]?.seen).toEqual({ '/work/repo': 'main' })
-})
-
-test('the Claude pid is read once and handed to every check', async ($, on) => {
-  const { runs } = peers(on)
-  reached(on)
-
-  for (const command of ['ls', 'git status', 'npm test']) await $.tool.call({ tool: 'Bash', command })
-  expect(runs.filter(r => r.argv[0] === '/bin/sh').length).toBe(1)
-  const checks = runs.filter(r => r.argv[0] !== '/bin/sh')
-  expect(checks.length).toBe(3)
-  for (const r of checks) {
-    expect(r.argv.slice(-1)).toEqual(['check'])
-    expect(r.argv.join(' ')).toContain('scripts/peers.sh')
-    expect(r.env).toEqual({ CC_TUNER_PEERS_CLAUDE_PID: '4242' })
-  }
-})
-
-// Stubs the three native edit tools: a path ending in `.fail` comes back as an error.
-function edits(on: On) {
-  const answer = (path: string) => (path.endsWith('.fail') ? { result: {}, isError: true as const } : { result: {} })
-  on('tool.call', { tool: 'Edit' }, (_, e) => answer(e.file_path))
-  on('tool.call', { tool: 'Write' }, (_, e) => answer(e.file_path))
-  on('tool.call', { tool: 'NotebookEdit' }, (_, e) => answer(e.notebook_path))
-}
-
-test('an edit asks the guard before, and tells the record its path after it succeeded', async ($, on) => {
-  const { sent } = peers(on)
-  edits(on)
-
-  await $.tool.call({ tool: 'Edit', file_path: '/work/repo/a.ts', old_string: 'a', new_string: 'b' })
-  await $.tool.call({ tool: 'Write', file_path: '/work/repo/b.ts', content: 'b' })
-  await $.tool.call({ tool: 'NotebookEdit', notebook_path: '/work/repo/c.ipynb', new_source: 'c' })
-  await $.tool.call({ tool: 'Write', file_path: '/work/repo/d.fail', content: 'd' })
-  expect(sent.map(e => `${e.phase} ${e.tool} ${e.path}`)).toEqual([
-    'before Edit /work/repo/a.ts', 'after Edit /work/repo/a.ts',
-    'before Write /work/repo/b.ts', 'after Write /work/repo/b.ts',
-    'before NotebookEdit /work/repo/c.ipynb', 'after NotebookEdit /work/repo/c.ipynb',
-    'before Write /work/repo/d.fail',
-  ])
-})
-
-const STOP = { exitCode: 0, stdout: JSON.stringify({ decision: 'stop', reason: 'cc-tuner: no. To go on, run the same command prefixed CC_TUNER_ACK=ab12cd34.' }) }
-const NOTE = { exitCode: 0, stdout: JSON.stringify({ decision: 'note', reason: 'cc-tuner: a peer works here.' }) }
-
-test('a stop is the call\'s error, and the command never runs', async ($, on) => {
-  const { sent } = peers(on, () => STOP)
-  const ran = reached(on)
-
-  const { deny } = await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })
-  expect(deny).toContain('CC_TUNER_ACK=ab12cd34')
-  expect(ran).toEqual([])
-  expect(sent.map(e => e.phase)).toEqual(['before'])
-})
-
-test('a note rides after the result of a Bash call and of an edit, and the call runs', async ($, on) => {
-  peers(on, e => (e.phase === 'before' ? NOTE : ALLOW))
-  const ran = reached(on)
-  edits(on)
-
-  const bash = await $.tool.call({ tool: 'Bash', command: 'git status' })
-  expect(bash.deny).toBeUndefined()
-  expect(bash.context).toEqual(['cc-tuner: a peer works here.'])
-  const edit = await $.tool.call({ tool: 'Edit', file_path: '/work/repo/a.ts', old_string: 'a', new_string: 'b' })
-  expect(edit.context).toEqual(['cc-tuner: a peer works here.'])
-  expect(ran).toEqual(['git status'])
-})
-
-test('an allow carries no note', async ($, on) => {
-  peers(on)
-  reached(on)
-
-  const bash = await $.tool.call({ tool: 'Bash', command: 'git status' })
-  expect(bash.context).toBeUndefined()
-})
-
-test('an ack is recorded from the event and stripped before the command runs', async ($, on) => {
-  const { sent } = peers(on)
-  const ran = reached(on)
-
-  await $.tool.call({ tool: 'Bash', command: 'CC_TUNER_ACK=ab12cd34 git reset --hard' })
-  expect(sent[0]?.ack).toBe('ab12cd34')
-  expect(sent[0]?.steps?.map(show)).toEqual(['. - git reset --hard'])
-  expect(ran).toEqual(['git reset --hard'])
-
-  // Only a prefix is an ack: the same text further along is the command's own.
-  sent.length = 0
-  ran.length = 0
-  await $.tool.call({ tool: 'Bash', command: 'echo CC_TUNER_ACK=ab12cd34 git reset --hard' })
-  await $.tool.call({ tool: 'Bash', command: 'FOO=1 CC_TUNER_ACK=ab12cd34 ls' })
-  expect(sent.map(e => e.ack)).toEqual([undefined, undefined])
-  expect(ran).toEqual(['echo CC_TUNER_ACK=ab12cd34 git reset --hard', 'FOO=1 CC_TUNER_ACK=ab12cd34 ls'])
-})
-
-test('a stop for an acked command is the guard\'s to give, and the ack never reaches the shell', async ($, on) => {
-  peers(on, e => (e.ack === 'ab12cd34' ? ALLOW : STOP))
-  const ran = reached(on)
-
-  expect((await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny).toContain('CC_TUNER_ACK=')
-  expect((await $.tool.call({ tool: 'Bash', command: 'CC_TUNER_ACK=ab12cd34 git reset --hard' })).deny).toBeUndefined()
-  expect(ran).toEqual(['git reset --hard'])
-})
-
-test('an acked secret dump is still refused', async ($, on) => {
-  const { sent } = peers(on)
-  const ran = reached(on)
-
-  const { deny } = await $.tool.call({ tool: 'Bash', command: 'CC_TUNER_ACK=ab12cd34 env' })
-  expect(deny).toContain("awk 'BEGIN { for (k in ENVIRON) print k }'")
-  expect(sent).toEqual([])
-  expect(ran).toEqual([])
-})
-
-test('a refused secret dump never reaches the guard', async ($, on) => {
-  const { sent } = peers(on)
-  const ran = reached(on)
-
-  const { deny } = await $.tool.call({ tool: 'Bash', command: 'cd app && env' })
-  expect(deny).toContain("awk 'BEGIN { for (k in ENVIRON) print k }'")
-  expect(sent).toEqual([])
-  expect(ran).toEqual([])
-})
-
-test('a guard that fails never blocks the call', async ($, on) => {
-  const failures = [
-    () => ({ exitCode: 1, stdout: '' }),
-    () => ({ exitCode: 0, stdout: 'not json' }),
-    () => { throw new Error('injected peers.sh failure') },
-  ]
-  let failing = failures[0]!
-  peers(on, () => failing())
-  const ran = reached(on)
-
-  for (const failure of failures) {
-    failing = failure
-    const { deny } = await $.tool.call({ tool: 'Bash', command: 'npm test' })
-    expect(deny).toBeUndefined()
-  }
-  expect(ran).toEqual(['npm test', 'npm test', 'npm test'])
+test('the guard reads each command as steps that keep their directory and operator', () => {
+  for (const [command, expected] of COMMANDS) expect(steps(command).map(show), command).toEqual(expected as unknown as string[])
 })

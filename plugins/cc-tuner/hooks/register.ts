@@ -1,4 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
+import { Peers, world, type Event, type Verdict } from './peers'
 
 // Claude Code stops a session's background tasks when the process exits, but
 // a /clear ends the conversation and leaves them running under the next one.
@@ -262,7 +263,7 @@ function secretLeak(command: string): string | undefined {
 // directory it runs in. The wrappers that start another command unwrap, and the command inside keeps
 // the wrapper's scope: `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`. A `cd` is not a step, it
 // moved the directory of the steps after it. A wrapper it cannot read stays a step as written.
-interface Step { words: string[]; dir: string; op: string; writes: boolean }
+type Step = Event['steps'] extends (infer S)[] | undefined ? S : never
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
 const XARGS_VALUED = new Set(['-n', '-I', '-L', '-P', '-d', '-E', '-s', '-a'])
 const GIT_QUIET = new Set(['--no-pager', '--no-optional-locks', '-P'])
@@ -313,17 +314,14 @@ function unwrap(simple: Simple): Step[] {
   return words.length === 0 ? [] : [{ words, dir, op: simple.op, writes: simple.writes }]
 }
 
-function steps(command: string): Step[] {
+export function steps(command: string): Step[] {
   return commands(command).flatMap(unwrap)
 }
 
-// The guard is scripts/peers.sh, which owns the record of what each session did and every decision:
-// allow, a note (the call runs and the agent reads it after the result) or a stop (the reason is the
-// call's error). A failure here is never the tool call's: the call goes on. The Claude process is the
-// parent of the child `$.process.run` starts, read once per module load; the record is keyed by it.
-let claude = ''
-
-interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
+// The guard is peers.ts, which owns the record of what each session did and every decision: allow, a note
+// (the call runs and the agent reads it after the result) or a stop (the reason is the call's error). It
+// runs in this process; a failure there is never the tool call's: the call goes on.
+let peers: Peers | undefined
 
 // The way on from a stop is the same command prefixed with its key. The guard records the ack from the
 // event; the prefix goes before the call, so a user's allow rule such as `Bash(git switch:*)` still matches.
@@ -332,21 +330,46 @@ const ACK = /^CC_TUNER_ACK=(\S+) /
 const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T, verdict?: Verdict): T =>
   verdict?.decision === 'note' && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), verdict.reason ?? ''] } : ran
 
-async function guard($: EngineInterface, event: object): Promise<Verdict | undefined> {
+async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'phase'>): Promise<(Verdict & { line?: string }) | undefined> {
   try {
-    if (claude === '') claude = (await $.process.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim()
-    const ran = await $.process.run(['bash', `${$.plugin.root}/scripts/peers.sh`, 'check'], {
-      stdin: JSON.stringify({ session_id: await $.session.id(), cwd: await $.session.cwd(), ...event }),
-      env: { CC_TUNER_PEERS_CLAUDE_PID: claude },
-      timeoutMs: 5000,
-    })
-    return ran.exitCode === 0 ? JSON.parse(ran.stdout) : undefined
+    const t = Date.now()
+    peers ??= new Peers(world($))
+    const verdict = await peers.check({ session_id: await $.session.id(), cwd: await $.session.cwd(), ...event })
+    await Promise.resolve()
+      .then(() => $.ui.log(`cc-tuner: peers decided ${verdict.decision} in ${Date.now() - t} ms`, { to: 'debug' }))
+      .catch(() => undefined)
+    return verdict
   } catch {
     return undefined
   }
 }
 
+const TOOLS = [
+  { name: 'peers_report', description: 'Lists the live Claude sessions of this repository and product: branch, claims, edited paths, and merge conflicts with HEAD.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'peers_claim', description: 'Publishes the open Owned paths of a plan as this session\'s claim, then reports peers and their overlap with it.', inputSchema: { type: 'object', properties: { plan: { type: 'string', description: 'The plan file, relative to the cwd.' } }, required: ['plan'] } },
+  { name: 'peers_release', description: 'Releases a resource lease this session holds.', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } },
+]
+
 export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await Promise.all(TOOLS.map(tool => $.tool.register(tool)))
+    return next(e)
+  })
+
+  on('classic.SessionStart', async ($, e, next) => {
+    const done = await next(e)
+    const line = (await guard($, { phase: 'start', source: e.source, session_id: e.session_id, cwd: e.cwd }))?.line
+    return line ? { ...done, additionalContext: [...(done.additionalContext ?? []), line] } : done
+  })
+
+  on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {
+    peers ??= new Peers(world($))
+    const cwd = await $.session.cwd()
+    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: 'cc-tuner: no leases yet.' }
+    if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await peers.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
+    return { result: await peers.report(cwd) }
+  })
+
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ack = ACK.exec(e.command)
     const command = ack === null ? e.command : e.command.slice(ack[0].length)
