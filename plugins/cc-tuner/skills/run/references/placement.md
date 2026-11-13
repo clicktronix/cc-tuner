@@ -23,7 +23,7 @@ do not recalculate ownership from prose or substitute `frontier`.
 The concurrency cap counts running units plus proposed starts, not just a returned batch. Respect
 available host slots; on build-heavy repositories keep at most two implementation units active.
 Heavy checks queue through machine-wide slots ([below](#heavy-checks)), so parallel units and parallel
-sessions do not exhaust memory together. Candidate acceptance and delivery remain sequential.
+sessions run only as many of them at once as the machine's capacity allows. Candidate acceptance and delivery remain sequential.
 
 Independent read-only review is the exception to sequential review: its own skill defines the
 reviewers and packets, while one owner aggregates. `deep-review` owns its agent availability and
@@ -49,12 +49,26 @@ when that is the deciding check, and anything else that finishes in seconds.
 Every heavy check, from whoever runs it, goes through the machine's slots:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --label "<repo>: <what>" -- <command>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/heavy.sh" --weight <w> --label "<repo>: <what>" -- <command>
 ```
 
-The slots are shared by every session on the machine (`CC_TUNER_HEAVY_SLOTS`, default 1), so the call
-may wait. Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read
-the output when it exits; the command's own output and exit code pass through unchanged.
+The weight is how many of the machine's slots the check holds:
+
+- e2e suite: `--weight 2`;
+- full suite, build, container start: `--weight 1`. The slot does not bound containers that keep running
+  after their start command returns.
+
+A heavy.sh call inside another one runs in its slots; the outer call's weight governs. Capacity is
+shared by every session on the machine and waiters start in arrival order (an older heavy.sh without the
+queue may overtake), so the call may wait.
+Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read the output
+when it exits; the command's own output and exit code pass through unchanged.
+
+While the system reports memory pressure, a check waits up to `CC_TUNER_HEAVY_MEM_WAIT` (600 s), then
+starts anyway; for the next 600 s the wait is skipped for every check.
+Slots limit concurrency; they do not guarantee free memory. Carry into your report every output line
+that starts with `heavy.sh: started under memory pressure` or `heavy.sh: memory pressure not measured`:
+a failure in that run may be the machine, not the code.
 
 ## Brief and return
 

@@ -22,7 +22,9 @@ deciding output line.
 Run the slice's focused checks while you write, including one browser or API regression test when
 that is the deciding check. A build or container start runs only when it is the slice's deciding
 check: once, through the `heavy.sh` command the brief gives, as a background Bash call because it may
-wait for a machine-wide slot, and stopped before you return. The full suite, the e2e suite, browser
+wait for a machine-wide slot, and stopped before you return. Lines in its output that start with
+`heavy.sh: started under memory pressure` or `heavy.sh: memory pressure not measured` go into your
+return. The full suite, the e2e suite, browser
 MCP sessions and dev servers belong to the orchestrator and verify-feature.
 
 A container you start follows the Runtime cleanup section of

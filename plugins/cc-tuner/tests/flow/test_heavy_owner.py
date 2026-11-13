@@ -11,6 +11,8 @@ import time
 import unittest
 
 HEAVY = Path(__file__).resolve().parents[2] / 'scripts/heavy.sh'
+# The cases below are about owner publication, not about how loaded this machine is.
+os.environ.setdefault('CC_TUNER_HEAVY_PRESSURE', 'normal')
 
 
 def wait_for(path, process=None):
@@ -46,7 +48,7 @@ def worker(script, mode, directory):
                'end=time.monotonic()+10; '
                'exec("while not p.exists() and time.monotonic()<end: time.sleep(0.01)")',
                str(directory / 'finish')]
-    sys.argv = ['heavy', mode, str(directory), '1', '0.01', 'new-holder', *command]
+    sys.argv = ['heavy', mode, str(directory), '1', '1', '0.01', 'new-holder', *command]
     exec(compile(program, str(script), 'exec'), {'open': observed_open, '__name__': '__main__'})
 
 

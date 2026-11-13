@@ -8,8 +8,11 @@ set -u
 
 HEAVY="$FLOW_PLUGIN/scripts/heavy.sh"
 W="$(flow_workdir)"
-export CC_TUNER_HEAVY_DIR="$W/slots" CC_TUNER_HEAVY_POLL=0.1
-unset CC_TUNER_HEAVY_HELD
+# The machine's RAM must not decide any case: capacity is derived from this seam (16 GB -> 2 slots)
+# unless a case sets CC_TUNER_HEAVY_SLOTS itself.
+# Memory pressure is pinned to normal the same way: no case may depend on how loaded this machine is.
+export CC_TUNER_HEAVY_DIR="$W/slots" CC_TUNER_HEAVY_POLL=0.1 CC_TUNER_HEAVY_TOTAL_MB=16384 CC_TUNER_HEAVY_PRESSURE=normal
+unset CC_TUNER_HEAVY_HELD CC_TUNER_HEAVY_SLOTS CC_TUNER_HEAVY_PROC CC_TUNER_HEAVY_MEM_WAIT
 
 # until_logged <file> <marker>: wait until the work under test has started, instead of guessing a
 # delay (the supervisor's start-up time is not a constant).
@@ -20,6 +23,16 @@ until_logged() {
   until grep -q "$2" "$1" 2>/dev/null; do
     sleep 0.05; n=$((n + 1))
     [ "$n" -lt 1200 ] || { fail "timed out waiting for $2"; return 1; }
+  done
+}
+
+# until_waiting_or_started <err-file> <log> <marker>: a caller that was let through instead of made to
+# wait ends this wait at once, so the assertion after it names the real failure instead of a timeout.
+until_waiting_or_started() {
+  local n=0
+  until grep -q "waiting" "$1" 2>/dev/null || grep -q "$3" "$2" 2>/dev/null; do
+    sleep 0.05; n=$((n + 1))
+    [ "$n" -lt 1200 ] || { fail "timed out waiting for $3 or a wait"; return 1; }
   done
 }
 
@@ -120,7 +133,7 @@ sleep 0.3
 touch "$W/e.release"
 wait "$B"
 equals "clean-launcher-work-finishes-first" "E-start E-end B-start" "$(tr '\n' ' ' < "$LOG" | sed 's/ $//')"
-until [ "$(bash "$HEAVY" status)" = "heavy.sh: all slots free" ]; do sleep 0.1; done
+until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
 
 # Interrupting heavy.sh stops its whole group and frees the slot; nothing is left running.
 : > "$LOG"
@@ -157,6 +170,330 @@ OUT="$(CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label outer -- bash "$HEAVY" -- ec
 check  "nested-call-runs" "inner-ran" "$OUT"
 absent "nested-call-no-wait" "waiting" "$OUT"
 
+# --- Capacity, weights and arrival order -------------------------------------------------------
+order() { tr '\n' ' ' < "$LOG" | sed 's/ $//'; }
+# hold_until <release-file>: the work under test runs until the test releases it (at most 10 s).
+hold_until() { printf 'i=0; while [ ! -f %s ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done' "'$1'"; }
+
+# Capacity is max(1, floor(total / 8 GB)); a set value wins; --slots is a synonym.
+cap() { env "$@" bash "$HEAVY" status | head -n 1; }
+check "capacity-16gb-is-2" "capacity 2" "$(cap CC_TUNER_HEAVY_TOTAL_MB=16384)"
+check "capacity-7gb-is-1" "capacity 1" "$(cap CC_TUNER_HEAVY_TOTAL_MB=7168)"
+check "capacity-1gb-is-1" "capacity 1" "$(cap CC_TUNER_HEAVY_TOTAL_MB=1024)"
+check "capacity-8gb-is-1" "capacity 1" "$(cap CC_TUNER_HEAVY_TOTAL_MB=8192)"
+check "capacity-24gb-is-3" "capacity 3" "$(cap CC_TUNER_HEAVY_TOTAL_MB=24576)"
+check "capacity-64gb-is-8" "capacity 8" "$(cap CC_TUNER_HEAVY_TOTAL_MB=65536)"
+check "set-slots-wins-over-ram" "capacity 3" "$(cap CC_TUNER_HEAVY_TOTAL_MB=65536 CC_TUNER_HEAVY_SLOTS=3)"
+
+# The Linux reader: MemTotal is in kB and the machine reports a little under its nominal size, so it
+# is rounded up to a whole GiB (15.56 GiB reads as 16, not as 1 slot).
+mkdir -p "$W/linux/bin" "$W/linux/proc"
+printf '#!/bin/sh\necho Linux\n' > "$W/linux/bin/uname"; chmod +x "$W/linux/bin/uname"
+linux_cap() {
+  printf 'MemTotal:       %s kB\nMemFree:        1 kB\n' "$1" > "$W/linux/proc/meminfo"
+  env -u CC_TUNER_HEAVY_TOTAL_MB PATH="$W/linux/bin:$PATH" CC_TUNER_HEAVY_PROC="$W/linux/proc" bash "$HEAVY" status | head -n 1
+}
+check "linux-memtotal-16gb-rounds-up" "capacity 2" "$(linux_cap 16314632)"
+check "linux-memtotal-8gb-rounds-up" "capacity 1" "$(linux_cap 8000000)"
+check "linux-memtotal-24gb-rounds-up" "capacity 3" "$(linux_cap 24428000)"
+check "linux-memtotal-4gb-is-1" "capacity 1" "$(linux_cap 4000000)"
+
+# The real reader on this machine agrees with an independent reading of the same figure.
+WANT="$(python3 - <<'PYEOF'
+import platform, subprocess
+if platform.system() == "Darwin":
+    gib = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"])) // 2**30
+else:
+    kb = next(int(l.split()[1]) for l in open("/proc/meminfo") if l.startswith("MemTotal:"))
+    gib = -(-kb // 2**20)
+print(max(1, gib // 8))
+PYEOF
+)"
+check "real-reader-matches-this-machine" "capacity $WANT" "$(env -u CC_TUNER_HEAVY_TOTAL_MB bash "$HEAVY" status | head -n 1)"
+
+# Derived capacity runs two weight-1 checks together without any slot setting.
+: > "$LOG"
+bash "$HEAVY" -- sh -c "echo A-start >> '$LOG'; i=0; while ! grep -q B-start '$LOG' && [ \$i -lt 100 ]; do sleep 0.1; i=\$((i + 1)); done; echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+bash "$HEAVY" -- sh -c "echo B-start >> '$LOG'"
+wait "$A"
+equals "derived-capacity-runs-two-together" "A-start B-start A-end" "$(order)"
+
+# A weight above capacity runs alone and says it was clamped.
+OUT="$(CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 3 -- echo clamped-ran 2>&1)"
+check "overweight-runs" "clamped-ran" "$OUT"
+check "overweight-says-clamped" "clamped" "$OUT"
+OUT="$(CC_TUNER_HEAVY_SLOTS=4 bash "$HEAVY" --slots 1 --weight 2 -- echo syn-ran 2>&1)"
+check "slots-flag-sets-capacity" "capacity 1" "$OUT"
+OUT="$(CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 -- echo fits 2>&1)"
+absent "fitting-weight-not-clamped" "clamped" "$OUT"
+check "bad-weight-refused" "positive integer" "$(bash "$HEAVY" --weight 0 -- true 2>&1)"
+
+# Capacity 2: a weight-2 check starts only when both slots are free.
+: > "$LOG"; rm -f "$W/a.release" "$W/h.release"
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label holder -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label double -- sh -c "echo H-start >> '$LOG'; echo H-end >> '$LOG'" 2> "$W/h.err" &
+H=$!
+until_logged "$W/h.err" "waiting"
+equals "weight-two-waits-for-both-slots" "A-start" "$(order)"
+check "weighted-waiter-says-so" "waiting for 2 of 2" "$(cat "$W/h.err")"
+touch "$W/a.release"
+wait "$H"; wait "$A"
+equals "weight-two-starts-after-both-free" "A-start A-end H-start H-end" "$(order)"
+
+# Arrival order: a weight-1 check that arrives while a weight-2 check waits does not start before it,
+# and the waiting head keeps the slot it already took.
+: > "$LOG"; rm -f "$W/a.release" "$W/h.release"
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label heavyhead -- sh -c "echo H-start >> '$LOG'; $(hold_until "$W/h.release"); echo H-end >> '$LOG'" 2> "$W/h.err" &
+H=$!
+until_logged "$W/h.err" "waiting"
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label late -- sh -c "echo C-start >> '$LOG'; echo C-end >> '$LOG'" 2> "$W/c.err" &
+C=$!
+until_waiting_or_started "$W/c.err" "$LOG" C-start
+equals "weight-one-does-not-start-before-waiting-head" "A-start" "$(order)"
+STATUS="$(bash "$HEAVY" status)"
+check "head-keeps-the-slot-it-took" "heavyhead" "$STATUS"
+check "status-shows-holder-weight" "weight=2" "$STATUS"
+check "status-shows-queued-pid" "queued: pid=$H " "$STATUS"
+check "status-shows-queued-age" "age=" "$STATUS"
+check "status-shows-queue-order" "queued: pid=$H " "$(printf '%s' "$STATUS" | sed -n '/queued/{p;q;}')"
+touch "$W/a.release"
+until_logged "$LOG" H-start
+equals "head-starts-when-last-slot-frees" "A-start A-end H-start" "$(order)"
+touch "$W/h.release"
+wait "$H"; wait "$C"; wait "$A"
+equals "arrival-order-is-kept" "A-start A-end H-start H-end C-start C-end" "$(order)"
+
+# The head polls fast, so a pre-change waiter polling at its default interval rarely wins the slot
+# the head still needs: with everyone else polling every 5 s, the head starts well within 3 s of
+# the release.
+: > "$LOG"; rm -f "$W/a.release" "$W/h.release"
+CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label fasthead -- sh -c "echo H-start >> '$LOG'" 2> "$W/h.err" &
+H=$!
+until_logged "$W/h.err" "waiting"
+sleep 5.2
+T0=$(python3 -c 'import time; print(time.time())')
+touch "$W/a.release"
+until_logged "$LOG" H-start
+T1=$(python3 -c 'import time; print(time.time())')
+wait "$H"; wait "$A"
+if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 3 else 1)"; then
+  pass "head-polls-fast-for-its-last-slot"
+else
+  fail "head-polls-fast-for-its-last-slot (took $(python3 -c "print(round($T1 - $T0, 2))")s after the release)"
+fi
+
+# A slot held by the pre-change heavy.sh (slot-1..N, weight 1, no queue) blocks the new one.
+OLD="$W/heavy-old.sh"
+git -C "$FLOW_PLUGIN" show 45795a7:plugins/cc-tuner/scripts/heavy.sh > "$OLD" 2>/dev/null || fail "pre-change heavy.sh not retrievable (fetch-depth 0 needed)"
+: > "$LOG"; rm -f "$W/o.release"
+CC_TUNER_HEAVY_SLOTS=1 bash "$OLD" --label oldholder -- sh -c "echo O-start >> '$LOG'; $(hold_until "$W/o.release"); echo O-end >> '$LOG'" &
+O=$!
+until_logged "$LOG" O-start
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" -- sh -c "echo N-start >> '$LOG'" 2> "$W/n.err" &
+N=$!
+until_logged "$W/n.err" "waiting"
+equals "pre-change-holder-blocks-new" "O-start" "$(order)"
+touch "$W/o.release"
+wait "$N"; wait "$O"
+equals "new-starts-after-pre-change-holder" "O-start O-end N-start" "$(order)"
+
+# A pre-change waiter does not overtake a weight-2 head. The old waiter retries every 5 s; the head
+# retries every 0.1 s, so it has the freed slot long before the old waiter looks.
+: > "$LOG"; rm -f "$W/o.release" "$W/h.release"
+CC_TUNER_HEAVY_SLOTS=2 bash "$OLD" --label oldholder -- sh -c "echo O-start >> '$LOG'; $(hold_until "$W/o.release"); echo O-end >> '$LOG'" &
+O=$!
+until_logged "$LOG" O-start
+CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label heavyhead -- sh -c "echo H-start >> '$LOG'; $(hold_until "$W/h.release"); echo H-end >> '$LOG'" 2> "$W/h.err" &
+H=$!
+until_logged "$W/h.err" "waiting"
+CC_TUNER_HEAVY_SLOTS=2 CC_TUNER_HEAVY_POLL=5 bash "$OLD" --label oldwaiter -- sh -c "echo L-start >> '$LOG'" 2> "$W/l.err" &
+L=$!
+until_logged "$W/l.err" "waiting"
+touch "$W/o.release"
+until_logged "$LOG" H-start
+equals "pre-change-waiter-at-slow-poll-yields-to-head" "O-start O-end H-start" "$(order)"
+touch "$W/h.release"
+wait "$H"; wait "$L"; wait "$O"
+equals "pre-change-waiter-at-slow-poll-starts-after-head" "O-start O-end H-start H-end L-start" "$(order)"
+
+# A waiter that died leaves a ticket nobody holds; it must not block the ones behind it.
+: > "$LOG"; rm -f "$W/a.release"
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label holder -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label doomedwaiter -- sh -c "echo D-start >> '$LOG'" 2> "$W/d.err" &
+D=$!
+until_logged "$W/d.err" "waiting"
+kill -9 "$D"; wait "$D" 2>/dev/null
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label survivor -- sh -c "echo C-start >> '$LOG'" 2> "$W/c.err" &
+C=$!
+until_logged "$W/c.err" "waiting"
+absent "dead-ticket-not-listed" "pid=$D " "$(bash "$HEAVY" status)"
+touch "$W/a.release"
+if until_logged "$LOG" C-start; then
+  pass "dead-ticket-does-not-block"
+else
+  kill "$C" 2>/dev/null
+fi
+wait "$C" 2>/dev/null; wait "$A"
+equals "dead-waiter-never-ran" "A-start A-end C-start" "$(order)"
+
+# A waiter whose caller died leaves the queue by itself while the slot is still taken.
+: > "$LOG"; rm -f "$W/a.release"
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label holder -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+CC_TUNER_HEAVY_SLOTS=1 sh -c "bash '$HEAVY' --label orphanwaiter -- sh -c 'echo X-start >> $LOG' 2> '$W/x.err' & echo \$! > '$W/x.pid'; wait" &
+P=$!
+until_logged "$W/x.err" "waiting"
+X="$(cat "$W/x.pid")"
+check "queued-waiter-is-listed" "queued: pid=$X " "$(bash "$HEAVY" status)"
+kill -9 "$P"; wait "$P" 2>/dev/null
+n=0
+while kill -0 "$X" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.05; n=$((n + 1)); done
+if kill -0 "$X" 2>/dev/null; then fail "orphaned-waiter-leaves-queue"; kill -9 "$X" 2>/dev/null; else pass "orphaned-waiter-leaves-queue"; fi
+absent "orphaned-waiter-not-listed" "pid=$X " "$(bash "$HEAVY" status)"
+touch "$W/a.release"; wait "$A"
+equals "orphaned-waiter-never-ran" "A-start A-end" "$(order)"
+until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
+
+
+# --- Memory pressure ----------------------------------------------------------------------------
+# The head of the queue holds its slots and waits while the OS reports pressure; the wait is bounded.
+rm -f "$W/slots/memory-deficit"
+for LEVEL in warn critical; do
+  : > "$LOG"
+  CC_TUNER_HEAVY_PRESSURE=$LEVEL CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" --label pressured -- sh -c "echo P-start >> '$LOG'" 2> "$W/p.err" &
+  P=$!
+  until_waiting_or_started "$W/p.err" "$LOG" P-start
+  sleep 0.3
+  equals "pressure-$LEVEL-head-does-not-start" "" "$(order)"
+  check "pressure-$LEVEL-says-what-it-waits-for" "waiting for memory pressure" "$(cat "$W/p.err")"
+  STATUS="$(CC_TUNER_HEAVY_PRESSURE=$LEVEL bash "$HEAVY" status)"
+  check "pressure-$LEVEL-shown-by-status" "memory pressure: $LEVEL" "$STATUS"
+  check "pressure-$LEVEL-head-keeps-its-slot" "pressured" "$STATUS"
+  kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
+done
+
+# A reading that turns normal lets the head start; the reason is printed once. Driven through the real
+# Linux reader on a fixture the test rewrites.
+mkdir -p "$W/linux/proc/pressure"
+psi() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n' "$1" > "$W/linux/proc/pressure/memory"; }
+linux_env() { env -u CC_TUNER_HEAVY_PRESSURE PATH="$W/linux/bin:$PATH" CC_TUNER_HEAVY_PROC="$W/linux/proc" "$@"; }
+: > "$LOG"; psi 25.00
+linux_env CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- sh -c "echo P-start >> '$LOG'" 2> "$W/p.err" &
+P=$!
+until_waiting_or_started "$W/p.err" "$LOG" P-start
+sleep 0.3
+equals "pressure-holds-the-head-while-high" "" "$(order)"
+psi 3.00
+until_logged "$LOG" P-start
+wait "$P"
+equals "pressure-gone-head-starts" "P-start" "$(order)"
+equals "pressure-reason-printed-once" "1" "$(grep -c 'waiting for memory pressure' "$W/p.err")"
+absent "pressure-gone-no-forced-line" "started under memory pressure" "$(cat "$W/p.err")"
+
+# Normal pressure does not wait or say anything; an unreadable signal starts and says so.
+OUT="$(bash "$HEAVY" -- echo normal-ran 2>&1)"
+check "normal-pressure-starts" "normal-ran" "$OUT"
+absent "normal-pressure-is-silent" "memory pressure" "$OUT"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=unknown bash "$HEAVY" -- echo unknown-ran 2>&1)"
+check "unreadable-pressure-starts" "unknown-ran" "$OUT"
+check "unreadable-pressure-says-so" "pressure not measured" "$OUT"
+
+# The wait honours the caller going away.
+: > "$LOG"
+CC_TUNER_HEAVY_PRESSURE=warn CC_TUNER_HEAVY_MEM_WAIT=60 sh -c "bash '$HEAVY' --label orphanpressure -- sh -c 'echo Y-start >> $LOG' 2> '$W/y.err' & echo \$! > '$W/y.pid'; wait" &
+P=$!
+until_waiting_or_started "$W/y.err" "$LOG" Y-start
+Y="$(cat "$W/y.pid")"
+kill -9 "$P"; wait "$P" 2>/dev/null
+n=0
+while kill -0 "$Y" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.05; n=$((n + 1)); done
+if kill -0 "$Y" 2>/dev/null; then fail "pressure-wait-honours-caller-gone"; kill -9 "$Y" 2>/dev/null; else pass "pressure-wait-honours-caller-gone"; fi
+check "pressure-wait-says-caller-gone" "the caller is gone" "$(cat "$W/y.err")"
+equals "pressure-wait-orphan-never-ran" "" "$(order)"
+
+# The readers parse what the OS prints. Linux: some avg10 >= 10 is pressure; a missing file is not measured.
+read_linux() { linux_env bash "$HEAVY" status | grep 'memory pressure'; }
+psi 0.00;  check "linux-psi-idle-is-normal" "memory pressure: normal" "$(read_linux)"
+psi 9.99;  check "linux-psi-9.99-is-normal" "memory pressure: normal" "$(read_linux)"
+psi 10.00; check "linux-psi-10-is-warn" "memory pressure: warn" "$(read_linux)"
+psi 52.31; check "linux-psi-high-is-warn" "memory pressure: warn" "$(read_linux)"
+rm -f "$W/linux/proc/pressure/memory"
+check "linux-psi-missing-is-not-measured" "memory pressure: not measured" "$(read_linux)"
+# macOS: kern.memorystatus_vm_pressure_level 1 normal, 2 warn, 4 critical.
+mkdir -p "$W/mac/bin"
+printf '#!/bin/sh\necho Darwin\n' > "$W/mac/bin/uname"; chmod +x "$W/mac/bin/uname"
+printf '#!/bin/sh\n[ "$2" = kern.memorystatus_vm_pressure_level ] || exit 1\necho "$FAKE_LEVEL"\n' > "$W/mac/bin/sysctl"; chmod +x "$W/mac/bin/sysctl"
+read_mac() { env -u CC_TUNER_HEAVY_PRESSURE PATH="$W/mac/bin:$PATH" FAKE_LEVEL="$1" bash "$HEAVY" status | grep 'memory pressure'; }
+check "macos-level-1-is-normal" "memory pressure: normal" "$(read_mac 1)"
+check "macos-level-2-is-warn" "memory pressure: warn" "$(read_mac 2)"
+check "macos-level-4-is-critical" "memory pressure: critical" "$(read_mac 4)"
+check "macos-unreadable-is-not-measured" "memory pressure: not measured" "$(read_mac '')"
+check "macos-unknown-level-is-not-measured" "memory pressure: not measured" "$(read_mac 3)"
+# The real reader on this machine returns a reading, not "not measured".
+if [ "$(uname -s)" = Darwin ] || [ -r /proc/pressure/memory ]; then
+  REAL="$(env -u CC_TUNER_HEAVY_PRESSURE bash "$HEAVY" status | grep 'memory pressure')"
+  case "$REAL" in *"memory pressure: "[a-z]*) ;; *) REAL="" ;; esac
+  case "$REAL" in *"not measured"*|"") fail "real-pressure-reader-measures-this-machine ($REAL)" ;; *) pass "real-pressure-reader-measures-this-machine" ;; esac
+fi
+
+# After CC_TUNER_HEAVY_MEM_WAIT the head starts anyway, says so, and leaves a deficit mark: checks that
+# arrive while it is live do not wait again. Both the mark and its end are visible in status.
+rm -f "$W/slots/memory-deficit"; : > "$LOG"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=4 CC_TUNER_HEAVY_DEFICIT=6 bash "$HEAVY" -- sh -c "echo F-start >> '$LOG'" 2>&1)"
+check "forced-start-says-so" "heavy.sh: started under memory pressure after 4s" "$OUT"
+equals "forced-start-runs-the-command" "F-start" "$(order)"
+check "status-shows-deficit-mark" "memory deficit mark: active" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- echo next-ran 2>&1)"
+check "check-under-deficit-mark-starts" "next-ran" "$OUT"
+absent "check-under-deficit-mark-does-not-wait" "waiting" "$OUT"
+check "check-under-deficit-mark-reports-the-skipped-wait" "heavy.sh: started under memory pressure (critical" "$OUT"
+check "skipped-wait-names-the-mark" "the wait is skipped" "$OUT"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=unknown bash "$HEAVY" -- echo unmeasured-ran 2>&1)"
+check "unmeasured-under-deficit-mark-says-so" "memory pressure not measured" "$OUT"
+OUT="$(CC_TUNER_HEAVY_PRESSURE=normal bash "$HEAVY" -- echo calm-ran 2>&1)"
+absent "normal-under-deficit-mark-is-quiet" "memory pressure" "$OUT"
+n=0
+while CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status | grep -q "deficit mark" && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+absent "deficit-mark-ends" "deficit mark" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
+: > "$LOG"
+CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- sh -c "echo R-start >> '$LOG'" 2> "$W/r.err" &
+P=$!
+until_waiting_or_started "$W/r.err" "$LOG" R-start
+sleep 0.3
+equals "expired-deficit-mark-waits-again" "" "$(order)"
+kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
+rm -f "$W/slots/memory-deficit"
+until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
+
+# The deficit mark lasts 600 s whatever the wait bound was: a 1 s bound still leaves the next ten
+# minutes free of pressure waits.
+CC_TUNER_HEAVY_PRESSURE=warn CC_TUNER_HEAVY_MEM_WAIT=1 bash "$HEAVY" -- true 2>/dev/null
+LEFT="$(CC_TUNER_HEAVY_PRESSURE=warn bash "$HEAVY" status | sed -n 's/.*deficit mark: active, \([0-9]*\)s left.*/\1/p')"
+if [ -n "$LEFT" ] && [ "$LEFT" -gt 590 ]; then pass "deficit-mark-lasts-600s"; else fail "deficit-mark-lasts-600s (left: '$LEFT')"; fi
+rm -f "$W/slots/memory-deficit"
+
+# The bound is kept even when the poll interval is longer than the time left.
+T0=$(python3 -c 'import time; print(time.time())')
+OUT="$(CC_TUNER_HEAVY_POLL=3 CC_TUNER_HEAVY_PRESSURE=warn CC_TUNER_HEAVY_MEM_WAIT=1 bash "$HEAVY" -- true 2>&1)"
+T1=$(python3 -c 'import time; print(time.time())')
+check "forced-start-at-the-bound" "started under memory pressure after 1s" "$OUT"
+if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 2.5 else 1)"; then pass "pressure-wait-keeps-its-bound"
+else fail "pressure-wait-keeps-its-bound (took $(python3 -c "print(round($T1 - $T0, 2))")s)"; fi
+rm -f "$W/slots/memory-deficit"
+
 check "no-command-refused" "no command" "$(bash "$HEAVY" -- 2>&1)"
 check "bad-slots-refused" "positive integer" "$(bash "$HEAVY" --slots 0 -- true 2>&1)"
 
@@ -173,6 +510,12 @@ if python3 "$(dirname "$0")/test_heavy_owner.py"; then
   pass "owner-publication-is-atomic-to-status"
 else
   fail "owner-publication-is-atomic-to-status"
+fi
+
+if python3 "$(dirname "$0")/test_heavy_caller.py"; then
+  pass "work-never-starts-for-a-gone-caller"
+else
+  fail "work-never-starts-for-a-gone-caller"
 fi
 
 exit $fails
