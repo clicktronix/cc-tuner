@@ -150,8 +150,9 @@ never asked.
     - the plugin README;
     - contract pins.
 - [x] **Acceptance:** each criterion has a deciding check.
-- [x] **Test plan.** Peers are simulated with `sleep` processes standing in for Claude pids. The
-  seams are `CC_TUNER_PEERS_DIR`, `CC_TUNER_PEERS_CLAUDE_PID` and `CC_TUNER_PEERS_CONFIG`.
+- [x] **Test plan.** Module tests drive the core through an in-memory machine; `test_peers.sh` runs real
+  `claude -p` sessions against a stubbed model API, with `sleep` processes as peers. The record
+  directory comes from `CC_TUNER_PEERS_DIR` (`$.env`), the Claude pid from the module's own parent.
 - [x] **Delivery.** `feat/session-coordination` → `main`, one PR, CI `validate.yml`.
 
 ## Acceptance criteria
@@ -168,7 +169,7 @@ test group in brackets.
   - a malformed record gives a note.
 
   (`record-*`)
-- [ ] [machine] Every guard stop above has a stop test and a neighbouring allow test:
+- [x] [machine] Every guard stop above has a stop test and a neighbouring allow test:
   - a writer idle for more than 2 h, which lifts only the switch stop;
   - a dead peer, which lifts the liveness-based stops but leaves its foreign files protected;
   - this session's own files, branch or child process.
@@ -213,7 +214,7 @@ test group in brackets.
 - [x] [machine] The session-start line appears only with live peers or a task kept at `/clear`
   (also when its peer has since exited), on startup, clear and resume. Plan restore still skips
   resume. (`start-*`)
-- [ ] [machine] The guard decides in at most 150 ms p95 over 50 calls with 10 records, on the CI
+- [x] [machine] The guard decides in at most 150 ms p95 over 50 calls with 10 records, on the CI
   macOS runner. (`latency`)
 - [ ] [machine] The texts above are present. — `bash plugins/cc-tuner/tests/contract/test_contract.sh`
 - [ ] [eyes] Two real sessions in one scratch checkout:
@@ -236,8 +237,10 @@ test group in brackets.
   guard is handled as in #75.
 - **Static:** module validation and type check in `test_mod.sh`.
 - **Runtime:** macOS and Linux, git ≥ 2.38, no network.
-- **Mutation:** make liveness ignore the start time. `liveness-pid-reuse`, a live `sleep` pid with a
-  mismatched recorded start time, must then FAIL with `a record whose pid was reused reads as live`.
+- **Mutation:** make `live()` in `hooks/peers.ts` ignore the start time. `liveness-pid-reuse` must then
+  FAIL with `a record whose pid was reused reads as live`.
+- **Known limit:** a peer's liveness is cached for a minute, so a peer that just exited can cause a
+  false stop for up to 60 s; the ack passes it.
 
 ## Definition of Done
 

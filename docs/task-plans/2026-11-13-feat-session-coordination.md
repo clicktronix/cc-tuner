@@ -66,10 +66,12 @@ Deciding check: bash plugins/cc-tuner/tests/flow/test_peers.sh && bash plugins/c
 Delivers: the same records, notes, stops and acks, decided in-process by the module with no python per call, and `report`, `claim` and `release` as tools the module registers
 Model: opus — a cross-language port onto an unfamiliar module API in one context
 
-- [ ] first, observed on the CI-pinned engine: a `$.tool.register` tool is callable by the agent and by a subagent, `prompt.compose` (or another module path) puts the start line in the context on startup, clear and resume, and the test harness can drive `$.fs`; if one fails, stop and return before porting
-- [ ] `scripts/peers.sh` is gone; every Slice 2–4 behaviour keeps a passing test, and the liveness mutation (ignore the start time) still kills `liveness-pid-reuse`
-- [ ] a session writes only its own record, serialized in-process; a process is spawned only for `ps` (cached) and git reads a decision needs
-- [ ] the decision takes at most 150 ms p95 with 10 records, best of three rounds
+- [x] first, observed on the CI-pinned engine: a `$.tool.register` tool is callable by the agent and by a subagent, `prompt.compose` (or another module path) puts the start line in the context on startup, clear and resume, and the test harness can drive `$.fs`; if one fails, stop and return before porting
+- [x] `scripts/peers.sh` is gone; every Slice 2–4 behaviour keeps a passing test, and the liveness mutation (ignore the start time) still kills `liveness-pid-reuse`
+- [x] a session writes only its own record, serialized in-process; a process is spawned only for `ps` (cached) and git reads a decision needs
+- [x] the decision takes at most 150 ms p95 with 10 records, best of three rounds
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_peers.sh → 35 PASS incl. `PASS latency (p95 104 ms per round over 50 calls with 10 records)` at load 27; test_mod.sh → 55 module tests pass; tsc strict against the 2.1.322 engine types → no errors; mutation `live()` ignores start time → `(fail) liveness-pid-reuse  AssertionError: a record whose pid was reused reads as live` (RED first: `(fail) record-written ... Expected: true Received: false`); gate observed on 2.1.306: tool callable by agent and subagent, start line via `classic.SessionStart` on startup/clear/resume @ 6f25b82
 
 ## Slice 6 — shared and exclusive resources
 Blocked by: 5
