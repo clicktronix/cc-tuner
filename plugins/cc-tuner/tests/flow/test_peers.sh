@@ -174,6 +174,7 @@ script '{"when": "SUBAGENT-REPORT", "calls": [{"name": "mcp__cc-tuner__peers_rep
   "$(jq -nc --arg k "$KEY" --arg c "$PBC" --arg b "$RB/b.txt" '{when: "", calls: [
     {name: "Bash", input: {command: "git clean -fd"}},
     {name: "Bash", input: {command: ("kill " + $c)}},
+    {name: "Bash", input: {command: ("kill -0 " + $c + " && echo alive$((40 + 2))")}},
     {name: "Bash", input: {command: "bash -c '"'"'cd . && git switch -q -c z'"'"'"}},
     {name: "Bash", input: {command: ("CC_TUNER_ACK=" + $k + " bash -c '"'"'cd . && git switch -q -c z'"'"'")}},
     {name: "Write", input: {file_path: $b, content: "b"}},
@@ -187,6 +188,7 @@ check  "start-line-on-startup"                 "cc-tuner: live peers: main ($(ba
 check  "start-line-names-the-tool"             "More: the peers_report tool." "$LOG"
 check  "guard-foreign-file-stops-on-real-git"  'would delete foreign.txt in' "$LOG"
 check  "guard-kill-of-a-peers-child-stops"     "would stop process $PBC, which belongs to pid $PB" "$LOG"
+check  "guard-kill-signal-0-is-a-probe-and-runs" "alive42" "$(cat "$W/api.log")"
 check  "guard-stop-reaches-the-model"          "run the same command prefixed CC_TUNER_ACK=$KEY" "$LOG"
 check  "guard-stop-says-the-choice-is-the-agents" "not a question for the user" "$LOG"
 equals "guard-acked-command-ran-without-the-prefix" "z" "$(git -C "$RB" branch --show-current)"

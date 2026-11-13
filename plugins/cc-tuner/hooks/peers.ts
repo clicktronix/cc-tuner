@@ -90,6 +90,7 @@ const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show'])
 const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
+const NULL_SIGNAL = /^0+$/
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0' }
 const LSTART = /^\s*(\d+)\s+(\d+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+(.*)$/
 
@@ -116,6 +117,18 @@ function relpath(p: string, base: string): string {
 // --- the policy's small readers ---------------------------------------------------------------------
 const flags = (a: readonly string[]) => (a.includes('--') ? a.slice(0, a.indexOf('--')) : a).filter(x => x.startsWith('-'))
 const operands = (a: readonly string[]) => a.filter(x => !x.startsWith('-'))
+
+// Signal 0 delivers nothing: `kill -0 <pid>` asks whether the process exists. The last signal named wins, as in
+// the shell's `kill`; `-s` and `-n` name one for `kill` only (for `pkill` and `killall` they mean other things).
+function probes(name: string, a: readonly string[]): boolean {
+  let probe = false
+  for (let i = 0; i < a.length && a[i] !== '--'; i++) {
+    const x = a[i]!
+    if (SIGNAL.test(x)) probe = NULL_SIGNAL.test(x.slice(1))
+    else if (name === 'kill' && (x === '-s' || x === '-n' || x === '--signal') && i + 1 < a.length) probe = NULL_SIGNAL.test(a[++i]!)
+  }
+  return probe
+}
 const has = (a: readonly string[], long: string, short = '') =>
   flags(a).some(x => x === long || (short !== '' && new RegExp(`^-[a-zA-Z]*[${short}]`).test(x)))
 const owns = (paths: readonly string[], f: string) => paths.includes(f) || (f.endsWith('/') && paths.some(p => p.startsWith(f)))
@@ -929,6 +942,7 @@ class Guard {
   }
 
   private async kill(name: string, a: string[], at: Where, prev: string[]) {
+    if (probes(name, a)) return
     const peers = new Map<number, [Rec, Checkout]>()
     for (const [r, cos] of await this.peers(at)) for (const [, co] of cos) peers.set(r.pid, [r, co])
     if (peers.size === 0) return

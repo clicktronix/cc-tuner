@@ -845,6 +845,26 @@ test('guard: kill of a process that descends from a peer stops; its own or an un
   expect(await decide(r, `kill ${pc}`)).toBe('allow')
 })
 
+test('guard: signal 0 is a liveness probe and stops nothing, in any spelling kill accepts', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  const pc = m.spawn(p, 'sleep', 'sleep 3737')
+  const me = m.spawn()
+  const [peer, mine] = [session('peer', p), session('me', me)]
+  await peer.touch(r)
+  await mine.touch(r)
+  const decide = async (...steps: (string | Partial<Step>)[]) => (await mine.bash(r, ...steps)).decision
+  for (const probe of [`kill -0 ${pc}`, `kill -00 ${pc}`, `kill -s 0 ${pc}`, `kill -n 0 ${pc}`, `kill --signal 0 ${pc}`, `kill -0 -- ${pc}`, `kill -0 ${p} ${pc}`, `pkill -0 -f 3737`, `kill -0 $PID`]) {
+    expect(await decide(probe), probe).toBe('allow')
+  }
+  m.ports.set(4000, pc)
+  expect(await decide('lsof -ti :4000', 'kill -0'), 'lsof | kill -0').toBe('allow')
+  for (const stops of [`kill -9 ${pc}`, `kill -s 9 ${pc}`, `kill -s KILL ${pc}`, `kill -n 15 ${pc}`, `kill -10 ${pc}`, `kill -0 -9 ${pc}`, `kill -s 0 -s 9 ${pc}`, `kill --signal 9 ${pc}`]) {
+    expect(await decide(stops), stops).toBe('stop')
+  }
+})
+
 test('guard: an edit next to a writer or of a claimed path is a note, said once an hour', async () => {
   const { m, r, peer, me, ready, other } = world()
   await ready
