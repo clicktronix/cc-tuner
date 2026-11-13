@@ -11,9 +11,10 @@ never asked.
 
 **Architecture:**
 
-- **Record.** `plugins/cc-tuner/scripts/peers.sh` (bash 3.2 + python3 stdlib) keeps one JSON per
-  Claude session in `${CC_TUNER_PEERS_DIR:-~/.cache/cc-tuner/sessions}`.
-  - **Writing.** The record is written by rename under `flock`.
+- **Record.** The hooks module (`plugins/cc-tuner/hooks/peers.ts`, imported by `register.ts`) keeps one
+  JSON per Claude session in `~/.cache/cc-tuner/sessions`. One language: the owner chose TS over a
+  python helper on 2026-11-14 after python per call cost 0.3–0.5 s under this machine's load.
+  - **Writing.** A session writes only its own record, serialized in-process; others only read it.
   - **Identity.** A session is its Claude process, identified by pid plus start time. A nested
     `claude -p` counts as the outermost `claude` in its ancestry; a subagent shares its parent's pid.
   - **Per checkout, the record holds:**
@@ -24,8 +25,8 @@ never asked.
     - the time of the last writer call;
     - the paths edited through Edit/Write, recorded after the call succeeds.
   - **Per session, the record holds:** claims and acks.
-  - **Leases** live apart: one `flock`ed file per resource key, so the check and the grant are one
-    step.
+  - **Leases** live apart: one lock directory per resource key, taken with an atomic `mkdir`, so the
+    check and the grant are one step.
   - **When the process ends,** the record turns into a tombstone kept for 24 h. A resumed session
     with the same `session_id` adopts it.
   - **On `/clear`,** acks and claims are dropped.
@@ -82,19 +83,19 @@ never asked.
   - The user file `~/.config/cc-tuner/resources.json` holds machine resources (Chrome :9222), which
     are checked across products.
   - Every live product session consumes a shared resource.
-  - An exclusive resource is leased by its first user until the holder runs `peers.sh release <key>`
+  - An exclusive resource is leased by its first user until the holder runs `peers_release <key>`
     (checked under the same lock; anyone else's release is refused), 10 min of the holder's
     silence, or the holder's death.
   - A repository without the file adds no repository rules; machine resources still apply.
 - **Visibility.**
-  - `session-start.sh` prints the line `peers.sh` renders, on startup, clear and resume, when peers
+  - `session-start.sh` prints the line the module renders, on startup, clear and resume, when peers
     are live or a task was kept at `/clear`. Resume gets
     its own entry, so plan restore stays on `startup|clear`.
-  - `peers.sh report` lists the product's peers with branch, claims and edited paths. For peers in
+  - `peers_report` lists the product's peers with branch, claims and edited paths. For peers in
     the same repository, it adds the `git merge-tree` conflicts of HEAD against their branch, run
     in a temporary object directory so the repository's object store is untouched, and cached per
     SHA pair.
-  - `peers.sh claim <plan>` publishes the plan's open Owned paths, then prints `report` with their
+  - `peers_claim <plan>` publishes the plan's open Owned paths, then prints `report` with their
     overlap.
   - `/spec` runs `report` before approval, and the agent compares it with the draft.
   - `/run` runs `claim` before the first slice, after each tick, and before integration.
@@ -103,12 +104,11 @@ never asked.
   cleanup leaves a task the guard keeps. The README says the keep covers `/clear` and that cleanup,
   not the exit of the Claude process, which stops its background tasks itself.
 - **Git reads** by the guard use `GIT_OPTIONAL_LOCKS=0`, so they never write the index.
-- **Commands:** `peers.sh check` (the guard), `report`, `claim <plan>`, `release <key>`.
-- **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its
-  `tool.call` handler sees each call before and after `next`, reuses `commands()`, and calls
-  `peers.sh check` through `$.process.run`; the Claude pid is that child's `$PPID`, resolved once per
-  module load. A command-hook surface was rejected: same deny and cost, but the result is split
-  across `PostToolUse`/`PostToolUseFailure` and the parser would be ported.
+- **Tools** the module registers: `peers_report`, `peers_claim <plan>`, `peers_release <key>`. The guard
+  itself is the `tool.call` handler.
+- **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its `tool.call`
+  handler sees each call before and after `next` and reuses `commands()`. The start line comes from
+  the module too; `session-start.sh` keeps plan restore only.
 - **Rejected:**
   - messages as the record (best-effort delivery);
   - asking the user;
@@ -140,7 +140,7 @@ never asked.
   A third of concurrent time is several sessions in one directory. cc-tuner shares no state
   between sessions.
 - [x] **Scope.**
-  - New: `scripts/peers.sh` and its tests.
+  - New: `hooks/peers.ts` and its tests (the python `scripts/peers.sh` of Slices 2–4 is ported and removed).
   - Changed:
     - the guard surface;
     - `hooks/hooks.json`;
@@ -156,7 +156,8 @@ never asked.
 
 ## Acceptance criteria
 
-Each check is `bash plugins/cc-tuner/tests/flow/test_peers.sh`, test group in brackets.
+Each check is `bash plugins/cc-tuner/tests/flow/test_peers.sh && bash plugins/cc-tuner/tests/flow/test_mod.sh`,
+test group in brackets.
 
 - [x] [machine] The record lifecycle works as Architecture states:
   - a dead pid becomes a tombstone, and so does a live pid with another start time;
@@ -225,16 +226,15 @@ Each check is `bash plugins/cc-tuner/tests/flow/test_peers.sh`, test group in br
 
 ## Test plan
 
-- **Regression:** `plugins/cc-tuner/tests/flow/test_peers.sh` (new). It drives `peers.sh` and the
-  adapter as subprocesses. If Slice 1 picks the module, `register.test.ts` runs through
-  `test_mod.sh` too.
+- **Regression:** module tests (`peers.test.ts`, `register.test.ts`) through `test_mod.sh`, and
+  `plugins/cc-tuner/tests/flow/test_peers.sh` for end-to-end sessions (`claude -p`, stubbed model API).
 - **First failing check:** write the harness and its `record-written` case first, then run
   `bash plugins/cc-tuner/tests/flow/test_peers.sh`. Expected: `FAIL record-written`, because there
   is no `scripts/peers.sh`.
 - **Targeted:** `test_peers.sh`, `tests/flow/test_mod.sh`, `tests/contract/test_contract.sh`.
 - **Full:** `bash tests/run.sh` (claude at `tests/flow/CLAUDE_CODE_VERSION`). The EVALUATED_SHA
   guard is handled as in #75.
-- **Static:** `bash -n` on the new scripts; module validation in `test_mod.sh`.
+- **Static:** module validation and type check in `test_mod.sh`.
 - **Runtime:** macOS and Linux, git ≥ 2.38, no network.
 - **Mutation:** make liveness ignore the start time. `liveness-pid-reuse`, a live `sleep` pid with a
   mismatched recorded start time, must then FAIL with `a record whose pid was reused reads as live`.
@@ -267,7 +267,7 @@ auto_ready: no — the [eyes] live check has only a partial machine replacement
 ci: any — `.github/workflows/validate.yml` runs `bash tests/run.sh` on ubuntu-latest and macos-latest
     for every pull request; observe with `gh pr checks <pr>`.
 review: codex — cc-codex-triage is installed and reviews this repository.
-target_test: bash plugins/cc-tuner/tests/flow/test_peers.sh
+target_test: bash plugins/cc-tuner/tests/flow/test_peers.sh && bash plugins/cc-tuner/tests/flow/test_mod.sh
 full_test: bash tests/run.sh
 full_test_cadence: per-candidate
 tracker: gh
