@@ -215,7 +215,9 @@ test('the status line clears once no tracked subagent runs', async ($, on) => {
 // session, the one `echo $PPID` that names the Claude process, and `peers.sh check`, whose events are
 // recorded and whose answer `answer` gives (exit code and stdout).
 interface Step { words: string[]; dir: string; op: string; writes: boolean }
-interface Sent { session_id: string; cwd: string; phase: string; tool: string; steps?: Step[]; seen?: Record<string, string>; path?: string }
+interface Sent {
+  session_id: string; cwd: string; phase: string; tool: string; steps?: Step[]; seen?: Record<string, string>; path?: string; ack?: string
+}
 const ALLOW = { exitCode: 0, stdout: '{"decision":"allow"}' }
 
 function peers(on: On, answer: (sent: Sent) => { exitCode: number; stdout: string } = () => ALLOW) {
@@ -262,6 +264,20 @@ const COMMANDS = [
   ['echo `cd x; git status`', ['x ; git status', '. - echo ']],
   ['git switch -c x && git commit -m m', ['. - git switch -c x', '. && git commit -m m']],
   ['git add f && git commit -m m', ['. - git add f', '. && git commit -m m']],
+  ['kill $(lsof -ti :3000)', ['. - lsof -ti :3000', '. - kill ']],
+  ['lsof -ti :3000 | xargs kill -9', ['. - lsof -ti :3000', '. | kill -9']],
+  ['git -C ../wt worktree remove .', ['../wt - git worktree remove .']],
+  ['git -C ../wt reset --hard', ['../wt - git reset --hard']],
+  ['cd x && rm -rf y', ['x && rm -rf y']],
+  ["bash -c 'cd ../wt && git stash drop'", ['../wt && git stash drop']],
+  ['heavy.sh -- git switch x', ['. - git switch x']],
+  ["bash -c 'git reset --hard'", ['. - git reset --hard']],
+  ['env FOO=1 git stash', ['. - git stash']],
+  ["bash -c 'cd ../wt && rm -rf x'", ['../wt && rm -rf x']],
+  ['heavy.sh -- git -C ../wt branch -D x', ['../wt - git branch -D x']],
+  ['echo 1 | xargs -n 1 kill -9', ['. - echo 1', '. | kill -9']],
+  ['git -C ../wt push origin --delete x', ['../wt - git push origin --delete x']],
+  ['CC_TUNER_ACK=ab12cd34 heavy.sh -- git clean -fd', ['. - git clean -fd']],
   ['false || git switch c; true', ['. - false', '. || git switch c', '. ; true']],
   ["a && bash -c 'b; c'", ['. - a', '. && b', '. ; c']],
   ['cat x > f', ['. - cat x >']],
@@ -321,7 +337,7 @@ function edits(on: On) {
   on('tool.call', { tool: 'NotebookEdit' }, (_, e) => answer(e.notebook_path))
 }
 
-test('an edit tells the record its path after it succeeded, and asks nothing before', async ($, on) => {
+test('an edit asks the guard before, and tells the record its path after it succeeded', async ($, on) => {
   const { sent } = peers(on)
   edits(on)
 
@@ -330,8 +346,82 @@ test('an edit tells the record its path after it succeeded, and asks nothing bef
   await $.tool.call({ tool: 'NotebookEdit', notebook_path: '/work/repo/c.ipynb', new_source: 'c' })
   await $.tool.call({ tool: 'Write', file_path: '/work/repo/d.fail', content: 'd' })
   expect(sent.map(e => `${e.phase} ${e.tool} ${e.path}`)).toEqual([
-    'after Edit /work/repo/a.ts', 'after Write /work/repo/b.ts', 'after NotebookEdit /work/repo/c.ipynb',
+    'before Edit /work/repo/a.ts', 'after Edit /work/repo/a.ts',
+    'before Write /work/repo/b.ts', 'after Write /work/repo/b.ts',
+    'before NotebookEdit /work/repo/c.ipynb', 'after NotebookEdit /work/repo/c.ipynb',
+    'before Write /work/repo/d.fail',
   ])
+})
+
+const STOP = { exitCode: 0, stdout: JSON.stringify({ decision: 'stop', reason: 'cc-tuner: no. To go on, run the same command prefixed CC_TUNER_ACK=ab12cd34.' }) }
+const NOTE = { exitCode: 0, stdout: JSON.stringify({ decision: 'note', reason: 'cc-tuner: a peer works here.' }) }
+
+test('a stop is the call\'s error, and the command never runs', async ($, on) => {
+  const { sent } = peers(on, () => STOP)
+  const ran = reached(on)
+
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })
+  expect(deny).toContain('CC_TUNER_ACK=ab12cd34')
+  expect(ran).toEqual([])
+  expect(sent.map(e => e.phase)).toEqual(['before'])
+})
+
+test('a note rides after the result of a Bash call and of an edit, and the call runs', async ($, on) => {
+  peers(on, e => (e.phase === 'before' ? NOTE : ALLOW))
+  const ran = reached(on)
+  edits(on)
+
+  const bash = await $.tool.call({ tool: 'Bash', command: 'git status' })
+  expect(bash.deny).toBeUndefined()
+  expect(bash.context).toEqual(['cc-tuner: a peer works here.'])
+  const edit = await $.tool.call({ tool: 'Edit', file_path: '/work/repo/a.ts', old_string: 'a', new_string: 'b' })
+  expect(edit.context).toEqual(['cc-tuner: a peer works here.'])
+  expect(ran).toEqual(['git status'])
+})
+
+test('an allow carries no note', async ($, on) => {
+  peers(on)
+  reached(on)
+
+  const bash = await $.tool.call({ tool: 'Bash', command: 'git status' })
+  expect(bash.context).toBeUndefined()
+})
+
+test('an ack is recorded from the event and stripped before the command runs', async ($, on) => {
+  const { sent } = peers(on)
+  const ran = reached(on)
+
+  await $.tool.call({ tool: 'Bash', command: 'CC_TUNER_ACK=ab12cd34 git reset --hard' })
+  expect(sent[0]?.ack).toBe('ab12cd34')
+  expect(sent[0]?.steps?.map(show)).toEqual(['. - git reset --hard'])
+  expect(ran).toEqual(['git reset --hard'])
+
+  // Only a prefix is an ack: the same text further along is the command's own.
+  sent.length = 0
+  ran.length = 0
+  await $.tool.call({ tool: 'Bash', command: 'echo CC_TUNER_ACK=ab12cd34 git reset --hard' })
+  await $.tool.call({ tool: 'Bash', command: 'FOO=1 CC_TUNER_ACK=ab12cd34 ls' })
+  expect(sent.map(e => e.ack)).toEqual([undefined, undefined])
+  expect(ran).toEqual(['echo CC_TUNER_ACK=ab12cd34 git reset --hard', 'FOO=1 CC_TUNER_ACK=ab12cd34 ls'])
+})
+
+test('a stop for an acked command is the guard\'s to give, and the ack never reaches the shell', async ($, on) => {
+  peers(on, e => (e.ack === 'ab12cd34' ? ALLOW : STOP))
+  const ran = reached(on)
+
+  expect((await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny).toContain('CC_TUNER_ACK=')
+  expect((await $.tool.call({ tool: 'Bash', command: 'CC_TUNER_ACK=ab12cd34 git reset --hard' })).deny).toBeUndefined()
+  expect(ran).toEqual(['git reset --hard'])
+})
+
+test('an acked secret dump is still refused', async ($, on) => {
+  const { sent } = peers(on)
+  const ran = reached(on)
+
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'CC_TUNER_ACK=ab12cd34 env' })
+  expect(deny).toContain("awk 'BEGIN { for (k in ENVIRON) print k }'")
+  expect(sent).toEqual([])
+  expect(ran).toEqual([])
 })
 
 test('a refused secret dump never reaches the guard', async ($, on) => {

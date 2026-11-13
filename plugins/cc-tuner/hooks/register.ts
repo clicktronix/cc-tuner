@@ -317,12 +317,22 @@ function steps(command: string): Step[] {
   return commands(command).flatMap(unwrap)
 }
 
-// The guard is scripts/peers.sh, which owns the record of what each session did and every decision.
-// A failure here is never the tool call's: the call goes on. The Claude process is the parent of the
-// child `$.process.run` starts, read once per module load; the record is keyed by it.
+// The guard is scripts/peers.sh, which owns the record of what each session did and every decision:
+// allow, a note (the call runs and the agent reads it after the result) or a stop (the reason is the
+// call's error). A failure here is never the tool call's: the call goes on. The Claude process is the
+// parent of the child `$.process.run` starts, read once per module load; the record is keyed by it.
 let claude = ''
 
-async function guard($: EngineInterface, event: object): Promise<{ seen?: Record<string, string> } | undefined> {
+interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
+
+// The way on from a stop is the same command prefixed with its key. The guard records the ack from the
+// event; the prefix goes before the call, so a user's allow rule such as `Bash(git switch:*)` still matches.
+const ACK = /^CC_TUNER_ACK=(\S+) /
+
+const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T, verdict?: Verdict): T =>
+  verdict?.decision === 'note' && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), verdict.reason ?? ''] } : ran
+
+async function guard($: EngineInterface, event: object): Promise<Verdict | undefined> {
   try {
     if (claude === '') claude = (await $.process.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim()
     const ran = await $.process.run(['bash', `${$.plugin.root}/scripts/peers.sh`, 'check'], {
@@ -338,23 +348,26 @@ async function guard($: EngineInterface, event: object): Promise<{ seen?: Record
 
 export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const leak = secretLeak(e.command)
+    const ack = ACK.exec(e.command)
+    const command = ack === null ? e.command : e.command.slice(ack[0].length)
+    const leak = secretLeak(command)
     if (leak !== undefined) return { deny: leak }
-    const before = await guard($, { phase: 'before', tool: 'Bash', steps: steps(e.command) })
-    const ran = await next(e)
+    const before = await guard($, { phase: 'before', tool: 'Bash', steps: steps(command), ack: ack?.[1] })
+    if (before?.decision === 'stop') return { deny: before.reason ?? 'cc-tuner: stopped' }
+    const ran = await next(ack === null ? e : { ...e, command })
     if (before?.seen !== undefined) await guard($, { phase: 'after', tool: 'Bash', seen: before.seen })
     if (ran.deny === undefined && ran.isError !== true && ran.result.backgroundTaskId) {
       started.add(ran.result.backgroundTaskId)
     }
-    return ran
+    return noted(ran, before)
   })
 
   on('tool.call', { tool: ['Edit', 'Write', 'NotebookEdit'] }, async ($, e, next) => {
+    const path = 'file_path' in e ? e.file_path : e.notebook_path
+    const before = await guard($, { phase: 'before', tool: e.tool, path })
     const ran = await next(e)
-    if (ran.deny === undefined && ran.isError !== true) {
-      await guard($, { phase: 'after', tool: e.tool, path: 'file_path' in e ? e.file_path : e.notebook_path })
-    }
-    return ran
+    if (ran.deny === undefined && ran.isError !== true) await guard($, { phase: 'after', tool: e.tool, path })
+    return noted(ran, before)
   })
 
   on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
