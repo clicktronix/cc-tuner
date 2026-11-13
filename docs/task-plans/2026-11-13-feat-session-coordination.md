@@ -1,6 +1,6 @@
 # Sessions of one product see each other — plan
 
-**Spec:** docs/PLANS/2026-11-13-session-coordination.md
+**Spec:** docs/ARCHIVE/PLANS/2026-11-13-session-coordination.md
 **Branch:** feat/session-coordination
 
 ## Slice 1 — spike: which surface can stop an action for the agent
