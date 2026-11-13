@@ -50,6 +50,10 @@ equals() {
 FLOW_ROOT="$(mktemp -d)" || { printf 'FATAL: mktemp failed\n'; exit 1; }
 trap 'rm -rf "$FLOW_ROOT"' EXIT
 
+# Session records of peers.sh (written by the SessionStart hook) stay inside the suite, never in the
+# machine's real record directory.
+export CC_TUNER_PEERS_DIR="$FLOW_ROOT/peers"
+
 # flow_workdir -> prints a fresh directory, removed when the suite exits.
 #
 # mktemp, not a counter. A counter incremented here is lost: callers say `d="$(flow_workdir)"`, the

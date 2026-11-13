@@ -170,4 +170,149 @@ equals "record-nested-claude-is-its-outermost" "$(cat "$N/outer.pid")" "$(rec s7
 event "$(cat "$N/outer.pid")" s7 before Bash "$R1" >/dev/null
 equals "record-nested-and-outer-share-one-record" "1" "$(records_of "$(cat "$N/outer.pid")")"
 
+# --- peers are found by repository and by product ---------------------------------------------------
+# A: me, in repository A of product acme, with a second checkout (worktree) on branch feat-a.
+# B: another repository of acme. C: a repository of another product. D: a repository with no product.
+commit_file() { ( cd "$1" && printf '%s\n' "$3" > "$2" && git add "$2" && git commit -q -m "$2" ); }
+product_file() { ( cd "$1" && mkdir -p .claude && printf '{"product":"%s"}\n' "$2" > .claude/cc-tuner-resources.json && git add .claude && git commit -q -m product ); }
+RA="$(repo)"; RB="$(repo)"; RC="$(repo)"; RD="$(repo)"
+product_file "$RA" acme; product_file "$RB" acme; product_file "$RC" other
+commit_file "$RA" f.txt one; commit_file "$RA" g.txt one
+git -C "$RA" worktree add -q -b feat-a "$W/wa"; WA="$(cd "$W/wa" && pwd -P)"
+git -C "$RA" worktree add -q -b feat-b "$W/wb"; WB="$(cd "$W/wb" && pwd -P)"
+commit_file "$WA" f.txt theirs
+commit_file "$WB" g.txt theirs
+commit_file "$RA" f.txt mine
+peer; PA=$SP; peer; PB=$SP; peer; PC=$SP; peer; PD=$SP; peer; PW=$SP; peer; PR=$SP
+event "$PR" sr before Bash "$RA" >/dev/null
+event "$PA" sa before Bash "$WA" >/dev/null
+event "$PW" sw before Bash "$WB" >/dev/null
+event "$PB" sb before Bash "$RB" >/dev/null
+event "$PC" sc before Bash "$RC" >/dev/null
+event "$PD" sd before Bash "$RD" >/dev/null
+OUT="$(report "$RA" "$PR")"
+check  "report-lists-the-same-repository-peer"     "pid $PA  feat-a  $WA" "$OUT"
+check  "report-lists-the-second-checkout-peer"     "pid $PW  feat-b  $WB" "$OUT"
+check  "report-lists-the-product-peer"             "pid $PB  main  $RB" "$OUT"
+absent "report-skips-another-product"              "pid $PC" "$OUT"
+absent "report-skips-an-unrelated-repository"      "pid $PD" "$OUT"
+absent "report-skips-itself"                       "pid $PR" "$OUT"
+OUT="$(report "$RD" "$PD")"
+check  "report-without-product-says-no-peers"     "no live peers" "$OUT"
+OUT="$(report "$RB" "$PB")"
+check  "report-product-is-symmetric"               "pid $PR" "$OUT"
+check  "report-product-reaches-the-worktrees"      "pid $PA" "$OUT"
+
+# Claims and edited paths are shown with the branch.
+edit_rec sa ".claims = {\"plan.md\": {\"repo\": \"$(rec sa ".checkouts[\"$WA\"].repo")\", \"paths\": [\"docs/\", \"lib/x.ts\"]}}"
+event "$PA" sa after Edit "$WA" "$WA/lib/x.ts" >/dev/null
+OUT="$(report "$RA" "$PR")"
+check "report-shows-claims"       "claims: docs/, lib/x.ts" "$OUT"
+check "report-shows-edited-paths" "edited: lib/x.ts" "$OUT"
+
+# --- merge-tree: only same-repository peers, only a conflicting branch -------------------------------
+check  "report-conflict-names-the-file"      "conflicts with HEAD: f.txt" "$OUT"
+equals "report-conflicts-only-the-conflicting-branch" "1" "$(printf '%s\n' "$OUT" | grep -c 'conflicts with HEAD')"
+commit_file "$RB" f.txt other
+equals "report-no-merge-tree-across-repositories" "1" "$(report "$RA" "$PR" | grep -c 'conflicts with HEAD')"
+
+# The repository's object store is unchanged by a merge result that did not exist before, on a cold
+# cache. The control runs the same merge in a copy without the temporary directory and sees objects.
+objects() { find "$1/.git/objects" -type f | wc -l | tr -d ' '; }
+RO="$(repo)"; commit_file "$RO" f.txt one
+git -C "$RO" switch -q -c feat-o; commit_file "$RO" f.txt theirs
+git -C "$RO" switch -q main;      commit_file "$RO" f.txt mine
+cp -R "$RO" "$W/control"
+git -C "$W/control" merge-tree --write-tree --name-only main feat-o >/dev/null
+[ "$(objects "$W/control")" -gt "$(objects "$RO")" ] && pass "report-control-merge-tree-writes-objects" \
+  || fail "report-control-merge-tree-writes-objects (the case would not notice a leak)"
+git -C "$RO" worktree add -q "$W/wo" feat-o; WO="$(cd "$W/wo" && pwd -P)"
+peer; PO=$SP; peer; POM=$SP
+event "$PO" so before Bash "$WO" >/dev/null
+event "$POM" som before Bash "$RO" >/dev/null
+rm -rf "$CC_TUNER_PEERS_DIR"/merge/*
+BEFORE="$(objects "$RO")"
+OUT="$(report "$RO" "$POM")"
+check  "report-cold-cache-finds-the-conflict" "conflicts with HEAD: f.txt" "$OUT"
+equals "report-object-store-unchanged"        "$BEFORE" "$(objects "$RO")"
+equals "report-leaves-no-temporary-objects"   "0" "$(ls -a "$CC_TUNER_PEERS_DIR" | grep -c '^\.objects\.')"
+
+# The result is cached per SHA pair: a changed cache entry is what the next report prints.
+CACHE="$(ls "$CC_TUNER_PEERS_DIR"/merge/* | head -n 1)"
+equals "report-caches-per-sha-pair" "$(git -C "$RO" rev-parse HEAD)-$(git -C "$WO" rev-parse HEAD)" "$(basename "$CACHE")"
+printf '["cached.txt"]' > "$CACHE"
+check  "report-reads-the-cache" "conflicts with HEAD: cached.txt" "$(report "$RO" "$POM")"
+
+# --- claim publishes the open Owned paths and prints their overlap -----------------------------------
+mkdir -p "$RA/docs/task-plans"
+plan() {  # plan <first criterion mark> <second criterion mark>
+  printf '%s\n' '**Spec:** docs/PLANS/s.md' '**Branch:** feat/x' '' \
+    '## Slice 1 — Old' 'Blocked by: none' 'Owned paths: src/old/' 'Deciding check: t' 'Delivers: d' '' "- [$1] a" '' \
+    '## Slice 2 — New' 'Blocked by: 1' 'Owned paths: lib/, docs/y.md' 'Deciding check: t' 'Delivers: d' '' "- [$2] b"
+}
+plan x ' ' > "$RA/docs/task-plans/p.md"
+OUT="$(cd "$RA" && CC_TUNER_PEERS_CLAUDE_PID="$PR" bash "$PEERS" claim docs/task-plans/p.md 2>&1)"
+equals "claim-publishes-open-owned-paths" "lib/,docs/y.md" "$(rec sr '.claims["docs/task-plans/p.md"].paths | join(",")')"
+check  "claim-prints-the-overlap" "overlap with your claims: lib/ ~ lib/x.ts" "$OUT"
+check  "claim-prints-the-peers"   "pid $PA" "$OUT"
+absent "claim-overlap-skips-a-done-slice" "src/old" "$OUT"
+equals "claim-overlap-is-one-line-per-peer-checkout" "1" "$(printf '%s\n' "$OUT" | grep -c 'overlap with your claims')"
+plan x x > "$RA/docs/task-plans/p.md"
+( cd "$RA" && CC_TUNER_PEERS_CLAUDE_PID="$PR" bash "$PEERS" claim docs/task-plans/p.md >/dev/null 2>&1 )
+equals "claim-drops-a-finished-plan" "0" "$(rec sr '.claims | length')"
+OUT="$(cd "$RA" && CC_TUNER_PEERS_CLAUDE_PID="$PR" bash "$PEERS" claim docs/task-plans/missing.md 2>&1; echo "rc=$?")"
+check  "claim-reports-a-plan-that-is-missing" "rc=1" "$OUT"
+
+# --- the start line --------------------------------------------------------------------------------
+fire() {  # fire <cwd> <session> <source> <pid> -> the hook's raw stdout
+  jq -nc --arg s "$2" --arg src "$3" --arg c "$1" '{session_id: $s, source: $src, cwd: $c, hook_event_name: "SessionStart"}' \
+    | CC_TUNER_PEERS_CLAUDE_PID="$4" bash "$HOOK" 2>/dev/null
+}
+ctx() { fire "$@" | jq -r '.hookSpecificOutput.additionalContext // empty'; }
+
+RS="$(repo)"
+peer; PS1=$SP; peer; PS2=$SP
+equals "start-silent-without-peers-on-startup" "" "$(fire "$RS" t1 startup "$PS1")"
+equals "start-silent-without-peers-on-clear"   "" "$(fire "$RS" t1b clear "$PS1")"
+equals "start-silent-without-peers-on-resume"  "" "$(fire "$RS" t1b resume "$PS1")"
+L="$(ctx "$RS" t2 startup "$PS2")"
+check  "start-line-appears-with-a-live-peer"   "live peers: main ($(basename "$RS"), pid $PS1)" "$L"
+check  "start-line-says-how-to-read-more"      "peers.sh\" report" "$L"
+equals "start-line-is-one-line"                "1" "$(printf '%s\n' "$L" | grep -c .)"
+equals "start-hook-prints-the-peers-sh-line"   "$L" "$(start "$PS2" t2 startup "$RS")"
+equals "start-output-is-json"                  "0" "$(fire "$RS" t2 startup "$PS2" | jq -e . >/dev/null 2>&1; echo $?)"
+check  "start-line-on-clear"  "live peers: main" "$(ctx "$RS" t2c clear "$PS2")"
+check  "start-line-on-resume" "live peers: main" "$(ctx "$RS" t2c resume "$PS2")"
+check  "start-line-reaches-the-product"       "live peers:" "$(ctx "$RB" t3 startup "$PR")"
+equals "start-line-skips-an-unrelated-product" "" "$(fire "$RC" t4 startup "$PC")"
+
+# A task kept at /clear is named even after the peer that made the line necessary has exited.
+edit_rec t2 '.kept = ["dev server"]'
+stop "$PS1"
+L="$(ctx "$RS" t2c startup "$PS2")"
+check  "start-line-names-a-kept-task"       "kept at /clear: dev server" "$L"
+absent "start-line-drops-an-exited-peer"    "live peers" "$L"
+edit_rec t2 '.kept = []'
+equals "start-silent-when-the-peer-has-exited" "" "$(fire "$RS" t2c startup "$PS2")"
+
+# The hook takes its parent as the Claude process when nothing says otherwise.
+PIDFILE="$W/hook.pid"
+bash -c "echo \$\$ > '$PIDFILE'; printf '%s' '{\"session_id\":\"t5\",\"source\":\"startup\",\"cwd\":\"$RS\"}' | bash '$HOOK'" >/dev/null 2>&1
+equals "start-hook-takes-its-parent-as-the-session" "$(cat "$PIDFILE")" "$(rec t5 '.pid')"
+
+# Plan restore stays on startup and clear; resume prints the peers line only.
+RP="$(repo)"
+( cd "$RP" && git switch -q -c feat/x && mkdir -p docs/task-plans && plan ' ' ' ' > docs/task-plans/2026-01-01-feat-x.md && git add -A && git commit -q -m plan )
+peer; PP1=$SP; peer; PP2=$SP
+event "$PP1" tp1 before Bash "$RP" >/dev/null
+check  "start-startup-keeps-plan-restore" "Rebuild it from" "$(ctx "$RP" tp2 startup "$PP2")"
+check  "start-startup-adds-the-peers-line" "live peers: feat/x" "$(ctx "$RP" tp2 startup "$PP2")"
+check  "start-clear-keeps-plan-restore"   "Rebuild it from" "$(ctx "$RP" tp2 clear "$PP2")"
+L="$(ctx "$RP" tp2 resume "$PP2")"
+check  "start-resume-prints-the-peers-line" "live peers: feat/x" "$L"
+absent "start-resume-skips-plan-restore"    "Rebuild it from" "$L"
+HOOKS="$FLOW_PLUGIN/hooks/hooks.json"
+equals "start-hooks-json-matchers" "startup|clear resume" \
+  "$(jq -r '[.hooks.SessionStart[] | select(.hooks[].command | endswith("session-start.sh")) | .matcher] | join(" ")' "$HOOKS")"
+
 exit $fails
