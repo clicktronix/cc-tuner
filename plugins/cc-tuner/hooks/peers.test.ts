@@ -22,6 +22,9 @@ class Machine {
   dirTimes = new Map<string, number>()
   clock = 1_800_000_000_000
   ran: string[][] = []
+  refs = new Set<string>()
+  symbolic = new Map<string, string>()
+  failing = new Map<string, number>()
   private tick = 1
   private nextPid = 1000
 
@@ -93,7 +96,8 @@ class Machine {
       },
       run: async argv => {
         this.ran.push([...argv])
-        return { exitCode: 0, ...this.answer(pid, argv) }
+        const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c') : argv
+        return { exitCode: this.failing.get(bare[0] === 'git' ? `git ${bare[3]}` : bare[0]!) ?? 0, ...this.answer(pid, bare) }
       },
       now: () => this.clock,
     }
@@ -104,7 +108,9 @@ class Machine {
     if (cmd === '/bin/sh' && a[1] === 'echo $PPID') return { stdout: `${pid}\n` }
     if (cmd === 'ps') return { stdout: this.ps(a.includes('-p') ? a[a.indexOf('-p') + 1]!.split(',').map(Number) : undefined) }
     if (cmd === 'git' && a[2] === 'status') return { stdout: (this.status.get(a[1]!) ?? []).map(e => `${e}\0`).join('') }
+    if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: 'sha\n' } : { exitCode: 1, stdout: '' }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
+    if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
     // The lease scripts, as the shell runs them: one atomic step each.
     if (cmd === '/bin/sh' && a[1]?.includes('mkdir')) {
       const [lock, seen, info] = a.slice(3) as [string, string, string]
@@ -277,7 +283,7 @@ test('a note rides after the result of a Bash call and of an edit, and the call 
   expect(ran).toEqual(['git -c x=y reset --hard', 'git --git-dir=x status', 'git status'])
 })
 
-test('an ack is recorded from the prefix and stripped before the command runs; only a prefix is one', async ($, on) => {
+test('an ack is recorded from the prefix and stripped before the command runs; only an assignment is one', async ($, on) => {
   const { m } = machine()
   m.repo('/w/r')
   m.dirty('/w/r', ' M f')
@@ -289,7 +295,7 @@ test('an ack is recorded from the prefix and stripped before the command runs; o
   expect(ran).toEqual(['git reset --hard'])
   await $.tool.call({ tool: 'Bash', command: 'echo CC_TUNER_ACK=00000000 git reset --hard' })
   await $.tool.call({ tool: 'Bash', command: 'FOO=1 CC_TUNER_ACK=11111111 ls' })
-  expect(Object.keys(m.rec('e1').acks)).toEqual([key])
+  expect(Object.keys(m.rec('e1').acks).sort()).toEqual([key, '11111111'].sort())
   expect(ran.slice(1)).toEqual(['echo CC_TUNER_ACK=00000000 git reset --hard', 'FOO=1 CC_TUNER_ACK=11111111 ls'])
 })
 
@@ -654,7 +660,7 @@ function world() {
   const [peer, me] = [session('peer'), session('me')]
   const ready = (async () => { await peer.touch(r); await me.bash(r, 'git status') })()
   const decide = async (cwd: string, ...steps: (string | Partial<Step>)[]) => me.bash(cwd, ...steps)
-  const acked = (cwd: string, ack: string, ...steps: string[]) => me.check({ tool: 'Bash', cwd, steps: steps.map(s => step(s)), ack })
+  const acked = (cwd: string, ack: string, ...steps: string[]) => me.check({ tool: 'Bash', cwd, steps: steps.map(s => step(s)), acks: [ack] })
   const other = (n = 0) => m.repo(`/w/other${n}`)
   return { m, session, r, peer, me, ready, decide, acked, other }
 }
@@ -931,7 +937,7 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => a.slice(0, 4).join(' '))).toEqual([`git -C ${r} status`])
+  expect(m.ran.map(a => a.slice(0, 8).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -C ${r} status`])
   m.advance(61)
   await decide(r, 'npm test')
   expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
@@ -958,7 +964,7 @@ test('resource: a shared stop command stops while a product session is live, and
   for (const c of ['stack up', 'stack status', 'docker compose up']) expect((await sr.bash(ra, c)).decision, c).toBe('allow')
   expect((await sd.bash(rd, 'stack down')).decision, 'resource-a-repository-without-the-file-adds-no-rules').toBe('allow')
   const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(reason!)![1]!
-  expect((await sr.check({ tool: 'Bash', cwd: ra, steps: [step('stack down')], ack: key })).decision, 'resource-shared-stop-takes-an-ack').toBe('allow')
+  expect((await sr.check({ tool: 'Bash', cwd: ra, steps: [step('stack down')], acks: [key] })).decision, 'resource-shared-stop-takes-an-ack').toBe('allow')
   m.edit('sr', r => { r.acks = {} })
   m.end(sb.pid)
   expect((await sr.bash(ra, 'stack down')).decision, 'the peer of the product has gone').toBe('allow')
@@ -1097,4 +1103,69 @@ test('resource: /clear keeps a shared task running, and the next start line name
   expect(m.rec('e1').kept).toEqual(['stack (b1)'])
   sessionId = 'e2'
   expect(await prompt($), 'resource-clear-start-line-names-the-task').toContain('kept at /clear: stack (b1)')
+})
+
+// --- the guard runs nothing the model chose, and reads git inertly -------------------------------------------------
+test('guard: only the fixed lsof and pgrep are run for a kill; a path to one is not', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  const [peer, mine] = [session('peer', p), session('me')]
+  await peer.touch(r)
+  await mine.touch(r)
+  for (const first of ['./x/pgrep -f 3737', 'node_modules/.bin/lsof -ti :4000', '/tmp/pgrep -f a']) {
+    m.ran.length = 0
+    const v = await mine.bash(r, first, then('kill', '|'))
+    expect(v.decision, first).toBe('note')
+    expect(m.ran.filter(a => a[0]!.includes('/') && a[0] !== '/bin/sh'), `guard-runs-no-path-from-the-command: ${first}`).toEqual([])
+  }
+  m.ran.length = 0
+  await mine.bash(r, 'pgrep -f 3737', then('kill', '|'))
+  expect(m.ran.map(a => a[0]), 'the fixed name still runs').toContain('pgrep')
+})
+
+test('guard: a pgrep that failed to run is not an empty answer', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  m.spawn(p, 'sleep', 'sleep 3737')
+  const [peer, mine] = [session('peer', p), session('me')]
+  await peer.touch(r)
+  await mine.touch(r)
+  expect((await mine.bash(r, 'pkill -f 3737')).decision).toBe('stop')
+  m.failing.set('pgrep', 2)
+  expect((await mine.bash(r, 'pkill -e -f 3737')).decision, 'guard-pgrep-usage-error-notes').toBe('note')
+  m.failing.set('pgrep', 1)
+  expect((await mine.bash(r, 'pkill -f 3939')).decision, 'no match is exit 1: nothing to stop').toBe('allow')
+})
+
+test('guard: every git call runs with the config that could run a command off', async () => {
+  const { m, session } = machine()
+  const [r, other] = [m.repo('/w/r'), m.repo('/w/o')]
+  const [peer, mine] = [session('peer'), session('me')]
+  m.dirty(r, ' M f')
+  await peer.touch(r)
+  await mine.touch(r)
+  await mine.bash(r, 'git reset --hard')
+  await mine.touch(other)
+  m.shas.set(other, 'sha-other')
+  await mine.report(r)
+  const git = m.ran.filter(a => a[0] === 'git' || a.some(x => x.includes('merge-tree')))
+  expect(git.length).toBeGreaterThan(1)
+  for (const argv of git) expect(argv.join(' '), 'guard-git-runs-with-fsmonitor-off').toMatch(/core\.fsmonitor=false.*core\.untrackedCache=false/)
+})
+
+test('an ack is a printed key, as a prefix or on any step, and nothing a quoted value holds', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  m.dirty('/w/r', ' M f')
+  const ran = engine(on, m, m.spawn())
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(deny ?? '')![1]!
+  const odd = 'CC_TUNER_ACK="k rm -rf ~ #" echo hi'
+  await $.tool.call({ tool: 'Bash', command: odd })
+  expect(ran, 'guard-ack-prefix-is-only-the-key-format').toEqual([odd])
+  expect(Object.keys(m.rec('e1').acks)).toEqual([])
+  expect((await $.tool.call({ tool: 'Bash', command: `true && CC_TUNER_ACK=${key} git reset --hard` })).deny, 'guard-ack-on-a-later-step').toBeUndefined()
+  expect(typeof m.rec('e1').acks[key]).toBe('number')
 })

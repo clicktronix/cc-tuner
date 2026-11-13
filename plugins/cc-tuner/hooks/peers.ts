@@ -32,7 +32,7 @@ import type { EngineInterface } from 'claude-code'
 export interface Step { words: string[]; dir: string; op: string; writes: boolean }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
-  path?: string; steps?: Step[]; seen?: Record<string, string>; ack?: string; ok?: boolean
+  path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
 }
 export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
 interface Config { product?: string; resources: Resource[] }
@@ -92,6 +92,8 @@ const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', 
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0' }
+// A repository's own config can run a command (core.fsmonitor), so the guard's reads switch those off.
+const GIT = ['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false']
 const LSTART = /^\s*(\d+)\s+(\d+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+(.*)$/
 
 // --- paths ------------------------------------------------------------------------------------------
@@ -341,7 +343,7 @@ export class Peers {
   }
 
   private async git(top: string, ...args: string[]): Promise<string | undefined> {
-    const r = await this.w.run(['git', '-C', top, ...args], { env: GIT_ENV })
+    const r = await this.w.run([...GIT, '-C', top, ...args], { env: GIT_ENV })
     return r.exitCode === 0 ? r.stdout.trim() : undefined
   }
 
@@ -440,7 +442,7 @@ export class Peers {
     } catch { /* not cached yet */ }
     const r = await this.w.run(['/bin/sh', '-c',
       'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$2/objects" ' +
-      'git -C "$3" merge-tree --write-tree --name-only "$4" "$5"; rc=$?; rm -rf "$d"; exit $rc',
+      'git -c core.fsmonitor=false -c core.untrackedCache=false -C "$3" merge-tree --write-tree --name-only "$4" "$5"; rc=$?; rm -rf "$d"; exit $rc',
     'sh', await this.w.dir(), common, top, mine, theirs], { env: GIT_ENV })
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
@@ -648,7 +650,7 @@ export class Peers {
       const [name, r] = await this.session(recs, pid, sid)
       const co = await this.touch(r, here)
       for (const { at } of plan) if (at !== undefined) await this.touch(r, at)
-      if (ev.ack) r.acks[ev.ack] = now
+      for (const k of ev.acks ?? []) r.acks[k] = now
       let verdict: Verdict = { decision: 'allow' }
       if (ev.phase === 'before') verdict = await new Guard(this, recs, name, r, pid, here, now).judge(ev, plan, target)
       const seen: Record<string, string> = {}
@@ -690,7 +692,7 @@ export class Peers {
   }
 
   async status(top: string, staged: readonly string[]): Promise<[string, string, string][]> {
-    const out = (await this.w.run(['git', '-C', top, 'status', '--porcelain=v1', '-z'], { env: GIT_ENV })).stdout.split('\0')
+    const out = (await this.w.run([...GIT, '-C', top, 'status', '--porcelain=v1', '-z'], { env: GIT_ENV })).stdout.split('\0')
     let found: [string, string, string][] = []
     for (let i = 0; i < out.length; i++) {
       const e = out[i]!
@@ -705,8 +707,8 @@ export class Peers {
 
   async pidsOf(argv: readonly string[]): Promise<number[] | undefined> {
     try {
-      const out = (await this.w.run(argv)).stdout
-      return out.split(/\s+/).filter(x => /^\d+$/.test(x)).map(Number)
+      const r = await this.w.run(argv)
+      return r.exitCode > 1 ? undefined : r.stdout.split(/\s+/).filter(x => /^\d+$/.test(x)).map(Number)
     } catch {
       return undefined
     }
@@ -949,7 +951,7 @@ class Guard {
     let pids: number[] | undefined
     if (name === 'kill') {
       const named = a.filter(x => /^\d+$/.test(x)).map(Number)
-      pids = named.length > 0 ? named : prev.length > 0 && ['lsof', 'pgrep'].includes(basename(prev[0]!)) ? await this.p.pidsOf(prev) : undefined
+      pids = named.length > 0 ? named : prev[0] === 'lsof' || prev[0] === 'pgrep' ? await this.p.pidsOf(prev) : undefined
     } else if (name === 'pkill') {
       pids = await this.p.pidsOf(['pgrep', ...a.filter(x => !SIGNAL.test(x))])
     } else {

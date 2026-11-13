@@ -332,9 +332,11 @@ export function steps(command: string): Step[] {
 let peers: Peers | undefined
 const peersOf = ($: EngineInterface) => (peers ??= new Peers(world($)))
 
-// The way on from a stop is the same command prefixed with its key. The guard records the ack from the
-// event; the prefix goes before the call, so a user's allow rule such as `Bash(git switch:*)` still matches.
-const ACK = /^CC_TUNER_ACK=(\S+) /
+// The way on from a stop is the same command prefixed with its key. The guard records every key a step
+// assigns; a leading prefix goes before the call, so a user's allow rule such as `Bash(git switch:*)` still matches.
+const ACK = /^(?:CC_TUNER_ACK=[0-9a-f]{8} )+/
+const ACK_WORD = /^CC_TUNER_ACK=([0-9a-f]{8})$/
+const acks = (command: string) => commands(command).flatMap(s => s.words.slice(0, lead(s.words)).flatMap(w => ACK_WORD.exec(w)?.[1] ?? []))
 
 const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T, verdict?: Verdict): T =>
   verdict?.decision === 'note' && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), verdict.reason ?? ''] } : ran
@@ -401,13 +403,12 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const ack = ACK.exec(e.command)
-    const command = ack === null ? e.command : e.command.slice(ack[0].length)
+    const command = e.command.replace(ACK, '')
     const leak = secretLeak(command)
     if (leak !== undefined) return { deny: leak }
-    const before = await guard($, { phase: 'before', tool: 'Bash', steps: steps(command), ack: ack?.[1] })
+    const before = await guard($, { phase: 'before', tool: 'Bash', steps: steps(command), acks: acks(e.command) })
     if (before?.decision === 'stop') return { deny: before.reason ?? 'cc-tuner: stopped' }
-    const ran = await next(ack === null ? e : { ...e, command })
+    const ran = await next(command === e.command ? e : { ...e, command })
     if (before?.seen !== undefined) await guard($, { phase: 'after', tool: 'Bash', seen: before.seen })
     if (ran.deny === undefined && ran.isError !== true && ran.result.backgroundTaskId) {
       started.add(ran.result.backgroundTaskId)
