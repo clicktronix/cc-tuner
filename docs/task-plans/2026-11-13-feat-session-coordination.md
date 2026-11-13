@@ -23,11 +23,13 @@ Owned paths: plugins/cc-tuner/scripts/peers.sh,plugins/cc-tuner/tests/flow/test_
 Deciding check: bash plugins/cc-tuner/tests/flow/test_peers.sh
 Delivers: a session starting next to live peers of its product sees one line about them, and `peers.sh report` / `claim <plan>` show their branches, claims, edited paths and merge-tree conflicts
 
-- [ ] records live and die as the spec says (tombstone 24 h, resume adopts, `/clear` drops acks and claims, flock, malformed record noted)
-- [ ] peers are found by repository and by the `product` key of `.claude/cc-tuner-resources.json`
-- [ ] merge-tree runs only against same-repository peers and leaves the repository's object store unchanged on a cold cache
-- [ ] `claim <plan>` publishes open Owned paths and prints their overlap
-- [ ] `peers.sh` renders the whole start line; it appears only with live peers or a task kept at `/clear`, on startup, clear and resume; plan restore still skips resume
+- [x] records live and die as the spec says (tombstone 24 h, resume adopts, `/clear` drops acks and claims, flock, malformed record noted)
+- [x] peers are found by repository and by the `product` key of `.claude/cc-tuner-resources.json`
+- [x] merge-tree runs only against same-repository peers and leaves the repository's object store unchanged on a cold cache
+- [x] `claim <plan>` publishes open Owned paths and prints their overlap
+- [x] `peers.sh` renders the whole start line; it appears only with live peers or a task kept at `/clear`, on startup, clear and resume; plan restore still skips resume
+
+Evidence: bash plugins/cc-tuner/tests/flow/test_peers.sh → 87 PASS, 0 FAIL (RED first: `FAIL record-written (want '63617', got '')`); mutate.sh liveness ignores start time → KILLED by `liveness-pid-reuse (a record whose pid was reused reads as live)`, control green; out-of-path: tests/flow/lib.sh exports CC_TUNER_PEERS_DIR into the suite's temp root @ 7adf44c
 
 ## Slice 3 — the guard reads commands and tracks what the session did
 Blocked by: 2

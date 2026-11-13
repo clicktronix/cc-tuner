@@ -209,7 +209,7 @@ Each check is `bash plugins/cc-tuner/tests/flow/test_peers.sh`, test group in br
     before, with a cold cache.
 
   (`report-*`)
-- [ ] [machine] The session-start line appears only with live peers or a task kept at `/clear`
+- [x] [machine] The session-start line appears only with live peers or a task kept at `/clear`
   (also when its peer has since exited), on startup, clear and resume. Plan restore still skips
   resume. (`start-*`)
 - [ ] [machine] The guard decides in at most 150 ms p95 over 50 calls with 10 records, on the CI
