@@ -17,6 +17,11 @@ mkdir -p "$CC_TUNER_PEERS_DIR"
 export CC_TUNER_PEERS_CONFIG="$W/machine-resources.json"
 printf '%s\n' '{"resources":[{"key":"lab","kind":"exclusive","tools":["mcp__lab__*"]}]}' > "$CC_TUNER_PEERS_CONFIG"
 
+# Managed settings on the machine put the built-in cc-plugin-sec-default outermost, and it passes `classic.*` events
+# past a user-installed plugin's module (Team and Enterprise organizations get it too). Every session here runs
+# under them, so a hook that rides a classic event never reaches the model in this suite either.
+MANAGED='{"permissions":{"deny":["WebFetch"]}}'
+
 # Every process this suite starts is stopped by its pid when the suite ends.
 STARTED=""
 cleanup() { for p in $STARTED; do kill "$p" 2>/dev/null; done; rm -rf "$FLOW_ROOT"; }
@@ -102,17 +107,18 @@ server.serve_forever()
 PY
 
 # e2e <repo> <claude args>... -> one `claude -p` session in repo answered by $W/script.jsonl; leaves its pid in
-# $CP and every request in $W/api.log. $W/stdin, when present, is the session's input.
+# $CP and every request in $W/api.log. $STDIN, when set, is the session's input; the session is stopped when
+# it exits or when the feeder of that input leaves $W/fed.
 e2e() {
   local repo="$1" n=0; shift
-  rm -f "$W/api.log" "$W/api.port"
+  rm -f "$W/api.log" "$W/api.port" "$W/fed"
   python3 "$W/fake_api.py" "$W/script.jsonl" "$W/api.log" > "$W/api.port" & API=$!; STARTED="$STARTED $API"
   until [ -s "$W/api.port" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done
   ( cd "$repo" && exec env CLAUDE_CONFIG_DIR="$W/claude-config" ANTHROPIC_BASE_URL="http://127.0.0.1:$(cat "$W/api.port")" \
       ANTHROPIC_API_KEY=sk-ant-stand-in DISABLE_TELEMETRY=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-      claude -p --model haiku --plugin-dir "$FLOW_PLUGIN" --setting-sources project,local \
+      claude -p --model haiku --plugin-dir "$FLOW_PLUGIN" --managed-settings "$MANAGED" \
       --dangerously-skip-permissions "$@" < "${STDIN:-/dev/null}" > "$W/claude.out" 2>&1 ) & CP=$!; STARTED="$STARTED $CP"
-  n=0; while kill -0 "$CP" 2>/dev/null && [ "$n" -lt 900 ]; do sleep 0.1; n=$((n + 1)); done
+  n=0; while kill -0 "$CP" 2>/dev/null && [ "$n" -lt 900 ] && [ ! -e "$W/fed" ]; do sleep 0.1; n=$((n + 1)); done
   { kill "$CP" "$API"; wait "$API"; } 2>/dev/null; rm -f "$W/api.port"
 }
 script() { printf '%s\n' "$@" > "$W/script.jsonl"; }
@@ -214,8 +220,18 @@ check  "start-line-on-resume" "cc-tuner: live peers:" "$(cat "$W/api.log")"
 equals "record-resume-adopts-the-tombstone" "number" "$(e2e_rec ".acks[\"$KEY\"] | type")"
 
 script '{"when": "after-clear", "calls": []}' "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "CC_TUNER_ACK=0000abcd git status"}}]}')"
-printf '%s\n' '{"type":"user","message":{"role":"user","content":"first"}}' '{"type":"user","message":{"role":"user","content":"/clear"}}' \
-  '{"type":"user","message":{"role":"user","content":"after-clear"}}' > "$W/stdin"
+# Each message is typed once the one before it is answered: lines read at once are queued into the first turn, and
+# a /clear queued there never clears anything.
+user() { jq -nc --arg t "$1" '{type: "user", message: {role: "user", content: $t}}'; }
+rm -f "$W/stdin" "$W/api.log" "$W/fed"; mkfifo "$W/stdin"
+{
+  user first
+  for _ in $(seq 1 300); do [ "$(grep -c '' "$W/api.log" 2>/dev/null)" -ge 2 ] 2>/dev/null && break; sleep 0.1; done; sleep 1
+  user /clear; sleep 2
+  user after-clear
+  for _ in $(seq 1 300); do grep -qF after-clear "$W/api.log" 2>/dev/null && break; sleep 0.1; done; sleep 2
+  touch "$W/fed"
+} > "$W/stdin" & FEED=$!; STARTED="$STARTED $FEED"
 STDIN="$W/stdin" e2e "$RB" --session-id 00000000-0000-4000-8000-0000000000e3 --input-format stream-json --output-format stream-json --verbose
 check  "start-line-on-clear" "cc-tuner: live peers:" "$(grep -F 'after-clear' "$W/api.log" | tail -n 1)"
 equals "record-clear-drops-acks" "null" "$(e2e_rec '.acks["0000abcd"]')"

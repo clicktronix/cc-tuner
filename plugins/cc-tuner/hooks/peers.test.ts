@@ -1,4 +1,4 @@
-import type { On } from 'claude-code'
+import type { On, PromptSubmitInput } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { Peers, ownedOpen, type Event, type Rec, type Step, type World } from './peers'
 
@@ -147,7 +147,7 @@ class Session {
     return this.check({ tool: 'Bash', cwd, steps: steps.map(s => (typeof s === 'string' ? step(s) : { ...step(''), ...s })) })
   }
   edited(cwd: string, path: string, tool = 'Edit') { return this.check({ phase: 'after', tool, cwd, path }) }
-  start(source: string, cwd: string, sid = this.sid) { return this.peers.check({ session_id: sid, phase: 'start', source, cwd }) }
+  start(cwd: string, sid = this.sid) { return this.peers.check({ session_id: sid, phase: 'start', cwd }) }
   report(cwd: string) { return this.peers.report(cwd) }
 }
 const step = (text: string, dir = '', op = ''): Step => ({ words: text === '' ? [] : text.split(' '), dir, op, writes: false })
@@ -175,11 +175,13 @@ const writes = (text: string): Partial<Step> => ({ ...step(text), writes: true }
 // --- the adapter: the hooks module in front of the guard ----------------------------------------------------
 // The module reads and writes records with $.fs and runs `ps` and git with $.process.run; the test's hooks
 // stand for those, backed by the machine.
+let sessionId = 'e1'
 function engine(on: On, m: Machine, pid: number, effect: (command: string) => void = () => {}, broken = () => false,
   task: (command: string) => string | undefined = () => undefined) {
   const w = m.world(pid)
-  on('classic.SessionStart', () => ({}))
-  on('session.id', () => ({ value: 'e1' }))
+  sessionId = 'e1'
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  on('session.id', () => ({ value: sessionId }))
   on('session.cwd', () => ({ value: '/w/r' }))
   on('ui.log', () => ({ value: undefined }))
   on('env.get', (_, e) => ({ value: e.name === 'CC_TUNER_PEERS_DIR' ? DIR : e.name === 'CC_TUNER_PEERS_CONFIG' ? USER : undefined }))
@@ -312,23 +314,29 @@ test('a guard that fails never blocks the call', async ($, on) => {
   expect(ran).toEqual(['npm test'])
 })
 
-test('the start line reaches the context from the module, on startup, clear and resume', async ($, on) => {
+const prompt = async ($: { prompt: { submit(input: PromptSubmitInput): Promise<{ context?: readonly string[] }> } }, text = 'go') =>
+  ((await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })).context ?? []).join('\n')
+
+test('the start line reaches the model from the first prompt after a start, a clear and a resume, once each', async ($, on) => {
   const { m, session } = machine()
   m.repo('/w/r')
   await session('peer').touch('/w/r')
   engine(on, m, m.spawn())
-  for (const source of ['startup', 'clear', 'resume'] as const) {
-    const done = await $.classic.SessionStart({ source, session_id: `e-${source}`, cwd: '/w/r' })
-    expect(done.additionalContext?.join('\n'), source).toContain('cc-tuner: live peers: main (r, pid')
-  }
+  expect(await prompt($), 'startup').toContain('cc-tuner: live peers: main (r, pid')
+  expect(await prompt($), 'the second prompt of the session').toBe('')
+  await $.session.end({ sessionId: 'e1', resume: { id: 'e1' }, reason: 'clear' })
+  sessionId = 'e2'
+  expect(await prompt($), 'clear').toContain('cc-tuner: live peers: main (r, pid')
+  expect(await prompt($), 'the second prompt after the clear').toBe('')
+  sessionId = 'e3'
+  expect(await prompt($), 'resume').toContain('cc-tuner: live peers: main (r, pid')
 })
 
 test('the start line is silent without peers', async ($, on) => {
   const { m } = machine()
   m.repo('/w/r')
   engine(on, m, m.spawn())
-  const done = await $.classic.SessionStart({ source: 'startup', session_id: 'e1', cwd: '/w/r' })
-  expect(done.additionalContext ?? []).toEqual([])
+  expect(await prompt($)).toBe('')
 })
 
 test('peers_report, peers_claim and peers_release are tools the module answers', async ($, on) => {
@@ -431,19 +439,19 @@ test('record: resume adopts the tombstone of its session id', async () => {
   await old.edited(r1, `${r1}/kept.txt`)
   m.end(old.pid)
   const resumed = session('s5')
-  await resumed.start('resume', r1)
+  await resumed.start(r1)
   expect(m.rec('s5')).toMatchObject({ pid: resumed.pid, start: m.procs.get(resumed.pid)!.start })
   expect(m.rec('s5').checkouts[r1]!.paths).toEqual(['kept.txt'])
   expect(m.records(resumed.pid)).toBe(1)
 })
 
-test('record: /clear drops acks and claims, keeps the kept task, and follows the new session id', async () => {
+test('record: a new session id in the same process (/clear) drops acks and claims, keeps the kept task, and follows the id', async () => {
   const { m, session } = machine()
   const r1 = m.repo('/w/r1')
   const s6 = session('s6')
   await s6.touch(r1)
   m.edit('s6', r => { r.acks = { k: 1 }; r.claims = { 'plan.md': { repo: 'x', paths: ['a'] } }; r.kept = ['dev server'] })
-  await s6.start('clear', r1, 's6b')
+  await s6.start(r1, 's6b')
   expect(m.rec('s6')).toMatchObject({ acks: {}, claims: {}, kept: ['dev server'], session_id: 's6b' })
   expect(m.records(s6.pid)).toBe(1)
 })
@@ -539,29 +547,29 @@ test('claim publishes the open Owned paths and prints their overlap', async () =
 })
 
 // --- the start line ----------------------------------------------------------------------------------------
-test('start: the line appears only with live peers or a kept task, on startup, clear and resume', async () => {
+test('start: the line appears only with live peers or a kept task', async () => {
   const { m, session } = machine()
   const rs = m.repo('/w/rs')
   const [p1, p2] = [session('t1'), session('t2')]
-  for (const source of ['startup', 'clear', 'resume']) expect((await p1.start(source, rs)).line, source).toBe('')
-  const { line } = await p2.start('startup', rs)
+  expect((await p1.start(rs)).line).toBe('')
+  const { line } = await p2.start(rs)
   expect(line).toBe(`cc-tuner: live peers: main (rs, pid ${p1.pid}). More: the peers_report tool.`)
-  expect((await p2.start('clear', rs, 't2c')).line).toContain('live peers: main')
-  expect((await p2.start('resume', rs, 't2c')).line).toContain('live peers: main')
+  expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
+  expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
   m.edit('t2', r => { r.kept = ['dev server'] })
   m.end(p1.pid)
-  const kept = (await p2.start('startup', rs, 't2c')).line!
+  const kept = (await p2.start(rs, 't2c')).line!
   expect(kept).toContain('kept at /clear: dev server')
   expect(kept).not.toContain('live peers')
   m.edit('t2', r => { r.kept = [] })
-  expect((await p2.start('startup', rs, 't2c')).line).toBe('')
+  expect((await p2.start(rs, 't2c')).line).toBe('')
 })
 
 test('start: the line reaches the product, and skips an unrelated one', async () => {
   const { ra, rb, rc, sr, sb, sc } = products()
   await sr.touch(ra)
-  expect((await sb.start('startup', rb)).line).toContain('live peers:')
-  expect((await sc.start('startup', rc)).line).toBe('')
+  expect((await sb.start(rb)).line).toContain('live peers:')
+  expect((await sc.start(rc)).line).toBe('')
 })
 
 // --- the guard learns from commands: writers, and the branch a session expects ------------------------------
@@ -914,7 +922,7 @@ test('ack: the printed key passes that action on that target for 30 min, and not
   expect((await acked(r, k, 'git reset --hard')).decision, 'guard-ack-prefix-renews-it').toBe('allow')
   m.edit('me', x => { x.acks = {} })
   expect((await acked(r, '00000000', 'git reset --hard')).decision).toBe('stop')
-  await me.start('clear', r)
+  await me.start(r, 'me2')
   expect(m.rec('me').acks).toEqual({})
 })
 
@@ -1087,6 +1095,6 @@ test('resource: /clear keeps a shared task running, and the next start line name
   await $.session.end({ sessionId: 'e1', resume: { id: 'e1' }, reason: 'clear' })
   expect(m.stopped, 'resource-clear-stops-only-what-is-not-shared').toEqual(['b2'])
   expect(m.rec('e1').kept).toEqual(['stack (b1)'])
-  const done = await $.classic.SessionStart({ source: 'clear', session_id: 'e1', cwd: '/w/r' })
-  expect(done.additionalContext?.join('\n'), 'resource-clear-start-line-names-the-task').toContain('kept at /clear: stack (b1)')
+  sessionId = 'e2'
+  expect(await prompt($), 'resource-clear-start-line-names-the-task').toContain('kept at /clear: stack (b1)')
 })

@@ -32,7 +32,7 @@ import type { EngineInterface } from 'claude-code'
 export interface Step { words: string[]; dir: string; op: string; writes: boolean }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
-  path?: string; steps?: Step[]; seen?: Record<string, string>; ack?: string; source?: string; ok?: boolean
+  path?: string; steps?: Step[]; seen?: Record<string, string>; ack?: string; ok?: boolean
 }
 export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
 interface Config { product?: string; resources: Resource[] }
@@ -641,9 +641,9 @@ export class Peers {
       const pid = await this.pid()
       if (pid === undefined) return { decision: 'allow', line: '' }
       const now = this.now()
-      if (ev.phase === 'start' && ev.source === 'clear') {
+      if (ev.phase === 'start') {
         const own = this.mine(recs, pid, (await this.starts([pid])).get(pid))
-        if (own !== undefined) Object.assign(own[1], { session_id: sid, acks: {}, claims: {} })
+        if (own !== undefined && own[1].session_id !== sid) Object.assign(own[1], { session_id: sid, acks: {}, claims: {} })
       }
       const [name, r] = await this.session(recs, pid, sid)
       const co = await this.touch(r, here)

@@ -13,6 +13,9 @@ const started = new Set<string>()
 // The tasks among them that run a shared resource's start command, with the checkout they started in.
 // /clear leaves them running, and the agent may stop one only while no other session of the product uses it.
 const shared = new Map<string, { key: string; top: string | undefined }>()
+// The session the start line was last offered to. A /clear reloads the module, so this is empty again; the
+// guard tells a new conversation in a running process (/clear, /resume) from the record's own session id.
+let announced: string | undefined
 
 // The subagent panel shows an agent's type and its live activity, never its model, and a plugin
 // cannot redraw that panel. The status line carries the models of the subagents still running.
@@ -369,10 +372,18 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('classic.SessionStart', async ($, e, next) => {
-    const done = await next(e)
-    const line = (await guard($, { phase: 'start', source: e.source, session_id: e.session_id, cwd: e.cwd }))?.line
-    return line ? { ...done, additionalContext: [...(done.additionalContext ?? []), line] } : done
+  // The start line rides the first prompt of each session, clear and resume: a `classic.SessionStart` hook
+  // never reaches the model where the built-in security default sits outermost (managed settings, Team and
+  // Enterprise organizations), which passes classic events past a user-installed plugin. The line goes into
+  // the prompt's `context`, which the model reads beside the prompt and the user never sees. A slash command
+  // is not a first prompt: the line waits for the next one.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command !== undefined) return next(e)
+    const session_id = await $.session.id()
+    if (session_id === announced) return next(e)
+    announced = session_id
+    const line = (await guard($, { phase: 'start', session_id, cwd: await $.session.cwd() }))?.line
+    return next(line ? { ...e, context: [...(e.context ?? []), line] } : e)
   })
 
   on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {

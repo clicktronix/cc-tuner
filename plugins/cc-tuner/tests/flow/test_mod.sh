@@ -23,7 +23,7 @@ check "hooks.json names the module" "./register.ts" "$modules"
 
 out="$(claude plugin validate "$FLOW_PLUGIN" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "plugin validates"; else fail "plugin validate rc=$rc: $(printf '%s' "$out" | grep -E '✘|❯' | head -5)"; fi
-check "module hooks session start, the peers tools, other MCP tools, Bash, the edit tools, TaskStop, agent spawns, turn ends and session end" "hooks: session.start, classic.SessionStart, tool.call{tool=mcp__cc-tuner__peers_report|mcp__cc-tuner__peers_claim|mcp__cc-tuner__peers_release}, tool.call{tool=/\"^mcp__(?!cc-tuner__)\"/}, tool.call{tool=Bash}, tool.call{tool=Edit|Write|NotebookEdit}, tool.call{tool=TaskStop}, agent.spawn, turn.complete, session.end" "$out"
+check "module hooks session start, prompts, the peers tools, other MCP tools, Bash, the edit tools, TaskStop, agent spawns, turn ends and session end" "hooks: session.start, prompt.submit, tool.call{tool=mcp__cc-tuner__peers_report|mcp__cc-tuner__peers_claim|mcp__cc-tuner__peers_release}, tool.call{tool=/\"^mcp__(?!cc-tuner__)\"/}, tool.call{tool=Bash}, tool.call{tool=Edit|Write|NotebookEdit}, tool.call{tool=TaskStop}, agent.spawn, turn.complete, session.end" "$out"
 
 out="$(cd "$FLOW_PLUGIN" && claude plugin test . 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "module tests pass"; else fail "plugin test rc=$rc: $(printf '%s' "$out" | grep -E '\(fail\)|error' | head -5)"; fi
