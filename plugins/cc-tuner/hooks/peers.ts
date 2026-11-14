@@ -127,7 +127,8 @@ const NULL_SIGNAL = /^0+$/
 // are never read); the one command a config can start by itself is core.fsmonitor. `--attr-source` needs git 2.40; an
 // older git exits 129 on it, which is never run around. `.git/info/attributes` is a local file git reads regardless, so
 // the filter and merge driver names it carries are overridden on the command line (which beats every config source, an
-// included file too): `inertNames` reads that one file.
+// included file too): `inertNames` reads that one file. `merge.default` names a driver for a file whose attributes name
+// none, so merge-tree sets it to the built-in `text`.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' }
 const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null', `--attr-source=${EMPTY_TREE}`]
@@ -642,7 +643,7 @@ export class Peers {
     const r = await this.w.run(['/bin/sh', '-c',
       'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; t="$3"; m="$4"; n="$5"; shift 5; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$o/objects" ' +
       'git "$@" -C "$t" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc',
-    'sh', await this.dir(), common, top, mine, theirs, ...inert], { env: GIT_ENV })
+    'sh', await this.dir(), common, top, mine, theirs, ...inert, '-c', 'merge.default=text'], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)

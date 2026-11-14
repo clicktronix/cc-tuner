@@ -1020,6 +1020,7 @@ test('inspection: every git read takes its attributes from the empty tree, so no
   await me.report(r)
   const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
   for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
+  expect(merge, 'inert-merge-tree-sets-the-default-driver-to-the-built-in').toContain('merge.default=text')
   expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
 })
 

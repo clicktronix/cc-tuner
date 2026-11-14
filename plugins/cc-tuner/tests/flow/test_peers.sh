@@ -366,6 +366,23 @@ equals "inert-status-runs-no-filter-of-the-global-config" "no" "$(ran global)"
 equals "inert-status-runs-no-filter-of-a-submodule"   "no" "$(ran sub)"
 equals "inert-merge-tree-runs-no-merge-driver"        "no" "$(ran merge)"
 
+# `merge.default` names the driver for a file whose attributes name none, so an attribute-free merge-tree runs it too. The
+# driver only creates a marker file and fails, so the merge conflicts; a plain merge-tree is the control that it runs.
+RD="$(repo)"; MD="$W/default-driver"; mkdir -p "$MD"
+commit_file "$RD" f one; git -C "$RD" switch -q -c side; commit_file "$RD" f side
+git -C "$RD" switch -q main; commit_file "$RD" f mine
+git -C "$RD" worktree add -q "$W/wd" side; WD="$(cd "$W/wd" && pwd -P)"
+peer; PDF=$SP; fixture pdf "$PDF" "$WD" null
+git -C "$RD" config merge.default markerdriver
+git -C "$RD" config merge.markerdriver.driver "touch '$MD/default'; false"
+git -C "$RD" merge-tree --write-tree main side >/dev/null 2>&1
+equals "inert-default-driver-control-a-plain-merge-tree-runs-it" "yes" "$([ -e "$MD/default" ] && echo yes || echo no)"
+rm -f "$MD/default"
+script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input: {}}]}')"
+e2e "$RD" go
+check  "inert-default-driver-the-report-still-sees-the-conflict" "conflicts with HEAD: f" "$(cat "$W/api.log")"
+equals "inert-merge-tree-runs-no-merge-default-driver" "no" "$([ -e "$MD/default" ] && echo yes || echo no)"
+
 # `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
 # and only creates a marker file; a plain `git status` is the control that it runs.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"
