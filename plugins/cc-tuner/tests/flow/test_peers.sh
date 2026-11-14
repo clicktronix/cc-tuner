@@ -329,6 +329,19 @@ equals "inert-status-runs-no-clean-filter"            "no" "$(ran clean)"
 equals "inert-status-runs-no-filter-process"          "no" "$(ran process)"
 equals "inert-merge-tree-runs-no-merge-driver"        "no" "$(ran merge)"
 
+# --- an untracked file the destination tree holds is lost to reset --hard, checkout -f and switch -f -----------------
+# Each command runs in a session that did not write u.txt; the file is the user's, untracked, and a branch holds a file of that name.
+RU="$(repo)"
+commit_file "$RU" a one; git -C "$RU" switch -q -c src; commit_file "$RU" u.txt tracked; git -C "$RU" switch -q main
+BASE="$(git -C "$RU" rev-parse HEAD)"
+for c in "git reset --hard src" "git checkout -f src" "git switch -f src"; do
+  git -C "$RU" switch -q -f main; git -C "$RU" reset -q --hard "$BASE"; git -C "$RU" clean -qfd; printf 'precious\n' > "$RU/u.txt"
+  script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+  e2e "$RU" go
+  check  "untracked-collision-stops-on-real-git: $c" "would discard u.txt in" "$(cat "$W/api.log")"
+  equals "untracked-collision-keeps-the-file: $c"    "precious" "$(cat "$RU/u.txt")"
+done
+
 # --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
 # TAKE is the guard's own script, cut out of hooks/peers.ts and printed by node.
 if ! command -v node >/dev/null 2>&1; then

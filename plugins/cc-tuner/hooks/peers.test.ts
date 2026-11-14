@@ -28,6 +28,7 @@ class Machine {
   envs: Record<string, Record<string, string> | undefined> = {}
   failing = new Map<string, number>()
   gitConfig = new Map<string, string>()
+  trees = new Map<string, string[]>()
   private tick = 1
   private nextPid = 1000
 
@@ -123,6 +124,9 @@ class Machine {
     if (cmd === 'git' && a[2] === 'config') {
       const text = this.gitConfig.get(a[1]!)
       return text === undefined ? { exitCode: 1, stdout: '' } : { stdout: text }
+    }
+    if (cmd === 'git' && a[2] === 'ls-tree') {
+      return { stdout: (this.trees.get(`${a[1]}|${a[a.length - 1]}`) ?? []).map(f => `${f}\0`).join('') }
     }
     if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: 'sha\n' } : { exitCode: 1, stdout: '' }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
@@ -843,6 +847,28 @@ test('inspection: git status and merge-tree get every filter and merge driver of
   m.ran.length = 0
   await me.report(r)
   expect(m.ran.find(a => a[2]?.includes('merge-tree'))!.slice(3), 'inert-merge-tree-driver-emptied').toContain('merge.drv.driver=')
+})
+
+test('guard: reset --hard, checkout -f and switch -f stop for an untracked foreign file the destination tree holds', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, '?? u.txt', '?? sub/v.txt')
+  m.trees.set(`${r}|HEAD`, ['h.txt'])
+  m.trees.set(`${r}|feat`, ['h.txt', 'u.txt'])
+  m.trees.set(`${r}|plain`, ['h.txt'])
+  for (const c of ['git reset --hard feat', 'git checkout -f feat', 'git switch -f feat', 'git switch --discard-changes feat', 'git checkout -f -b nb feat', 'git switch -f -c nb feat']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+  expect((await decide(r, 'git reset --hard feat')).reason, 'guard-untracked-collision-is-named').toContain('u.txt')
+  for (const c of ['git reset --hard', 'git reset --hard plain', 'git checkout -f plain', 'git switch -f -c nb plain', 'git checkout -f']) expect((await decide(r, c)).decision, c).toBe('allow')
+  m.trees.set(`${r}|HEAD`, ['h.txt', 'u.txt'])
+  expect((await decide(r, 'git reset --hard')).decision, 'a plain reset collides with HEAD').toBe('stop')
+  m.failing.set('git ls-tree', 128)
+  expect((await decide(r, 'git reset --hard feat')).reason, 'an unreadable tree is not an empty one').toContain('could not read')
+  m.failing.delete('git ls-tree')
+  await me.edited(r, `${r}/u.txt`)
+  for (const c of ['git reset --hard feat', 'git checkout -f feat']) expect((await decide(r, c)).decision, `own file: ${c}`).toBe('allow')
 })
 
 test('guard: a foreign stop names the peer that edited the file; a dead peer\'s files stay protected', async () => {

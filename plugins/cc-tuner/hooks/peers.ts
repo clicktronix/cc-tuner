@@ -186,6 +186,8 @@ function switches(step: Partial<Step>): boolean {
   return (name === 'git' && (sub === 'switch' || sub === 'checkout' || (sub === 'branch' && has(rest, '--move', 'mM'))))
     || (name === 'gh' && sub === 'pr' && (rest[0] === 'checkout' || rest[0] === 'merge'))
 }
+// The commit a forced switch or checkout puts in the tree: its start point after a new branch's name, else the branch it names, else HEAD.
+const checkedOut = (a: readonly string[]) => operands(a)[has(a, '--create', 'cCbB') || has(a, '--force-create') ? 1 : 0] ?? 'HEAD'
 // The branch a `git switch` or `git checkout` step names.
 const named = (step: Partial<Step>) => (step.words?.[1] === 'switch' || step.words?.[1] === 'checkout' ? operands(step.words.slice(2))[0] : undefined)
 
@@ -368,6 +370,12 @@ export class Peers {
     const head = ((gd === undefined ? undefined : await this.w.read(`${gd}/HEAD`).catch(() => undefined)) ?? '').trim()
     if (head === 'ref: refs/heads/.invalid') return (await this.git(top, 'symbolic-ref', '-q', '--short', 'HEAD')) ?? fallback
     return head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : fallback
+  }
+
+  // The files of a commit's tree, or undefined when git did not answer.
+  async tree(top: string, rev: string): Promise<Set<string> | undefined> {
+    const out = await this.git(top, 'ls-tree', '-r', '--name-only', '-z', rev)
+    return out === undefined ? undefined : new Set(out.split('\0').filter(Boolean))
   }
 
   async rebasing(top: string): Promise<boolean> {
@@ -980,12 +988,12 @@ class Guard {
       if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
         await this.lose(at, d, label, 'checkout', 'overwrite', 'tracked', after ?? operands(a))
       } else {
-        if (has(a, '--force', 'f') || a.includes('--discard-changes')) await this.lose(at, d, label, sub, 'discard', 'tracked')
+        if (has(a, '--force', 'f') || a.includes('--discard-changes')) await this.lose(at, d, label, sub, 'discard', 'tracked', undefined, has(a, '--orphan') ? undefined : checkedOut(a))
         await this.switch(at)
         this.moved.add(top)
       }
     } else if (sub === 'reset' && a.includes('--hard')) {
-      await this.lose(at, d, label, 'reset', 'discard', 'tracked')
+      await this.lose(at, d, label, 'reset', 'discard', 'tracked', undefined, operands(a.slice(0, a.includes('--') ? a.indexOf('--') : a.length))[0] ?? 'HEAD')
     } else if (sub === 'stash') {
       const op = a.length > 0 && !a[0]!.startsWith('-') ? a[0] : 'push'
       if (op === 'drop' || op === 'clear') await this.stashDrop(at, label)
@@ -1056,14 +1064,21 @@ class Guard {
   }
 
   // The changed files of a checkout this session did not edit, within the paths a command reaches.
-  private async foreign(at: Where, kinds: string, specs: readonly string[] | undefined, d: string): Promise<string[] | undefined> {
+  // `into` is a commit about to be checked out over the tree: the untracked files its tree holds are overwritten too.
+  private async foreign(at: Where, kinds: string, specs: readonly string[] | undefined, d: string, into?: string): Promise<string[] | undefined> {
     const top = at[0]
     const mine = this.r.checkouts[top]?.paths ?? []
     const reach = specs === undefined ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
-    return (await this.p.status(at, this.staged.get(top) ?? []))
-      ?.filter(([x]) => !((kinds === 'tracked' && x === '?') || (kinds === 'untracked' && x !== '?') || (kinds === 'staged' && ' ?'.includes(x))))
+    const changed = await this.p.status(at, this.staged.get(top) ?? [])
+    if (changed === undefined) return undefined
+    const lost = changed
+      .filter(([x]) => !((kinds === 'tracked' && x === '?') || (kinds === 'untracked' && x !== '?') || (kinds === 'staged' && ' ?'.includes(x))))
       .map(([, , f]) => f)
       .filter(f => !owns(mine, f) && (reach === undefined || reach.some(x => covers(x, f))))
+    const loose = into === undefined ? [] : changed.filter(([x, , f]) => x === '?' && !owns(mine, f) && !lost.includes(f)).map(([, , f]) => f)
+    if (loose.length === 0) return lost
+    const tree = await this.p.tree(top, into!)
+    return tree === undefined ? undefined : [...lost, ...loose.filter(f => tree.has(f))]
   }
 
   private unread(action: string, top: string, label: string) {
@@ -1077,9 +1092,9 @@ class Guard {
     return names.map(([, r]) => (live.get(r.pid) === r.start ? who(r, r.checkouts[top]!) : `pid ${r.pid}, exited`)).join(', ') || NO_OWNER
   }
 
-  private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[]) {
+  private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[], into?: string) {
     const top = at[0]
-    const files = await this.foreign(at, kinds, specs, d)
+    const files = await this.foreign(at, kinds, specs, d, into)
     if (files === undefined) this.unread(action, top, label)
     else if (files.length > 0) await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
   }
