@@ -166,7 +166,7 @@ class Machine {
       return { stdout: '' }
     }
     if (cmd === '/bin/sh' && a[1]?.includes('merge-tree')) {
-      const out = this.merges.get(`${a[6]}-${a[7]}`)
+      const out = this.merges.get(`${a[5]}-${a[6]}`)
       return out === undefined ? { exitCode: 0, stdout: 'tree\n' } : { exitCode: 1, stdout: `tree\n${out}\n\nCONFLICT\n` }
     }
     if (cmd === '/bin/sh' && a[1]?.includes('mkdir -p')) { this.mkdir(a[3]!); return { stdout: '' } }
@@ -742,7 +742,7 @@ test('report: claims, edited paths, and merge-tree conflicts of same-repository 
   expect(out).toContain('edited: lib/x.ts')
   expect(out).toContain('conflicts with HEAD: f.txt')
   expect(out.split('\n').filter(l => l.includes('conflicts with HEAD')).length).toBe(1)
-  expect(m.ran.filter(a => a[2]?.includes('merge-tree')).map(a => a[8])).toEqual([`sha-${wa}`, `sha-${wb}`])
+  expect(m.ran.filter(a => a[2]?.includes('merge-tree')).map(a => a[7])).toEqual([`sha-${wa}`, `sha-${wb}`])
   expect(m.files.has(`${DIR}/merge/v1/sha-${ra}-sha-${wa}`), 'report-caches-per-sha-pair').toBe(true)
   m.put(`${DIR}/merge/v1/sha-${ra}-sha-${wa}`, '["cached.txt"]')
   expect(await sr.report(ra)).toContain('conflicts with HEAD: cached.txt')
@@ -1062,11 +1062,15 @@ test('inspection: every git read takes its attributes from the empty tree, so no
   await me.report(r)
   const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
   for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
-  expect(merge, 'inert-merge-tree-sets-the-default-driver-to-the-built-in').toContain('merge.default=text')
+  expect(merge[2], 'inert-merge-tree-runs-in-a-bare-repository-of-its-own').toContain('init -q --bare')
+  expect(merge[2], 'inert-merge-tree-borrows-the-objects').toContain('objects/info/alternates')
+  expect(merge[2], 'inert-merge-tree-reads-no-user-or-system-config').toContain('GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1')
+  expect(merge.join(' '), 'inert-merge-tree-names-no-driver-override').not.toContain('merge.')
+  expect(merge, 'inert-merge-tree-not-in-the-checkout').not.toContain('-C')
   expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
 })
 
-test('inspection: the filter and merge driver names of .git/info/attributes are overridden on the command line, read once per change', async () => {
+test('inspection: the filter names of .git/info/attributes are overridden on the command line, read once per change', async () => {
   const { m, r, peer, me, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
@@ -1081,8 +1085,7 @@ test('inspection: the filter and merge driver names of .git/info/attributes are 
     for (const k of ['clean', 'smudge', 'process']) expect(pairs, `info-attributes-${n}-${k}`).toContain(`filter.${n}.${k}=`)
     expect(pairs, `info-attributes-${n}-required`).toContain(`filter.${n}.required=false`)
   }
-  expect(pairs, 'info-attributes-merge-driver').toContain('merge.drv.driver=')
-  expect(pairs.some(x => x.includes('.diff') || x.includes('.x.')), 'info-attributes-only-filter-and-merge').toBe(false)
+  expect(pairs.some(x => x.includes('.diff') || x.includes('.x.') || x.startsWith('merge.')), 'info-attributes-only-filters').toBe(false)
   const reads = m.reads.filter(p => p === file).length
   await decide(r, 'git reset --hard')
   expect(m.reads.filter(p => p === file).length, 'info-attributes-cached-by-mtime-and-size').toBe(reads)
@@ -1092,16 +1095,6 @@ test('inspection: the filter and merge driver names of .git/info/attributes are 
   const again = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
   expect(again, 'info-attributes-reread-after-a-change').toContain('filter.other.clean=')
   expect(again).not.toContain('filter.evil.clean=')
-  m.put(file, 'f merge=drv2')
-  m.dirty(r, ' M x')
-  const conflicting = m.worktree(r, '/w/wt', 'feat')
-  const peer2 = m.spawn()
-  await new Session(m, peer2, 'p2').touch(conflicting)
-  m.shas.set(conflicting, 'sha-other')
-  m.ran.length = 0
-  await me.report(r)
-  const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
-  expect(merge, 'info-attributes-merge-tree-driver').toContain('merge.drv2.driver=')
 })
 
 test('inspection: an info/attributes file that cannot be read or is too large leaves the tree unread, and git status is not run', async () => {

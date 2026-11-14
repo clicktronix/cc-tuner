@@ -383,6 +383,26 @@ e2e "$RD" go
 check  "inert-default-driver-the-report-still-sees-the-conflict" "conflicts with HEAD: f" "$(cat "$W/api.log")"
 equals "inert-merge-tree-runs-no-merge-default-driver" "no" "$([ -e "$MD/default" ] && echo yes || echo no)"
 
+# `merge.default=text` is not a way to neutralise a driver: a repository that defines `merge.text.driver` makes `text` a
+# driver too. merge-tree therefore runs in a temporary bare repository that reads none of the real one's configuration,
+# attributes or hooks and borrows its objects; the real object store keeps exactly the files it had.
+RT="$(repo)"; MT="$W/text-driver"; mkdir -p "$MT"
+commit_file "$RT" f one; git -C "$RT" switch -q -c side; commit_file "$RT" f side
+git -C "$RT" switch -q main; commit_file "$RT" f mine
+git -C "$RT" worktree add -q "$W/wt" side; WT="$(cd "$W/wt" && pwd -P)"
+peer; PTD=$SP; fixture ptd "$PTD" "$WT" null
+git -C "$RT" config merge.default text
+git -C "$RT" config merge.text.driver "touch '$MT/text'; false"
+git -C "$RT" merge-tree --write-tree main side >/dev/null 2>&1
+equals "inert-text-driver-control-a-plain-merge-tree-runs-it" "yes" "$([ -e "$MT/text" ] && echo yes || echo no)"
+rm -f "$MT/text"
+OBJ="$(cd "$RT/.git/objects" && find . -type f | sort | shasum)"
+script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input: {}}]}')"
+e2e "$RT" go
+check  "inert-text-driver-the-report-still-sees-the-conflict" "conflicts with HEAD: f" "$(cat "$W/api.log")"
+equals "inert-merge-tree-runs-no-text-driver" "no" "$([ -e "$MT/text" ] && echo yes || echo no)"
+equals "inert-merge-tree-leaves-the-object-store-unchanged" "$OBJ" "$(cd "$RT/.git/objects" && find . -type f | sort | shasum)"
+
 # `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
 # and only creates a marker file; a plain `git status` is the control that it runs.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"

@@ -111,6 +111,13 @@ const RENEW = 'd="$1"; ' + LOCKED + '[ "$(cat "$d/holder.json" 2>/dev/null)" = "
 const RELEASE = 'd="$1"; ' + LOCKED + '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$d" || exit 1'
 const SWEEP = 'cd "$1" || exit 0; shift; rm -f -- "$@"; find merge -type f -mmin +1440 -exec rm -f {} + 2>/dev/null; ' +
   'find . -maxdepth 1 -name ".objects.*" -mmin +60 -exec rm -rf {} + 2>/dev/null; exit 0'
+// merge-tree in a bare repository of its own. `$1` is the record directory (the temporary repository is `.objects.*`
+// there, which SWEEP removes once it is an hour old), `$2` the real repository's common directory.
+const ISOLATED_MERGE = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS ' +
+  'GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; ' +
+  'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; m="$3"; n="$4"; shift 4; ' +
+  'git init -q --bare --template= "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
+  'git "$@" --git-dir="$d" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc'
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
@@ -122,13 +129,13 @@ const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
-// Inspection is inert. A clean, smudge or process filter and a merge driver run only for a file whose attributes name
-// them, so every read takes its attributes from the empty tree (the repository's, the user's and the system's files
-// are never read); the one command a config can start by itself is core.fsmonitor. `--attr-source` needs git 2.40; an
-// older git exits 129 on it, which is never run around. `.git/info/attributes` is a local file git reads regardless, so
-// the filter and merge driver names it carries are overridden on the command line (which beats every config source, an
-// included file too): `inertNames` reads that one file. `merge.default` names a driver for a file whose attributes name
-// none, so merge-tree sets it to the built-in `text`.
+// Inspection is inert. A clean, smudge or process filter runs only for a file whose attributes name it, so every read
+// takes its attributes from the empty tree (the repository's, the user's and the system's files are never read); the
+// one command a config can start by itself is core.fsmonitor. `--attr-source` needs git 2.40; an older git exits 129 on
+// it, which is never run around. `.git/info/attributes` is a local file git reads regardless, so the filter names it
+// carries are overridden on the command line (which beats every config source, an included file too): `silenced` reads
+// that one file. A merge driver is the one thing config can select without attributes (`merge.default`, a driver named
+// `text`), so merge-tree never runs in the repository: see ISOLATED_MERGE.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' }
 const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null', `--attr-source=${EMPTY_TREE}`]
@@ -501,7 +508,7 @@ export class Peers {
 
   // Whether an inspection met a git too old for `--attr-source`: said once by the stop that follows.
   tooOld = false
-  // The `-c` overrides that silence every filter and merge driver `$common/info/attributes` names: [] for a repository
+  // The `-c` overrides that silence every filter `$common/info/attributes` names: [] for a repository
   // with none, undefined for a file that cannot be read or is past 64 KiB. Read again only when its mtime or size changed.
   private attributes = new Map<string, { key: string; args: string[] | undefined }>()
   private async silenced(common: string): Promise<string[] | undefined> {
@@ -515,13 +522,10 @@ export class Peers {
     const text = st.kind === 'file' && (st.size ?? ATTRIBUTES_MAX + 1) <= ATTRIBUTES_MAX ? await this.w.read(file).catch(() => undefined) : undefined
     if (text !== undefined && text.length <= ATTRIBUTES_MAX) {
       const names = (attr: string) => [...new Set([...text.matchAll(new RegExp(`(?:^|\\s)${attr}=(\\S+)`, 'g'))].map(m => m[1]!))]
-      const [filters, merges] = [names('filter'), names('merge')]
+      const filters = names('filter')
       // A name with `=` cannot be written as a `-c` key, so that file is unread too.
-      if (![...filters, ...merges].some(n => n.includes('='))) {
-        args = [
-          ...filters.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]),
-          ...merges.map(n => `merge.${n}.driver=`),
-        ].flatMap(x => ['-c', x])
+      if (!filters.some(n => n.includes('='))) {
+        args = filters.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]).flatMap(x => ['-c', x])
       }
     }
     this.attributes.set(file, { key, args })
@@ -640,19 +644,16 @@ export class Peers {
     return found.filter(([r]) => live.has(r))
   }
 
-  // merge-tree of the two commits in a temporary object directory in front of the repository's own store,
-  // so its result objects never reach the repository; cached per SHA pair.
-  private async conflicts(top: string, common: string, mine: string, theirs: string): Promise<string[] | undefined> {
+  // merge-tree of the two commits in a temporary bare repository that borrows the repository's objects through
+  // `objects/info/alternates`: it has no configuration, attributes or hooks of the real one (so no merge driver any
+  // key of it names, `merge.default` included, can run), the user's and the system's config are not read, and the
+  // result objects land in it alone. Cached per SHA pair.
+  private async conflicts(common: string, mine: string, theirs: string): Promise<string[] | undefined> {
     const cache = `${await this.dir()}/merge/v1/${mine}-${theirs}`
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
-    const inert = await this.inert(top, common)
-    if (inert === undefined) return undefined
-    const r = await this.w.run(['/bin/sh', '-c',
-      'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; t="$3"; m="$4"; n="$5"; shift 5; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$o/objects" ' +
-      'git "$@" -C "$t" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc',
-    'sh', await this.dir(), common, top, mine, theirs, ...inert, '-c', 'merge.default=text'], { env: GIT_ENV })
+    const r = await this.w.run(['/bin/sh', '-c', ISOLATED_MERGE, 'sh', await this.dir(), common, mine, theirs, ...INERT], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
@@ -691,7 +692,7 @@ export class Peers {
         if (co.repo !== here[1]) continue
         const sha = mineSha === undefined ? undefined : await this.git(top, 'rev-parse', 'HEAD')
         if (mineSha !== undefined && sha !== undefined && sha !== mineSha) {
-          const names = await this.conflicts(here[0], here[1], mineSha, sha)
+          const names = await this.conflicts(here[1], mineSha, sha)
           if (names === undefined) lines.push('  conflicts with HEAD: not computed (merge-tree failed)')
           else if (names.length > 0) lines.push(`  conflicts with HEAD: ${names.join(', ')}`)
         }
