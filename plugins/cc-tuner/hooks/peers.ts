@@ -1030,7 +1030,7 @@ class Guard {
     await this.shared(w, at)
     if (blind && (name === 'git' || name === 'gh' || name === 'rm')) this.note(`could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
     else if (name === 'git' && at !== undefined) await this.git(w, at, d)
-    else if (name === 'gh' && at !== undefined) await this.gh(w, at)
+    else if (name === 'gh' && at !== undefined) await this.gh(w, at, d)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
     else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) { if (scope !== undefined) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1))) }
     else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) this.note(`could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
@@ -1105,9 +1105,15 @@ class Guard {
     }
   }
 
-  private async gh(w: string[], at: Where) {
-    if (w.length < 3 || w[1] !== 'pr' || (w[2] !== 'create' && w[2] !== 'merge')) return
+  private async gh(w: string[], at: Where, d: string) {
+    if (w.length < 3 || w[1] !== 'pr' || (w[2] !== 'create' && w[2] !== 'merge' && w[2] !== 'checkout')) return
     const label = w.join(' ').slice(0, 60)
+    if (w[2] === 'checkout') {
+      if (has(w.slice(3), '--force', 'f')) await this.lose(at, d, label, 'gh pr checkout', 'discard', 'tracked')
+      await this.switch(at)
+      this.moved.add(at[0])
+      return
+    }
     await this.drift(at, label, `gh pr ${w[2]}`)
     if (w[2] !== 'merge' || !has(w.slice(3), '--delete-branch', 'd')) return
     const sel: string[] = []

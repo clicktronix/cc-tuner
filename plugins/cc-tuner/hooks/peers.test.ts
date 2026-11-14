@@ -898,6 +898,36 @@ test('guard: a switch next to a writer stops with a short reason; idle, cwd-only
   void me
 })
 
+test('guard: gh pr checkout is a switch: it stops next to a writer, and --force stops for a foreign file', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  for (const c of ['gh pr checkout 5', 'gh pr checkout 5 --force', 'gh pr checkout -f 5', 'gh pr checkout --branch pr5 5']) {
+    expect((await decide(r, c)).decision, `gh-pr-checkout-next-to-a-writer: ${c}`).toBe('stop')
+  }
+  expect((await decide(r, 'gh pr checkout 5')).reason).toContain('switching branches there changes its files')
+  expect((await decide(r, 'gh pr list')).decision).toBe('allow')
+  m.end(peer.pid)
+  expect((await decide(r, 'gh pr checkout 5')).decision, 'a lone session may').toBe('allow')
+  m.dirty(r, ' M f.txt', '?? new.txt')
+  for (const c of ['gh pr checkout 5 --force', 'gh pr checkout -f 5']) {
+    const v = await decide(r, c)
+    expect(v.decision, `gh-pr-checkout-force-discards: ${c}`).toBe('stop')
+    expect(v.reason).toContain('f.txt')
+  }
+  expect((await decide(r, 'gh pr checkout 5')).decision, 'without --force nothing is discarded').toBe('allow')
+  await me.edited(r, `${r}/f.txt`)
+  expect((await decide(r, 'gh pr checkout 5 --force')).decision, 'own files').toBe('allow')
+})
+
+test('guard: a commit after gh pr checkout joined by && is on the branch it moved to', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.head(r, 'b')
+  expect((await decide(r, 'gh pr checkout 5', then('git commit --allow-empty -m m'))).decision, 'excused-by-the-checkout').toBe('allow')
+  expect((await decide(r, 'gh pr checkout 5', then('git commit --allow-empty -m m', ';'))).decision).toBe('stop')
+})
+
 test('guard: a stopped call marks no writer; an allowed writer call does', async () => {
   const { m, r, ready, decide } = world()
   await ready
