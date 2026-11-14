@@ -1384,6 +1384,21 @@ test('resource: a machine resource applies in a repository without the file, and
   expect((await sx.bash(rx, 'pnpm stack:down')).decision).toBe('allow')
 })
 
+test('resource: a machine shared stop applies from a directory that is no repository', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  m.mkdir('/w/none')
+  declareMachine(m, STACK)
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  const { decision, reason } = await me.bash('/w/none', 'stack down')
+  expect(decision, 'resource-machine-stop-outside-a-repository').toBe('stop')
+  expect(reason).toContain(`pid ${peer.pid}`)
+  expect((await me.bash('/w/none', 'npm test')).decision, 'a command that stops nothing is no stop').toBe('allow')
+  m.end(peer.pid)
+  expect((await me.bash('/w/none', 'stack down')).decision, 'no live session, no stop').toBe('allow')
+})
+
 test('resource: two simultaneous first users get one lease, across products', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)

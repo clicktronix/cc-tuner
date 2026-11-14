@@ -268,6 +268,16 @@ kill "$PR"; until [ -z "$(lstart "$PR")" ]; do sleep 0.05; done
 e2e "$RR" go
 equals "resource-shared-stop-runs-when-no-peer-is-live" "yes" "$([ -e "$W/stack-stopped" ] && echo yes || echo no)"
 
+# The machine's shared stop counts where the call's directory is no repository too.
+NR="$W/none"; mkdir -p "$NR"; rm -f "$W/none-stopped"
+jq -nc --arg c "touch $W/none-stopped" '{resources: [{key: "mstack", kind: "shared", start: [], stop: [$c]}]}' > "$W/machine-stop.json"
+peer; PN=$SP; fixture pn "$PN" "$RR" null
+script "$(jq -nc --arg c "touch $W/none-stopped" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+CC_TUNER_PEERS_CONFIG="$W/machine-stop.json" e2e "$NR" go
+check  "resource-machine-stop-outside-a-repository-reaches-the-model" "would stop mstack, which pid" "$(cat "$W/api.log")"
+equals "resource-machine-stop-outside-a-repository-did-not-run" "no" "$([ -e "$W/none-stopped" ] && echo yes || echo no)"
+kill "$PN"; until [ -z "$(lstart "$PN")" ]; do sleep 0.05; done
+
 cat > "$W/mcp.py" <<'PY'
 import json, sys
 for line in sys.stdin:

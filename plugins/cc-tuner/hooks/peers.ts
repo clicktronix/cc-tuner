@@ -847,7 +847,9 @@ export class Peers {
         plan.push({ st, writes, switch: sw, blind: blind && writes, at: known ? (d === norm(ev.cwd) ? here : await this.where(d)) : undefined, d })
       }
     }
-    if ((here === undefined && !plan.some(p => p.at !== undefined)) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
+    // Outside every repository only the machine's shared stops can still decide a call.
+    const bare = here === undefined && !plan.some(p => p.at !== undefined)
+    if ((bare && !(ev.phase === 'before' && await this.stops(plan.map(p => p.st.words ?? [])))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     return this.serial(async () => {
       const { recs, bad } = await this.load()
       await this.sweep(recs)
@@ -891,6 +893,11 @@ export class Peers {
       if (ev.phase === 'start' && here !== undefined) out.line = await this.startLine(recs, name, r, here)
       return out
     })
+  }
+
+  // Whether a command is a stop command of a shared resource the machine's own file declares.
+  private async stops(steps: string[][]): Promise<boolean> {
+    return (await this.machine()).resources.some(r => r.kind === 'shared' && r.stop.some(p => steps.some(w => prefixed(w, p))))
   }
 
   // A new session id in this process (/clear, /resume): acks and claims start over; a resumed session's tombstone
