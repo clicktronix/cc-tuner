@@ -419,6 +419,13 @@ export class Peers {
     return out === undefined ? undefined : new Set(out.split('\0').filter(Boolean))
   }
 
+  // Whether `submodule.recurse` is on: the commands that take --recurse-submodules then recurse without it. The engine's
+  // own git calls carry `-c submodule.recurse=false`, which is not the user's setting: the last value of another scope is.
+  async recurses(top: string): Promise<boolean> {
+    const out = await this.git(top, 'config', '--show-scope', '--type=bool', '--get-all', 'submodule.recurse')
+    return out?.split('\n').filter(l => !l.startsWith('command\t')).pop()?.endsWith('\ttrue') ?? false
+  }
+
   async rebasing(top: string): Promise<boolean> {
     const gd = await this.gitdir(top)
     return gd !== undefined && (await Promise.all(['rebase-merge', 'rebase-apply'].map(d => this.w.stat(`${gd}/${d}`)))).some(st => st !== undefined)
@@ -1104,13 +1111,18 @@ class Guard {
       this.note(`could not read \`${label}\`; if a peer works in ${top}, check first.`)
     } else if (sub === 'switch' || sub === 'checkout') {
       if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
+        await this.recursing(at, label, 'checkout', a)
         await this.lose(at, d, label, 'checkout', 'overwrite', 'tracked', after ?? operands(a))
       } else {
-        if (has(a, '--force', 'f') || a.includes('--discard-changes')) await this.lose(at, d, label, sub, 'discard', 'tracked', undefined, has(a, '--orphan') ? undefined : checkedOut(a))
+        if (has(a, '--force', 'f') || a.includes('--discard-changes')) {
+          await this.recursing(at, label, sub, a)
+          await this.lose(at, d, label, sub, 'discard', 'tracked', undefined, has(a, '--orphan') ? undefined : checkedOut(a))
+        }
         await this.switch(at)
         this.moved.add(top)
       }
     } else if (sub === 'reset' && a.includes('--hard')) {
+      await this.recursing(at, label, 'reset', a)
       await this.lose(at, d, label, 'reset', 'discard', 'tracked', undefined, operands(a.slice(0, a.includes('--') ? a.indexOf('--') : a.length))[0] ?? 'HEAD')
     } else if (sub === 'stash') {
       const op = a.length > 0 && !a[0]!.startsWith('-') ? a[0] : 'push'
@@ -1122,6 +1134,7 @@ class Guard {
     } else if (sub === 'clean' && !has(a, '--dry-run', 'n')) {
       await this.lose(at, d, label, 'clean', 'delete', 'untracked', operands(a).length > 0 ? operands(a) : ['.'])
     } else if (sub === 'restore') {
+      await this.recursing(at, label, 'restore', a)
       await this.lose(at, d, label, 'restore', 'overwrite', 'tracked', operands(a))
     } else if (sub === 'commit') {
       await this.drift(at, label, 'commit')
@@ -1241,6 +1254,14 @@ class Guard {
     const files = await this.foreign(at, kinds, specs, d, into)
     if (files === undefined) this.unread(action, top, label)
     else if (files.length > 0) await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
+  }
+
+  // Status ignores submodules, so what a destructive command discards inside them is not inspected: a recursion stops.
+  private async recursing(at: Where, label: string, action: string, a: readonly string[]) {
+    const last = flags(a).filter(x => x === '--recurse-submodules' || x === '--no-recurse-submodules').pop()
+    if (last === '--no-recurse-submodules' || (last === undefined && !(await this.p.recurses(at[0])))) return
+    this.stop(action, `${at[0]}|submodules`, `\`${label}\` would also reach the submodules of ${at[0]}, and submodules are not inspected.`,
+      'Run it with --no-recurse-submodules, or check the submodules yourself.', false)
   }
 
   private async foreignStop(action: string, target: string, files: string[], text: string) {

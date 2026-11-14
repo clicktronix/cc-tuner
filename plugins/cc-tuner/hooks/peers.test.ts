@@ -29,6 +29,7 @@ class Machine {
   envs: Record<string, Record<string, string> | undefined> = {}
   failing = new Map<string, number>()
   trees = new Map<string, string[]>()
+  configs = new Map<string, string>()
   afterRead = new Map<string, () => Promise<void>>()
   // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
   busy: (() => void) | undefined
@@ -127,6 +128,10 @@ class Machine {
     if (cmd === 'git' && a[2] === 'status') {
       const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
       return { stdout: (this.status.get(a[1]!) ?? []).filter(e => spec === undefined || spec.includes(e.slice(3))).map(e => `${e}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'config') {
+      const v = this.configs.get(`${a[1]}|${a[a.length - 1]}`)
+      return v === undefined ? { exitCode: 1, stdout: '' } : { stdout: `command\tfalse\nlocal\t${v}\n` }
     }
     if (cmd === 'git' && a[2] === 'ls-tree') {
       return { stdout: (this.trees.get(`${a[1]}|${a[a.length - 1]}`) ?? []).map(f => `${f}\0`).join('') }
@@ -997,6 +1002,26 @@ test('guard: discarding or committing a foreign file stops, with no peer needed;
   expect((await decide(r, 'git restore g.txt')).decision, 'guard-restore-of-a-dirty-file-nobody-edited-stops').toBe('stop')
 })
 
+test('guard: a destructive command that recurses into submodules stops, since their changes are not inspected', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  for (const c of ['git reset --hard --recurse-submodules', 'git reset --hard --recurse-submodules HEAD~1', 'git restore --recurse-submodules g.txt', 'git restore --recurse-submodules .',
+    'git checkout -f --recurse-submodules x', 'git switch -f --recurse-submodules x', 'git switch --discard-changes --recurse-submodules x', 'git checkout --recurse-submodules -- g.txt']) {
+    const v = await decide(r, c)
+    expect(v.decision, `submodules-${c}`).toBe('stop')
+    expect(v.reason, `submodules-say-so-${c}`).toContain('submodules are not inspected')
+    expect(v.reason, `submodules-offer-the-ack-${c}`).toContain('CC_TUNER_ACK=')
+  }
+  for (const c of ['git reset --hard', 'git reset --soft --recurse-submodules', 'git restore g.txt', 'git reset --hard --no-recurse-submodules', 'git checkout -- g.txt']) {
+    expect((await decide(r, c)).decision, `plain-${c}`).toBe('allow')
+  }
+  m.configs.set(`${r}|submodule.recurse`, 'true')
+  for (const c of ['git reset --hard', 'git restore g.txt', 'git checkout -f x']) expect((await decide(r, c)).decision, `config-${c}`).toBe('stop')
+  for (const c of ['git reset --hard --no-recurse-submodules', 'git restore --no-recurse-submodules g.txt']) expect((await decide(r, c)).decision, `config-off-${c}`).toBe('allow')
+  expect((await decide(r, 'git status')).decision, 'config-a-read-passes').toBe('allow')
+})
+
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const INERT = [`--attr-source=${EMPTY_TREE}`, 'core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false']
 
@@ -1012,7 +1037,7 @@ test('inspection: every git read takes its attributes from the empty tree, so no
   for (const argv of gits) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
   expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
   expect(m.ran.find(a => a.includes('status')), 'inert-status-ignores-submodules').toContain('--ignore-submodules=all')
-  expect(m.ran.some(a => a.includes('config')), 'inert-no-config-is-read').toBe(false)
+  expect(m.ran.some(a => a.includes('config') && !a.includes('submodule.recurse')), 'inert-no-config-is-read-but-submodule.recurse').toBe(false)
   const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
   await new Session(m, peer2, 'p2').touch(wt)
   m.shas.set(wt, 'sha-other')

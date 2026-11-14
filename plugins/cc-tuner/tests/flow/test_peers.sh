@@ -429,6 +429,30 @@ for c in "git reset --hard dd|d/foreign" "git checkout -f dd|d/foreign" "git swi
   equals "untracked-file-directory-collision-keeps-the-file: ${c%|*} / ${c#*|}"    "precious" "$(cat "$RU/${c#*|}" 2>/dev/null)"
 done
 
+# --- a destructive command that recurses into submodules stops: status ignores them, so their edits are not inspected ---
+# The submodule's tracked file is modified and the superproject is clean; without recursion `reset --hard` leaves the
+# submodule alone, with it the edit is gone.
+RM="$(repo)"; git init -q -b main "$W/subsrc2"; commit_file "$W/subsrc2" x one
+commit_file "$RM" a one
+git -C "$RM" -c protocol.file.allow=always submodule add -q "$W/subsrc2" sm 2>/dev/null; ( cd "$RM" && git commit -q -m sm )
+for c in "git reset --hard --recurse-submodules" "git reset --hard"; do
+  printf 'precious\n' > "$RM/sm/x"
+  script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+  e2e "$RM" go
+  case "$c" in
+    *recurse*) check "submodules-recursion-stops-on-real-git" "submodules are not inspected" "$(cat "$W/api.log")"
+               check "submodules-recursion-offers-the-ack" "CC_TUNER_ACK=" "$(cat "$W/api.log")"
+               equals "submodules-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x")" ;;
+    *) absent "submodules-no-recursion-is-not-stopped" "CC_TUNER_ACK=" "$(cat "$W/api.log")"
+       equals "submodules-no-recursion-leaves-the-submodule-edit" "precious" "$(cat "$RM/sm/x")" ;;
+  esac
+done
+git -C "$RM" config submodule.recurse true; printf 'precious\n' > "$RM/sm/x"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "git reset --hard"}}]}')"
+e2e "$RM" go
+check  "submodules-config-recursion-stops-on-real-git" "submodules are not inspected" "$(cat "$W/api.log")"
+equals "submodules-config-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x")"
+
 # --- a commit with paths takes only those paths, so a foreign staged file does not stop it ----------------------------
 RC="$(repo)"
 commit_file "$RC" own one; commit_file "$RC" foreign one
