@@ -77,7 +77,7 @@ function commands(text: string, base = ''): Simple[] {
   function list(nested: boolean) {
     let current: Simple = { words: [], inputs: [], dir, writes: false }
     const parens: string[] = []
-    // Ends the command at an operator (`joined` is its text) and makes that operator the next one's.
+    // Ends the command at an operator (`joined` is its text).
     const end = (joined?: string) => {
       if (current.words.length > 0 || current.inputs.length > 0) {
         current.dir = dir

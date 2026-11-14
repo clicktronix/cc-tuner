@@ -5,26 +5,27 @@ import type { EngineInterface } from 'claude-code'
 //
 // One JSON record per Claude session in the record directory (CC_TUNER_PEERS_DIR, default
 // ~/.cache/cc-tuner/sessions). A session writes only its own record, one write at a time in this
-// process; other records are only read, and one that does not parse is skipped and noted. A session is
-// its Claude process, pid plus start time; a nested `claude -p` counts as the outermost `claude` above it
-// and shares its record. A record whose process is gone, or is another process now, is a tombstone: no
+// process; other records are only read, and one that does not parse or has the wrong shape or version is skipped and
+// noted. A session is its Claude process, pid plus start time; a nested `claude -p` counts as the outermost `claude`
+// above it and shares its record, ids and acks included. A record whose process is gone, or is another process now, is a tombstone: no
 // longer a peer, its edited paths still on disk. A tombstone untouched for 24 h is removed; a resumed
-// session with the same session_id adopts it. `/clear` drops acks and claims.
+// session with the same session_id adopts it, also in a running process (`/resume`). `/clear` drops acks and claims.
 //
 //   {v: 1, session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [{id, key, top}],
 //    checkouts: {<toplevel>: {repo, expected, writer, paths}}}
 //
 // kept are the shared-resource tasks this process started: /clear leaves them running, and so does a reload of the module.
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
-// first touch, moved only when HEAD changed during this session's own call that held a switch; writer
-// the epoch of the last writer call; paths what Edit/Write changed. acks also hold the hourly notes.
+// first touch, moved only by this session's own call that held a switch-like step, when HEAD changed during it or
+// the step named the branch HEAD holds; writer the epoch of the last call that ran and could write; paths what
+// Edit/Write changed. acks also hold the hourly notes.
 //
 // Resources are declared, not detected: `<toplevel>/.claude/cc-tuner-resources.json` (`product` and `resources`)
 // and the machine's own file (CC_TUNER_PEERS_CONFIG, else $XDG_CONFIG_HOME or ~/.config, cc-tuner/resources.json),
 // each read again when its mtime changes. A shared resource (`start` and `stop` command prefixes) is not stopped
 // while another session of the product is live; the machine's, while any session is. An exclusive one (`tools`,
 // MCP tool-name patterns) is leased to the first session that calls one: a lock directory `lease.<key>` in the
-// record directory, made by an atomic `mkdir` that carries {key, pid, start, session, last use}. The lease moves
+// record directory, made by an atomic `mkdir` that carries {v, key, pid, start, session, last use}. The lease moves
 // on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
@@ -691,7 +692,8 @@ export class Peers {
   }
 
   // --- the guard ----------------------------------------------------------------------------------------
-  // One event: update this session's record and answer allow, note or stop. A stopped call marks no writer.
+  // One event: update this session's record and answer allow, note or stop. `before` decides; `after`, sent once the
+  // engine let the call run, marks the writer and moves the expected branch, so a stopped or denied call does neither.
   async check(ev: Event): Promise<Verdict & { line?: string }> {
     const sid = ev.session_id || null
     const target = ev.path ? join(ev.cwd, ev.path) : undefined
