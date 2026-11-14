@@ -175,8 +175,10 @@ const has = (a: readonly string[], long: string, short = '') =>
   flags(a).some(x => x === long || (short !== '' && new RegExp(`^-[a-zA-Z]*[${short}]`).test(x)))
 const owns = (paths: readonly string[], f: string) => paths.includes(f) || (f.endsWith('/') && paths.some(p => p.startsWith(f)))
 const glob = (spec: string) => new RegExp(`^${spec.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`)
+// A pathspec that is not a literal path (magic such as `:(top)` or `:!`, a glob) cannot be resolved here: it reaches every file.
+const unresolved = (spec: string) => spec.startsWith(':') || /[*?[]/.test(spec)
 const covers = (spec: string, f: string) =>
-  spec === '.' || f === spec || f.startsWith(`${spec.replace(/\/+$/, '')}/`) || glob(spec).test(f) || (f.endsWith('/') && spec.startsWith(f))
+  spec === '.' || f === spec || f.startsWith(`${spec.replace(/\/+$/, '')}/`) || (f.endsWith('/') && spec.startsWith(f))
 const overlaps = (a: string, b: string) => {
   const [x, y] = [a.replace(/\/+$/, ''), b.replace(/\/+$/, '')]
   return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)
@@ -1219,7 +1221,7 @@ class Guard {
   private async foreign(at: Where, kinds: string, specs: readonly string[] | undefined, d: string, into?: string): Promise<string[] | undefined> {
     const top = at[0]
     const mine = this.own(top)
-    const reach = specs === undefined ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
+    const reach = specs === undefined || specs.some(unresolved) ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
     const changed = await this.p.status(at, this.staged.get(top) ?? [])
     if (changed === undefined) return undefined
     const lost = changed

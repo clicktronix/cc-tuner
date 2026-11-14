@@ -1002,6 +1002,23 @@ test('guard: discarding or committing a foreign file stops, with no peer needed;
   expect((await decide(r, 'git restore g.txt')).decision, 'guard-restore-of-a-dirty-file-nobody-edited-stops').toBe('stop')
 })
 
+test('guard: a pathspec the guard cannot read as a literal path (magic, a glob) reaches every foreign file', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M foreign.txt', '?? loose.txt')
+  m.end(peer.pid)
+  expect((await decide(r, 'git clean -fd :(top)loose.txt')).reason, 'pathspec-clean-names-the-untracked-file').toContain('loose.txt')
+  for (const c of ['git restore -- :(top)foreign.txt', 'git restore :!x', 'git restore *.txt', 'git restore dir/**', 'git restore a[0-9].txt', 'git restore f?reign.txt',
+    'git commit -m mine -- :(top)foreign.txt', 'git commit -m mine -- *.txt', 'git checkout -- :(top)foreign.txt']) {
+    const v = await decide(r, c)
+    expect(v.decision, `pathspec-${c}`).toBe('stop')
+    expect(v.reason, `pathspec-names-${c}`).toContain('foreign.txt')
+  }
+  for (const c of ['git restore g.txt', 'git commit -m mine -- g.txt', 'git restore sub/g.txt']) expect((await decide(r, c)).decision, `literal-${c}`).toBe('allow')
+  await me.edited(r, `${r}/foreign.txt`)
+  for (const c of ['git restore -- :(top)foreign.txt', 'git commit -m mine -- *.txt']) expect((await decide(r, c)).decision, `own-${c}`).toBe('allow')
+})
+
 test('guard: a destructive command that recurses into submodules stops, since their changes are not inspected', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
