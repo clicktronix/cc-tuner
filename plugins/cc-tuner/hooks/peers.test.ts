@@ -576,7 +576,7 @@ test('record: a malformed or half-written record is skipped with a note', async 
   expect(out, 'record-malformed-skips-only-itself').toContain(`pid ${peer.pid}`)
 })
 
-// A nested `claude -p` and its outer session are one participant: two records, none written by the other process.
+// A nested `claude -p` is a session like any other: its own pid and start, its own record, a peer of the process that started it.
 function nested() {
   const { m, session } = machine()
   const r1 = m.repo('/w/r1')
@@ -586,56 +586,53 @@ function nested() {
   return { m, session, r1, outer, inner, o, n }
 }
 
-test('record: a nested claude -p keeps a record of its own, naming the outer; the outer record is never written by it', async () => {
-  const { m, r1, outer, inner, o, n } = nested()
+test('record: a nested claude -p keeps a record of its own and writes no other; nothing names an outer process', async () => {
+  const { m, r1, inner, o, n } = nested()
   await o.edited(r1, `${r1}/o.txt`)
   const before = m.files.get(`${DIR}/a.json`)!.text
   await n.edited(r1, `${r1}/n.txt`)
   await n.bash(r1, 'npm test')
   expect(m.files.get(`${DIR}/a.json`)!.text, 'record-nested-never-writes-the-outer-record').toBe(before)
-  expect(m.rec('b'), 'record-nested-has-its-own-record').toMatchObject({
-    pid: inner, session_id: 'b', outer: { pid: outer, start: m.procs.get(outer)!.start }, checkouts: { [r1]: { paths: ['n.txt'] } },
-  })
-  expect(m.rec('a').outer).toBeUndefined()
-  expect([m.records(outer), m.records(inner)]).toEqual([1, 1])
+  expect(m.rec('b'), 'record-nested-has-its-own-record').toMatchObject({ pid: inner, session_id: 'b', checkouts: { [r1]: { paths: ['n.txt'] } } })
+  expect(m.rec('b'), 'record-has-no-outer-field').not.toHaveProperty('outer')
+  expect(m.rec('a')).not.toHaveProperty('outer')
 })
 
-test('record: a nested claude -p and its outer are not peers of each other, their edits are each other\'s own, and a third session sees both', async () => {
-  const { m, session, r1, outer, inner, o, n } = nested()
+test('peers: a nested claude -p and the process that started it are peers of each other, and an edit of one is foreign to the other', async () => {
+  const { m, r1, outer, inner, o, n } = nested()
   await o.edited(r1, `${r1}/o.txt`)
   await n.edited(r1, `${r1}/n.txt`)
-  expect(await o.report(r1), 'peers-nested-is-not-a-peer-of-its-outer').toBe('no live peers')
-  expect(await n.report(r1), 'peers-outer-is-not-a-peer-of-its-nested').toBe('no live peers')
+  expect(await o.report(r1), 'peers-nested-is-a-peer-of-its-outer').toContain(`pid ${inner} `)
+  expect(await n.report(r1), 'peers-outer-is-a-peer-of-its-nested').toContain(`pid ${outer} `)
   m.dirty(r1, ' M o.txt', ' M n.txt')
-  expect((await o.bash(r1, 'git reset --hard')).decision, 'peers-nested-edits-are-the-outers-own').toBe('allow')
-  expect((await n.bash(r1, 'git reset --hard')).decision, 'peers-outer-edits-are-the-nested-own').toBe('allow')
-  const third = session('t')
-  await third.touch(r1)
-  m.dirty(r1, ' M other.txt')
-  const seen = await third.report(r1)
-  expect(seen).toContain(`pid ${outer} `)
-  expect(seen).toContain(`pid ${inner} `)
-  expect((await third.bash(r1, 'git reset --hard')).reason, 'a third session finds the nested edit foreign').toContain(`pid ${inner}`)
-  m.status.set(r1, [' M o.txt', ' M n.txt'])
-  m.end(inner)
-  expect((await o.bash(r1, 'git reset --hard')).decision, 'the exited nested process\'s edits stay the outer\'s own').toBe('allow')
+  expect((await o.bash(r1, 'git reset --hard')).reason, 'peers-the-nested-edit-is-foreign-to-its-outer').toContain(`pid ${inner}`)
+  expect((await n.bash(r1, 'git reset --hard')).reason, 'peers-the-outer-edit-is-foreign-to-its-nested').toContain(`pid ${outer}`)
+  m.status.set(r1, [' M o.txt'])
+  expect((await o.bash(r1, 'git reset --hard')).decision, 'each stays free on its own files').toBe('allow')
 })
 
-test('record: a process of a nested claude -p is not a peer\'s to its outer, a lease and a shared resource are the pair\'s', async () => {
-  const { m, session, r1, outer, inner, o, n } = nested()
+test('peers: a process of a nested claude -p is a peer\'s, and a lease and a shared resource are each session\'s own', async () => {
+  const { m, r1, outer, inner, o, n } = nested()
   await o.touch(r1)
   await n.touch(r1)
   const child = m.spawn(inner, 'sleep', 'sleep 9')
-  expect((await o.bash(r1, `kill ${child}`)).decision, 'kill-nested-child-is-not-a-peer-of-its-outer').not.toBe('stop')
-  const t = session('t')
-  await t.touch(r1)
-  expect((await t.bash(r1, `kill ${child}`)).decision, 'kill-nested-child-stops-for-a-third-session').toBe('stop')
+  expect((await o.bash(r1, `kill ${child}`)).decision, 'kill-nested-child-stops-for-its-outer').toBe('stop')
   declareMachine(m, CHROME, { key: 'stack', kind: 'shared', start: [], stop: ['stack down'] })
-  m.end(t.pid)
   expect((await o.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
-  expect((await n.peers.lease(CLICK, r1, 'b')).decision, 'lease-nested-uses-the-outers-lease').toBe('allow')
-  expect((await n.bash(r1, 'stack down')).decision, 'resource-the-outer-is-not-another-user').toBe('allow')
-  expect(JSON.parse(m.cat(`${DIR}/lease.chrome/holder.json`)), 'the lease is the outer\'s').toMatchObject({ pid: outer })
+  expect((await n.peers.lease(CLICK, r1, 'b')).reason, 'lease-nested-does-not-use-the-outers-lease').toContain(`leased to pid ${outer}`)
+  expect((await n.bash(r1, 'stack down')).reason, 'resource-the-outer-is-another-user').toContain(`pid ${outer}`)
+  expect(JSON.parse(m.cat(`${DIR}/lease.chrome/holder.json`)), 'the lease is the outer\'s own').toMatchObject({ pid: outer })
+})
+
+test('record: a session is the nearest claude process above its caller, never the outermost', async () => {
+  const { m } = machine()
+  const r1 = m.repo('/w/r1')
+  const outer = m.spawn(1, 'claude')
+  const mid = m.spawn(m.spawn(outer, 'bash'), 'claude')
+  const helper = m.spawn(mid, 'node')
+  await new Session(m, helper, 'h').touch(r1)
+  expect(m.rec('h').pid, 'pid-nearest-claude-ancestor').toBe(mid)
+  expect(m.records(outer)).toBe(0)
 })
 
 // --- report: peers by repository and by product, their claims, edits and conflicts ------------------------
