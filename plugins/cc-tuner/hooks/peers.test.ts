@@ -76,7 +76,7 @@ class Machine {
 
   rec(name: string): Rec { return JSON.parse(this.files.get(`${DIR}/${name}.json`)!.text) as Rec }
   edit(name: string, change: (r: Rec) => void) { const r = this.rec(name); change(r); this.put(`${DIR}/${name}.json`, JSON.stringify(r)) }
-  records(pid: number) { return [...this.files].filter(([p, f]) => p.startsWith(`${DIR}/`) && p.endsWith('.json') && f.text.includes(`"pid":${pid},`)).length }
+  records(pid: number) { return [...this.files].filter(([p, f]) => p.startsWith(`${DIR}/`) && p.endsWith('.json') && (JSON.parse(f.text) as { pid?: number }).pid === pid).length }
 
   ps(pids?: number[]): string {
     return [...this.procs].filter(([p]) => pids === undefined || pids.includes(p)).map(([p, x]) => `${p} ${x.ppid} ${x.start} /bin/${x.name}`).join('\n')
@@ -549,16 +549,66 @@ test('record: a malformed or half-written record is skipped with a note', async 
   expect(out, 'record-malformed-skips-only-itself').toContain(`pid ${peer.pid}`)
 })
 
-test('record: a nested claude -p counts as the outermost claude above it', async () => {
-  const { m } = machine()
+// A nested `claude -p` and its outer session are one participant: two records, none written by the other process.
+function nested() {
+  const { m, session } = machine()
   const r1 = m.repo('/w/r1')
   const outer = m.spawn(1, 'claude')
-  const shell = m.spawn(outer, 'bash')
-  const inner = m.spawn(shell, 'claude')
-  await new Session(m, inner, 's7').touch(r1)
-  expect(m.rec('s7').pid).toBe(outer)
-  await new Session(m, outer, 's7').touch(r1)
-  expect(m.records(outer)).toBe(1)
+  const inner = m.spawn(m.spawn(outer, 'bash'), 'claude')
+  const [o, n] = [new Session(m, outer, 'a'), new Session(m, inner, 'b')]
+  return { m, session, r1, outer, inner, o, n }
+}
+
+test('record: a nested claude -p keeps a record of its own, naming the outer; the outer record is never written by it', async () => {
+  const { m, r1, outer, inner, o, n } = nested()
+  await o.edited(r1, `${r1}/o.txt`)
+  const before = m.files.get(`${DIR}/a.json`)!.text
+  await n.edited(r1, `${r1}/n.txt`)
+  await n.bash(r1, 'npm test')
+  expect(m.files.get(`${DIR}/a.json`)!.text, 'record-nested-never-writes-the-outer-record').toBe(before)
+  expect(m.rec('b'), 'record-nested-has-its-own-record').toMatchObject({
+    pid: inner, session_id: 'b', outer: { pid: outer, start: m.procs.get(outer)!.start }, checkouts: { [r1]: { paths: ['n.txt'] } },
+  })
+  expect(m.rec('a').outer).toBeUndefined()
+  expect([m.records(outer), m.records(inner)]).toEqual([1, 1])
+})
+
+test('record: a nested claude -p and its outer are not peers of each other, their edits are each other\'s own, and a third session sees both', async () => {
+  const { m, session, r1, outer, inner, o, n } = nested()
+  await o.edited(r1, `${r1}/o.txt`)
+  await n.edited(r1, `${r1}/n.txt`)
+  expect(await o.report(r1), 'peers-nested-is-not-a-peer-of-its-outer').toBe('no live peers')
+  expect(await n.report(r1), 'peers-outer-is-not-a-peer-of-its-nested').toBe('no live peers')
+  m.dirty(r1, ' M o.txt', ' M n.txt')
+  expect((await o.bash(r1, 'git reset --hard')).decision, 'peers-nested-edits-are-the-outers-own').toBe('allow')
+  expect((await n.bash(r1, 'git reset --hard')).decision, 'peers-outer-edits-are-the-nested-own').toBe('allow')
+  const third = session('t')
+  await third.touch(r1)
+  m.dirty(r1, ' M other.txt')
+  const seen = await third.report(r1)
+  expect(seen).toContain(`pid ${outer} `)
+  expect(seen).toContain(`pid ${inner} `)
+  expect((await third.bash(r1, 'git reset --hard')).reason, 'a third session finds the nested edit foreign').toContain(`pid ${inner}`)
+  m.status.set(r1, [' M o.txt', ' M n.txt'])
+  m.end(inner)
+  expect((await o.bash(r1, 'git reset --hard')).decision, 'the exited nested process\'s edits stay the outer\'s own').toBe('allow')
+})
+
+test('record: a process of a nested claude -p is not a peer\'s to its outer, a lease and a shared resource are the pair\'s', async () => {
+  const { m, session, r1, outer, inner, o, n } = nested()
+  await o.touch(r1)
+  await n.touch(r1)
+  const child = m.spawn(inner, 'sleep', 'sleep 9')
+  expect((await o.bash(r1, `kill ${child}`)).decision, 'kill-nested-child-is-not-a-peer-of-its-outer').not.toBe('stop')
+  const t = session('t')
+  await t.touch(r1)
+  expect((await t.bash(r1, `kill ${child}`)).decision, 'kill-nested-child-stops-for-a-third-session').toBe('stop')
+  declareMachine(m, CHROME, { key: 'stack', kind: 'shared', start: [], stop: ['stack down'] })
+  m.end(t.pid)
+  expect((await o.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
+  expect((await n.peers.lease(CLICK, r1, 'b')).decision, 'lease-nested-uses-the-outers-lease').toBe('allow')
+  expect((await n.bash(r1, 'stack down')).decision, 'resource-the-outer-is-not-another-user').toBe('allow')
+  expect(JSON.parse(m.cat(`${DIR}/lease.chrome/holder.json`)), 'the lease is the outer\'s').toMatchObject({ pid: outer })
 })
 
 // --- report: peers by repository and by product, their claims, edits and conflicts ------------------------

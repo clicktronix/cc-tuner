@@ -124,8 +124,8 @@ e2e() {
 script() { printf '%s\n' "$@" > "$W/script.jsonl"; }
 bash_call() { jq -nc --arg c "$1" '{name: "Bash", input: {command: $c}}'; }
 
-# outermost <pid> -> the outermost `claude` from pid up, empty when there is none. A nested `claude -p` is its
-# outermost parent's session, so a suite run inside Claude Code expects that pid, else the session's own.
+# outermost <pid> -> the outermost `claude` from pid up, empty when there is none. A nested `claude -p` keeps a
+# record of its own that names its outermost parent, so a suite run inside Claude Code expects that pid as `outer`.
 outermost() {
   local p="$1" top=""
   while [ -n "$p" ] && [ "$p" -gt 1 ]; do
@@ -134,7 +134,9 @@ outermost() {
   done
   printf '%s' "$top"
 }
-session_pid() { outermost "$$" | grep . || printf %s "$CP"; }
+session_pid() { printf %s "$CP"; }
+# A lease goes by the outermost claude: a nested session and its parent hold it as one.
+party_pid() { outermost "$$" | grep . || printf %s "$CP"; }
 
 # e2e_rec <jq filter> -> a field of the record of the session the last e2e ran as, found by its pid.
 e2e_rec() {
@@ -155,6 +157,7 @@ e2e "$RT" --session-id 00000000-0000-4000-8000-0000000000e1 go
 check  "e2e-the-model-stand-in-finished" "done" "$(cat "$W/claude.out")"
 equals "record-written-by-the-claude-process" "$(session_pid)" "$(e2e_rec .pid)"
 equals "record-carries-the-ps-start-time" "$(awk -v p="$(session_pid)" '$1 == p { $1 = ""; sub(/^ +/, ""); print }' "$W/ps.txt")" "$(e2e_rec .start)"
+equals "record-nested-names-its-outermost-claude" "$(outermost "$$")" "$(e2e_rec '.outer.pid // empty')"
 equals "record-keys-the-real-checkout-path" "true" "$(e2e_rec ".checkouts | has(\"$RT\")")"
 equals "guard-switch-moved-the-expectation" "e2e" "$(e2e_rec ".checkouts[\"$RT\"].expected")"
 equals "guard-edit-recorded-its-path" "notes.txt" "$(e2e_rec ".checkouts[\"$RT\"].paths | join(\",\")")"
@@ -248,9 +251,7 @@ rm -f "$W/stdin" "$W/api.log" "$W/fed"; mkfifo "$W/stdin"
 } > "$W/stdin" & FEED=$!; STARTED="$STARTED $FEED"
 STDIN="$W/stdin" e2e "$RB" --session-id 00000000-0000-4000-8000-0000000000e3 --input-format stream-json --output-format stream-json --verbose
 check  "start-line-on-clear" "cc-tuner: live peers:" "$(grep -F 'after-clear' "$W/api.log" | tail -n 1)"
-# A session nested under another claude shares its outermost parent's record, which a /clear in the nested one leaves alone.
-if [ "$(session_pid)" = "$CP" ]; then equals "record-clear-drops-acks" "null" "$(e2e_rec '.acks["0000abcd"]')"
-else printf 'NOTE record-clear-drops-acks not checked: this run is nested under another claude\n'; fi
+equals "record-clear-drops-acks" "null" "$(e2e_rec '.acks["0000abcd"]')"
 absent "record-clear-follows-the-new-session-id" "0000000000e3" "$(e2e_rec .session_id)"
 
 # --- resources: a shared stop and an exclusive lease, in real sessions --------------------------------------------
@@ -289,7 +290,7 @@ lab() { e2e "$RR" --mcp-config "$W/mcp.json" --strict-mcp-config --session-id "$
 script "$(jq -nc '{when: "", calls: [{name: "mcp__lab__ping", input: {}}]}')"
 lab 00000000-0000-4000-8000-0000000000f1
 check  "resource-lease-tool-ran" "pong-from-lab" "$(cat "$W/api.log")"
-equals "resource-lease-first-user-takes-it-with-mkdir" "$(session_pid)" "$(jq -r .pid "$LOCK/holder.json")"
+equals "resource-lease-first-user-takes-it-with-mkdir" "$(party_pid)" "$(jq -r .pid "$LOCK/holder.json")"
 peer; PL=$SP
 rm -rf "$LOCK"; mkdir "$LOCK"
 jq -nc --argjson pid "$PL" --arg st "$(lstart "$PL")" '{v: 1, key: "lab", pid: $pid, start: $st, session: "x", last: (now | floor)}' > "$LOCK/holder.json"

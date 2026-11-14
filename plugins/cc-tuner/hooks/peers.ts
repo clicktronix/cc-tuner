@@ -6,12 +6,13 @@ import type { EngineInterface } from 'claude-code'
 // One JSON record per Claude session in the record directory (CC_TUNER_PEERS_DIR, default
 // ~/.cache/cc-tuner/sessions). A session writes only its own record, one write at a time in this
 // process; other records are only read, and one that does not parse or has the wrong shape or version is skipped and
-// noted. A session is its Claude process, pid plus start time; a nested `claude -p` counts as the outermost `claude`
-// above it and shares its record, ids and acks included. A record whose process is gone, or is another process now, is a tombstone: no
+// noted. A session is its Claude process, pid plus start time; a nested `claude -p` keeps a record of its own, naming the
+// outermost `claude` above it (`outer`), and never writes that one's: records that share an outer identity are one
+// participant, not peers of each other, and their edited paths are each other's own. A record whose process is gone, or is another process now, is a tombstone: no
 // longer a peer, its edited paths still on disk. A tombstone untouched for 24 h is removed; a resumed
 // session with the same session_id adopts it, also in a running process (`/resume`). `/clear` drops acks and claims.
 //
-//   {v: 1, session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [{id, key, top}],
+//   {v: 1, session_id, pid, start, outer?: {pid, start}, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [{id, key, top}],
 //    checkouts: {<toplevel>: {repo, expected, writer, paths}}}
 //
 // kept are the shared-resource tasks this process started: /clear leaves them running, and so does a reload of the module.
@@ -51,7 +52,7 @@ export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string;
 export interface Kept { id: string; key: string; top?: string }
 interface Checkout { repo: string; expected: string; writer: number | null; paths: string[] }
 export interface Rec {
-  v: 1; session_id: string | null; pid: number; start: string; seen: number
+  v: 1; session_id: string | null; pid: number; start: string; outer?: { pid: number; start: string }; seen: number
   claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: Kept[]
   checkouts: Record<string, Checkout>
 }
@@ -208,12 +209,15 @@ function crc32(text: string): string {
   return ((c ^ 0xffffffff) >>> 0).toString(16).padStart(8, '0')
 }
 
+// The participant a record belongs to: its outermost Claude process, which a nested `claude -p` shares with its parent.
+const party = (r: Pick<Rec, 'pid' | 'start' | 'outer'>) => `${(r.outer ?? r).pid}:${(r.outer ?? r).start}`
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
 const strings = (x: unknown) => Array.isArray(x) && x.every(v => typeof v === 'string')
 const each = (x: unknown, ok: (v: Record<string, unknown>) => boolean) => isObject(x) && Object.values(x).every(v => isObject(v) && ok(v))
 
 function valid(r: unknown): r is Rec {
   return isObject(r) && r.v === 1 && Number.isInteger(r.pid) && typeof r.start === 'string' && typeof r.seen === 'number'
+    && (r.outer === undefined || (isObject(r.outer) && Number.isInteger(r.outer.pid) && typeof r.outer.start === 'string'))
     && (r.session_id === null || typeof r.session_id === 'string') && isObject(r.acks) && Object.values(r.acks).every(t => typeof t === 'number')
     && Array.isArray(r.kept) && r.kept.every(k => isObject(k) && typeof k.id === 'string' && typeof k.key === 'string')
     && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
@@ -246,7 +250,7 @@ class Halt extends Error {}
 // records already read, re-read when the directory lists them changed. Calls run one at a time.
 export class Peers {
   private claude: number | undefined
-  private nested = false
+  private outer: Rec['outer']
   private ps = new Map<number, { start: string | undefined; at: number }>()
   private cache = new Map<string, { key: string; rec: Rec }>()
   private configs = new Map<string, { key: string | undefined; config: Config }>()
@@ -311,8 +315,8 @@ export class Peers {
     return new Set(recs.filter(r => run.get(r.pid) === r.start))
   }
 
-  // This session's Claude process, read once: the outermost `claude` above the module's own child, as a
-  // nested `claude -p` belongs to its parent. A parent that is not a `claude` (a stand-in) is itself.
+  // This session's Claude process, read once, and the outermost `claude` above it when it is a nested `claude -p`.
+  // A parent that is not a `claude` (a stand-in) is itself.
   async pid(): Promise<number | undefined> {
     if (this.claude !== undefined) return this.claude
     const given = Number((await this.w.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim())
@@ -325,9 +329,9 @@ export class Peers {
       seen.add(p)
       if (isClaude(p)) top = p
     }
-    this.claude = top
-    this.nested = top !== given
-    return top
+    this.claude = given
+    if (top !== given) this.outer = { pid: top, start: this.ps.get(top)?.start ?? '' }
+    return given
   }
 
   // --- checkouts ----------------------------------------------------------------------------------------
@@ -545,12 +549,12 @@ export class Peers {
       const same = [...recs].filter(([, t]) => t.session_id === sid)
       const live = await this.live(same.map(([, t]) => t))
       found = same.find(([, t]) => !live.has(t))
-      if (found !== undefined) Object.assign(found[1], { pid, start, kept: [] })
+      if (found !== undefined) Object.assign(found[1], { pid, start, outer: this.outer, kept: [] })
     }
     if (found !== undefined) return found
     const base = (sid ?? '').replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^\.+/, '') || `p${pid}`
     const name = recs.has(`${base}.json`) ? `${base}-${pid}.json` : `${base}.json`
-    const r: Rec = { v: 1, session_id: sid, pid, start, seen: this.now(), claims: {}, acks: {}, kept: [], checkouts: {} }
+    const r: Rec = { v: 1, session_id: sid, pid, start, ...(this.outer && { outer: this.outer }), seen: this.now(), claims: {}, acks: {}, kept: [], checkouts: {} }
     recs.set(name, r)
     return [name, r]
   }
@@ -566,8 +570,9 @@ export class Peers {
   async peers(recs: Map<string, Rec>, me: string | undefined, here: Where, awake = false): Promise<[Rec, [string, Checkout][]][]> {
     const product = await this.product(...here)
     const found: [Rec, [string, Checkout][]][] = []
+    const mine = await this.party()
     for (const [n, r] of recs) {
-      if (n === me || (awake && this.now() - r.seen >= IDLE)) continue
+      if (n === me || party(r) === mine || (awake && this.now() - r.seen >= IDLE)) continue
       const cos: [string, Checkout][] = []
       for (const [top, co] of Object.entries(r.checkouts).sort(([a], [b]) => (a < b ? -1 : 1))) {
         if (co.repo === here[1] || (product !== undefined && await this.product(top, co.repo) === product)) cos.push([top, co])
@@ -667,7 +672,8 @@ export class Peers {
   // one for the machine's.
   async users(recs: Map<string, Rec>, me: string | undefined, at: Where | undefined, machine: boolean): Promise<string[]> {
     if (!machine && at !== undefined) return (await this.peers(recs, me, at, true)).map(([r, cos]) => who(r, cos[0]![1]))
-    const others = [...recs].filter(([n, r]) => n !== me && this.now() - r.seen < IDLE).map(([, r]) => r)
+    const mine = await this.party()
+    const others = [...recs].filter(([n, r]) => n !== me && party(r) !== mine && this.now() - r.seen < IDLE).map(([, r]) => r)
     const live = await this.live(others)
     return others.filter(r => live.has(r)).map(r => who(r, Object.values(r.checkouts)[0]))
   }
@@ -713,9 +719,15 @@ export class Peers {
       : `cc-tuner: task ${task} runs ${kept.key}, which ${user} also uses. Wait until it is done, or SendMessage it when that tool is available.`
   }
 
+  // What a lease and ownership go by: this session's outermost Claude process.
   private async self(): Promise<[pid: number, start: string] | undefined> {
     const pid = await this.pid()
-    return pid === undefined ? undefined : [pid, (await this.starts([pid])).get(pid) ?? '']
+    return pid === undefined ? undefined : this.outer === undefined ? [pid, (await this.starts([pid])).get(pid) ?? ''] : [this.outer.pid, this.outer.start]
+  }
+
+  private async party() {
+    const me = await this.self()
+    return me === undefined ? undefined : `${me[0]}:${me[1]}`
   }
 
   private async lock(key: string) { return `${await this.dir()}/lease.${key.replace(/[^A-Za-z0-9_.-]/g, '_')}` }
@@ -812,7 +824,7 @@ export class Peers {
       const now = this.now()
       if (ev.phase === 'start') {
         const own = this.mine(recs, pid, (await this.starts([pid])).get(pid))
-        if (own !== undefined && own[1].session_id !== sid && !this.nested) await this.follow(recs, own, sid)
+        if (own !== undefined && own[1].session_id !== sid) await this.follow(recs, own, sid)
       }
       const [name, r] = await this.session(recs, pid, sid)
       const co = here === undefined ? undefined : await this.touch(r, here)
@@ -1079,11 +1091,16 @@ class Guard {
     }
   }
 
+  // The paths this participant edited in a checkout: its records' own, a nested process's and its outer's included.
+  private own(top: string): string[] {
+    return [...this.recs.values()].filter(x => party(x) === party(this.r)).flatMap(x => x.checkouts[top]?.paths ?? [])
+  }
+
   // The changed files of a checkout this session did not edit, within the paths a command reaches.
   // `into` is a commit about to be checked out over the tree: the untracked files its tree holds are overwritten too.
   private async foreign(at: Where, kinds: string, specs: readonly string[] | undefined, d: string, into?: string): Promise<string[] | undefined> {
     const top = at[0]
-    const mine = this.r.checkouts[top]?.paths ?? []
+    const mine = this.own(top)
     const reach = specs === undefined ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
     const changed = await this.p.status(at, this.staged.get(top) ?? [])
     if (changed === undefined) return undefined
@@ -1187,7 +1204,7 @@ class Guard {
   private async edit(at: Where, rel: string) {
     const [top, common] = at
     const key = `dirty:${top}|${rel}`
-    if (!owns(this.r.checkouts[top]?.paths ?? [], rel) && this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && ((await this.p.status(at, [], rel)) ?? []).length > 0) {
+    if (!owns(this.own(top), rel) && this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && ((await this.p.status(at, [], rel)) ?? []).length > 0) {
       this.once(key, `${rel} has uncommitted changes this session did not make (${await this.owner(top, [rel])}); read it before overwriting.`)
     }
     for (const [r, cos] of await this.peers(at)) {
