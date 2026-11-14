@@ -981,6 +981,50 @@ test('guard: an edit of a dirty or untracked file this session did not edit is a
   expect((await edit('u.txt', 'Write')).decision, 'guard-unreadable-status-adds-no-note').toBe('allow')
 })
 
+test('guard: "guard": false in the repository file or the machine file turns the guard off there; records and the report stay', async () => {
+  const { m, session } = machine()
+  const [r, q] = [m.repo('/w/r'), m.repo('/w/q')]
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  await peer.touch(q)
+  m.dirty(r, ' M f.txt')
+  m.dirty(q, ' M f.txt')
+  await me.bash(q, 'git status')
+  const calls = async (top: string) => [(await me.bash(top, 'git switch x')).decision, (await me.bash(top, 'git reset --hard')).decision,
+    (await me.bash(top, 'git stash drop')).decision, (await me.check({ tool: 'Edit', cwd: top, path: `${top}/f.txt` })).decision]
+  expect(await calls(r), 'the guard is on by default').toEqual(['stop', 'stop', 'stop', 'note'])
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ guard: false }))
+  m.edit('me', x => { x.acks = {} })
+  expect(await calls(r), 'guard-off-in-the-repository-file').toEqual(['allow', 'allow', 'allow', 'allow'])
+  expect(m.rec('me').checkouts[r], 'guard-off-keeps-the-record').toMatchObject({ expected: 'main' })
+  expect(typeof writerOf(m, 'me', r), 'guard-off-still-marks-the-writer').toBe('number')
+  expect(await me.report(r), 'guard-off-keeps-the-report').toContain(`pid ${peer.pid}`)
+  expect((await me.bash(q, 'git switch x')).decision, 'guard-off-is-per-repository').toBe('stop')
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ guard: true }))
+  expect((await me.bash(r, 'git switch x')).decision, 'only false turns it off').toBe('stop')
+  m.put(USER, JSON.stringify({ guard: false }))
+  expect(await calls(q), 'guard-off-in-the-machine-file').toEqual(['allow', 'allow', 'allow', 'allow'])
+  m.put(USER, JSON.stringify({ resources: [CHROME] }))
+  expect((await me.bash(q, 'git switch x')).decision, 'the machine file back on').toBe('stop')
+})
+
+test('guard: off, a lease and a TaskStop of a shared task stop nothing either', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  declareMachine(m, CHROME)
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  await peer.peers.lease(CLICK, '/w/r', 'peer')
+  engine(on, m, m.spawn(), undefined, undefined, command => (command === 'stack up' ? 'b1' : undefined))
+  await $.tool.call({ tool: 'Bash', command: 'stack up', run_in_background: true })
+  expect((await $.tool.call({ tool: CLICK })).deny).toContain('leased')
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b1' })).deny).toContain('also uses')
+  m.put(USER, JSON.stringify({ guard: false, resources: [CHROME] }))
+  expect((await $.tool.call({ tool: CLICK })).deny, 'guard-off-lease').toBeUndefined()
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b1' })).deny, 'guard-off-taskstop').toBeUndefined()
+})
+
 test('guard: a git command with an option first is a note', async () => {
   const { r, ready, decide } = world()
   await ready

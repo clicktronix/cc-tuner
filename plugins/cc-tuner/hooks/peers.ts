@@ -39,7 +39,7 @@ export interface Event {
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
 }
 export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
-interface Config { product?: string; resources: Resource[] }
+interface Config { product?: string; off: boolean; resources: Resource[] }
 interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
 export interface Kept { id: string; key: string; top?: string }
@@ -87,7 +87,7 @@ const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
 const PS_TTL = 60
 const LEASE_IDLE = 10 * 60
-const NONE: Config = { resources: [] }
+const NONE: Config = { off: false, resources: [] }
 // The lease scripts: each is one step in the shell. TAKE makes the lock with an atomic `mkdir`; a lock that exists
 // is replaced by one caller at a time (the `.take` directory), and only while it still holds the text the caller
 // read (an empty lock only when it is old). RELEASE removes it only while it holds the caller's own text.
@@ -206,13 +206,13 @@ function valid(r: unknown): r is Rec {
 }
 
 function parseConfig(text: string): Config {
-  const j = JSON.parse(text) as { product?: unknown; resources?: unknown }
+  const j = JSON.parse(text) as { product?: unknown; guard?: unknown; resources?: unknown }
   const names = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : [])
   const resources = (Array.isArray(j.resources) ? j.resources : []).flatMap((r: Record<string, unknown> | null): Resource[] =>
     typeof r?.key === 'string' && (r.kind === 'shared' || r.kind === 'exclusive')
       ? [{ key: r.key, kind: r.kind, start: names(r.start), stop: names(r.stop), tools: names(r.tools) }]
       : [])
-  return { product: typeof j.product === 'string' && j.product !== '' ? j.product : undefined, resources }
+  return { product: typeof j.product === 'string' && j.product !== '' ? j.product : undefined, off: j.guard === false, resources }
 }
 
 function holder(text: string): Holder | undefined {
@@ -387,6 +387,13 @@ export class Peers {
     return config
   }
 
+  private async machine() { return this.config(this.user ??= await this.w.config()) }
+
+  // `"guard": false` in the machine's file, or in the repository file of the checkout, turns the guard off there.
+  async off(top: string | undefined): Promise<boolean> {
+    return (await this.machine()).off || (top !== undefined && (await this.config(`${top}/.claude/cc-tuner-resources.json`)).off)
+  }
+
   private async product(top: string): Promise<string | undefined> {
     return (await this.config(`${top}/.claude/cc-tuner-resources.json`)).product
   }
@@ -394,7 +401,7 @@ export class Peers {
   // The resources that apply at a checkout, with whether each is the machine's.
   async rules(top: string | undefined): Promise<[Resource, boolean][]> {
     const repo = top === undefined ? NONE : await this.config(`${top}/.claude/cc-tuner-resources.json`)
-    const machine = await this.config(this.user ??= await this.w.config())
+    const machine = await this.machine()
     return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
@@ -619,7 +626,7 @@ export class Peers {
   async taskStop(task: string): Promise<string | undefined> {
     const { recs, name, me } = await this.view()
     const kept = me?.kept.find(k => k.id === task)
-    if (kept === undefined) return undefined
+    if (kept === undefined || await this.off(kept.top)) return undefined
     const rule = (await this.rules(kept.top)).find(([r]) => r.kind === 'shared' && r.key === kept.key)
     if (rule === undefined) return undefined
     const [user] = await this.users(recs, name, kept.top === undefined ? undefined : await this.where(kept.top), rule[1])
@@ -639,7 +646,9 @@ export class Peers {
 
   // The lease of every exclusive resource this tool belongs to: the first call takes it, the holder keeps it.
   async lease(tool: string, cwd: string, sid: string | null): Promise<Verdict> {
-    const hits = (await this.rules((await this.where(cwd))?.[0])).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
+    const top = (await this.where(cwd))?.[0]
+    if (await this.off(top)) return { decision: 'allow' }
+    const hits = (await this.rules(top)).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
     if (hits.length === 0) return { decision: 'allow' }
     return this.serial(async () => {
       const me = await this.self()
@@ -832,15 +841,15 @@ class Guard {
 
   async judge(ev: Event, plan: { st: Partial<Step>; blind: boolean; at: Where | undefined; d: string }[], target: string | undefined): Promise<Verdict> {
     try {
-      if (this.bad.length > 0) this.once('bad', `skipped malformed peer record ${listing(this.bad)}.`)
+      if (this.bad.length > 0 && !await this.p.off(this.here?.[0])) this.once('bad', `skipped malformed peer record ${listing(this.bad)}.`)
       if (ev.tool === 'Bash') {
         let prev: string[] = []
         for (const { st, at, d, blind } of plan) {
           const w = st.words ?? []
-          if (w.length > 0) await this.step(w, at, d, prev, blind)
+          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind)
           prev = w
         }
-      } else if (target !== undefined && this.here !== undefined) {
+      } else if (target !== undefined && this.here !== undefined && !await this.p.off(this.here[0])) {
         await this.edit(this.here, relpath(await this.p.real(target), this.here[0]))
       }
     } catch (err) {
