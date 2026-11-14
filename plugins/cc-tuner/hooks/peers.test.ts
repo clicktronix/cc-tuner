@@ -271,6 +271,7 @@ test('the module stops a switch next to a writer, and the command never runs', a
   const ran = engine(on, m, m.spawn())
   const { deny } = await $.tool.call({ tool: 'Bash', command: 'git switch x' })
   expect(deny).toContain('switching branches there changes its files')
+  expect(deny, 'guard-switch-names-a-worktree-first').toMatch(/git worktree add .* To go on/)
   expect(deny).toContain('CC_TUNER_ACK=')
   expect(ran).toEqual([])
 })

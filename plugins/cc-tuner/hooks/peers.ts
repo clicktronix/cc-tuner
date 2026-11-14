@@ -1010,7 +1010,7 @@ class Guard {
     const top = at[0]
     const here = (await this.peers(at)).flatMap(([r, cos]) => cos.filter(([t]) => t === top).map(([, co]) => [r, co] as const))
     const busy = here.filter(([, co]) => co.writer !== null && this.now - co.writer < WRITER_WINDOW)
-    if (busy.length > 0) this.stop('switch', top, `${who(...busy[0]!)} works in ${top}; switching branches there changes its files.`)
+    if (busy.length > 0) this.stop('switch', top, `${who(...busy[0]!)} works in ${top}; switching branches there changes its files.`, 'Take a worktree instead: `git worktree add <path> <branch>`.')
     else if (here.length > 0) this.note(`${who(...here[0]!)} has its cwd in ${top}; switching branches there changes its files.`)
   }
 
