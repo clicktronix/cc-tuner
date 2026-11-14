@@ -11,9 +11,10 @@ import type { EngineInterface } from 'claude-code'
 // longer a peer, its edited paths still on disk. A tombstone untouched for 24 h is removed; a resumed
 // session with the same session_id adopts it. `/clear` drops acks and claims.
 //
-//   {v: 1, session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [<task>],
+//   {v: 1, session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [{id, key, top}],
 //    checkouts: {<toplevel>: {repo, expected, writer, paths}}}
 //
+// kept are the shared-resource tasks this process started: /clear leaves them running, and so does a reload of the module.
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
 // first touch, moved only when HEAD changed during this session's own call that held a switch; writer
 // the epoch of the last writer call; paths what Edit/Write changed. acks also hold the hourly notes.
@@ -40,10 +41,11 @@ export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: st
 interface Config { product?: string; resources: Resource[] }
 interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
+export interface Kept { id: string; key: string; top?: string }
 interface Checkout { repo: string; expected: string; writer: number | null; paths: string[] }
 export interface Rec {
   v: 1; session_id: string | null; pid: number; start: string; seen: number
-  claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: string[]
+  claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: Kept[]
   checkouts: Record<string, Checkout>
 }
 type Where = readonly [top: string, common: string]
@@ -189,7 +191,8 @@ const each = (x: unknown, ok: (v: Record<string, unknown>) => boolean) => isObje
 function valid(r: unknown): r is Rec {
   return isObject(r) && r.v === 1 && Number.isInteger(r.pid) && typeof r.start === 'string' && typeof r.seen === 'number'
     && (r.session_id === null || typeof r.session_id === 'string') && isObject(r.acks) && Object.values(r.acks).every(t => typeof t === 'number')
-    && Array.isArray(r.kept) && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
+    && Array.isArray(r.kept) && r.kept.every(k => isObject(k) && typeof k.id === 'string' && typeof k.key === 'string')
+    && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
     && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths))
 }
 
@@ -218,6 +221,7 @@ class Halt extends Error {}
 // records already read, re-read when the directory lists them changed. Calls run one at a time.
 export class Peers {
   private claude: number | undefined
+  private nested = false
   private ps = new Map<number, { start: string | undefined; at: number }>()
   private cache = new Map<string, { key: string; rec: Rec }>()
   private configs = new Map<string, { key: string | undefined; config: Config }>()
@@ -297,6 +301,7 @@ export class Peers {
       if (isClaude(p)) top = p
     }
     this.claude = top
+    this.nested = top !== given
     return top
   }
 
@@ -413,8 +418,13 @@ export class Peers {
     this.swept = now
     const live = await this.live([...recs.values()])
     const old = [...recs].filter(([, r]) => !live.has(r) && now - (r.seen ?? 0) > DAY).map(([n]) => n)
-    for (const n of old) recs.delete(n)
-    await this.w.run(['/bin/sh', '-c', SWEEP, 'sh', await this.dir(), ...old])
+    await this.forget(recs, old)
+  }
+
+  // Removes records, and sweeps the directory's old merge results and object directories with them.
+  private async forget(recs: Map<string, Rec>, names: string[]) {
+    for (const n of names) recs.delete(n)
+    await this.w.run(['/bin/sh', '-c', SWEEP, 'sh', await this.dir(), ...names])
   }
 
   private mine(recs: Map<string, Rec>, pid: number, start: string | undefined): [string, Rec] | undefined {
@@ -430,7 +440,7 @@ export class Peers {
       const same = [...recs].filter(([, t]) => t.session_id === sid)
       const live = await this.live(same.map(([, t]) => t))
       found = same.find(([, t]) => !live.has(t))
-      if (found !== undefined) Object.assign(found[1], { pid, start })
+      if (found !== undefined) Object.assign(found[1], { pid, start, kept: [] })
     }
     if (found !== undefined) return found
     const base = (sid ?? '').replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^\.+/, '') || `p${pid}`
@@ -555,37 +565,45 @@ export class Peers {
     return others.filter(r => live.has(r)).map(r => who(r, Object.values(r.checkouts)[0]))
   }
 
-  // The shared resource a command starts, and the checkout it ran in, when it starts one.
-  async started(steps: readonly Step[], cwd: string): Promise<{ key: string; top: string | undefined } | undefined> {
+  // A task that started a shared resource goes into this session's record, where /clear and a reload leave it.
+  async started(steps: readonly Step[], cwd: string, sid: string | null, id: string) {
     for (const st of steps) {
       const top = (await this.where(join(cwd, st.dir)))?.[0]
-      for (const [res] of await this.rules(top)) {
-        if (res.kind === 'shared' && res.start.some(p => prefixed(st.words, p))) return { key: res.key, top }
-      }
+      const res = (await this.rules(top)).find(([r]) => r.kind === 'shared' && r.start.some(p => prefixed(st.words, p)))
+      if (res !== undefined) return this.update(sid, r => { r.kept.push({ id, key: res[0].key, top }) })
     }
-    return undefined
   }
 
-  // Why a task that started a shared resource must not be stopped now, or undefined when it may be.
-  async taskStop(task: string, key: string, top: string | undefined): Promise<string | undefined> {
-    const { recs, name } = await this.view()
-    const rule = (await this.rules(top)).find(([r]) => r.kind === 'shared' && r.key === key)
-    if (rule === undefined) return undefined
-    const [user] = await this.users(recs, name, top === undefined ? undefined : await this.where(top), rule[1])
-    return user === undefined ? undefined
-      : `cc-tuner: task ${task} runs ${key}, which ${user} also uses. Wait until it is done, or SendMessage it when that tool is available.`
-  }
-
-  // The tasks this session keeps running through /clear, for the next start line.
-  async keep(tasks: string[]) {
+  // Runs f on this session's record, made for the occasion when a session id is given, and saves it.
+  private async update(sid: string | null | undefined, f: (r: Rec) => void) {
     await this.serial(async () => {
       const { recs } = await this.load()
       const pid = await this.pid()
-      const own = pid === undefined ? undefined : this.mine(recs, pid, (await this.starts([pid])).get(pid))
+      if (pid === undefined) return
+      const own = sid === undefined ? this.mine(recs, pid, (await this.starts([pid])).get(pid)) : await this.session(recs, pid, sid)
       if (own === undefined) return
-      own[1].kept = tasks
+      f(own[1])
       await this.save(...own)
     })
+  }
+
+  // The ids of the shared tasks this session keeps.
+  async kept(): Promise<string[]> {
+    return (await this.view()).me?.kept.map(k => k.id) ?? []
+  }
+
+  async unkeep(id: string) { await this.update(undefined, r => { r.kept = r.kept.filter(k => k.id !== id) }) }
+
+  // Why a task that started a shared resource must not be stopped now, or undefined when it may be.
+  async taskStop(task: string): Promise<string | undefined> {
+    const { recs, name, me } = await this.view()
+    const kept = me?.kept.find(k => k.id === task)
+    if (kept === undefined) return undefined
+    const rule = (await this.rules(kept.top)).find(([r]) => r.kind === 'shared' && r.key === kept.key)
+    if (rule === undefined) return undefined
+    const [user] = await this.users(recs, name, kept.top === undefined ? undefined : await this.where(kept.top), rule[1])
+    return user === undefined ? undefined
+      : `cc-tuner: task ${task} runs ${kept.key}, which ${user} also uses. Wait until it is done, or SendMessage it when that tool is available.`
   }
 
   private async self(): Promise<[pid: number, start: string] | undefined> {
@@ -659,7 +677,7 @@ export class Peers {
     const target = ev.path ? join(ev.cwd, ev.path) : undefined
     const here = await this.where(target !== undefined ? dirname(target) : ev.cwd)
     const plan: { st: Partial<Step>; writes: boolean; switch: boolean; blind: boolean; at: Where | undefined; d: string }[] = []
-    if (ev.phase === 'before' && ev.tool === 'Bash') {
+    if (ev.phase !== 'start' && ev.tool === 'Bash') {
       for (const st of ev.steps ?? [{} as Partial<Step>]) {
         const blind = st.dir === UNKNOWN
         const d = join(ev.cwd, blind ? '' : st.dir ?? '')
@@ -676,7 +694,7 @@ export class Peers {
       const now = this.now()
       if (ev.phase === 'start') {
         const own = this.mine(recs, pid, (await this.starts([pid])).get(pid))
-        if (own !== undefined && own[1].session_id !== sid) Object.assign(own[1], { session_id: sid, acks: {}, claims: {} })
+        if (own !== undefined && own[1].session_id !== sid && !this.nested) await this.follow(recs, own, sid)
       }
       const [name, r] = await this.session(recs, pid, sid)
       const co = here === undefined ? undefined : await this.touch(r, here)
@@ -687,8 +705,9 @@ export class Peers {
       const seen: Record<string, string> = {}
       if (verdict.decision !== 'stop') {
         for (const { at, writes, switch: sw } of plan) {
-          if (at !== undefined && writes) r.checkouts[at[0]]!.writer = now
-          if (at !== undefined && sw) seen[at[0]] = await this.branch(at[0])
+          if (at === undefined) continue
+          if (ev.phase === 'after' && ev.ok !== false && writes) r.checkouts[at[0]]!.writer = now
+          if (ev.phase === 'before' && sw) seen[at[0]] = await this.branch(at[0])
         }
         if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined && here !== undefined && co !== undefined) {
           const rel = relpath(await this.real(target), here[0])
@@ -711,6 +730,22 @@ export class Peers {
     })
   }
 
+  // A new session id in this process (/clear, /resume): acks and claims start over; a resumed session's tombstone
+  // gives its paths, expected branches and claims back, and goes.
+  private async follow(recs: Map<string, Rec>, [name, r]: [string, Rec], sid: string | null) {
+    Object.assign(r, { session_id: sid, acks: {}, claims: {} })
+    const same = [...recs].filter(([n, t]) => n !== name && sid !== null && t.session_id === sid)
+    const live = await this.live(same.map(([, t]) => t))
+    const tomb = same.find(([, t]) => !live.has(t))
+    if (tomb === undefined) return
+    for (const [top, c] of Object.entries(tomb[1].checkouts)) {
+      const mine = r.checkouts[top]
+      r.checkouts[top] = mine === undefined ? c : { ...c, writer: mine.writer ?? c.writer, paths: [...new Set([...c.paths, ...mine.paths])] }
+    }
+    Object.assign(r.claims, tomb[1].claims)
+    await this.forget(recs, [tomb[0]])
+  }
+
   private async startLine(recs: Map<string, Rec>, name: string, r: Rec, here: Where): Promise<string> {
     const parts: string[] = []
     const peers: string[] = []
@@ -718,7 +753,7 @@ export class Peers {
       for (const [top, co] of cos) peers.push(`${await this.branch(top, co.expected) || 'detached'} (${basename(top)}, pid ${p.pid})`)
     }
     if (peers.length > 0) parts.push(`live peers: ${peers.join(', ')}`)
-    if (r.kept.length > 0) parts.push(`kept at /clear: ${r.kept.join(', ')}`)
+    if (r.kept.length > 0) parts.push(`kept at /clear: ${r.kept.map(k => `${k.key} (${k.id})`).join(', ')}`)
     return parts.length === 0 ? '' : `cc-tuner: ${parts.join('; ')}. More: the peers_report tool.`
   }
 

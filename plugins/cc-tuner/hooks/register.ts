@@ -6,15 +6,13 @@ import { Peers, UNKNOWN, world, type Event, type Verdict } from './peers'
 // The agent that started them no longer knows they exist, so they are stopped
 // here, except a shared resource's, which stays for the sessions using it and is
 // named in the next start line. Ids are module state: a reload loses them, and
-// exit still stops those.
+// exit still stops those. The shared ones are in the session's record, so a reload
+// keeps them, and the agent may stop one only while no other session of the product uses it.
 // An id leaves the set when the agent stops the task itself; a task that ends
 // on its own is not observable from a hook, and stopping it later is harmless.
 const started = new Set<string>()
-// The tasks among them that run a shared resource's start command, with the checkout they started in.
-// /clear leaves them running, and the agent may stop one only while no other session of the product uses it.
-const shared = new Map<string, { key: string; top: string | undefined }>()
-// The session the start line was last offered to. A /clear reloads the module, so this is empty again; the
-// guard tells a new conversation in a running process (/clear, /resume) from the record's own session id.
+// The session the start line was last offered to: a new session id in the running process (/clear, /resume)
+// is a new conversation, and a fresh load of the module offers it again.
 let announced: string | undefined
 
 // The subagent panel shows an agent's type and its live activity, never its model, and a plugin
@@ -428,14 +426,15 @@ export const register: Register = on => {
     const command = e.command.replace(ACK, '')
     const leak = secretLeak(command)
     if (leak !== undefined) return { deny: leak }
-    const before = await guard($, { phase: 'before', tool: 'Bash', steps: steps(command), acks: acks(e.command) })
+    const parsed = steps(command)
+    const before = await guard($, { phase: 'before', tool: 'Bash', steps: parsed, acks: acks(e.command) })
     if (before?.decision === 'stop') return { deny: before.reason ?? 'cc-tuner: stopped' }
     const ran = await next(command === e.command ? e : { ...e, command })
-    if (before?.seen !== undefined) await guard($, { phase: 'after', tool: 'Bash', seen: before.seen })
+    await guard($, { phase: 'after', tool: 'Bash', steps: parsed, seen: before?.seen, ok: ran.deny === undefined })
     if (ran.deny === undefined && ran.isError !== true && ran.result.backgroundTaskId) {
-      started.add(ran.result.backgroundTaskId)
-      const resource = await withPeers($, async p => p.started(steps(command), await $.session.cwd()))
-      if (resource !== undefined) shared.set(ran.result.backgroundTaskId, resource)
+      const id = ran.result.backgroundTaskId
+      started.add(id)
+      await withPeers($, async p => p.started(parsed, await $.session.cwd(), await $.session.id(), id))
     }
     return noted(ran, before)
   })
@@ -449,13 +448,12 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
-    const task = shared.get(String(e.task_id))
-    const deny = task === undefined ? undefined : await withPeers($, p => p.taskStop(String(e.task_id), task.key, task.top))
+    const deny = await withPeers($, p => p.taskStop(String(e.task_id)))
     if (deny !== undefined) return { deny }
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true) {
       started.delete(ran.result.task_id)
-      shared.delete(ran.result.task_id)
+      await withPeers($, p => p.unkeep(ran.result.task_id))
     }
     return ran
   })
@@ -477,7 +475,8 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
-      const ids = [...started].filter(id => !shared.has(id))
+      const kept = await withPeers($, p => p.kept())
+      const ids = [...started].filter(id => !kept?.includes(id))
       const results = await Promise.allSettled(ids.map(task_id => $.tool.call({ tool: 'TaskStop', task_id })))
       // Only confirmed stops leave the set: an id whose stop failed stays for the next /clear (exit
       // still stops it; a task that already ended can answer with an error, harmless to retry), and
@@ -491,7 +490,6 @@ export const register: Register = on => {
       if (unstopped.length > 0) {
         $.ui.log(`cc-tuner: /clear could not confirm stopping ${unstopped.join(', ')}; retrying next /clear`, { to: 'debug' })
       }
-      await withPeers($, p => p.keep([...shared].map(([id, t]) => `${t.key} (${id})`)))
     }
     return next(e)
   })

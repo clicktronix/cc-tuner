@@ -158,9 +158,22 @@ class Session {
   constructor(readonly m: Machine, readonly pid: number, readonly sid: string) { this.peers = new Peers(m.world(pid)) }
   check(ev: Partial<Event> & { cwd: string }) { return this.peers.check({ session_id: this.sid, phase: 'before', ...ev }) }
   // A call with no steps the adapter could read: a writer call, as any unknown command is.
-  touch(cwd: string) { return this.check({ tool: 'Bash', cwd }) }
-  bash(cwd: string, ...steps: (string | Partial<Step>)[]) {
+  async touch(cwd: string) {
+    const v = await this.check({ tool: 'Bash', cwd })
+    if (v.decision !== 'stop') await this.check({ phase: 'after', tool: 'Bash', cwd })
+    return v
+  }
+  // The guard's `before`, as the adapter sends it, and its `after` once the engine let the call run.
+  before(cwd: string, ...steps: (string | Partial<Step>)[]) {
     return this.check({ tool: 'Bash', cwd, steps: steps.map(s => (typeof s === 'string' ? step(s) : { ...step(''), ...s })) })
+  }
+  after(cwd: string, steps: (string | Partial<Step>)[], seen?: Record<string, string>, ok = true) {
+    return this.check({ phase: 'after', tool: 'Bash', cwd, steps: steps.map(s => (typeof s === 'string' ? step(s) : { ...step(''), ...s })), seen, ok })
+  }
+  async bash(cwd: string, ...steps: (string | Partial<Step>)[]) {
+    const v = await this.before(cwd, ...steps)
+    if (v.decision !== 'stop') await this.after(cwd, steps, v.seen)
+    return v
   }
   edited(cwd: string, path: string, tool = 'Edit') { return this.check({ phase: 'after', tool, cwd, path }) }
   start(cwd: string, sid = this.sid) { return this.peers.check({ session_id: sid, phase: 'start', cwd }) }
@@ -177,11 +190,13 @@ function machine() {
 }
 
 // A Bash call as the adapter makes it: `before`, the command's effect on the machine, then `after` with
-// what `before` saw, sent only when it saw something.
+// what `before` saw.
 async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], effect?: () => void) {
-  const v = await s.bash(cwd, ...steps)
-  if (v.decision !== 'stop') effect?.()
-  if (v.seen !== undefined) await s.check({ phase: 'after', tool: 'Bash', cwd, seen: v.seen })
+  const v = await s.before(cwd, ...steps)
+  if (v.decision !== 'stop') {
+    effect?.()
+    await s.after(cwd, steps, v.seen)
+  }
   return v
 }
 const at = (dir: string, text: string, op = ''): Partial<Step> => step(text, dir, op)
@@ -219,6 +234,7 @@ function engine(on: On, m: Machine, pid: number, effect: (command: string) => vo
   })
   const ran: string[] = []
   on('tool.call', { tool: 'Bash' }, (_, e) => {
+    if (e.command === 'denied') return { deny: 'denied by the engine' }
     ran.push(e.command)
     effect(e.command)
     return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: task(e.command) } }
@@ -474,9 +490,9 @@ test('record: a new session id in the same process (/clear) drops acks and claim
   const r1 = m.repo('/w/r1')
   const s6 = session('s6')
   await s6.touch(r1)
-  m.edit('s6', r => { r.acks = { k: 1 }; r.claims = { 'plan.md': { repo: 'x', paths: ['a'] } }; r.kept = ['dev server'] })
+  m.edit('s6', r => { r.acks = { k: 1 }; r.claims = { 'plan.md': { repo: 'x', paths: ['a'] } }; r.kept = [{ id: 'b1', key: 'dev server' }] })
   await s6.start(r1, 's6b')
-  expect(m.rec('s6')).toMatchObject({ acks: {}, claims: {}, kept: ['dev server'], session_id: 's6b' })
+  expect(m.rec('s6')).toMatchObject({ acks: {}, claims: {}, kept: [{ id: 'b1', key: 'dev server' }], session_id: 's6b' })
   expect(m.records(s6.pid)).toBe(1)
 })
 
@@ -580,10 +596,10 @@ test('start: the line appears only with live peers or a kept task', async () => 
   expect(line).toBe(`cc-tuner: live peers: main (rs, pid ${p1.pid}). More: the peers_report tool.`)
   expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
   expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
-  m.edit('t2', r => { r.kept = ['dev server'] })
+  m.edit('t2', r => { r.kept = [{ id: 'b1', key: 'dev server' }] })
   m.end(p1.pid)
   const kept = (await p2.start(rs, 't2c')).line!
-  expect(kept).toContain('kept at /clear: dev server')
+  expect(kept).toContain('kept at /clear: dev server (b1)')
   expect(kept).not.toContain('live peers')
   m.edit('t2', r => { r.kept = [] })
   expect((await p2.start(rs, 't2c')).line).toBe('')
@@ -1118,7 +1134,7 @@ test('resource: /clear keeps a shared task running, and the next start line name
   await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true })
   await $.session.end({ sessionId: 'e1', resume: { id: 'e1' }, reason: 'clear' })
   expect(m.stopped, 'resource-clear-stops-only-what-is-not-shared').toEqual(['b2'])
-  expect(m.rec('e1').kept).toEqual(['stack (b1)'])
+  expect(m.rec('e1').kept, 'resource-kept-task-is-in-the-record').toEqual([{ id: 'b1', key: 'stack', top: '/w/r' }])
   sessionId = 'e2'
   expect(await prompt($), 'resource-clear-start-line-names-the-task').toContain('kept at /clear: stack (b1)')
 })
@@ -1332,4 +1348,88 @@ test('the module needs a place for records: no HOME and no CC_TUNER_PEERS_DIR le
   expect(ran).toEqual(['npm test'])
   expect(context?.join(' '), 'record-no-home-no-records').toContain('the peers guard is inactive')
   expect([...m.files.keys()].filter(p => p.endsWith('.json'))).toEqual([])
+})
+
+// --- session identity across nested, resume and reload ----------------------------------------------------------
+test('record: a nested claude -p neither resets the outer record nor takes its session id', async () => {
+  const { m } = machine()
+  const r1 = m.repo('/w/r1')
+  const outer = m.spawn(1, 'claude')
+  const inner = m.spawn(m.spawn(outer, 'bash'), 'claude')
+  m.put(`${r1}/plan.md`, '## Slice 1 — A\nOwned paths: lib/\n- [ ] a\n')
+  const [o, n] = [new Session(m, outer, 'a'), new Session(m, inner, 'b')]
+  await o.peers.claim(r1, 'a', 'plan.md')
+  await o.check({ cwd: r1, tool: 'Bash', steps: [step('git status')], acks: ['deadbeef'] })
+  await n.start(r1)
+  expect(m.rec('a'), 'record-nested-start-keeps-the-outer-record').toMatchObject({ session_id: 'a', claims: { 'plan.md': { paths: ['lib/'] } } })
+  expect(typeof m.rec('a').acks.deadbeef).toBe('number')
+  expect(m.records(outer)).toBe(1)
+})
+
+test('record: an in-process resume of an earlier session takes over that tombstone', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const old = session('x')
+  await old.edited(r1, `${r1}/kept.txt`)
+  m.edit('x', r => { r.claims = { 'plan.md': { repo: r.checkouts[r1]!.repo, paths: ['lib/'] } }; r.checkouts[r1]!.expected = 'feat' })
+  m.end(old.pid)
+  const me = session('me')
+  await me.edited(r1, `${r1}/mine.txt`)
+  await me.start(r1, 'x')
+  expect(m.rec('me'), 'record-resume-in-process-merges-the-tombstone').toMatchObject({
+    session_id: 'x', claims: { 'plan.md': { paths: ['lib/'] } }, checkouts: { [r1]: { expected: 'feat', paths: ['kept.txt', 'mine.txt'] } },
+  })
+  expect(m.files.has(`${DIR}/x.json`), 'the tombstone is gone').toBe(false)
+})
+
+test('resource: a shared task is in the record, so a reload of the module still holds it; stopping it, or a new process, clears it', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  engine(on, m, m.spawn(), undefined, undefined, command => (command.startsWith('stack') ? command.split(' ')[2] : undefined))
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  m.edit('e1', r => { r.kept = [{ id: 'two', key: 'stack', top: '/w/r' }, { id: 'one', key: 'stack', top: '/w/r' }] })
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'one' })).deny, 'no other session uses it').toBeUndefined()
+  expect(m.rec('e1').kept.map(k => k.id), 'resource-stopped-task-leaves-the-record').toEqual(['two'])
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'two' })).deny, 'resource-kept-task-denied-from-the-record').toContain('task two runs stack')
+  expect((await prompt($)), 'the start line names what is left').toContain('kept at /clear: stack (two)')
+})
+
+test('record: a new process that adopts a tombstone does not inherit its kept tasks', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const old = session('s9')
+  await old.touch(r1)
+  m.edit('s9', r => { r.kept = [{ id: 'b1', key: 'stack' }] })
+  m.end(old.pid)
+  const resumed = session('s9')
+  expect((await resumed.start(r1)).line).toBe('')
+  expect(m.rec('s9').kept, 'resource-adoption-empties-kept').toEqual([])
+})
+
+// --- the writer mark waits for the engine ------------------------------------------------------------------------
+test('guard: a writer is marked after the call ran, not by a call the engine denied or one that was stopped', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const s = session('s')
+  await s.before(r, 'npm test')
+  expect(writerOf(m, 's', r), 'guard-writer-not-marked-before-the-call').toBeNull()
+  await s.after(r, ['npm test'], undefined, false)
+  expect(writerOf(m, 's', r), 'guard-writer-not-marked-by-a-failed-call').toBeNull()
+  await s.after(r, ['git status'])
+  expect(writerOf(m, 's', r), 'a read-only call marks none').toBeNull()
+  await s.after(r, ['npm test'])
+  expect(typeof writerOf(m, 's', r)).toBe('number')
+})
+
+test('the module marks a writer only for a call the engine let through', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  engine(on, m, m.spawn())
+  expect((await $.tool.call({ tool: 'Bash', command: 'denied' })).deny).toBe('denied by the engine')
+  expect(writerOf(m, 'e1', '/w/r'), 'guard-denied-call-marks-no-writer').toBeNull()
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(typeof writerOf(m, 'e1', '/w/r')).toBe('number')
 })
