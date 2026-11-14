@@ -457,6 +457,13 @@ export const register: Register = on => {
     return ran
   })
 
+  // Registered after the handlers that may refuse a call, so a refused call never reaches it. A call of any tool, Read and
+  // MCP included, shows the session is in use: it stays awake for the guard.
+  on('tool.call', async ($, e, next) => {
+    await withPeers($, p => p.alive())
+    return next(e)
+  })
+
   on('agent.spawn', async ($, e, next) => {
     const spawned = await next(e)
     if (spawned.deny === undefined && spawned.agentId) {

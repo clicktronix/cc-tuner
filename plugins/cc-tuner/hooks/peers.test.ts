@@ -266,6 +266,7 @@ function engine(on: On, m: Machine, pid: number, effect: (command: string) => vo
     effect(e.command)
     return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: task(e.command) } }
   })
+  on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: { filePath: '', content: '', numLines: 0, startLine: 1, totalLines: 0 } } }))
   on('tool.call', { tool: 'TaskStop' }, (_, e) => { m.stopped.push(String(e.task_id)); return { result: { message: 'stopped', task_id: String(e.task_id), task_type: 'bash' } } })
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, (_, e) => { ran.push(e.tool); return { result: {} } })
@@ -317,6 +318,37 @@ test('the module reads the operators: a commit after ; does not follow a switch 
   const { deny } = await $.tool.call({ tool: 'Bash', command: 'false && git switch c; git commit --allow-empty -m wrong' })
   expect(deny, 'guard-semicolon-commit-after-a-skipped-switch-is-stopped').toContain('would run on b')
   expect(ran).toEqual(['git status'])
+})
+
+test('any tool call refreshes the session record, at most once a minute', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const pid = m.spawn()
+  engine(on, m, pid)
+  await new Session(m, pid, 'e1').touch('/w/r')
+  m.edit('e1', r => { r.seen = 1 })
+  await $.tool.call({ tool: 'Read', file_path: '/w/r/a.ts' })
+  const seen = m.rec('e1').seen
+  expect(seen, 'guard-heartbeat-refreshes-on-a-read').toBeGreaterThan(1)
+  m.edit('e1', r => { r.seen = 1 })
+  await $.tool.call({ tool: 'Read', file_path: '/w/r/a.ts' })
+  await $.tool.call({ tool: 'mcp__lab__ping' })
+  expect(m.rec('e1').seen, 'guard-heartbeat-waits-a-minute').toBe(1)
+})
+
+test('a session that keeps calling tools stays awake past 8 h, and one that does not goes idle', async () => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declareMachine(m, STACK)
+  const [reader, idle, asker] = [session('reader'), session('idle'), session('asker')]
+  for (const s of [reader, idle, asker]) await s.touch('/w/r')
+  for (let i = 0; i < 18; i++) {
+    m.advance(1800)
+    await reader.peers.alive()
+  }
+  const { reason } = await asker.bash('/w/r', 'stack down')
+  expect(reason, 'guard-heartbeat-keeps-a-reading-session-awake').toContain(`pid ${reader.pid}`)
+  expect(reason, 'the session with no call is idle and blocks nothing').not.toContain(`pid ${idle.pid}`)
 })
 
 test('the Claude pid is read once per module load', async ($, on) => {

@@ -19,8 +19,8 @@ import type { EngineInterface } from 'claude-code'
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
 // first touch, moved only by this session's own call that held a switch-like step, when HEAD changed during it or
 // the step named the branch HEAD holds; writer the epoch of the last call the guard let through that could write
-// (marked before it runs); paths what Edit/Write changed. acks also hold the hourly notes. A session whose `seen`
-// is 8 h old is idle: it blocks nothing that depends only on its being alive, and its edited paths stay protected.
+// (marked before it runs); paths what Edit/Write changed. acks also hold the hourly notes. `seen` is the epoch of the
+// session's last call of any tool (renewed at most once a minute); a session whose `seen` is 8 h old is idle: it blocks nothing that depends only on its being alive, and its edited paths stay protected.
 //
 // Resources are declared, not detected: `<toplevel>/.claude/cc-tuner-resources.json` (`product` and `resources`)
 // and the machine's own file (CC_TUNER_PEERS_CONFIG, else $XDG_CONFIG_HOME or ~/.config, cc-tuner/resources.json),
@@ -698,6 +698,14 @@ export class Peers {
       f(own[1])
       await this.save(...own)
     })
+  }
+
+  // Any tool call shows the session is in use: its record's `seen` is renewed, at most once a minute.
+  private beat = 0
+  async alive() {
+    const now = this.now()
+    if (now - this.beat < PS_TTL) return
+    await this.update(undefined, r => { r.seen = now; this.beat = now })
   }
 
   // The ids of the shared tasks this session keeps.
