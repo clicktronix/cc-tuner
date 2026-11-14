@@ -343,6 +343,19 @@ for c in "git reset --hard src" "git checkout -f src" "git switch -f src"; do
   equals "untracked-collision-keeps-the-file: $c"    "precious" "$(cat "$RU/u.txt")"
 done
 
+# --- a commit with paths takes only those paths, so a foreign staged file does not stop it ----------------------------
+RC="$(repo)"
+commit_file "$RC" own one; commit_file "$RC" foreign one
+printf 'o2\n' > "$RC/own"; printf 'f2\n' > "$RC/foreign"; git -C "$RC" add foreign
+script "$(jq -nc --arg o "$RC/own" '{when: "", calls: [
+  {name: "Write", input: {file_path: $o, content: "mine\n"}},
+  {name: "Bash", input: {command: "git commit --only own -m only-own"}},
+  {name: "Bash", input: {command: "git commit -m plain"}}]}')"
+e2e "$RC" go
+equals "commit-only-own-ran-on-real-git"            "only-own" "$(git -C "$RC" log -1 --format=%s)"
+equals "commit-only-own-left-the-foreign-staged"    "foreign" "$(git -C "$RC" diff --cached --name-only)"
+check  "commit-plain-stops-for-the-foreign-staged"  "would commit foreign in" "$(cat "$W/api.log")"
+
 # --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
 # TAKE, RENEW and RELEASE are the guard's own scripts, cut out of hooks/peers.ts and printed by node.
 if ! command -v node >/dev/null 2>&1; then

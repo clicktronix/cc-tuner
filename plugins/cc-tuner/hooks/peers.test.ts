@@ -980,6 +980,26 @@ test('guard: reset --hard, checkout -f and switch -f stop for an untracked forei
   for (const c of ['git reset --hard feat', 'git checkout -f feat']) expect((await decide(r, c)).decision, `own file: ${c}`).toBe('allow')
 })
 
+test('guard: git commit protects what it will commit: its paths, or the staged files; -i both', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.status.set(r, ['M  foreign.txt', ' M own.txt', ' M other.txt'])
+  await me.edited(r, `${r}/own.txt`)
+  for (const c of ['git commit --only own.txt -m mine', 'git commit own.txt -m mine', 'git commit -o own.txt -m mine', 'git commit -m mine own.txt',
+    'git commit -m mine -- own.txt', 'git commit -mmine own.txt', 'git commit --message=mine own.txt', 'git commit -F msg.txt own.txt']) {
+    expect((await decide(r, c)).decision, c).toBe('allow')
+  }
+  for (const c of ['git commit -m mine', 'git commit -m own.txt', 'git commit -i own.txt -m m', 'git commit --include own.txt -m m', 'git commit other.txt -m m',
+    'git commit -a -m m', 'git commit -am m', 'git commit --amend --no-edit']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+  expect((await decide(r, 'git commit other.txt -m m')).reason, 'guard-commit-of-a-path-names-the-foreign-path').toContain('other.txt')
+  expect((await decide(r, 'git commit -m m')).reason, 'guard-plain-commit-names-the-staged-file').toContain('foreign.txt')
+  m.status.set(r, [' M own.txt', ' M other.txt'])
+  expect((await decide(r, 'git commit -m m')).decision, 'a plain commit takes only the staged files').toBe('allow')
+})
+
 test('guard: a foreign stop names the peer that edited the file; a dead peer\'s files stay protected', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready

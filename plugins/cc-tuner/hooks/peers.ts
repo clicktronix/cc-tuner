@@ -193,6 +193,28 @@ function switches(step: Partial<Step>): boolean {
   return (name === 'git' && (sub === 'switch' || sub === 'checkout' || (sub === 'branch' && has(rest, '--move', 'mM'))))
     || (name === 'gh' && sub === 'pr' && (rest[0] === 'checkout' || rest[0] === 'merge'))
 }
+// What a `git commit` says about its files: the paths it names, past the options that take a value and the message they
+// carry (`-mmine`, `-m mine`, `-am mine`), and whether it takes all tracked changes (`-a`) or the staged files too (`-i`).
+const COMMIT_VALUED = new Set(['--message', '--file', '--reuse-message', '--reedit-message', '--template', '--author', '--date', '--cleanup', '--fixup', '--squash', '--trailer'])
+function commitArgs(a: readonly string[]) {
+  const out = { paths: [] as string[], all: false, include: false }
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!
+    if (x === '--') { out.paths.push(...a.slice(i + 1)); break }
+    if (x === '--all') out.all = true
+    else if (x === '--include') out.include = true
+    else if (COMMIT_VALUED.has(x)) i++
+    else if (x.startsWith('-') && !x.startsWith('--')) {
+      const bundle = x.slice(1)
+      const value = bundle.search(/[mFCct]/)
+      const letters = value === -1 ? bundle : bundle.slice(0, value)
+      if (letters.includes('a')) out.all = true
+      if (letters.includes('i')) out.include = true
+      if (value === bundle.length - 1) i++
+    } else if (!x.startsWith('-')) out.paths.push(x)
+  }
+  return out
+}
 // The commit a forced switch or checkout puts in the tree: its start point after a new branch's name, else the branch it names, else HEAD.
 const checkedOut = (a: readonly string[]) => operands(a)[has(a, '--create', 'cCbB') || has(a, '--force-create') ? 1 : 0] ?? 'HEAD'
 // The branch a `git switch` or `git checkout` step names.
@@ -1044,7 +1066,12 @@ class Guard {
       await this.lose(at, d, label, 'restore', 'overwrite', 'tracked', operands(a))
     } else if (sub === 'commit') {
       await this.drift(at, label, 'commit')
-      await this.lose(at, d, label, 'commit', 'commit', has(a, '--all', 'a') ? 'tracked' : 'staged')
+      const { paths, all, include } = commitArgs(a)
+      if (paths.length === 0) await this.lose(at, d, label, 'commit', 'commit', all ? 'tracked' : 'staged')
+      else {
+        if (include) await this.lose(at, d, label, 'commit', 'commit', 'staged')
+        await this.lose(at, d, label, 'commit', 'commit', 'tracked', paths)
+      }
     } else if (sub === 'add') {
       const args = operands(a)
       const wide: string[] = []
