@@ -192,6 +192,7 @@ script '{"when": "SUBAGENT-REPORT", "calls": [{"name": "mcp__cc-tuner__peers_rep
     {name: "Bash", input: {command: "bash -c '"'"'cd . && git switch -q -c z'"'"'"}},
     {name: "Bash", input: {command: ("CC_TUNER_ACK=" + $k + " bash -c '"'"'cd . && git switch -q -c z'"'"'")}},
     {name: "Write", input: {file_path: $b, content: "b"}},
+    {name: "Write", input: {file_path: ($b | sub("b.txt$"; "foreign.txt")), content: "g"}},
     {name: "mcp__cc-tuner__peers_report", input: {}},
     {name: "mcp__cc-tuner__peers_claim", input: {plan: "docs/p.md"}},
     {name: "Agent", input: {description: "report", prompt: "SUBAGENT-REPORT", subagent_type: "general-purpose"}}]}')"
@@ -209,6 +210,7 @@ equals "guard-acked-command-ran-without-the-prefix" "z" "$(git -C "$RB" branch -
 equals "guard-ack-is-recorded"                 "number" "$(e2e_rec ".acks[\"$KEY\"] | type")"
 check  "guard-note-reaches-the-model"          "also writes in $RB" "$LOG"
 equals "guard-noted-edit-ran"                  "b" "$(cat "$RB/b.txt" 2>/dev/null)"
+check  "guard-edit-of-an-untracked-file-is-a-note-on-real-git" "foreign.txt has uncommitted changes this session did not make" "$LOG"
 check  "report-lists-a-live-peer"              "pid $PB  z  $RB" "$LOG"
 check  "report-lists-the-worktree-peer"        "pid $PO  feat-o  $WO" "$LOG"
 check  "report-shows-edited-paths"             "edited: lib/x.ts" "$LOG"
