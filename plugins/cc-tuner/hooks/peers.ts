@@ -1308,19 +1308,36 @@ class Guard {
     }
   }
 
+  // The checkouts a recursive removal of `path` reaches: every root at or under it that a record names (live or a
+  // tombstone), this session's own, the one holding the session's cwd and the step's own, and the target itself when it
+  // is one. A parent of a checkout is removed with it, so each is read as a direct removal of it would be.
+  private async roots(path: string, at: Where, there: Where | undefined): Promise<Where[]> {
+    const prefix = path.endsWith('/') ? path : `${path}/`
+    const tops = [...this.recs.values(), this.r].flatMap(r => Object.keys(r.checkouts)).concat(at[0], this.here?.[0] ?? [], there?.[0] ?? [])
+    const found: Where[] = []
+    for (const top of [...new Set(tops)].filter(t => t === path || t.startsWith(prefix)).sort()) {
+      const w = await this.p.where(top)
+      if (w?.[0] === top) found.push(w)
+    }
+    return found
+  }
+
   private async remove(at: Where, d: string, label: string, paths: readonly string[]) {
     for (const p of paths) {
       const path = await this.p.real(join(d, p))
       const there = await this.p.where(path)
-      for (const [r, cos] of await this.peers(there ?? at, true)) {
-        for (const [top, co] of cos) {
-          if (top === path || top.startsWith(`${path}/`)) this.stop('remove', path, `\`${label}\` would remove ${path}, where ${who(r, co)} works.`)
+      const roots = await this.roots(path, at, there)
+      for (const w of [...roots, there ?? at]) {
+        for (const [r, cos] of await this.peers(w, true)) {
+          for (const [top, co] of cos) {
+            if (top === path || top.startsWith(`${path}/`)) this.stop('remove', path, `\`${label}\` would remove ${path}, where ${who(r, co)} works.`)
+          }
         }
       }
-      if (there !== undefined && there[0] === path) {
-        const files = await this.foreign(there, 'all', undefined, path)
-        if (files === undefined) this.unread('remove', path, label)
-        else if (files.length > 0) await this.foreignStop('remove', path, files, `\`${label}\` would delete ${listing(files)} in ${path}`)
+      for (const w of roots) {
+        const files = await this.foreign(w, 'all', undefined, w[0])
+        if (files === undefined) this.unread('remove', w[0], label)
+        else if (files.length > 0) await this.foreignStop('remove', w[0], files, `\`${label}\` would delete ${listing(files)} in ${w[0]}`)
       }
     }
   }

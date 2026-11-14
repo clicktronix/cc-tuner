@@ -423,6 +423,21 @@ e2e "$RG" go
 check  "git-config-a-plain-reset-hard-still-runs" "plain-42" "$(cat "$W/api.log")"
 equals "git-config-a-plain-reset-hard-leaves-the-submodule-alone" "edit" "$(cat "$RG/sg/x")"
 
+# A recursive removal reaches every checkout under its target, not only a target that is itself a checkout root. The
+# parent holds a checkout a record of a finished session names (a tombstone) with a file nobody here edited; the session
+# runs in another repository. The control removes the same parent once the checkout is clean.
+RP="$W/rmparent"; mkdir -p "$RP"; git init -q -b main "$RP/r"; commit_file "$RP/r" a one; RP="$(cd "$RP" && pwd -P)"
+printf 'precious\n' > "$RP/r/foreign.txt"
+RO="$(repo)"
+peer; PRM=$SP; fixture prm "$PRM" "$RP/r" null; kill "$PRM"; until [ -z "$(lstart "$PRM")" ]; do sleep 0.05; done
+script "$(jq -nc --arg c "rm -rf $RP" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+e2e "$RO" go
+check  "remove-a-parent-of-a-checkout-with-a-foreign-file-stops" "would delete foreign.txt in $RP/r" "$(cat "$W/api.log")"
+equals "remove-a-parent-keeps-the-foreign-file" "precious" "$(cat "$RP/r/foreign.txt")"
+rm -f "$RP/r/foreign.txt"
+e2e "$RO" go
+equals "remove-a-parent-of-a-clean-checkout-runs" "no" "$([ -e "$RP" ] && echo yes || echo no)"
+
 # `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
 # and only creates a marker file; a plain `git status` is the control that it runs.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"

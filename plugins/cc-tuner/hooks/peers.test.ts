@@ -1384,6 +1384,47 @@ test('guard: removing a worktree that is a peer\'s cwd, or holds foreign files, 
   expect((await decide(r, `git worktree remove ${wt}`)).decision).toBe('allow')
 })
 
+test('guard: a recursive removal of a parent inspects every known checkout under it, whoever the record belongs to', async () => {
+  const { m, session, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const known = (top: string, owner: Session) => { m.repo(top); return owner.touch(top) }
+  // A checkout only a tombstone knows, with a file nobody here edited.
+  const ghost = session('ghost')
+  await known('/p/t/r', ghost)
+  m.end(ghost.pid)
+  m.dirty('/p/t/r', '?? foreign.txt')
+  for (const c of ['rm -rf /p/t', 'rm -r /p/t/', 'rm -rf /p']) {
+    const v = await decide(r, c)
+    expect(v.decision, `remove-parent-tombstone-${c}`).toBe('stop')
+    expect(v.reason, `remove-parent-names-the-file-${c}`).toContain('foreign.txt in /p/t/r')
+  }
+  expect((await decide(r, 'rm -rf /p/t/r')).decision, 'remove-the-root-itself-still-stops').toBe('stop')
+  m.status.set('/p/t/r', [])
+  expect((await decide(r, 'rm -rf /p/t')).decision, 'remove-parent-of-a-clean-tombstone-checkout').toBe('allow')
+  // This session's own checkout: its own edits go, a foreign file does not.
+  await known('/p/o/r', me)
+  m.dirty('/p/o/r', '?? mine.txt')
+  await me.edited('/p/o/r', '/p/o/r/mine.txt', 'Write')
+  expect((await decide(r, 'rm -rf /p/o')).decision, 'remove-parent-of-own-edits').toBe('allow')
+  m.dirty('/p/o/r', '?? foreign.txt')
+  expect((await decide(r, 'rm -rf /p/o')).reason, 'remove-parent-of-own-and-foreign').toContain('foreign.txt in /p/o/r')
+  // The checkout holding the session's cwd.
+  m.repo('/p/c/r')
+  m.dirty('/p/c/r', '?? foreign.txt')
+  expect((await decide('/p/c/r', 'rm -rf /p/c')).decision, 'remove-parent-of-the-cwd-checkout').toBe('stop')
+  // A live session of any repository under the parent works there.
+  const live = session('live')
+  await known('/p/l/r', live)
+  const v = await decide(r, 'rm -rf /p/l')
+  expect(v.decision, 'remove-parent-of-a-live-peer-checkout').toBe('stop')
+  expect(v.reason).toContain(`pid ${live.pid}`)
+  // A directory with no checkout a record or the cwd names is not read.
+  m.repo('/p/u/r')
+  m.dirty('/p/u/r', '?? foreign.txt')
+  expect((await decide(r, 'rm -rf /p/u')).decision, 'remove-parent-of-an-unknown-checkout').toBe('allow')
+})
+
 test('guard: kill of a process that descends from a peer stops; its own or an unrelated one does not', async () => {
   const { m, session, other } = machine() as ReturnType<typeof machine> & { other?: never }
   void other
