@@ -29,6 +29,7 @@ class Machine {
   failing = new Map<string, number>()
   gitConfig = new Map<string, string>()
   trees = new Map<string, string[]>()
+  afterRead = new Map<string, () => Promise<void>>()
   private tick = 1
   private nextPid = 1000
 
@@ -89,7 +90,10 @@ class Machine {
       read: async p => {
         const f = this.files.get(p)
         if (f === undefined) throw new Error(`ENOENT ${p}`)
-        return this.halfOnce.delete(p) ? f.text.slice(0, 20) : f.text
+        const text = this.halfOnce.delete(p) ? f.text.slice(0, 20) : f.text
+        const hook = this.afterRead.get(p)
+        if (hook !== undefined) { this.afterRead.delete(p); await hook() }
+        return text
       },
       write: async (p, text) => this.put(p, text),
       list: async d => {
@@ -132,9 +136,18 @@ class Machine {
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
     if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
     // The lease scripts, as the shell runs them: one atomic step each.
+    // Each script of the lease runs under the `.take` directory: while another caller holds it, the exit is 2.
+    if (cmd === '/bin/sh' && a[1]?.includes('printf %s') && !a[1].includes('if mkdir')) {
+      const [lock, seen, info] = a.slice(3) as [string, string, string]
+      if (this.dirs.has(`${lock}.take`)) return { exitCode: 2, stdout: '' }
+      if (this.cat(`${lock}/holder.json`) !== seen) return { exitCode: 1, stdout: '' }
+      this.put(`${lock}/holder.json`, info)
+      return { stdout: '' }
+    }
     if (cmd === '/bin/sh' && a[1]?.includes('printf %s')) {
       const [lock, seen, info] = a.slice(3) as [string, string, string]
       if (!this.dirs.has(lock.slice(0, lock.lastIndexOf('/')))) return { exitCode: 1, stdout: '' }
+      if (this.dirs.has(lock) && this.dirs.has(`${lock}.take`)) return { exitCode: 2, stdout: '' }
       const old = this.clock - (this.dirTimes.get(lock) ?? 0) > 540_000
       if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen && (seen !== '' || old)) this.drop(lock)
       if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
@@ -143,6 +156,7 @@ class Machine {
       return { stdout: '' }
     }
     if (cmd === '/bin/sh' && a[1]?.includes('holder.json') && a[1].includes('rm -rf')) {
+      if (this.dirs.has(`${a[3]}.take`)) return { exitCode: 2, stdout: '' }
       if (this.cat(`${a[3]}/holder.json`) !== a[4]) return { exitCode: 1, stdout: '' }
       this.drop(a[3]!)
       return { stdout: '' }
@@ -1264,6 +1278,45 @@ test('resource: the lease is the holder\'s until its release, 10 min of silence 
   expect((await use(sr, ra)).decision, 'resource-lease-moves-on-release').toBe('note')
   m.end(sr.pid)
   expect((await use(sc, rc)).decision, 'resource-lease-moves-on-death').toBe('note')
+})
+
+test('resource: a renewal or a release that lost the race to a takeover changes nothing, and a renewal comes once a minute', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  const use = (s: Session, top: string) => s.peers.lease(CLICK, top, s.sid)
+  const renewals = () => m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s') && !a[2].includes('if mkdir')).length
+  const last = () => (JSON.parse(m.cat(`${lock}/holder.json`)) as { last: number }).last
+  await use(sr, ra)
+  const first = last()
+  m.ran.length = 0
+  m.advance(30)
+  await use(sr, ra)
+  expect(renewals(), 'resource-renewal-waits-a-minute').toBe(0)
+  m.advance(40)
+  await use(sr, ra)
+  expect(renewals(), 'resource-renewal-runs-in-the-lock').toBe(1)
+  expect(last()).toBeGreaterThan(first)
+  m.dirs.add(take)
+  m.advance(61)
+  const kept = last()
+  expect((await use(sr, ra)).decision, 'a renewal that finds the lock busy is skipped').toBe('allow')
+  expect(last()).toBe(kept)
+  m.dirs.delete(take)
+  m.advance(601)
+  m.afterRead.set(`${lock}/holder.json`, async () => { await use(sc, rc) })
+  const late = await use(sr, ra)
+  expect(late.decision, 'resource-renewal-after-a-takeover-stops').toBe('stop')
+  expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid, 'resource-renewal-keeps-the-new-holder').toBe(sc.pid)
+  m.advance(601)
+  m.afterRead.set(`${lock}/holder.json`, async () => { await use(sr, ra) })
+  expect(await sc.peers.release('chrome'), 'resource-release-after-a-takeover-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid).toBe(sr.pid)
+  m.dirs.add(take)
+  expect(await sr.peers.release('chrome'), 'resource-release-while-the-lock-is-busy-waits').toContain('busy')
+  expect(m.dirs.has(lock)).toBe(true)
+  m.dirs.delete(take)
+  expect(await sr.peers.release('chrome')).toBe('cc-tuner: released chrome.')
 })
 
 test('resource: a repository resource is leased too, and a lock with no holder file yet is not up for grabs', async () => {

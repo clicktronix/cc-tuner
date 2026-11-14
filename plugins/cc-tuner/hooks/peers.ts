@@ -27,8 +27,9 @@ import type { EngineInterface } from 'claude-code'
 // stay); the machine's `products` maps names to paths (`~` allowed), a repository file's `product` winning. A shared resource (`start` and `stop` command prefixes) is not stopped
 // while another session of the product is live; the machine's, while any session is. An exclusive one (`tools`,
 // MCP tool-name patterns) is leased to the first session that calls one: a lock directory `lease.<key>` in the
-// record directory, made by an atomic `mkdir` that carries {v, key, pid, start, session, last use}. The lease moves
-// on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
+// record directory, made by an atomic `mkdir` that carries {v, key, pid, start, session, last use}. The holder renews it
+// at most once a minute; a takeover, a renewal and a release each run under one cross-process mutex and compare the holder
+// they read. The lease moves on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files (and, limited to one path, before the first edit of it in an
@@ -94,18 +95,22 @@ const WRITER_WINDOW = 2 * 3600
 const IDLE = 8 * 3600
 const PS_TTL = 60
 const LEASE_IDLE = 10 * 60
+const LEASE_RENEW = 60
 const NONE: Config = { off: false, products: {}, resources: [] }
-// The lease scripts: each is one step in the shell. TAKE makes the lock with an atomic `mkdir`; a lock that exists
-// is replaced by one caller at a time (the `.take` directory), and only while it still holds the text the caller
-// read (an empty lock only when it is old). RELEASE removes it only while it holds the caller's own text.
-const TAKE = 'd="$1"; if mkdir "$d" 2>/dev/null; then printf %s "$3" > "$d/holder.json"; exit; fi; ' +
-  'find "$d.take" -maxdepth 0 -mmin +1 -exec rmdir {} + 2>/dev/null; mkdir "$d.take" 2>/dev/null || exit 1; trap \'rmdir "$d.take"\' EXIT; ' +
+// The lease scripts: each is one step in the shell, and each acts on a lock that exists only under LOCKED, the `.take`
+// directory made by an atomic `mkdir` (exit 2 while another caller holds it; one left by a crashed caller goes after a
+// minute). TAKE makes the lock with an atomic `mkdir`; a lock that exists is replaced only while it still holds the
+// text the caller read (an empty lock only when it is old). RENEW and RELEASE act only while it holds the caller's own
+// text, so neither lands on the lock of whoever took it over in between.
+const LOCKED = 'find "$d.take" -maxdepth 0 -mmin +1 -exec rmdir {} + 2>/dev/null; mkdir "$d.take" 2>/dev/null || exit 2; trap \'rmdir "$d.take"\' EXIT; '
+const TAKE = 'd="$1"; if mkdir "$d" 2>/dev/null; then printf %s "$3" > "$d/holder.json"; exit; fi; ' + LOCKED +
   '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && { [ -n "$2" ] || [ -n "$(find "$d" -maxdepth 0 -mmin +9)" ]; } || exit 1; ' +
   'rm -rf "$d" && mkdir "$d" 2>/dev/null && printf %s "$3" > "$d/holder.json"'
+const RENEW = 'd="$1"; ' + LOCKED + '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && printf %s "$3" > "$d/holder.json" || exit 1'
+const RELEASE = 'd="$1"; ' + LOCKED + '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$d" || exit 1'
 const SWEEP = 'cd "$1" || exit 0; shift; rm -f -- "$@"; find merge -type f -mmin +1440 -exec rm -f {} + 2>/dev/null; ' +
   'find . -maxdepth 1 -name ".objects.*" -mmin +60 -exec rm -rf {} + 2>/dev/null; exit 0'
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
-const RELEASE = '[ "$(cat "$1/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$1"'
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
 const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show'])
@@ -736,14 +741,17 @@ export class Peers {
     })
   }
 
-  private async hold(key: string, [pid, start]: [number, string], sid: string | null): Promise<Verdict> {
+  // The holder's call renews the lease at most once a minute; a renewal that finds the lock changed went to a takeover.
+  private async hold(key: string, me: [number, string], sid: string | null, renew = true): Promise<Verdict> {
+    const [pid, start] = me
     const lock = await this.lock(key)
     const [text, st] = [await this.held(lock), await this.w.stat(lock)]
     const [cur, now] = [holder(text), this.now()]
     const mine = JSON.stringify({ v: 1, key, pid, start, session: sid, last: now })
     if (cur?.pid === pid && cur.start === start) {
-      await this.w.write(`${lock}/holder.json`, mine)
-      return { decision: 'allow' }
+      if (!renew || now - cur.last < LEASE_RENEW) return { decision: 'allow' }
+      const r = await this.w.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])
+      return r.exitCode === 1 ? this.hold(key, me, sid, false) : { decision: 'allow' }
     }
     if (st !== undefined) {
       // A lock nobody wrote into yet is as old as its directory.
@@ -769,7 +777,11 @@ export class Peers {
       const text = await this.held(lock)
       const cur = holder(text)
       if (me === undefined || cur?.pid !== me[0] || cur.start !== me[1]) return refused
-      return (await this.w.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])).exitCode === 0 ? `cc-tuner: released ${key}.` : refused
+      for (let i = 0; i < 3; i++) {
+        const { exitCode } = await this.w.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])
+        if (exitCode !== 2) return exitCode === 0 ? `cc-tuner: released ${key}.` : refused
+      }
+      return `cc-tuner: ${key} is busy, being taken or renewed; try again.`
     })
   }
 

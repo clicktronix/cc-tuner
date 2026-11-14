@@ -343,13 +343,16 @@ for c in "git reset --hard src" "git checkout -f src" "git switch -f src"; do
 done
 
 # --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
-# TAKE is the guard's own script, cut out of hooks/peers.ts and printed by node.
+# TAKE, RENEW and RELEASE are the guard's own scripts, cut out of hooks/peers.ts and printed by node.
 if ! command -v node >/dev/null 2>&1; then
   fail "lease-race (node is not on PATH)"
 else
-  TAKE="$(node -e "$(sed -n '/^const TAKE =/,/^const SWEEP =/p' "$FLOW_PLUGIN/hooks/peers.ts" | sed '$d'); process.stdout.write(TAKE)")"
+  script_of() { node -e "$(sed -n '/^const LOCKED =/,/^const SWEEP =/p' "$FLOW_PLUGIN/hooks/peers.ts" | sed '$d'); process.stdout.write($1)" 2>/dev/null; }
+  TAKE="$(script_of TAKE)"; RENEW="$(script_of RENEW)"; RELEASE="$(script_of RELEASE)"
   RACE="$W/race"; mkdir -p "$RACE"
   take() { sh -c "$TAKE" sh "$@"; }
+  renew() { sh -c "$RENEW" sh "$@"; }
+  release() { sh -c "$RELEASE" sh "$@"; }
   mkdir "$RACE/lease.x"; printf %s '{"v":1,"key":"x","pid":1,"start":"gone","session":null,"last":1}' > "$RACE/lease.x/holder.json"
   SEEN="$(cat "$RACE/lease.x/holder.json")"; RP=""
   for i in $(seq 1 20); do ( take "$RACE/lease.x" "$SEEN" "mine$i"; echo $? > "$RACE/rc.$i" ) & RP="$RP $!"; done
@@ -362,6 +365,22 @@ else
   take "$RACE/lease.e" "" mine; equals "lease-a-fresh-empty-lock-is-not-taken" "1" "$?"
   touch -t 202001010000 "$RACE/lease.e"
   take "$RACE/lease.e" "" mine; equals "lease-an-old-empty-lock-is-taken" "0" "$?"
+  # A renewal or a release that read the lock before a takeover must not act on the new holder's lock.
+  mkdir "$RACE/lease.r"; printf %s A > "$RACE/lease.r/holder.json"
+  renew "$RACE/lease.r" A A2; equals "lease-renewal-by-the-holder-runs" "0" "$?"
+  equals "lease-renewal-writes-the-new-text" "A2" "$(cat "$RACE/lease.r/holder.json")"
+  take "$RACE/lease.r" A2 B
+  renew "$RACE/lease.r" A2 A3; equals "lease-renewal-after-a-takeover-is-refused" "1" "$?"
+  equals "lease-renewal-after-a-takeover-leaves-the-new-holder" "B" "$(cat "$RACE/lease.r/holder.json")"
+  release "$RACE/lease.r" A2; equals "lease-release-after-a-takeover-is-refused" "1" "$?"
+  equals "lease-release-after-a-takeover-leaves-the-new-holder" "B" "$(cat "$RACE/lease.r/holder.json")"
+  mkdir "$RACE/lease.r.take"
+  release "$RACE/lease.r" B; equals "lease-release-while-a-take-is-under-way-is-busy" "2" "$?"
+  renew "$RACE/lease.r" B B2; equals "lease-renewal-while-a-take-is-under-way-is-busy" "2" "$?"
+  equals "lease-busy-calls-change-nothing" "B" "$(cat "$RACE/lease.r/holder.json")"
+  rmdir "$RACE/lease.r.take"
+  release "$RACE/lease.r" B; equals "lease-release-by-the-holder-runs" "0" "$?"
+  equals "lease-release-removes-the-lock-and-leaves-no-mutex" "0" "$(ls "$RACE" | grep -c '^lease\.r')"
 fi
 
 # --- latency: the module decides in at most 150 ms p95 over 50 calls with 10 records --------------------------------
