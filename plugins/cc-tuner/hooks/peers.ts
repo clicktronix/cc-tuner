@@ -781,8 +781,9 @@ export class Peers {
   }
 
   // The changed files as [index, worktree, path], or undefined when git did not answer: that is not a clean tree.
-  async status(top: string, staged: readonly string[]): Promise<[string, string, string][] | undefined> {
-    const r = await this.w.run([...GIT, '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'], { env: GIT_ENV }).catch(() => undefined)
+  async status(top: string, staged: readonly string[], path?: string): Promise<[string, string, string][] | undefined> {
+    const spec = path === undefined ? [] : ['--', path]
+    const r = await this.w.run([...GIT, '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', ...spec], { env: GIT_ENV }).catch(() => undefined)
     if (r === undefined || r.exitCode !== 0) return undefined
     let found: [string, string, string][] = []
     for (const e of r.stdout.split('\0')) if (e.length > 3) found.push([e[0]!, e[1]!, e.slice(3)])
@@ -1076,6 +1077,10 @@ class Guard {
 
   private async edit(at: Where, rel: string) {
     const [top, common] = at
+    const key = `dirty:${top}|${rel}`
+    if (!owns(this.r.checkouts[top]?.paths ?? [], rel) && this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && ((await this.p.status(top, [], rel)) ?? []).length > 0) {
+      this.once(key, `${rel} has uncommitted changes this session did not make (${await this.owner(top, [rel])}); read it before overwriting.`)
+    }
     for (const [r, cos] of await this.peers(at)) {
       for (const [t, co] of cos) {
         if (t === top && co.writer !== null) this.once(`note:${r.pid}:${top}`, `${who(r, co)} also writes in ${top}; its edits may land next to yours.`)

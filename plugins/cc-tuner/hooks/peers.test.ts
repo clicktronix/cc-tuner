@@ -114,7 +114,10 @@ class Machine {
     const [cmd, ...a] = argv
     if (cmd === '/bin/sh' && a[1] === 'echo $PPID') return { stdout: `${pid}\n` }
     if (cmd === 'ps') return { stdout: this.ps(a.includes('-p') ? a[a.indexOf('-p') + 1]!.split(',').map(Number) : undefined) }
-    if (cmd === 'git' && a[2] === 'status') return { stdout: (this.status.get(a[1]!) ?? []).map(e => `${e}\0`).join('') }
+    if (cmd === 'git' && a[2] === 'status') {
+      const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
+      return { stdout: (this.status.get(a[1]!) ?? []).filter(e => spec === undefined || spec.includes(e.slice(3))).map(e => `${e}\0`).join('') }
+    }
     if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: 'sha\n' } : { exitCode: 1, stdout: '' }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
     if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
@@ -949,6 +952,33 @@ test('guard: an edit next to a writer or of a claimed path is a note, said once 
   expect((await me.check({ tool: 'Edit', cwd: r, path: `${other()}/a.txt` })).decision, 'guard-edit-in-another-repository-allows').toBe('allow')
   m.end(peer.pid)
   expect((await edit(`${r}/lib/y.ts`)).decision, 'guard-edit-with-a-dead-peer-allows').toBe('allow')
+})
+
+test('guard: an edit of a dirty or untracked file this session did not edit is a note, once per path per hour', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const [peer, me] = [session('peer'), session('me')]
+  await me.bash(r, 'git status')
+  m.dirty(r, ' M a.txt', '?? u.txt', ' M p.txt', ' M own.txt')
+  await peer.edited(r, `${r}/p.txt`)
+  m.edit('peer', x => { x.checkouts[r]!.writer = null })
+  await me.edited(r, `${r}/own.txt`)
+  const edit = (path: string, tool = 'Edit') => me.check({ tool, cwd: r, path: `${r}/${path}` })
+  const first = await edit('a.txt')
+  expect(first.decision, 'guard-edit-of-a-dirty-file-nobody-here-edited-is-a-note').toBe('note')
+  expect(first.reason).toContain('a.txt')
+  expect(first.reason).toContain('unknown owner')
+  expect((await edit('a.txt')).decision, 'guard-dirty-file-note-once-an-hour').toBe('allow')
+  expect((await edit('u.txt', 'Write')).decision, 'guard-untracked-file-is-foreign-too').toBe('note')
+  expect((await edit('n.ipynb', 'NotebookEdit')).decision, 'guard-clean-or-new-file-allows').toBe('allow')
+  expect((await edit('p.txt')).reason, 'guard-dirty-file-names-the-peer-that-edited-it').toContain(`pid ${peer.pid}`)
+  m.ran.length = 0
+  expect((await edit('own.txt')).decision, 'guard-own-edited-file-allows').toBe('allow')
+  expect(m.ran, 'guard-own-edited-file-runs-no-git').toEqual([])
+  m.advance(3601)
+  expect((await edit('a.txt')).decision, 'guard-dirty-file-note-again-after-the-hour').toBe('note')
+  m.failing.set('git status', 128)
+  expect((await edit('u.txt', 'Write')).decision, 'guard-unreadable-status-adds-no-note').toBe('allow')
 })
 
 test('guard: a git command with an option first is a note', async () => {
