@@ -363,6 +363,28 @@ test('a session that keeps calling tools stays awake past 8 h, and one that does
   expect(reason, 'the session with no call is idle and blocks nothing').not.toContain(`pid ${idle.pid}`)
 })
 
+test('a session outside any repository that starts a machine shared resource uses it: it has a record with no checkout, kept awake by its calls', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, STACK)
+  const [starter, plain, other] = [session('starter'), session('plain'), session('other')]
+  await plain.bash('/tmp/nowhere', 'ls')
+  expect(m.records(plain.pid), 'a bare session that runs nothing of the machine\'s leaves no record').toBe(0)
+  expect((await starter.bash('/tmp/nowhere', 'stack up')).decision).toBe('allow')
+  expect(m.rec('starter'), 'resource-bare-start-has-a-process-only-record').toMatchObject({ pid: starter.pid, session_id: 'starter', checkouts: {} })
+  await other.touch(r)
+  const stop = await other.bash(r, 'stack down')
+  expect(stop.decision, 'resource-bare-start-is-a-user').toBe('stop')
+  expect(stop.reason).toContain(`pid ${starter.pid}`)
+  for (let i = 0; i < 18; i++) {
+    m.advance(1800)
+    await starter.peers.alive()
+  }
+  expect((await other.bash(r, 'stack down')).reason, 'resource-bare-start-stays-a-user-while-it-calls-tools').toContain(`pid ${starter.pid}`)
+  m.advance(9 * 3600)
+  expect((await other.bash(r, 'stack down')).decision, 'and stops being one when it is idle').toBe('allow')
+})
+
 test('the Claude pid is read once per module load', async ($, on) => {
   const { m } = machine()
   m.repo('/w/r')

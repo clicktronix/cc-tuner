@@ -266,6 +266,14 @@ check  "resource-machine-stop-outside-a-repository-reaches-the-model" "would sto
 equals "resource-machine-stop-outside-a-repository-did-not-run" "no" "$([ -e "$W/none-stopped" ] && echo yes || echo no)"
 kill "$PN"; until [ -z "$(lstart "$PN")" ]; do sleep 0.05; done
 
+# A session outside any repository that starts a machine shared resource uses it: it leaves a record with no checkout.
+rm -f "$W/mstack-started"
+jq -nc --arg s "touch $W/mstack-started" '{resources: [{key: "mstart", kind: "shared", start: [$s], stop: []}]}' > "$W/machine-start.json"
+script "$(jq -nc --arg c "touch $W/mstack-started" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+CC_TUNER_PEERS_CONFIG="$W/machine-start.json" e2e "$NR" --session-id 00000000-0000-4000-8000-0000000000a1 go
+equals "resource-machine-start-outside-a-repository-ran" "yes" "$([ -e "$W/mstack-started" ] && echo yes || echo no)"
+equals "resource-machine-start-outside-a-repository-leaves-a-record" "0" "$(e2e_rec '.checkouts | length')"
+
 cat > "$W/mcp.py" <<'PY'
 import json, sys
 for line in sys.stdin:
