@@ -1039,6 +1039,43 @@ test('guard: git commit protects what it will commit: its paths, or the staged f
   expect((await decide(r, 'git commit -m m')).decision, 'a plain commit takes only the staged files').toBe('allow')
 })
 
+test('guard: git commit --pathspec-from-file commits the paths the file lists, and every tracked change when it cannot be read', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.status.set(r, ['M  foreign.txt', ' M own.txt', ' M other.txt'])
+  await me.edited(r, `${r}/own.txt`)
+  m.put(`${r}/own-list`, 'own.txt\n')
+  m.put(`${r}/other-list`, '"other.txt"\r\nown.txt\n')
+  m.put(`${r}/nul-list`, 'other.txt\0')
+  m.put(`${r}/odd-list`, '"caf\\303\\251"\n')
+  const go = (c: string) => decide(r, c)
+  expect((await go('git commit --pathspec-from-file=own-list -m m')).decision, 'pathspec-file-lists-an-own-path').toBe('allow')
+  expect((await go('git commit --pathspec-from-file own-list -m m')).decision, 'pathspec-file-in-the-two-word-form').toBe('allow')
+  const other = await go('git commit --pathspec-from-file=other-list -m m')
+  expect(other.decision, 'pathspec-file-lists-a-foreign-path').toBe('stop')
+  expect(other.reason).toContain('other.txt')
+  expect((await go('git commit --pathspec-from-file=nul-list --pathspec-file-nul -m m')).reason, 'pathspec-file-nul-is-split-on-nul').toContain('other.txt')
+  for (const c of ['git commit --pathspec-from-file=missing -m m', 'git commit --pathspec-from-file=- -m m', 'git commit --pathspec-from-file=odd-list -m m']) {
+    expect((await go(c)).reason, `pathspec-file-unreadable-takes-every-tracked-change: ${c}`).toContain('foreign.txt')
+  }
+  m.put(`${r}/big-list`, 'own.txt\n'.repeat(200_000))
+  expect((await go('git commit --pathspec-from-file=big-list -m m')).decision, 'pathspec-file-too-big-is-unreadable').toBe('stop')
+})
+
+test('guard: git commit --only with no paths and --amend commits none of the staged files', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.status.set(r, ['M  foreign.txt', ' M other.txt'])
+  for (const c of ['git commit --only --amend --no-edit', 'git commit -o --amend --no-edit', 'git commit --amend -o -m reworded', 'git commit --amend --only -m reworded']) {
+    expect((await decide(r, c)).decision, c).toBe('allow')
+  }
+  for (const c of ['git commit --amend --no-edit', 'git commit --only other.txt --amend --no-edit', 'git commit -o --amend -a --no-edit', 'git commit --only -m m']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+})
+
 test('guard: a foreign stop names the peer that edited the file; a dead peer\'s files stay protected', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready

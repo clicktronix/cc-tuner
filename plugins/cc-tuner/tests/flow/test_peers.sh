@@ -380,6 +380,19 @@ equals "commit-only-own-ran-on-real-git"            "only-own" "$(git -C "$RC" l
 equals "commit-only-own-left-the-foreign-staged"    "foreign" "$(git -C "$RC" diff --cached --name-only)"
 check  "commit-plain-stops-for-the-foreign-staged"  "would commit foreign in" "$(cat "$W/api.log")"
 
+# A commit whose paths come from a file takes those paths, and `--only --amend` with no paths takes none of the staged files.
+RF="$(repo)"
+commit_file "$RF" own one; commit_file "$RF" foreign one
+printf 'o2\n' > "$RF/own"; printf 'f2\n' > "$RF/foreign"; git -C "$RF" add foreign; printf 'own\n' > "$RF/paths.txt"
+script "$(jq -nc --arg o "$RF/own" '{when: "", calls: [
+  {name: "Write", input: {file_path: $o, content: "mine\n"}},
+  {name: "Bash", input: {command: "git commit --pathspec-from-file=paths.txt -m from-file"}},
+  {name: "Bash", input: {command: "git commit --only --amend -m reworded"}}]}')"
+e2e "$RF" go
+equals "commit-pathspec-from-file-ran-on-real-git"  "reworded" "$(git -C "$RF" log -1 --format=%s)"
+equals "commit-pathspec-from-file-took-the-listed-path" "own" "$(git -C "$RF" show --name-only --format= HEAD)"
+equals "commit-only-amend-left-the-foreign-staged"  "foreign" "$(git -C "$RF" diff --cached --name-only)"
+
 # --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
 # TAKE, RENEW and RELEASE are the guard's own scripts, cut out of hooks/peers.ts and printed by node.
 if ! command -v node >/dev/null 2>&1; then
