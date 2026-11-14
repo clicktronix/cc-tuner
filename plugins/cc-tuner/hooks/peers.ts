@@ -39,7 +39,7 @@ export interface Event {
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
 }
 export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
-interface Config { product?: string; off: boolean; resources: Resource[] }
+interface Config { product?: string; off: boolean; products: Record<string, string[]>; resources: Resource[] }
 interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
 export interface Kept { id: string; key: string; top?: string }
@@ -55,6 +55,7 @@ type Where = readonly [top: string, common: string]
 export interface World {
   dir: () => Promise<string>
   config: () => Promise<string>
+  home: () => Promise<string | undefined>
   read: (path: string) => Promise<string>
   write: (path: string, text: string) => Promise<void>
   list: (dir: string) => Promise<readonly { name: string; kind: string; size: number; mtimeMs: number }[]>
@@ -72,6 +73,7 @@ export function world($: EngineInterface): World {
     },
     config: async () => (await $.env.get('CC_TUNER_PEERS_CONFIG')) ||
       `${(await $.env.get('XDG_CONFIG_HOME')) || `${await $.env.get('HOME')}/.config`}/cc-tuner/resources.json`,
+    home: () => $.env.get('HOME'),
     read: path => $.fs.read(path),
     write: (path, text) => $.fs.write(path, text),
     list: dir => $.fs.list(dir),
@@ -88,7 +90,7 @@ const WRITER_WINDOW = 2 * 3600
 const IDLE = 8 * 3600
 const PS_TTL = 60
 const LEASE_IDLE = 10 * 60
-const NONE: Config = { off: false, resources: [] }
+const NONE: Config = { off: false, products: {}, resources: [] }
 // The lease scripts: each is one step in the shell. TAKE makes the lock with an atomic `mkdir`; a lock that exists
 // is replaced by one caller at a time (the `.take` directory), and only while it still holds the text the caller
 // read (an empty lock only when it is old). RELEASE removes it only while it holds the caller's own text.
@@ -207,13 +209,14 @@ function valid(r: unknown): r is Rec {
 }
 
 function parseConfig(text: string): Config {
-  const j = JSON.parse(text) as { product?: unknown; guard?: unknown; resources?: unknown }
+  const j = JSON.parse(text) as { product?: unknown; guard?: unknown; products?: unknown; resources?: unknown }
   const names = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : [])
   const resources = (Array.isArray(j.resources) ? j.resources : []).flatMap((r: Record<string, unknown> | null): Resource[] =>
     typeof r?.key === 'string' && (r.kind === 'shared' || r.kind === 'exclusive')
       ? [{ key: r.key, kind: r.kind, start: names(r.start), stop: names(r.stop), tools: names(r.tools) }]
       : [])
-  return { product: typeof j.product === 'string' && j.product !== '' ? j.product : undefined, off: j.guard === false, resources }
+  const products = Object.fromEntries(Object.entries(isObject(j.products) ? j.products : {}).map(([k, v]) => [k, names(v)]))
+  return { product: typeof j.product === 'string' && j.product !== '' ? j.product : undefined, off: j.guard === false, products, resources }
 }
 
 function holder(text: string): Holder | undefined {
@@ -395,8 +398,36 @@ export class Peers {
     return (await this.machine()).off || (top !== undefined && (await this.config(`${top}/.claude/cc-tuner-resources.json`)).off)
   }
 
-  private async product(top: string): Promise<string | undefined> {
-    return (await this.config(`${top}/.claude/cc-tuner-resources.json`)).product
+  // The machine file's product paths, `~` and links resolved, read again with the file.
+  private listed = new WeakMap<Config, [path: string, product: string][]>()
+  private async listing(): Promise<[string, string][]> {
+    const machine = await this.machine()
+    let found = this.listed.get(machine)
+    if (found === undefined) {
+      const home = await this.w.home()
+      found = []
+      for (const [name, paths] of Object.entries(machine.products)) {
+        for (const p of paths) {
+          const abs = p === '~' || p.startsWith('~/') ? (home === undefined ? undefined : home + p.slice(1)) : p
+          if (abs?.startsWith('/')) found.push([await this.real(norm(abs)), name])
+        }
+      }
+      this.listed.set(machine, found)
+    }
+    return found
+  }
+
+  // The product of a checkout: its repository file's `product`, else the machine file's map, by the checkout or the
+  // main worktree of its repository.
+  private async product(top: string, common: string): Promise<string | undefined> {
+    const own = (await this.config(`${top}/.claude/cc-tuner-resources.json`)).product
+    if (own !== undefined) return own
+    const listed = await this.listing()
+    for (const x of [top, basename(common) === '.git' ? dirname(common) : undefined]) {
+      const hit = x === undefined ? undefined : listed.find(([p]) => x === p || x.startsWith(`${p}/`))
+      if (hit !== undefined) return hit[1]
+    }
+    return undefined
   }
 
   // The resources that apply at a checkout, with whether each is the machine's.
@@ -488,13 +519,13 @@ export class Peers {
   // The live sessions next to `here` (same repository, or a repository of the same product), with the
   // checkouts that make them so. A session with no call for 8 h is idle: `awake` leaves it out.
   async peers(recs: Map<string, Rec>, me: string | undefined, here: Where, awake = false): Promise<[Rec, [string, Checkout][]][]> {
-    const product = await this.product(here[0])
+    const product = await this.product(...here)
     const found: [Rec, [string, Checkout][]][] = []
     for (const [n, r] of recs) {
       if (n === me || (awake && this.now() - r.seen >= IDLE)) continue
       const cos: [string, Checkout][] = []
       for (const [top, co] of Object.entries(r.checkouts).sort(([a], [b]) => (a < b ? -1 : 1))) {
-        if (co.repo === here[1] || (product !== undefined && await this.product(top) === product)) cos.push([top, co])
+        if (co.repo === here[1] || (product !== undefined && await this.product(top, co.repo) === product)) cos.push([top, co])
       }
       if (cos.length > 0) found.push([r, cos])
     }

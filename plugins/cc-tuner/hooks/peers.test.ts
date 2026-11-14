@@ -83,6 +83,7 @@ class Machine {
     return {
       dir: async () => DIR,
       config: async () => USER,
+      home: async () => '/home/u',
       read: async p => {
         const f = this.files.get(p)
         if (f === undefined) throw new Error(`ENOENT ${p}`)
@@ -548,6 +549,30 @@ test('report: peers of the repository, its worktrees and its product; not others
   const back = await sb.report(rb)
   expect(back, 'report-product-is-symmetric').toContain(`pid ${sr.pid}`)
   expect(back, 'report-product-reaches-the-worktrees').toContain(`pid ${sa.pid}`)
+})
+
+test('product map: the machine file puts checkouts and worktrees under listed paths into one product; the repository file wins', async () => {
+  const { m, session } = machine()
+  const [x1, x2, z, y] = ['/w/x1', '/w/x2', '/w/z', '/w/y'].map(r => m.repo(r)) as [string, string, string, string]
+  const web = m.repo('/home/u/code/shop-web')
+  const wt = m.worktree(x1, '/elsewhere/wt', 'feat')
+  const near = m.repo('/w/x10')
+  m.put(USER, JSON.stringify({ products: { shop: ['/w/x1', '~/code/shop-web', '/w/x2'], solo: ['/w/y'] } }))
+  m.put(`${x2}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'other' }))
+  m.put(`${z}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'shop' }))
+  m.put(`${x1}/.claude/cc-tuner-resources.json`, JSON.stringify({ resources: [STACK] }))
+  const [s1, sw, sx2, sz, sy, sn, sweb] = ['s1', 'sw', 'sx2', 'sz', 'sy', 'sn', 'sweb'].map(n => session(n)) as Session[] as [Session, Session, Session, Session, Session, Session, Session]
+  for (const [s, top] of [[s1, x1], [sw, wt], [sx2, x2], [sz, z], [sy, y], [sn, near], [sweb, web]] as const) await s.touch(top)
+  const out = await s1.report(x1)
+  expect(out, 'product-map-expands-a-tilde').toContain(`pid ${sweb.pid} `)
+  expect(out, 'a repository file product joins the product by name').toContain(`pid ${sz.pid} `)
+  for (const s of [sx2, sy, sn]) expect(out, 'product-map-repository-file-wins; a prefix is not a path').not.toContain(`pid ${s.pid} `)
+  const back = await sweb.report(web)
+  expect(back, 'product-map-is-symmetric').toContain(`pid ${s1.pid} `)
+  expect(back, 'product-map-a-worktree-belongs-through-its-main-worktree').toContain(`pid ${sw.pid} `)
+  expect((await s1.bash(x1, 'stack down')).decision, 'product-map-consumers-of-a-shared-resource').toBe('stop')
+  expect((await sweb.start(web)).line, 'product-map-start-line').toContain('live peers:')
+  expect((await sy.start(y)).line).toBe('')
 })
 
 test('report: claims, edited paths, and merge-tree conflicts of same-repository branches only, cached per SHA pair', async () => {
