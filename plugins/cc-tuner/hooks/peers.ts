@@ -17,7 +17,7 @@ import type { EngineInterface } from 'claude-code'
 //
 // kept are the shared-resource tasks this process started: /clear leaves them running, and so does a reload of the module.
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
-// first touch, moved only by this session's own call that held a switch-like step, when HEAD changed during it or
+// first touch (any git step touches its checkout, a read-only one too), moved only by this session's own call that held a switch-like step, when HEAD changed during it or
 // the step named the branch HEAD holds; writer the epoch of the last call the guard let through that could write
 // (marked before it runs); paths what Edit/Write changed. acks also hold the hourly notes. `seen` is the epoch of the
 // session's last call of any tool (renewed at most once a minute); a session whose `seen` is 8 h old is idle: it blocks nothing that depends only on its being alive, and its edited paths stay protected.
@@ -820,7 +820,9 @@ export class Peers {
         const blind = st.dir === UNKNOWN
         const d = join(ev.cwd, blind ? '' : st.dir ?? '')
         const [writes, sw] = [!readOnly(st), switches(st)]
-        plan.push({ st, writes, switch: sw, blind: blind && writes, at: !blind && (writes || sw) ? await this.where(d) : undefined, d })
+        // A git step is recorded in its checkout though it only reads, so the first touch fixes the branch it started on.
+        const known = !blind && (writes || sw || basename(st.words?.[0] ?? '') === 'git')
+        plan.push({ st, writes, switch: sw, blind: blind && writes, at: known ? (d === norm(ev.cwd) ? here : await this.where(d)) : undefined, d })
       }
     }
     if ((here === undefined && !plan.some(p => p.at !== undefined)) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }

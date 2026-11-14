@@ -791,8 +791,10 @@ test('guard: a step\'s directory decides its checkout', async () => {
   expect(writerOf(m, 'g1', rg)).toBeNull()
   await g.bash(rg, at(`${rg}/sub/../`, 'npm test'))
   expect(typeof writerOf(m, 'g1', rg)).toBe('number')
+  await g.bash(rg, at(ry, 'ls'))
+  expect(m.rec('g1').checkouts[ry], 'guard-read-only-step-that-is-not-git-does-not-touch-it').toBeUndefined()
   await g.bash(rg, at(ry, 'git status'))
-  expect(m.rec('g1').checkouts[ry], 'guard-read-only-step-elsewhere-does-not-touch-it').toBeUndefined()
+  expect(m.rec('g1').checkouts[ry], 'guard-read-only-git-step-elsewhere-records-it-with-no-writer').toMatchObject({ writer: null, expected: 'main' })
 })
 
 test('guard: the expected branch moves only when HEAD changed during this session\'s own switch', async () => {
@@ -1040,6 +1042,20 @@ test('guard: a planned switch excuses a later commit only when it runs only if t
   expect((await decide(r, 'git switch c', then('npm test', ';'), commit('&&'))).decision, 'a chain broken before the commit does not').toBe('stop')
   const { reason } = await decide(r, 'git switch c', commit(';'))
   expect(reason, 'the reason suggests &&').toContain('&&')
+})
+
+test('guard: a first read-only git call in another checkout records it, so a later commit there is checked against the branch it saw', async () => {
+  const { m, r, peer, ready, decide, other } = world()
+  await ready
+  m.end(peer.pid)
+  const o = other()
+  await decide(r, at(o, 'git status'))
+  expect(m.rec('me').checkouts[o], 'guard-read-only-git-records-the-checkout-without-a-writer').toMatchObject({ expected: 'main', writer: null })
+  m.head(o, 'b')
+  expect((await decide(r, at(o, 'git commit --allow-empty -m m'))).decision, 'guard-commit-after-a-read-only-first-touch-sees-the-drift').toBe('stop')
+  const lone = other(1)
+  await decide(r, at(lone, 'ls'))
+  expect(m.rec('me').checkouts[lone], 'a command that is not git records nothing').toBeUndefined()
 })
 
 test('guard: deleting a peer\'s expected branch stops', async () => {
