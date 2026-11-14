@@ -316,12 +316,15 @@ check  "resource-lease-moves-on-death" "pong-from-lab" "$(cat "$W/api.log")"
 check  "resource-lease-release-by-the-holder" "cc-tuner: released lab." "$(cat "$W/api.log")"
 equals "resource-lease-release-frees-the-lock" "no" "$([ -e "$LOCK" ] && echo yes || echo no)"
 
-# --- inspection is inert: the guard's own git reads run nothing the repository configures --------------------------
-# A clean filter runs while `git status` hashes a changed file, a merge driver while merge-tree merges two commits; the
-# repository names both in its config. The marker files show whether either ran.
-RI="$(repo)"; MK="$W/inert"; mkdir -p "$MK"
-printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' > "$RI/.gitattributes"
-commit_file "$RI" g one; commit_file "$RI" f one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
+# --- inspection is inert: the guard's own git reads run nothing the repository, an included file or ~/.gitconfig configures ---
+# A clean filter runs while `git status` hashes a changed file, a merge driver while merge-tree merges two commits, and a
+# submodule's own filter while status goes into it. The marker files show whether any ran; a plain `git status` is the control.
+RI="$(repo)"; MK="$W/inert"; mkdir -p "$MK" "$W/home"
+printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' 'h filter=glob' 'i filter=inc' > "$RI/.gitattributes"
+commit_file "$RI" g one; commit_file "$RI" f one; commit_file "$RI" h one; commit_file "$RI" i one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
+git init -q -b main "$W/subsrc"; printf '%s\n' 'x filter=sf' > "$W/subsrc/.gitattributes"; commit_file "$W/subsrc" x one
+( cd "$W/subsrc" && git add .gitattributes && git commit -q -m attrs )
+git -C "$RI" -c protocol.file.allow=always submodule add -q "$W/subsrc" sm 2>/dev/null; ( cd "$RI" && git commit -q -m sm )
 git -C "$RI" switch -q -c side; commit_file "$RI" f side
 git -C "$RI" switch -q main; commit_file "$RI" f mine
 git -C "$RI" worktree add -q "$W/wi" side; WI="$(cd "$W/wi" && pwd -P)"
@@ -330,14 +333,24 @@ git -C "$RI" config filter.evil.process "touch '$MK/process'; cat"
 git -C "$RI" config filter.plain.clean "touch '$MK/clean'; cat"
 git -C "$RI" config filter.plain.required true
 git -C "$RI" config merge.evil.driver "touch '$MK/merge'"
-printf 'mind\n' > "$RI/f"; printf 'two\n' > "$RI/g"   # the size of 'mine', so git hashes it rather than trusting the size
-script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input: {}}, {name: "Bash", input: {command: "git reset --hard"}}]}')"
-e2e "$RI" go
+printf '[filter "inc"]\n\tclean = touch %s; cat\n' "$MK/include" > "$W/inc.cfg"; git -C "$RI" config include.path "$W/inc.cfg"
+printf '[filter "glob"]\n\tclean = touch %s; cat\n' "$MK/global" > "$W/home/.gitconfig"
+git -C "$RI/sm" config filter.sf.clean "touch '$MK/sub'; cat"
+# The same size as the committed text, so git hashes the file rather than trusting the size.
+printf 'mind\n' > "$RI/f"; printf 'two\n' > "$RI/g"; printf 'two\n' > "$RI/h"; printf 'two\n' > "$RI/i"; printf 'two\n' > "$RI/sm/x"
 ran() { [ -e "$MK/$1" ] && echo yes || echo no; }
-check  "inert-the-guard-still-sees-the-changed-file"  "would discard f, g in" "$(cat "$W/api.log")"
+HOME="$W/home" git -C "$RI" status >/dev/null 2>&1; git -C "$RI" merge-tree --write-tree main side >/dev/null 2>&1
+for m in process clean include global sub merge; do equals "inert-control-a-plain-status-runs-the-$m-filter" "yes" "$(ran $m)"; done
+rm -f "$MK"/*
+script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input: {}}, {name: "Bash", input: {command: "git reset --hard"}}]}')"
+HOME="$W/home" e2e "$RI" go
+check  "inert-the-guard-still-sees-the-changed-file"  "would discard f, g, h" "$(cat "$W/api.log")"
 check  "inert-the-report-still-sees-the-conflict"     "conflicts with HEAD: f" "$(cat "$W/api.log")"
 equals "inert-status-runs-no-clean-filter"            "no" "$(ran clean)"
 equals "inert-status-runs-no-filter-process"          "no" "$(ran process)"
+equals "inert-status-runs-no-filter-of-an-included-file" "no" "$(ran include)"
+equals "inert-status-runs-no-filter-of-the-global-config" "no" "$(ran global)"
+equals "inert-status-runs-no-filter-of-a-submodule"   "no" "$(ran sub)"
 equals "inert-merge-tree-runs-no-merge-driver"        "no" "$(ran merge)"
 
 # --- an untracked file the destination tree holds is lost to reset --hard, checkout -f and switch -f -----------------

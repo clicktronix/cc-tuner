@@ -34,8 +34,8 @@ import type { EngineInterface } from 'claude-code'
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files (and, limited to one path, before the first edit of it in an
-// hour), the reads `peers_report` and `kill` need, and one config read per repository (and per change of its config): every
-// filter and merge driver it names is emptied in the guard's own `git status` and merge-tree, so inspecting runs no command of the repository's.
+// hour), and the reads `peers_report` and `kill` need. Every git read takes its attributes from the empty tree and ignores
+// submodules, so inspecting runs no filter or merge driver of the repository's, the user's or a submodule's.
 
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
@@ -123,9 +123,15 @@ const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
-const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0' }
-// A repository's own config can run a command (core.fsmonitor), so the guard's reads switch those off.
-const GIT = ['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false']
+// Inspection is inert. A clean, smudge or process filter and a merge driver run only for a file whose attributes name
+// them, so every read takes its attributes from the empty tree (the repository's, the user's and the system's files
+// are never read); the one command a config can start by itself is core.fsmonitor. `--attr-source` needs git 2.40; an
+// older git exits 129 on it, which is never run around. `.git/info/attributes` is a local file git reads regardless.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' }
+const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null', `--attr-source=${EMPTY_TREE}`]
+const GIT = ['git', ...INERT]
+const USAGE = 129
 const LSTART = /^\s*(\d+)\s+(\d+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+(.*)$/
 
 // --- paths ------------------------------------------------------------------------------------------
@@ -481,36 +487,17 @@ export class Peers {
     return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
-  private async git(top: string, ...args: string[]): Promise<string | undefined> {
+  // Whether an inspection met a git too old for `--attr-source`: said once by the stop that follows.
+  tooOld = false
+  private async read(top: string, ...args: string[]) {
     const r = await this.w.run([...GIT, '-C', top, ...args], { env: GIT_ENV })
-    return r.exitCode === 0 ? r.stdout.trim() : undefined
+    if (r.exitCode === USAGE) this.tooOld = true
+    return r
   }
 
-  // A repository's config names commands git runs on a file: a clean filter while `status` hashes it, a merge driver
-  // while merge-tree merges it. An inspection gives each an empty command (and `required` off, or git dies over a
-  // filter that does nothing). The names come from a config read, which runs nothing, kept while the config files hold.
-  private inert = new Map<string, { key: string; filter: string[]; merge: string[] }>()
-  private async neutral(top: string, common: string): Promise<{ filter: string[]; merge: string[] } | undefined> {
-    const files = [`${common}/config`, `${await this.w.home()}/.gitconfig`]
-    const key = (await Promise.all(files.map(f => this.w.stat(f)))).map(st => `${st?.mtimeMs}:${st?.size}`).join('|')
-    const hit = this.inert.get(common)
-    if (hit?.key === key) return hit
-    const r = await this.w.run([...GIT, '-C', top, 'config', '-z', '--get-regexp', '^(filter|merge)\\.'], { env: GIT_ENV }).catch(() => undefined)
-    if (r === undefined || r.exitCode > 1) return undefined
-    const [filters, merges] = [new Set<string>(), new Set<string>()]
-    for (const entry of r.stdout.split('\0')) {
-      const k = entry.split('\n')[0]!
-      const [f, m] = [/^filter\.(.+)\.(clean|smudge|process|required)$/.exec(k), /^merge\.(.+)\.driver$/.exec(k)]
-      if (f !== null) filters.add(f[1]!)
-      if (m !== null) merges.add(m[1]!)
-    }
-    const found = {
-      key,
-      filter: [...filters].flatMap(n => ['clean=', 'smudge=', 'process=', 'required=false'].flatMap(v => ['-c', `filter.${n}.${v}`])),
-      merge: [...merges].flatMap(n => ['-c', `merge.${n}.driver=`]),
-    }
-    this.inert.set(common, found)
-    return found
+  private async git(top: string, ...args: string[]): Promise<string | undefined> {
+    const r = await this.read(top, ...args)
+    return r.exitCode === 0 ? r.stdout.trim() : undefined
   }
 
   // --- records ------------------------------------------------------------------------------------------
@@ -612,12 +599,11 @@ export class Peers {
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
-    const inert = await this.neutral(top, common)
-    if (inert === undefined) return undefined
     const r = await this.w.run(['/bin/sh', '-c',
       'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; t="$3"; m="$4"; n="$5"; shift 5; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$o/objects" ' +
-      'git -c core.fsmonitor=false -c core.untrackedCache=false "$@" -C "$t" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc',
-    'sh', await this.dir(), common, top, mine, theirs, ...inert.merge], { env: GIT_ENV })
+      'git "$@" -C "$t" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc',
+    'sh', await this.dir(), common, top, mine, theirs, ...INERT], { env: GIT_ENV })
+    if (r.exitCode === USAGE) this.tooOld = true
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
     await this.w.write(cache, JSON.stringify(names))
@@ -928,11 +914,9 @@ export class Peers {
   }
 
   // The changed files as [index, worktree, path], or undefined when git did not answer: that is not a clean tree.
-  async status([top, common]: Where, staged: readonly string[], path?: string): Promise<[string, string, string][] | undefined> {
+  async status([top]: Where, staged: readonly string[], path?: string): Promise<[string, string, string][] | undefined> {
     const spec = path === undefined ? [] : ['--', path]
-    const inert = await this.neutral(top, common)
-    if (inert === undefined) return undefined
-    const r = await this.w.run([...GIT, ...inert.filter, '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', ...spec], { env: GIT_ENV }).catch(() => undefined)
+    const r = await this.read(top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--ignore-submodules=all', ...spec).catch(() => undefined)
     if (r === undefined || r.exitCode !== 0) return undefined
     let found: [string, string, string][] = []
     for (const e of r.stdout.split('\0')) if (e.length > 3) found.push([e[0]!, e[1]!, e.slice(3)])
@@ -1159,6 +1143,7 @@ class Guard {
   }
 
   private unread(action: string, top: string, label: string) {
+    if (this.p.tooOld) this.note('git 2.40 or newer is needed to inspect safely.')
     this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
   }
 

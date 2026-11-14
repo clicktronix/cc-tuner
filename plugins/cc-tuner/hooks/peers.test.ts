@@ -27,7 +27,6 @@ class Machine {
   halfOnce = new Set<string>()
   envs: Record<string, Record<string, string> | undefined> = {}
   failing = new Map<string, number>()
-  gitConfig = new Map<string, string>()
   trees = new Map<string, string[]>()
   afterRead = new Map<string, () => Promise<void>>()
   private tick = 1
@@ -110,7 +109,7 @@ class Machine {
       run: async (argv, init) => {
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
-        const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c') : argv
+        const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c' && !x.startsWith('--attr-source=')) : argv
         return { exitCode: this.failing.get(bare[0] === 'git' ? `git ${bare[3]}` : bare[0]!) ?? 0, ...this.answer(pid, bare) }
       },
       now: () => this.clock,
@@ -124,10 +123,6 @@ class Machine {
     if (cmd === 'git' && a[2] === 'status') {
       const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
       return { stdout: (this.status.get(a[1]!) ?? []).filter(e => spec === undefined || spec.includes(e.slice(3))).map(e => `${e}\0`).join('') }
-    }
-    if (cmd === 'git' && a[2] === 'config') {
-      const text = this.gitConfig.get(a[1]!)
-      return text === undefined ? { exitCode: 1, stdout: '' } : { stdout: text }
     }
     if (cmd === 'git' && a[2] === 'ls-tree') {
       return { stdout: (this.trees.get(`${a[1]}|${a[a.length - 1]}`) ?? []).map(f => `${f}\0`).join('') }
@@ -934,28 +929,42 @@ test('guard: discarding or committing a foreign file stops, with no peer needed;
   expect((await decide(r, 'git restore g.txt')).decision, 'guard-restore-of-a-dirty-file-nobody-edited-stops').toBe('stop')
 })
 
-test('inspection: git status and merge-tree get every filter and merge driver of the repository emptied, read from its config once per change', async () => {
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+const INERT = [`--attr-source=${EMPTY_TREE}`, 'core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false']
+
+test('inspection: every git read takes its attributes from the empty tree, so no filter or merge driver can run, and reads no config', async () => {
   const { m, r, peer, me, ready, decide } = world()
   await ready
-  m.gitConfig.set(r, 'filter.evil.clean\ntouch x\0filter.evil.required\ntrue\0filter.a.b.process\ncat\0merge.drv.driver\nsh y\0merge.drv.name\nn\0user.name\nz\0')
   m.dirty(r, ' M f')
   m.end(peer.pid)
   m.ran.length = 0
   expect((await decide(r, 'git reset --hard')).decision).toBe('stop')
-  const status = m.ran.find(a => a.includes('status'))!.join(' ')
-  for (const n of ['evil', 'a.b']) for (const v of ['clean=', 'smudge=', 'process=', 'required=false']) expect(status, `inert-status-${n}-${v}`).toContain(`-c filter.${n}.${v}`)
-  expect(status).not.toContain('merge.')
-  await decide(r, 'git reset --hard')
-  expect(m.ran.filter(a => a.includes('config')).length, 'inert-config-is-read-once').toBe(1)
-  m.put(`${r}/.git/config`, '[filter "x"]')
-  await decide(r, 'git reset --hard')
-  expect(m.ran.filter(a => a.includes('config')).length, 'inert-config-is-read-again-when-it-changes').toBe(2)
+  const gits = m.ran.filter(a => a[0] === 'git')
+  expect(gits.length).toBeGreaterThan(0)
+  for (const argv of gits) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
+  expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
+  expect(m.ran.find(a => a.includes('status')), 'inert-status-ignores-submodules').toContain('--ignore-submodules=all')
+  expect(m.ran.some(a => a.includes('config')), 'inert-no-config-is-read').toBe(false)
   const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
   await new Session(m, peer2, 'p2').touch(wt)
   m.shas.set(wt, 'sha-other')
   m.ran.length = 0
   await me.report(r)
-  expect(m.ran.find(a => a[2]?.includes('merge-tree'))!.slice(3), 'inert-merge-tree-driver-emptied').toContain('merge.drv.driver=')
+  const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
+  for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
+  expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
+})
+
+test('inspection: a git that does not know --attr-source (before 2.40) is never run unchecked; the guard says so and treats the tree as unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.failing.set('git status', 129)
+  const { decision, reason } = await decide(r, 'git reset --hard')
+  expect(decision).toBe('stop')
+  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.40 or newer is needed to inspect safely')
+  expect(reason, 'inert-old-git-is-unread').toContain('could not read git status')
 })
 
 test('guard: reset --hard, checkout -f and switch -f stop for an untracked foreign file the destination tree holds', async () => {
@@ -1337,12 +1346,12 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => a.slice(0, 8).join(' '))).toEqual(['config', 'status'].map(sub => `git -c core.fsmonitor=false -c core.untrackedCache=false -C ${r} ${sub}`))
+  expect(m.ran.map(a => a.slice(0, 11).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null --attr-source=${EMPTY_TREE} -C ${r} status`])
   m.advance(61)
   await decide(r, 'npm test')
-  expect(m.ran.slice(2).map(a => a[0]), 'its own start time is read once').toEqual([])
+  expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
   await decide(r, 'git switch x')
-  expect(m.ran.slice(2).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
+  expect(m.ran.slice(1).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
 })
 
 // --- resources: a shared one is not stopped under a live peer, an exclusive one is used by one session at a time ----
