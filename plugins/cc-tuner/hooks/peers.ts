@@ -11,7 +11,7 @@ import type { EngineInterface } from 'claude-code'
 // longer a peer, its edited paths still on disk. A tombstone untouched for 24 h is removed; a resumed
 // session with the same session_id adopts it. `/clear` drops acks and claims.
 //
-//   {session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [<task>],
+//   {v: 1, session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [<task>],
 //    checkouts: {<toplevel>: {repo, expected, writer, paths}}}
 //
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
@@ -38,11 +38,11 @@ export interface Event {
 }
 export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
 interface Config { product?: string; resources: Resource[] }
-interface Holder { key: string; pid: number; start: string; session: string | null; last: number }
+interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
 interface Checkout { repo: string; expected: string; writer: number | null; paths: string[] }
 export interface Rec {
-  session_id: string | null; pid: number; start: string; seen: number
+  v: 1; session_id: string | null; pid: number; start: string; seen: number
   claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: string[]
   checkouts: Record<string, Checkout>
 }
@@ -62,7 +62,11 @@ export interface World {
 
 export function world($: EngineInterface): World {
   return {
-    dir: async () => (await $.env.get('CC_TUNER_PEERS_DIR')) || `${await $.env.get('HOME')}/.cache/cc-tuner/sessions`,
+    dir: async () => {
+      const home = await $.env.get('HOME')
+      if (!(await $.env.get('CC_TUNER_PEERS_DIR')) && !home) throw new Error('no HOME and no CC_TUNER_PEERS_DIR')
+      return (await $.env.get('CC_TUNER_PEERS_DIR')) || `${home}/.cache/cc-tuner/sessions`
+    },
     config: async () => (await $.env.get('CC_TUNER_PEERS_CONFIG')) ||
       `${(await $.env.get('XDG_CONFIG_HOME')) || `${await $.env.get('HOME')}/.config`}/cc-tuner/resources.json`,
     read: path => $.fs.read(path),
@@ -81,10 +85,16 @@ const WRITER_WINDOW = 2 * 3600
 const PS_TTL = 60
 const LEASE_IDLE = 10 * 60
 const NONE: Config = { resources: [] }
-// The lease scripts: each is one step in the shell. TAKE moves a lock aside only while it still holds the text
-// the caller read, then makes it; RELEASE removes it only while it holds the caller's own text.
-const TAKE = 'd="$1"; if [ -d "$d" ] && [ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ]; then mv "$d" "$d.$$" && rm -rf "$d.$$"; fi; ' +
-  'mkdir "$d" 2>/dev/null && printf %s "$3" > "$d/holder.json"'
+// The lease scripts: each is one step in the shell. TAKE makes the lock with an atomic `mkdir`; a lock that exists
+// is replaced by one caller at a time (the `.take` directory), and only while it still holds the text the caller
+// read (an empty lock only when it is old). RELEASE removes it only while it holds the caller's own text.
+const TAKE = 'd="$1"; if mkdir "$d" 2>/dev/null; then printf %s "$3" > "$d/holder.json"; exit; fi; ' +
+  'find "$d.take" -maxdepth 0 -mmin +1 -exec rmdir {} + 2>/dev/null; mkdir "$d.take" 2>/dev/null || exit 1; trap \'rmdir "$d.take"\' EXIT; ' +
+  '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && { [ -n "$2" ] || [ -n "$(find "$d" -maxdepth 0 -mmin +9)" ]; } || exit 1; ' +
+  'rm -rf "$d" && mkdir "$d" 2>/dev/null && printf %s "$3" > "$d/holder.json"'
+const SWEEP = 'cd "$1" || exit 0; shift; rm -f -- "$@"; find merge -type f -mmin +1440 -exec rm -f {} + 2>/dev/null; ' +
+  'find . -maxdepth 1 -name ".objects.*" -mmin +60 -exec rm -rf {} + 2>/dev/null; exit 0'
+const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
 const RELEASE = '[ "$(cat "$1/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$1"'
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
@@ -172,18 +182,23 @@ function crc32(text: string): string {
   return ((c ^ 0xffffffff) >>> 0).toString(16).padStart(8, '0')
 }
 
+const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
+const strings = (x: unknown) => Array.isArray(x) && x.every(v => typeof v === 'string')
+const each = (x: unknown, ok: (v: Record<string, unknown>) => boolean) => isObject(x) && Object.values(x).every(v => isObject(v) && ok(v))
+
 function valid(r: unknown): r is Rec {
-  const x = r as Rec
-  return typeof x === 'object' && x !== null && !Array.isArray(x) && Number.isInteger(x.pid) && typeof x.start === 'string'
-    && typeof x.checkouts === 'object' && x.checkouts !== null && !Array.isArray(x.checkouts)
+  return isObject(r) && r.v === 1 && Number.isInteger(r.pid) && typeof r.start === 'string' && typeof r.seen === 'number'
+    && (r.session_id === null || typeof r.session_id === 'string') && isObject(r.acks) && Object.values(r.acks).every(t => typeof t === 'number')
+    && Array.isArray(r.kept) && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
+    && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths))
 }
 
 function parseConfig(text: string): Config {
   const j = JSON.parse(text) as { product?: unknown; resources?: unknown }
-  const strings = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : [])
+  const names = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : [])
   const resources = (Array.isArray(j.resources) ? j.resources : []).flatMap((r: Record<string, unknown> | null): Resource[] =>
     typeof r?.key === 'string' && (r.kind === 'shared' || r.kind === 'exclusive')
-      ? [{ key: r.key, kind: r.kind, start: strings(r.start), stop: strings(r.stop), tools: strings(r.tools) }]
+      ? [{ key: r.key, kind: r.kind, start: names(r.start), stop: names(r.stop), tools: names(r.tools) }]
       : [])
   return { product: typeof j.product === 'string' && j.product !== '' ? j.product : undefined, resources }
 }
@@ -191,7 +206,7 @@ function parseConfig(text: string): Config {
 function holder(text: string): Holder | undefined {
   try {
     const h = JSON.parse(text) as Holder
-    return Number.isInteger(h.pid) && typeof h.start === 'string' && typeof h.last === 'number' ? h : undefined
+    return h.v === 1 && Number.isInteger(h.pid) && typeof h.start === 'string' && typeof h.last === 'number' ? h : undefined
   } catch {
     return undefined
   }
@@ -220,10 +235,21 @@ export class Peers {
 
   private now() { return Math.floor(this.w.now() / 1000) }
 
+  // The record directory, made private the first time this load needs it.
+  private made = false
+  private async dir() {
+    const dir = await this.w.dir()
+    if (!this.made) {
+      this.made = true
+      await this.w.run(['/bin/sh', '-c', 'umask 077; mkdir -p -- "$1"', 'sh', dir])
+    }
+    return dir
+  }
+
   // --- processes ----------------------------------------------------------------------------------------
   // pid -> (ppid, name) of every process; the start times it reads are kept like any other.
   async table(): Promise<Map<number, { ppid: number; name: string }>> {
-    const out = (await this.w.run(['ps', '-A', '-o', 'pid=,ppid=,lstart=,comm='], { env: { LC_ALL: 'C' } })).stdout
+    const out = (await this.w.run(['ps', '-A', '-o', 'pid=,ppid=,lstart=,comm='], { env: PS_ENV })).stdout
     const table = new Map<number, { ppid: number; name: string }>()
     const at = this.now()
     for (const line of out.split('\n')) {
@@ -240,7 +266,7 @@ export class Peers {
     const at = this.now()
     const need = [...new Set(pids)].filter(p => { const e = this.ps.get(p); return e === undefined || (at - e.at >= PS_TTL && p !== this.claude) })
     if (need.length > 0) {
-      const out = (await this.w.run(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', need.join(',')], { env: { LC_ALL: 'C' } })).stdout
+      const out = (await this.w.run(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', need.join(',')], { env: PS_ENV })).stdout
       const found = new Map<number, string>()
       for (const line of out.split('\n')) {
         const m = LSTART.exec(line)
@@ -353,7 +379,7 @@ export class Peers {
 
   // --- records ------------------------------------------------------------------------------------------
   async load(): Promise<{ recs: Map<string, Rec>; bad: string[] }> {
-    const dir = await this.w.dir()
+    const dir = await this.dir()
     const entries = [...await this.w.list(dir).catch(() => [])].sort((a, b) => (a.name < b.name ? -1 : 1))
     const recs = new Map<string, Rec>()
     const bad: string[] = []
@@ -363,7 +389,8 @@ export class Peers {
       const hit = this.cache.get(e.name)
       if (hit !== undefined && hit.key === key && e.mtimeMs > 0) { recs.set(e.name, hit.rec); continue }
       try {
-        const r: unknown = JSON.parse(await this.w.read(`${dir}/${e.name}`))
+        const read = async (): Promise<unknown> => JSON.parse(await this.w.read(`${dir}/${e.name}`))
+        const r = await read().catch(read)
         if (!valid(r)) throw new Error(e.name)
         recs.set(e.name, r)
         this.cache.set(e.name, { key, rec: r })
@@ -376,7 +403,7 @@ export class Peers {
 
   private async save(name: string, r: Rec) {
     this.cache.delete(name)
-    await this.w.write(`${await this.w.dir()}/${name}`, JSON.stringify(r))
+    await this.w.write(`${await this.dir()}/${name}`, JSON.stringify(r))
   }
 
   // Once an hour: tombstones untouched for 24 h are removed, and so are merge results that old.
@@ -387,8 +414,7 @@ export class Peers {
     const live = await this.live([...recs.values()])
     const old = [...recs].filter(([, r]) => !live.has(r) && now - (r.seen ?? 0) > DAY).map(([n]) => n)
     for (const n of old) recs.delete(n)
-    await this.w.run(['/bin/sh', '-c', 'cd "$1" || exit 0; shift; rm -f -- "$@"; find merge -type f -mmin +1440 -exec rm -f {} + 2>/dev/null; exit 0',
-      'sh', await this.w.dir(), ...old])
+    await this.w.run(['/bin/sh', '-c', SWEEP, 'sh', await this.dir(), ...old])
   }
 
   private mine(recs: Map<string, Rec>, pid: number, start: string | undefined): [string, Rec] | undefined {
@@ -409,7 +435,7 @@ export class Peers {
     if (found !== undefined) return found
     const base = (sid ?? '').replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^\.+/, '') || `p${pid}`
     const name = recs.has(`${base}.json`) ? `${base}-${pid}.json` : `${base}.json`
-    const r: Rec = { session_id: sid, pid, start, seen: this.now(), claims: {}, acks: {}, kept: [], checkouts: {} }
+    const r: Rec = { v: 1, session_id: sid, pid, start, seen: this.now(), claims: {}, acks: {}, kept: [], checkouts: {} }
     recs.set(name, r)
     return [name, r]
   }
@@ -440,14 +466,14 @@ export class Peers {
   // merge-tree of the two commits in a temporary object directory in front of the repository's own store,
   // so its result objects never reach the repository; cached per SHA pair.
   private async conflicts(top: string, common: string, mine: string, theirs: string): Promise<string[] | undefined> {
-    const cache = `${await this.w.dir()}/merge/${mine}-${theirs}`
+    const cache = `${await this.dir()}/merge/v1/${mine}-${theirs}`
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
     const r = await this.w.run(['/bin/sh', '-c',
       'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$2/objects" ' +
       'git -c core.fsmonitor=false -c core.untrackedCache=false -C "$3" merge-tree --write-tree --name-only "$4" "$5"; rc=$?; rm -rf "$d"; exit $rc',
-    'sh', await this.w.dir(), common, top, mine, theirs], { env: GIT_ENV })
+    'sh', await this.dir(), common, top, mine, theirs], { env: GIT_ENV })
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
     await this.w.write(cache, JSON.stringify(names))
@@ -567,7 +593,7 @@ export class Peers {
     return pid === undefined ? undefined : [pid, (await this.starts([pid])).get(pid) ?? '']
   }
 
-  private async lock(key: string) { return `${await this.w.dir()}/lease.${key.replace(/[^A-Za-z0-9_.-]/g, '_')}` }
+  private async lock(key: string) { return `${await this.dir()}/lease.${key.replace(/[^A-Za-z0-9_.-]/g, '_')}` }
 
   // What a lock's holder file says, without a trailing newline: the shell compares it as `$(cat …)` does.
   private async held(lock: string) { return (await this.w.read(`${lock}/holder.json`).catch(() => '')).replace(/\n+$/, '') }
@@ -593,7 +619,7 @@ export class Peers {
     const lock = await this.lock(key)
     const [text, st] = [await this.held(lock), await this.w.stat(lock)]
     const [cur, now] = [holder(text), this.now()]
-    const mine = JSON.stringify({ key, pid, start, session: sid, last: now })
+    const mine = JSON.stringify({ v: 1, key, pid, start, session: sid, last: now })
     if (cur?.pid === pid && cur.start === start) {
       await this.w.write(`${lock}/holder.json`, mine)
       return { decision: 'allow' }
@@ -643,7 +669,7 @@ export class Peers {
     }
     if ((here === undefined && !plan.some(p => p.at !== undefined)) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     return this.serial(async () => {
-      const { recs } = await this.load()
+      const { recs, bad } = await this.load()
       await this.sweep(recs)
       const pid = await this.pid()
       if (pid === undefined) return { decision: 'allow', line: '' }
@@ -657,7 +683,7 @@ export class Peers {
       for (const { at } of plan) if (at !== undefined) await this.touch(r, at)
       for (const k of ev.acks ?? []) r.acks[k] = now
       let verdict: Verdict = { decision: 'allow' }
-      if (ev.phase === 'before') verdict = await new Guard(this, recs, name, r, pid, here, now).judge(ev, plan, target)
+      if (ev.phase === 'before') verdict = await new Guard(this, recs, bad, name, r, pid, here, now).judge(ev, plan, target)
       const seen: Record<string, string> = {}
       if (verdict.decision !== 'stop') {
         for (const { at, writes, switch: sw } of plan) {
@@ -696,16 +722,12 @@ export class Peers {
     return parts.length === 0 ? '' : `cc-tuner: ${parts.join('; ')}. More: the peers_report tool.`
   }
 
-  async status(top: string, staged: readonly string[]): Promise<[string, string, string][]> {
-    const out = (await this.w.run([...GIT, '-C', top, 'status', '--porcelain=v1', '-z'], { env: GIT_ENV })).stdout.split('\0')
+  // The changed files as [index, worktree, path], or undefined when git did not answer: that is not a clean tree.
+  async status(top: string, staged: readonly string[]): Promise<[string, string, string][] | undefined> {
+    const r = await this.w.run([...GIT, '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'], { env: GIT_ENV }).catch(() => undefined)
+    if (r === undefined || r.exitCode !== 0) return undefined
     let found: [string, string, string][] = []
-    for (let i = 0; i < out.length; i++) {
-      const e = out[i]!
-      if (e.length > 3) {
-        found.push([e[0]!, e[1]!, e.slice(3)])
-        if ('RC'.includes(e[0]!)) i++
-      }
-    }
+    for (const e of r.stdout.split('\0')) if (e.length > 3) found.push([e[0]!, e[1]!, e.slice(3)])
     for (const p of staged) found = [...found.filter(e => e[2] !== p), ['A', ' ', p]]
     return found
   }
@@ -746,11 +768,12 @@ class Guard {
   private moved = new Set<string>()
   private staged = new Map<string, string[]>()
 
-  constructor(private readonly p: Peers, private readonly recs: Map<string, Rec>, private readonly name: string,
+  constructor(private readonly p: Peers, private readonly recs: Map<string, Rec>, private readonly bad: string[], private readonly name: string,
     private readonly r: Rec, private readonly pid: number, private readonly here: Where | undefined, private readonly now: number) {}
 
   async judge(ev: Event, plan: { st: Partial<Step>; blind: boolean; at: Where | undefined; d: string }[], target: string | undefined): Promise<Verdict> {
     try {
+      if (this.bad.length > 0) this.once('bad', `skipped malformed peer record ${listing(this.bad)}.`)
       if (ev.tool === 'Bash') {
         let prev: string[] = []
         for (const { st, at, d, blind } of plan) {
@@ -762,7 +785,7 @@ class Guard {
         await this.edit(this.here, relpath(await this.p.real(target), this.here[0]))
       }
     } catch (err) {
-      if (err instanceof Halt) return { decision: 'stop', reason: err.message }
+      if (err instanceof Halt) return { decision: 'stop', reason: [...this.notes, err.message].join(' ') }
       throw err
     }
     return this.notes.length > 0 ? { decision: 'note', reason: this.notes.join(' ') } : { decision: 'allow' }
@@ -893,13 +916,17 @@ class Guard {
   }
 
   // The changed files of a checkout this session did not edit, within the paths a command reaches.
-  private async foreign(top: string, kinds: string, specs: readonly string[] | undefined, d: string): Promise<string[]> {
+  private async foreign(top: string, kinds: string, specs: readonly string[] | undefined, d: string): Promise<string[] | undefined> {
     const mine = this.r.checkouts[top]?.paths ?? []
     const reach = specs === undefined ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
     return (await this.p.status(top, this.staged.get(top) ?? []))
-      .filter(([x]) => !((kinds === 'tracked' && x === '?') || (kinds === 'untracked' && x !== '?') || (kinds === 'staged' && ' ?'.includes(x))))
+      ?.filter(([x]) => !((kinds === 'tracked' && x === '?') || (kinds === 'untracked' && x !== '?') || (kinds === 'staged' && ' ?'.includes(x))))
       .map(([, , f]) => f)
       .filter(f => !owns(mine, f) && (reach === undefined || reach.some(x => covers(x, f))))
+  }
+
+  private unread(action: string, top: string, label: string) {
+    this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
   }
 
   private async owner(top: string, files: string[]): Promise<string> {
@@ -912,7 +939,8 @@ class Guard {
   private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[]) {
     const top = at[0]
     const files = await this.foreign(top, kinds, specs, d)
-    if (files.length > 0) this.stop(action, top, `\`${label}\` would ${verb} ${listing(files)} in ${top} (${await this.owner(top, files)}).`)
+    if (files === undefined) this.unread(action, top, label)
+    else if (files.length > 0) this.stop(action, top, `\`${label}\` would ${verb} ${listing(files)} in ${top} (${await this.owner(top, files)}).`)
   }
 
   private async stashDrop(at: Where, label: string) {
@@ -946,7 +974,8 @@ class Guard {
       }
       if (there !== undefined && there[0] === path) {
         const files = await this.foreign(path, 'all', undefined, path)
-        if (files.length > 0) this.stop('remove', path, `\`${label}\` would delete ${listing(files)} in ${path} (${await this.owner(path, files)}).`)
+        if (files === undefined) this.unread('remove', path, label)
+        else if (files.length > 0) this.stop('remove', path, `\`${label}\` would delete ${listing(files)} in ${path} (${await this.owner(path, files)}).`)
       }
     }
   }

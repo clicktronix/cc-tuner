@@ -24,6 +24,8 @@ class Machine {
   ran: string[][] = []
   refs = new Set<string>()
   symbolic = new Map<string, string>()
+  halfOnce = new Set<string>()
+  envs: Record<string, Record<string, string> | undefined> = {}
   failing = new Map<string, number>()
   private tick = 1
   private nextPid = 1000
@@ -81,7 +83,11 @@ class Machine {
     return {
       dir: async () => DIR,
       config: async () => USER,
-      read: async p => { const f = this.files.get(p); if (f === undefined) throw new Error(`ENOENT ${p}`); return f.text },
+      read: async p => {
+        const f = this.files.get(p)
+        if (f === undefined) throw new Error(`ENOENT ${p}`)
+        return this.halfOnce.delete(p) ? f.text.slice(0, 20) : f.text
+      },
       write: async (p, text) => this.put(p, text),
       list: async d => {
         if (!this.dirs.has(d)) throw new Error(`ENOENT ${d}`)
@@ -94,8 +100,9 @@ class Machine {
         const f = this.files.get(p)
         return this.dirs.has(p) ? { kind: 'dir', realPath: p, mtimeMs: this.dirTimes.get(p) } : f === undefined ? undefined : { kind: 'file', realPath: p, mtimeMs: f.mtimeMs, size: f.text.length }
       },
-      run: async argv => {
+      run: async (argv, init) => {
         this.ran.push([...argv])
+        this.envs[argv[0]!] = init?.env
         const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c') : argv
         return { exitCode: this.failing.get(bare[0] === 'git' ? `git ${bare[3]}` : bare[0]!) ?? 0, ...this.answer(pid, bare) }
       },
@@ -112,9 +119,11 @@ class Machine {
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
     if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
     // The lease scripts, as the shell runs them: one atomic step each.
-    if (cmd === '/bin/sh' && a[1]?.includes('mkdir')) {
+    if (cmd === '/bin/sh' && a[1]?.includes('printf %s')) {
       const [lock, seen, info] = a.slice(3) as [string, string, string]
-      if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen) this.drop(lock)
+      if (!this.dirs.has(lock.slice(0, lock.lastIndexOf('/')))) return { exitCode: 1, stdout: '' }
+      const old = this.clock - (this.dirTimes.get(lock) ?? 0) > 540_000
+      if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen && (seen !== '' || old)) this.drop(lock)
       if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
       this.put(`${lock}/holder.json`, info)
       this.dirTimes.set(lock, this.clock)
@@ -129,6 +138,7 @@ class Machine {
       const out = this.merges.get(`${a[6]}-${a[7]}`)
       return out === undefined ? { exitCode: 0, stdout: 'tree\n' } : { exitCode: 1, stdout: `tree\n${out}\n\nCONFLICT\n` }
     }
+    if (cmd === '/bin/sh' && a[1]?.includes('mkdir -p')) { this.mkdir(a[3]!); return { stdout: '' } }
     if (cmd === '/bin/sh' && a[1]?.includes('rm -f')) {
       for (const n of a.slice(4)) this.files.delete(`${a[3]}/${n}`)
       return { stdout: '' }
@@ -182,15 +192,19 @@ const writes = (text: string): Partial<Step> => ({ ...step(text), writes: true }
 // The module reads and writes records with $.fs and runs `ps` and git with $.process.run; the test's hooks
 // stand for those, backed by the machine.
 let sessionId = 'e1'
+let peersDir: string | undefined = DIR
+const logged: string[] = []
 function engine(on: On, m: Machine, pid: number, effect: (command: string) => void = () => {}, broken = () => false,
   task: (command: string) => string | undefined = () => undefined) {
   const w = m.world(pid)
   sessionId = 'e1'
+  peersDir = DIR
+  logged.length = 0
   on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
   on('session.id', () => ({ value: sessionId }))
   on('session.cwd', () => ({ value: '/w/r' }))
-  on('ui.log', () => ({ value: undefined }))
-  on('env.get', (_, e) => ({ value: e.name === 'CC_TUNER_PEERS_DIR' ? DIR : e.name === 'CC_TUNER_PEERS_CONFIG' ? USER : undefined }))
+  on('ui.log', (_, e) => { logged.push(e.text); return { value: undefined } })
+  on('env.get', (_, e) => ({ value: e.name === 'CC_TUNER_PEERS_DIR' ? peersDir : e.name === 'CC_TUNER_PEERS_CONFIG' ? USER : undefined }))
   on('fs.read', async (_, e) => ({ value: await w.read(e.path) }))
   on('fs.write', async (_, e) => { await w.write(e.path, e.text); return { value: undefined } })
   on('fs.list', async (_, e) => ({ value: (await w.list(e.path ?? '.')).map(x => ({ ...x, kind: x.kind as 'file' | 'dir', isLink: false })) }))
@@ -316,8 +330,12 @@ test('a guard that fails never blocks the call', async ($, on) => {
   const ran = engine(on, m, m.spawn(), undefined, () => true)
   m.files.delete('/w/r/.git/HEAD')
   m.dirs.delete(DIR)
-  expect((await $.tool.call({ tool: 'Bash', command: 'npm test' })).deny).toBeUndefined()
+  const first = await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(first.deny).toBeUndefined()
   expect(ran).toEqual(['npm test'])
+  expect(first.context?.join(' '), 'guard-failure-is-said-once').toContain('the peers guard is inactive (')
+  expect(logged.some(l => l.includes('peers guard failed: ')), 'guard-failure-is-logged').toBe(true)
+  expect((await $.tool.call({ tool: 'Bash', command: 'npm test' })).context).toBeUndefined()
 })
 
 const prompt = async ($: { prompt: { submit(input: PromptSubmitInput): Promise<{ context?: readonly string[] }> } }, text = 'go') =>
@@ -526,8 +544,8 @@ test('report: claims, edited paths, and merge-tree conflicts of same-repository 
   expect(out).toContain('conflicts with HEAD: f.txt')
   expect(out.split('\n').filter(l => l.includes('conflicts with HEAD')).length).toBe(1)
   expect(m.ran.filter(a => a[2]?.includes('merge-tree')).map(a => a[8])).toEqual([`sha-${wa}`, `sha-${wb}`])
-  expect(m.files.has(`${DIR}/merge/sha-${ra}-sha-${wa}`), 'report-caches-per-sha-pair').toBe(true)
-  m.put(`${DIR}/merge/sha-${ra}-sha-${wa}`, '["cached.txt"]')
+  expect(m.files.has(`${DIR}/merge/v1/sha-${ra}-sha-${wa}`), 'report-caches-per-sha-pair').toBe(true)
+  m.put(`${DIR}/merge/v1/sha-${ra}-sha-${wa}`, '["cached.txt"]')
   expect(await sr.report(ra)).toContain('conflicts with HEAD: cached.txt')
 })
 
@@ -1224,4 +1242,94 @@ test('guard: a wrapper that starts another command it cannot unwrap is a note wh
     expect(v.reason).toContain('could not read')
   }
   for (const c of ['sudo ls', 'echo git reset --hard', 'grep git README', 'bash deploy-git.sh', 'bash run.sh']) expect((await decide(r, c)).decision, c).toBe('allow')
+})
+
+// --- records are robust and versioned ------------------------------------------------------------------------------
+test('record: a record of the wrong shape or version is skipped and noted once an hour, never a crash', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  expect(m.rec('peer').v, 'record-is-versioned').toBe(1)
+  m.dirty(r, ' M f')
+  m.edit('peer', x => { delete (x.checkouts[r] as Partial<Rec['checkouts'][string]>).paths })
+  const first = await decide(r, 'git status')
+  expect(first.decision).toBe('note')
+  expect(first.reason).toContain('skipped malformed peer record peer.json')
+  expect((await decide(r, 'git status')).decision, 'said once an hour').toBe('allow')
+  expect((await decide(r, 'git reset --hard')).reason, 'record-malformed-shape-is-not-a-peer').toContain('unknown owner')
+  m.edit('peer', x => { x.checkouts[r] = { repo: 'x' } as unknown as Rec['checkouts'][string] })
+  m.edit('me', x => { x.acks = {} })
+  expect((await decide(r, 'git status')).reason).toContain('peer.json')
+  for (const [field, value] of [['v', 2], ['seen', 'now'], ['acks', []], ['kept', {}], ['claims', { p: { repo: 1, paths: [] } }]] as const) {
+    m.put(`${DIR}/x.json`, JSON.stringify({ ...m.rec('me'), [field]: value }))
+    expect((await me.report(r)), `${field}=${JSON.stringify(value)}`).toContain('skipped malformed record x.json')
+  }
+  void peer
+})
+
+test('record: a record caught half written is read again once', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r1)
+  m.halfOnce.add(`${DIR}/peer.json`)
+  const out = await me.report(r1)
+  expect(out, 'record-half-written-read-again').toContain(`pid ${peer.pid}`)
+  expect(out).not.toContain('skipped')
+})
+
+test('guard: a git status that did not run is not a clean tree', async () => {
+  const { m, r, me, ready, decide, acked } = world()
+  await ready
+  m.failing.set('git status', 1)
+  for (const c of ['git reset --hard', 'git clean -fd', 'git commit -m m', 'git add -A']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-unreadable-status-stops: ${c}`).toBe('stop')
+    expect(v.reason).toContain('could not read git status')
+  }
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, 'git reset --hard')).reason!)![1]!
+  expect((await acked(r, k, 'git reset --hard')).decision, 'an ack goes on').toBe('allow')
+  m.failing.delete('git status')
+  expect((await decide(r, 'git reset --hard')).decision, 'a clean tree').toBe('allow')
+  void me
+})
+
+test('guard: git status lists every untracked file, and does not pair renames', async () => {
+  const { m, r, ready, decide } = world()
+  await ready
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  const argv = m.ran.find(a => a.includes('status'))!
+  expect(argv, 'guard-status-lists-untracked-files').toContain('--untracked-files=all')
+  expect(argv).toContain('--no-renames')
+})
+
+test('resource: a fresh machine has the record directory made before the first lease, with mode 700 once per load', async () => {
+  const m = new Machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const s = new Session(m, m.spawn(), 's1')
+  expect((await s.peers.lease(CLICK, r, 's1')).decision, 'lease-on-a-fresh-machine').toBe('note')
+  await s.touch(r)
+  await s.touch(r)
+  expect(m.ran.filter(a => a[2]?.includes('umask 077')).length, 'record-dir-made-private-once').toBe(1)
+})
+
+test('record: ps reads in UTC and the C locale; the sweep removes old object directories', async () => {
+  const { m, r, ready, decide } = world()
+  await ready
+  expect(m.envs.ps).toEqual({ LC_ALL: 'C', TZ: 'UTC' })
+  m.advance(3601)
+  await decide(r, 'git status')
+  expect(m.ran.some(a => a[2]?.includes('.objects.') && a[2].includes('-mmin +60')), 'record-sweep-removes-old-object-dirs').toBe(true)
+})
+
+test('the module needs a place for records: no HOME and no CC_TUNER_PEERS_DIR leaves no record and says so', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  peersDir = undefined
+  const { context } = await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(ran).toEqual(['npm test'])
+  expect(context?.join(' '), 'record-no-home-no-records').toContain('the peers guard is inactive')
+  expect([...m.files.keys()].filter(p => p.endsWith('.json'))).toEqual([])
 })

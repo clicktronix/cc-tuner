@@ -350,6 +350,18 @@ const acks = (command: string) => commands(command).flatMap(s => s.words.slice(0
 const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T, verdict?: Verdict): T =>
   verdict?.decision === 'note' && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), verdict.reason ?? ''] } : ran
 
+// A guard that fails never stops the call, but it says so: in the debug log, and once a session in the call's
+// own result, so the agent knows nothing is watching its steps.
+const told = new Set<string | undefined>()
+async function fault($: EngineInterface, err: unknown, tell: boolean): Promise<Verdict | undefined> {
+  const why = err instanceof Error ? err.message : String(err)
+  await Promise.resolve().then(() => $.ui.log(`cc-tuner: peers guard failed: ${why}`, { to: 'debug' })).catch(() => undefined)
+  const sid = await $.session.id().catch(() => undefined)
+  if (!tell || told.has(sid)) return undefined
+  told.add(sid)
+  return { decision: 'note', reason: `cc-tuner: the peers guard is inactive (${why})` }
+}
+
 async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'phase'>): Promise<(Verdict & { line?: string }) | undefined> {
   try {
     const t = Date.now()
@@ -358,15 +370,16 @@ async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'ph
       .then(() => $.ui.log(`cc-tuner: peers decided ${verdict.decision} in ${Date.now() - t} ms`, { to: 'debug' }))
       .catch(() => undefined)
     return verdict
-  } catch {
-    return undefined
+  } catch (err) {
+    return fault($, err, event.phase === 'before')
   }
 }
 
 async function withPeers<T>($: EngineInterface, f: (p: Peers) => Promise<T>): Promise<T | undefined> {
   try {
     return await f(peersOf($))
-  } catch {
+  } catch (err) {
+    await fault($, err, false)
     return undefined
   }
 }
@@ -406,7 +419,7 @@ export const register: Register = on => {
 
   // Another MCP server's tool may belong to an exclusive resource: one session at a time uses it.
   on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, async ($, e, next) => {
-    const verdict = await withPeers($, async p => p.lease(e.tool, await $.session.cwd(), await $.session.id()))
+    const verdict = await peersOf($).lease(e.tool, await $.session.cwd(), await $.session.id()).catch(err => fault($, err, true))
     if (verdict?.decision === 'stop') return { deny: verdict.reason ?? 'cc-tuner: stopped' }
     return noted(await next(e), verdict)
   })

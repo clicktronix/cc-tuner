@@ -47,7 +47,7 @@ tree() {
 
 repo() { (cd "$(flow_repo)" && pwd -P); }
 commit_file() { ( cd "$1" && printf '%s\n' "$3" > "$2" && git add "$2" && git commit -q -m "$2" ); }
-lstart() { LC_ALL=C ps -o lstart= -p "$1" | sed 's/^ *//; s/ *$//'; }
+lstart() { TZ=UTC LC_ALL=C ps -o lstart= -p "$1" | sed 's/^ *//; s/ *$//'; }
 
 # fixture <name> <pid> <checkout> <writer epoch or null> [start] [paths json] -> a peer's record, as the
 # module writes one.
@@ -55,7 +55,7 @@ fixture() {
   local common; common="$(cd "$3" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
   jq -nc --arg s "$1" --argjson pid "$2" --arg st "${5:-$(lstart "$2")}" --arg top "$3" --arg repo "$common" \
     --argjson w "$4" --argjson paths "${6:-[]}" --arg b "$(git -C "$3" branch --show-current)" \
-    '{session_id: $s, pid: $pid, start: $st, seen: (now | floor), claims: {}, acks: {}, kept: [],
+    '{v: 1, session_id: $s, pid: $pid, start: $st, seen: (now | floor), claims: {}, acks: {}, kept: [],
       checkouts: {($top): {repo: $repo, expected: $b, writer: $w, paths: $paths}}}' > "$CC_TUNER_PEERS_DIR/$1.json"
 }
 
@@ -144,9 +144,10 @@ e2e_rec() {
 said() { grep -cF -- "$1" "$W/api.log" | tr -d ' '; }
 
 # --- one session: its record, the branch it expects, its edits, and a tool it calls ----------------------------
+mkdir "$CC_TUNER_PEERS_DIR/.objects.stale" "$CC_TUNER_PEERS_DIR/.objects.fresh"; touch -t 202001010000 "$CC_TUNER_PEERS_DIR/.objects.stale"
 RT="$(repo)"
 script "$(jq -nc --arg w "$W" --arg rt "$RT" '{when: "", calls: [
-  {name: "Bash", input: {command: ("ps -A -o pid=,lstart= > " + $w + "/ps.txt")}},
+  {name: "Bash", input: {command: ("TZ=UTC ps -A -o pid=,lstart= > " + $w + "/ps.txt")}},
   {name: "Bash", input: {command: "git switch -q -c e2e && git commit -q --allow-empty -m e2e"}},
   {name: "Write", input: {file_path: ($rt + "/notes.txt"), content: "n"}},
   {name: "mcp__cc-tuner__peers_release", input: {key: "chrome"}}]}')"
@@ -159,6 +160,13 @@ equals "guard-switch-moved-the-expectation" "e2e" "$(e2e_rec ".checkouts[\"$RT\"
 equals "guard-edit-recorded-its-path" "notes.txt" "$(e2e_rec ".checkouts[\"$RT\"].paths | join(\",\")")"
 equals "guard-writer-call-marked-a-writer" "number" "$(e2e_rec ".checkouts[\"$RT\"].writer | type")"
 check  "tool-release-answers" "cc-tuner: chrome is not leased to this session." "$(cat "$W/api.log")"
+equals "record-sweep-removes-an-old-object-directory" "no" "$([ -e "$CC_TUNER_PEERS_DIR/.objects.stale" ] && echo yes || echo no)"
+equals "record-sweep-keeps-a-recent-one" "yes" "$([ -e "$CC_TUNER_PEERS_DIR/.objects.fresh" ] && echo yes || echo no)"
+equals "record-version" "1" "$(e2e_rec .v)"
+rm -rf "$CC_TUNER_PEERS_DIR/.objects.fresh"
+script '{"when": "", "calls": []}'
+CC_TUNER_PEERS_DIR="$W/fresh/peers" e2e "$RT" go
+equals "record-directory-is-made-private" "700" "$(stat -f %Lp "$W/fresh/peers" 2>/dev/null || stat -c %a "$W/fresh/peers")"
 
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
@@ -276,7 +284,7 @@ check  "resource-lease-tool-ran" "pong-from-lab" "$(cat "$W/api.log")"
 equals "resource-lease-first-user-takes-it-with-mkdir" "$(session_pid)" "$(jq -r .pid "$LOCK/holder.json")"
 peer; PL=$SP
 rm -rf "$LOCK"; mkdir "$LOCK"
-jq -nc --argjson pid "$PL" --arg st "$(lstart "$PL")" '{key: "lab", pid: $pid, start: $st, session: "x", last: (now | floor)}' > "$LOCK/holder.json"
+jq -nc --argjson pid "$PL" --arg st "$(lstart "$PL")" '{v: 1, key: "lab", pid: $pid, start: $st, session: "x", last: (now | floor)}' > "$LOCK/holder.json"
 lab 00000000-0000-4000-8000-0000000000f2
 check  "resource-lease-deny-names-the-holder" "lab is leased to pid $PL" "$(cat "$W/api.log")"
 absent "resource-lease-deny-offers-no-ack" "CC_TUNER_ACK=" "$(grep -F 'lab is leased' "$W/api.log" | head -n 1)"
@@ -288,6 +296,28 @@ lab 00000000-0000-4000-8000-0000000000f3
 check  "resource-lease-moves-on-death" "pong-from-lab" "$(cat "$W/api.log")"
 check  "resource-lease-release-by-the-holder" "cc-tuner: released lab." "$(cat "$W/api.log")"
 equals "resource-lease-release-frees-the-lock" "no" "$([ -e "$LOCK" ] && echo yes || echo no)"
+
+# --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
+# TAKE is the guard's own script, cut out of hooks/peers.ts and printed by node.
+if ! command -v node >/dev/null 2>&1; then
+  fail "lease-race (node is not on PATH)"
+else
+  TAKE="$(node -e "$(sed -n '/^const TAKE =/,/^const SWEEP =/p' "$FLOW_PLUGIN/hooks/peers.ts" | sed '$d'); process.stdout.write(TAKE)")"
+  RACE="$W/race"; mkdir -p "$RACE"
+  take() { sh -c "$TAKE" sh "$@"; }
+  mkdir "$RACE/lease.x"; printf %s '{"v":1,"key":"x","pid":1,"start":"gone","session":null,"last":1}' > "$RACE/lease.x/holder.json"
+  SEEN="$(cat "$RACE/lease.x/holder.json")"; RP=""
+  for i in $(seq 1 20); do ( take "$RACE/lease.x" "$SEEN" "mine$i"; echo $? > "$RACE/rc.$i" ) & RP="$RP $!"; done
+  wait $RP
+  equals "lease-race-exactly-one-caller-takes-a-stale-lock" "1" "$(cat "$RACE"/rc.* | grep -c '^0$')"
+  WINNER="$(grep -l '^0$' "$RACE"/rc.* | sed 's/.*rc\.//')"
+  equals "lease-race-the-lock-holds-the-winner" "mine$WINNER" "$(cat "$RACE/lease.x/holder.json")"
+  equals "lease-race-leaves-no-moved-aside-lock" "0" "$(ls "$RACE" | grep -c 'lease\.x\.')"
+  mkdir "$RACE/lease.e"
+  take "$RACE/lease.e" "" mine; equals "lease-a-fresh-empty-lock-is-not-taken" "1" "$?"
+  touch -t 202001010000 "$RACE/lease.e"
+  take "$RACE/lease.e" "" mine; equals "lease-an-old-empty-lock-is-taken" "0" "$?"
+fi
 
 # --- latency: the module decides in at most 150 ms p95 over 50 calls with 10 records --------------------------------
 # Ten live peers in the call's repository, none a writer, so a switch is a note and the commit after it is read too:
