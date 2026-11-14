@@ -986,6 +986,22 @@ test('guard: reset --hard, checkout -f and switch -f stop for an untracked forei
   for (const c of ['git reset --hard feat', 'git checkout -f feat']) expect((await decide(r, c)).decision, `own file: ${c}`).toBe('allow')
 })
 
+test('guard: an untracked foreign file collides with the destination tree as a file against a directory, in both directions', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.trees.set(`${r}|HEAD`, ['h.txt'])
+  m.trees.set(`${r}|dirs`, ['h.txt', 'f/deep/g.txt'])
+  m.trees.set(`${r}|files`, ['h.txt', 'f', 'u'])
+  m.dirty(r, '?? f')
+  expect((await decide(r, 'git reset --hard dirs')).reason, 'collision-an-untracked-file-where-the-destination-has-a-directory').toContain('would discard f in')
+  m.status.set(r, ['?? f/foreign'])
+  expect((await decide(r, 'git reset --hard files')).reason, 'collision-an-untracked-file-under-a-destination-file').toContain('would discard f/foreign in')
+  expect((await decide(r, 'git checkout -f files')).decision).toBe('stop')
+  m.status.set(r, ['?? fx', '?? g/foreign', '?? f2/a'])
+  for (const c of ['git reset --hard dirs', 'git reset --hard files']) expect((await decide(r, c)).decision, `no collision: ${c}`).toBe('allow')
+})
+
 test('guard: git commit protects what it will commit: its paths, or the staged files; -i both', async () => {
   const { m, r, peer, me, ready, decide } = world()
   await ready

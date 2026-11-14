@@ -354,6 +354,19 @@ for c in "git reset --hard src" "git checkout -f src" "git switch -f src"; do
   equals "untracked-collision-keeps-the-file: $c"    "precious" "$(cat "$RU/u.txt")"
 done
 
+# A file where the destination has a directory, or a directory where it has a file, is lost too: the paths collide though they differ.
+git -C "$RU" switch -q -f main; git -C "$RU" reset -q --hard "$BASE"; git -C "$RU" clean -qfd
+git -C "$RU" switch -q -c dd; commit_file "$RU" d tracked; git -C "$RU" switch -q main
+git -C "$RU" switch -q -c ee; mkdir -p "$RU/e"; commit_file "$RU" e/g tracked; git -C "$RU" switch -q main
+for c in "git reset --hard dd|d/foreign" "git checkout -f dd|d/foreign" "git switch -f dd|d/foreign" "git reset --hard ee|e" "git checkout -f ee|e" "git switch -f ee|e"; do
+  git -C "$RU" switch -q -f main; git -C "$RU" reset -q --hard "$BASE"; git -C "$RU" clean -qfd
+  case "${c#*|}" in d/foreign) mkdir -p "$RU/d"; printf 'precious\n' > "$RU/d/foreign" ;; e) printf 'precious\n' > "$RU/e" ;; esac
+  script "$(jq -nc --arg c "${c%|*}" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+  e2e "$RU" go
+  check  "untracked-file-directory-collision-stops-on-real-git: ${c%|*} / ${c#*|}" "would discard ${c#*|} in" "$(cat "$W/api.log")"
+  equals "untracked-file-directory-collision-keeps-the-file: ${c%|*} / ${c#*|}"    "precious" "$(cat "$RU/${c#*|}" 2>/dev/null)"
+done
+
 # --- a commit with paths takes only those paths, so a foreign staged file does not stop it ----------------------------
 RC="$(repo)"
 commit_file "$RC" own one; commit_file "$RC" foreign one

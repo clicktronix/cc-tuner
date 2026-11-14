@@ -1124,7 +1124,12 @@ class Guard {
     const loose = into === undefined ? [] : changed.filter(([x, , f]) => x === '?' && !owns(mine, f) && !lost.includes(f)).map(([, , f]) => f)
     if (loose.length === 0) return lost
     const tree = await this.p.tree(top, into!)
-    return tree === undefined ? undefined : [...lost, ...loose.filter(f => tree.has(f))]
+    if (tree === undefined) return undefined
+    // A path collides when the tree holds it, a file above it, or a directory at it.
+    const dirs = new Set<string>()
+    for (const t of tree) for (let i = t.indexOf('/'); i !== -1; i = t.indexOf('/', i + 1)) dirs.add(t.slice(0, i))
+    const above = (f: string) => [...f.matchAll(/\//g)].some(m => tree.has(f.slice(0, m.index)))
+    return [...lost, ...loose.filter(f => tree.has(f) || dirs.has(f) || above(f))]
   }
 
   private unread(action: string, top: string, label: string) {
