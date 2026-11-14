@@ -763,8 +763,10 @@ export class Peers {
     })
   }
 
-  // The holder's call renews the lease at most once a minute; a renewal that finds the lock changed or busy asks again, and then
-  // the lock's holder decides.
+  // The holder's call renews the lease at most once a minute. A renewal that stays busy past its retries is a takeover under
+  // way that may still complete: the call stops (no ack) rather than allows, so the old and the new holder are never both
+  // users. One that finds the lock changed re-reads it, and the lock's holder decides; a re-read that shows this session
+  // still the holder allows only while the takeover mutex is free.
   private async hold(key: string, me: [number, string], sid: string | null, renew = true): Promise<Verdict> {
     const [pid, start] = me
     const lock = await this.lock(key)
@@ -772,10 +774,11 @@ export class Peers {
     const [cur, now] = [holder(text), this.now()]
     const mine = JSON.stringify({ v: 1, key, pid, start, session: sid, last: now })
     if (cur?.pid === pid && cur.start === start) {
-      if (!renew || now - cur.last < LEASE_RENEW) return { decision: 'allow' }
+      if (!renew) return (await this.w.stat(`${lock}.take`)) === undefined ? { decision: 'allow' } : this.taking(key)
+      if (now - cur.last < LEASE_RENEW) return { decision: 'allow' }
       let rc = 2
       for (let i = 0; i < 3 && rc === 2; i++) rc = (await this.w.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])).exitCode
-      // A renewal that did not land (the lock changed, or stayed busy) is decided by who holds the lock now.
+      if (rc === 2) return this.taking(key)
       return rc === 0 ? { decision: 'allow' } : this.hold(key, me, sid, false)
     }
     if (st !== undefined) {
@@ -787,6 +790,10 @@ export class Peers {
     const r = await this.w.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
     if (r.exitCode !== 0) return this.leased(key, holder(await this.held(lock)), now)
     return { decision: 'note', reason: `cc-tuner: you hold ${key}; release it with peers_release when you are done.` }
+  }
+
+  private taking(key: string): Verdict {
+    return { decision: 'stop', reason: `cc-tuner: ${key} is being taken over by another session; try again shortly.` }
   }
 
   private leased(key: string, h: Holder | undefined, now: number): Verdict {

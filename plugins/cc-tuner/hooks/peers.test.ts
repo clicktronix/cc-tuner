@@ -1591,7 +1591,8 @@ test('resource: a renewal or a release that lost the race to a takeover changes 
   m.dirs.add(take)
   m.advance(61)
   const kept = last()
-  expect((await use(sr, ra)).decision, 'a renewal that finds the lock busy is skipped').toBe('allow')
+  const busy = await use(sr, ra)
+  expect(busy.decision, 'a renewal that finds the lock busy is not an allow').toBe('stop')
   expect(last()).toBe(kept)
   m.dirs.delete(take)
   m.advance(601)
@@ -1627,16 +1628,42 @@ test('resource: a renewal that finds the lock busy asks again and then reads the
   expect(late.reason).toContain(`leased to pid ${sc.pid}`)
 })
 
-test('resource: a renewal that stays busy and finds the lock still its own allows', async () => {
-  const { m, ra, sr } = products()
+test('resource: a renewal that stays busy stops with no ack, so a takeover that then completes never has two users', async () => {
+  const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const take = `${DIR}/lease.chrome.take`
+  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(601)
   m.dirs.add(take)
   m.ran.length = 0
-  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-busy-renewal-still-held-allows').toBe('allow')
+  const busy = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(busy.decision, 'resource-busy-renewal-stops').toBe('stop')
+  expect(busy.reason).toContain('taken over')
+  expect(busy.reason).toContain('try again')
+  expect(busy.reason, 'a busy renewal offers no ack').not.toContain('CC_TUNER_ACK')
   expect(m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s')).length, 'resource-busy-renewal-asks-three-times').toBe(3)
+  m.dirs.delete(take)
+  m.put(`${lock}/holder.json`, JSON.stringify({ v: 1, key: 'chrome', pid: sc.pid, start: m.procs.get(sc.pid)!.start, session: 'sc', last: Math.floor(m.clock / 1000) }))
+  const after = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(after.decision, 'resource-renewal-after-the-takeover-stops').toBe('stop')
+  expect(after.reason).toContain(`leased to pid ${sc.pid}`)
+  expect((await sc.peers.lease(CLICK, rc, 'sc')).decision).toBe('allow')
+})
+
+test('resource: a renewal that lost a race and re-reads its own lock allows only while the mutex is free', async () => {
+  const { m, ra, sr } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  await sr.peers.lease(CLICK, ra, 'sr')
+  m.advance(601)
+  const text = () => m.cat(`${lock}/holder.json`)
+  const rewrite = () => m.put(`${lock}/holder.json`, text().replace(/"last":\d+/, '"last":1'))
+  m.busy = undefined
+  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite() })
+  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-reread-own-lock-with-a-free-mutex-allows').toBe('allow')
+  m.advance(601)
+  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite(); m.dirs.add(take) })
+  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-reread-own-lock-with-a-busy-mutex-stops').toBe('stop')
 })
 
 test('resource: a repository resource is leased too, and a lock with no holder file yet is not up for grabs', async () => {

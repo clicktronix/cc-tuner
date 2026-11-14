@@ -312,6 +312,23 @@ check  "resource-lease-moves-on-death" "pong-from-lab" "$(cat "$W/api.log")"
 check  "resource-lease-release-by-the-holder" "cc-tuner: released lab." "$(cat "$W/api.log")"
 equals "resource-lease-release-frees-the-lock" "no" "$([ -e "$LOCK" ] && echo yes || echo no)"
 
+# A holder whose renewal is due meets another session's takeover mutex: it is stopped, not allowed, because the takeover
+# may complete a moment later. Once it has, the old holder is stopped naming the new one. The mutex and the takeover
+# are staged by the session's own Bash calls between its tool calls; the renewal and the stop are the real code's.
+peer; PT=$SP
+BACKDATE="printf %s \"\$(jq -c '.last = 1' $LOCK/holder.json)\" > $LOCK/holder.json; mkdir $LOCK.take"
+TAKEN="rmdir $LOCK.take; printf %s '$(jq -nc --argjson pid "$PT" --arg st "$(lstart "$PT")" '{v: 1, key: "lab", pid: $pid, start: $st, session: "t", last: (now | floor)}')' > $LOCK/holder.json"
+script "$(jq -nc --arg b "$BACKDATE" --arg t "$TAKEN" '{when: "", calls: [
+  {name: "mcp__lab__ping", input: {}}, {name: "Bash", input: {command: $b}}, {name: "mcp__lab__ping", input: {}},
+  {name: "Bash", input: {command: $t}}, {name: "mcp__lab__ping", input: {}}]}')"
+lab 00000000-0000-4000-8000-0000000000f4
+check  "resource-lease-busy-renewal-stops" "lab is being taken over by another session; try again shortly" "$(cat "$W/api.log")"
+absent "resource-lease-busy-renewal-offers-no-ack" "CC_TUNER_ACK=" "$(grep -F 'being taken over' "$W/api.log" | head -n 1)"
+check  "resource-lease-after-the-takeover-names-the-new-holder" "lab is leased to pid $PT" "$(cat "$W/api.log")"
+equals "resource-lease-takeover-holder-stays" "$PT" "$(jq -r .pid "$LOCK/holder.json")"
+kill "$PT"; until [ -z "$(lstart "$PT")" ]; do sleep 0.05; done
+rm -rf "$LOCK" "$LOCK.take"
+
 # --- inspection is inert: the guard's own git reads run nothing the repository, an included file or ~/.gitconfig configures ---
 # A clean filter runs while `git status` hashes a changed file, a merge driver while merge-tree merges two commits, and a
 # submodule's own filter while status goes into it. The marker files show whether any ran; a plain `git status` is the control.
