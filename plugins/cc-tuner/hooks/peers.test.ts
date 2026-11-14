@@ -968,7 +968,6 @@ test('guard: an edit next to a writer or of a claimed path is a note, said once 
   expect((await edit(`${r}/b.txt`)).decision, 'guard-edit-note-once-an-hour').toBe('allow')
   m.edit('me', x => { x.acks = Object.fromEntries(Object.keys(x.acks).map(k => [k, 1])) })
   expect((await edit(`${r}/b.txt`)).decision, 'guard-edit-note-again-after-the-hour').toBe('note')
-  expect(writerOf(m, 'me', r), 'guard-edit-before-marks-no-writer').toBeNull()
   m.edit('peer', x => { x.claims = { 'plan.md': { repo: x.checkouts[r]!.repo, paths: ['lib/'] } }; x.checkouts[r]!.writer = null })
   const claimed = await edit(`${r}/lib/x.ts`)
   expect(claimed.decision).toBe('note')
@@ -1559,28 +1558,39 @@ test('record: a new process that adopts a tombstone does not inherit its kept ta
 })
 
 // --- the writer mark waits for the engine ------------------------------------------------------------------------
-test('guard: a writer is marked after the call ran, not by a call the engine denied or one that was stopped', async () => {
+test('guard: a writer is marked when its call is allowed or noted, so a long call counts while it runs; a stopped one marks none', async () => {
   const { m, session } = machine()
   const r = m.repo('/w/r')
-  const s = session('s')
-  await s.before(r, 'npm test')
-  expect(writerOf(m, 's', r), 'guard-writer-not-marked-before-the-call').toBeNull()
-  await s.after(r, ['npm test'], undefined, false)
-  expect(writerOf(m, 's', r), 'guard-writer-not-marked-by-a-failed-call').toBeNull()
-  await s.after(r, ['git status'])
+  const [peer, s] = [session('peer'), session('s')]
+  await s.before(r, 'git status')
   expect(writerOf(m, 's', r), 'a read-only call marks none').toBeNull()
+  await s.before(r, 'npm test')
+  expect(typeof writerOf(m, 's', r), 'guard-writer-marked-before-the-call-runs').toBe('number')
+  m.edit('s', x => { x.checkouts[r]!.writer = null })
   await s.after(r, ['npm test'])
-  expect(typeof writerOf(m, 's', r)).toBe('number')
+  expect(writerOf(m, 's', r), 'guard-after-marks-no-writer').toBeNull()
+  await s.check({ tool: 'Edit', cwd: r, path: `${r}/a.txt` })
+  expect(typeof writerOf(m, 's', r), 'guard-edit-before-marks-the-writer').toBe('number')
+  m.edit('s', x => { x.checkouts[r]!.writer = null })
+  await peer.touch(r)
+  expect((await s.before(r, 'git switch x')).decision).toBe('stop')
+  expect(writerOf(m, 's', r), 'guard-stopped-call-marks-no-writer').toBeNull()
+  expect((await s.check({ tool: 'Edit', cwd: r, path: `${r}/b.txt` })).decision).toBe('note')
+  expect(typeof writerOf(m, 's', r), 'guard-noted-call-marks-the-writer').toBe('number')
 })
 
-test('the module marks a writer only for a call the engine let through', async ($, on) => {
-  const { m } = machine()
+test('the module marks the writer before the call runs, and a call the guard stops marks none', async ($, on) => {
+  const { m, session } = machine()
   m.repo('/w/r')
-  engine(on, m, m.spawn())
-  expect((await $.tool.call({ tool: 'Bash', command: 'denied' })).deny).toBe('denied by the engine')
-  expect(writerOf(m, 'e1', '/w/r'), 'guard-denied-call-marks-no-writer').toBeNull()
+  let during: number | null | undefined
+  engine(on, m, m.spawn(), command => { if (command === 'npm test') during = m.files.has(`${DIR}/e1.json`) ? writerOf(m, 'e1', '/w/r') : undefined })
   await $.tool.call({ tool: 'Bash', command: 'npm test' })
-  expect(typeof writerOf(m, 'e1', '/w/r')).toBe('number')
+  expect(typeof during, 'guard-writer-marked-while-the-call-runs').toBe('number')
+  m.edit('e1', x => { x.checkouts['/w/r']!.writer = null })
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  expect((await $.tool.call({ tool: 'Bash', command: 'git switch x' })).deny).toContain('works in /w/r')
+  expect(writerOf(m, 'e1', '/w/r'), 'guard-stopped-call-marks-no-writer').toBeNull()
 })
 
 // --- guard semantics: what stops, and what the reason says ------------------------------------------------------

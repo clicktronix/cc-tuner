@@ -17,19 +17,22 @@ import type { EngineInterface } from 'claude-code'
 // kept are the shared-resource tasks this process started: /clear leaves them running, and so does a reload of the module.
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
 // first touch, moved only by this session's own call that held a switch-like step, when HEAD changed during it or
-// the step named the branch HEAD holds; writer the epoch of the last call that ran and could write; paths what
-// Edit/Write changed. acks also hold the hourly notes.
+// the step named the branch HEAD holds; writer the epoch of the last call the guard let through that could write
+// (marked before it runs); paths what Edit/Write changed. acks also hold the hourly notes. A session whose `seen`
+// is 8 h old is idle: it blocks nothing that depends only on its being alive, and its edited paths stay protected.
 //
 // Resources are declared, not detected: `<toplevel>/.claude/cc-tuner-resources.json` (`product` and `resources`)
 // and the machine's own file (CC_TUNER_PEERS_CONFIG, else $XDG_CONFIG_HOME or ~/.config, cc-tuner/resources.json),
-// each read again when its mtime changes. A shared resource (`start` and `stop` command prefixes) is not stopped
+// each read again when its mtime changes. `"guard": false` in either turns the guard off there (records and the report
+// stay); the machine's `products` maps names to paths (`~` allowed), a repository file's `product` winning. A shared resource (`start` and `stop` command prefixes) is not stopped
 // while another session of the product is live; the machine's, while any session is. An exclusive one (`tools`,
 // MCP tool-name patterns) is leased to the first session that calls one: a lock directory `lease.<key>` in the
 // record directory, made by an atomic `mkdir` that carries {v, key, pid, start, session, last use}. The lease moves
 // on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
-// before a command that could lose or commit files, and the reads `peers_report` and `kill` need.
+// before a command that could lose or commit files (and, limited to one path, before the first edit of it in an
+// hour), and the reads `peers_report` and `kill` need.
 
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
@@ -733,8 +736,9 @@ export class Peers {
   }
 
   // --- the guard ----------------------------------------------------------------------------------------
-  // One event: update this session's record and answer allow, note or stop. `before` decides; `after`, sent once the
-  // engine let the call run, marks the writer and moves the expected branch, so a stopped or denied call does neither.
+  // One event: update this session's record and answer allow, note or stop. `before` decides and, for an allowed or
+  // noted call, marks the writer, so a long call counts while it runs; a stopped one marks none. `after` records the
+  // paths an edit changed and moves the expected branch, only for a call the engine let run.
   async check(ev: Event): Promise<Verdict & { line?: string }> {
     const sid = ev.session_id || null
     const target = ev.path ? join(ev.cwd, ev.path) : undefined
@@ -769,13 +773,13 @@ export class Peers {
       if (verdict.decision !== 'stop') {
         for (const { at, writes, switch: sw } of plan) {
           if (at === undefined) continue
-          if (ev.phase === 'after' && ev.ok !== false && writes) r.checkouts[at[0]]!.writer = now
+          if (ev.phase === 'before' && writes) r.checkouts[at[0]]!.writer = now
           if (ev.phase === 'before' && sw) seen[at[0]] = await this.branch(at[0])
         }
+        if (ev.phase === 'before' && ev.tool !== undefined && EDITS.has(ev.tool) && co !== undefined) co.writer = now
         if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined && here !== undefined && co !== undefined) {
           const rel = relpath(await this.real(target), here[0])
           if (!co.paths.includes(rel)) co.paths.push(rel)
-          co.writer = now
         }
         if (ev.phase === 'after' && ev.tool === 'Bash' && ev.ok !== false) {
           for (const { st, at, switch: sw } of plan) {
