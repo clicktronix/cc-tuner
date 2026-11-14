@@ -16,7 +16,7 @@ never asked.
   python helper on 2026-11-14 after python per call cost 0.3–0.5 s under this machine's load.
   - **Writing.** A session writes only its own record, serialized in-process; others only read it.
   - **Identity.** A session is its Claude process, identified by pid plus start time. A nested
-    `claude -p` counts as the outermost `claude` in its ancestry; a subagent shares its parent's pid.
+    `claude -p` is a peer like any other (owner decision 2026-11-14); a subagent shares its parent's pid.
   - **Per checkout, the record holds:**
     - the expected branch: the branch at first touch. It moves only when HEAD changed during this
       session's own call that contains a switch (HEAD read before and after that call). A failed
@@ -111,7 +111,8 @@ never asked.
   when the checkout has another writer, instead of switching or stashing in place. `/run`'s final
   cleanup leaves a task the guard keeps. The README says the keep covers `/clear` and that cleanup,
   not the exit of the Claude process, which stops its background tasks itself.
-- **Git reads** by the guard use `GIT_OPTIONAL_LOCKS=0`, so they never write the index.
+- **Git reads** by the guard are inert: `GIT_OPTIONAL_LOCKS=0`, attributes from the empty tree (no filter or merge
+  driver can run, whatever the config), `core.fsmonitor=false`, submodules ignored.
 - **Tools** the module registers: `peers_report`, `peers_claim <plan>`, `peers_release <key>`. The guard
   itself is the `tool.call` handler.
 - **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its `tool.call`
@@ -242,7 +243,7 @@ test group in brackets.
 - **Full:** `bash tests/run.sh` (claude at `tests/flow/CLAUDE_CODE_VERSION`). The EVALUATED_SHA
   guard is handled as in #75.
 - **Static:** module validation and type check in `test_mod.sh`.
-- **Runtime:** macOS and Linux, git ≥ 2.38, no network.
+- **Runtime:** macOS and Linux, git ≥ 2.40 (inspection reads attributes from the empty tree, `--attr-source`), no network.
 - **Mutation:** make `live()` in `hooks/peers.ts` ignore the start time. `liveness-pid-reuse` must then
   FAIL with `a record whose pid was reused reads as live`.
 - **Known limit:** a peer's liveness is cached for a minute, so a peer that just exited can cause a
