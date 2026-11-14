@@ -32,7 +32,8 @@ import type { EngineInterface } from 'claude-code'
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files (and, limited to one path, before the first edit of it in an
-// hour), and the reads `peers_report` and `kill` need.
+// hour), the reads `peers_report` and `kill` need, and one config read per repository (and per change of its config): every
+// filter and merge driver it names is emptied in the guard's own `git status` and merge-tree, so inspecting runs no command of the repository's.
 
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
@@ -445,6 +446,33 @@ export class Peers {
     return r.exitCode === 0 ? r.stdout.trim() : undefined
   }
 
+  // A repository's config names commands git runs on a file: a clean filter while `status` hashes it, a merge driver
+  // while merge-tree merges it. An inspection gives each an empty command (and `required` off, or git dies over a
+  // filter that does nothing). The names come from a config read, which runs nothing, kept while the config files hold.
+  private inert = new Map<string, { key: string; filter: string[]; merge: string[] }>()
+  private async neutral(top: string, common: string): Promise<{ filter: string[]; merge: string[] } | undefined> {
+    const files = [`${common}/config`, `${await this.w.home()}/.gitconfig`]
+    const key = (await Promise.all(files.map(f => this.w.stat(f)))).map(st => `${st?.mtimeMs}:${st?.size}`).join('|')
+    const hit = this.inert.get(common)
+    if (hit?.key === key) return hit
+    const r = await this.w.run([...GIT, '-C', top, 'config', '-z', '--get-regexp', '^(filter|merge)\\.'], { env: GIT_ENV }).catch(() => undefined)
+    if (r === undefined || r.exitCode > 1) return undefined
+    const [filters, merges] = [new Set<string>(), new Set<string>()]
+    for (const entry of r.stdout.split('\0')) {
+      const k = entry.split('\n')[0]!
+      const [f, m] = [/^filter\.(.+)\.(clean|smudge|process|required)$/.exec(k), /^merge\.(.+)\.driver$/.exec(k)]
+      if (f !== null) filters.add(f[1]!)
+      if (m !== null) merges.add(m[1]!)
+    }
+    const found = {
+      key,
+      filter: [...filters].flatMap(n => ['clean=', 'smudge=', 'process=', 'required=false'].flatMap(v => ['-c', `filter.${n}.${v}`])),
+      merge: [...merges].flatMap(n => ['-c', `merge.${n}.driver=`]),
+    }
+    this.inert.set(common, found)
+    return found
+  }
+
   // --- records ------------------------------------------------------------------------------------------
   async load(): Promise<{ recs: Map<string, Rec>; bad: string[] }> {
     const dir = await this.dir()
@@ -543,10 +571,12 @@ export class Peers {
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
+    const inert = await this.neutral(top, common)
+    if (inert === undefined) return undefined
     const r = await this.w.run(['/bin/sh', '-c',
-      'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$2/objects" ' +
-      'git -c core.fsmonitor=false -c core.untrackedCache=false -C "$3" merge-tree --write-tree --name-only "$4" "$5"; rc=$?; rm -rf "$d"; exit $rc',
-    'sh', await this.dir(), common, top, mine, theirs], { env: GIT_ENV })
+      'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; t="$3"; m="$4"; n="$5"; shift 5; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$o/objects" ' +
+      'git -c core.fsmonitor=false -c core.untrackedCache=false "$@" -C "$t" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc',
+    'sh', await this.dir(), common, top, mine, theirs, ...inert.merge], { env: GIT_ENV })
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
     await this.w.write(cache, JSON.stringify(names))
@@ -826,9 +856,11 @@ export class Peers {
   }
 
   // The changed files as [index, worktree, path], or undefined when git did not answer: that is not a clean tree.
-  async status(top: string, staged: readonly string[], path?: string): Promise<[string, string, string][] | undefined> {
+  async status([top, common]: Where, staged: readonly string[], path?: string): Promise<[string, string, string][] | undefined> {
     const spec = path === undefined ? [] : ['--', path]
-    const r = await this.w.run([...GIT, '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', ...spec], { env: GIT_ENV }).catch(() => undefined)
+    const inert = await this.neutral(top, common)
+    if (inert === undefined) return undefined
+    const r = await this.w.run([...GIT, ...inert.filter, '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', ...spec], { env: GIT_ENV }).catch(() => undefined)
     if (r === undefined || r.exitCode !== 0) return undefined
     let found: [string, string, string][] = []
     for (const e of r.stdout.split('\0')) if (e.length > 3) found.push([e[0]!, e[1]!, e.slice(3)])
@@ -1024,10 +1056,11 @@ class Guard {
   }
 
   // The changed files of a checkout this session did not edit, within the paths a command reaches.
-  private async foreign(top: string, kinds: string, specs: readonly string[] | undefined, d: string): Promise<string[] | undefined> {
+  private async foreign(at: Where, kinds: string, specs: readonly string[] | undefined, d: string): Promise<string[] | undefined> {
+    const top = at[0]
     const mine = this.r.checkouts[top]?.paths ?? []
     const reach = specs === undefined ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
-    return (await this.p.status(top, this.staged.get(top) ?? []))
+    return (await this.p.status(at, this.staged.get(top) ?? []))
       ?.filter(([x]) => !((kinds === 'tracked' && x === '?') || (kinds === 'untracked' && x !== '?') || (kinds === 'staged' && ' ?'.includes(x))))
       .map(([, , f]) => f)
       .filter(f => !owns(mine, f) && (reach === undefined || reach.some(x => covers(x, f))))
@@ -1046,7 +1079,7 @@ class Guard {
 
   private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[]) {
     const top = at[0]
-    const files = await this.foreign(top, kinds, specs, d)
+    const files = await this.foreign(at, kinds, specs, d)
     if (files === undefined) this.unread(action, top, label)
     else if (files.length > 0) await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
   }
@@ -1088,7 +1121,7 @@ class Guard {
         }
       }
       if (there !== undefined && there[0] === path) {
-        const files = await this.foreign(path, 'all', undefined, path)
+        const files = await this.foreign(there, 'all', undefined, path)
         if (files === undefined) this.unread('remove', path, label)
         else if (files.length > 0) await this.foreignStop('remove', path, files, `\`${label}\` would delete ${listing(files)} in ${path}`)
       }
@@ -1123,7 +1156,7 @@ class Guard {
   private async edit(at: Where, rel: string) {
     const [top, common] = at
     const key = `dirty:${top}|${rel}`
-    if (!owns(this.r.checkouts[top]?.paths ?? [], rel) && this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && ((await this.p.status(top, [], rel)) ?? []).length > 0) {
+    if (!owns(this.r.checkouts[top]?.paths ?? [], rel) && this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && ((await this.p.status(at, [], rel)) ?? []).length > 0) {
       this.once(key, `${rel} has uncommitted changes this session did not make (${await this.owner(top, [rel])}); read it before overwriting.`)
     }
     for (const [r, cos] of await this.peers(at)) {

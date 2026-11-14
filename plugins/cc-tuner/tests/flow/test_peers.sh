@@ -305,6 +305,30 @@ check  "resource-lease-moves-on-death" "pong-from-lab" "$(cat "$W/api.log")"
 check  "resource-lease-release-by-the-holder" "cc-tuner: released lab." "$(cat "$W/api.log")"
 equals "resource-lease-release-frees-the-lock" "no" "$([ -e "$LOCK" ] && echo yes || echo no)"
 
+# --- inspection is inert: the guard's own git reads run nothing the repository configures --------------------------
+# A clean filter runs while `git status` hashes a changed file, a merge driver while merge-tree merges two commits; the
+# repository names both in its config. The marker files show whether either ran.
+RI="$(repo)"; MK="$W/inert"; mkdir -p "$MK"
+printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' > "$RI/.gitattributes"
+commit_file "$RI" g one; commit_file "$RI" f one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
+git -C "$RI" switch -q -c side; commit_file "$RI" f side
+git -C "$RI" switch -q main; commit_file "$RI" f mine
+git -C "$RI" worktree add -q "$W/wi" side; WI="$(cd "$W/wi" && pwd -P)"
+peer; PI=$SP; fixture pi "$PI" "$WI" null
+git -C "$RI" config filter.evil.process "touch '$MK/process'; cat"
+git -C "$RI" config filter.plain.clean "touch '$MK/clean'; cat"
+git -C "$RI" config filter.plain.required true
+git -C "$RI" config merge.evil.driver "touch '$MK/merge'"
+printf 'mind\n' > "$RI/f"; printf 'two\n' > "$RI/g"   # the size of 'mine', so git hashes it rather than trusting the size
+script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input: {}}, {name: "Bash", input: {command: "git reset --hard"}}]}')"
+e2e "$RI" go
+ran() { [ -e "$MK/$1" ] && echo yes || echo no; }
+check  "inert-the-guard-still-sees-the-changed-file"  "would discard f, g in" "$(cat "$W/api.log")"
+check  "inert-the-report-still-sees-the-conflict"     "conflicts with HEAD: f" "$(cat "$W/api.log")"
+equals "inert-status-runs-no-clean-filter"            "no" "$(ran clean)"
+equals "inert-status-runs-no-filter-process"          "no" "$(ran process)"
+equals "inert-merge-tree-runs-no-merge-driver"        "no" "$(ran merge)"
+
 # --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
 # TAKE is the guard's own script, cut out of hooks/peers.ts and printed by node.
 if ! command -v node >/dev/null 2>&1; then

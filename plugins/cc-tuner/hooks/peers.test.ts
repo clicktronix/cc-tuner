@@ -27,6 +27,7 @@ class Machine {
   halfOnce = new Set<string>()
   envs: Record<string, Record<string, string> | undefined> = {}
   failing = new Map<string, number>()
+  gitConfig = new Map<string, string>()
   private tick = 1
   private nextPid = 1000
 
@@ -118,6 +119,10 @@ class Machine {
     if (cmd === 'git' && a[2] === 'status') {
       const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
       return { stdout: (this.status.get(a[1]!) ?? []).filter(e => spec === undefined || spec.includes(e.slice(3))).map(e => `${e}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'config') {
+      const text = this.gitConfig.get(a[1]!)
+      return text === undefined ? { exitCode: 1, stdout: '' } : { stdout: text }
     }
     if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: 'sha\n' } : { exitCode: 1, stdout: '' }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
@@ -816,6 +821,30 @@ test('guard: discarding or committing a foreign file stops, with no peer needed;
   expect((await decide(r, 'git restore g.txt')).decision, 'guard-restore-of-a-dirty-file-nobody-edited-stops').toBe('stop')
 })
 
+test('inspection: git status and merge-tree get every filter and merge driver of the repository emptied, read from its config once per change', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.gitConfig.set(r, 'filter.evil.clean\ntouch x\0filter.evil.required\ntrue\0filter.a.b.process\ncat\0merge.drv.driver\nsh y\0merge.drv.name\nn\0user.name\nz\0')
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.ran.length = 0
+  expect((await decide(r, 'git reset --hard')).decision).toBe('stop')
+  const status = m.ran.find(a => a.includes('status'))!.join(' ')
+  for (const n of ['evil', 'a.b']) for (const v of ['clean=', 'smudge=', 'process=', 'required=false']) expect(status, `inert-status-${n}-${v}`).toContain(`-c filter.${n}.${v}`)
+  expect(status).not.toContain('merge.')
+  await decide(r, 'git reset --hard')
+  expect(m.ran.filter(a => a.includes('config')).length, 'inert-config-is-read-once').toBe(1)
+  m.put(`${r}/.git/config`, '[filter "x"]')
+  await decide(r, 'git reset --hard')
+  expect(m.ran.filter(a => a.includes('config')).length, 'inert-config-is-read-again-when-it-changes').toBe(2)
+  const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
+  await new Session(m, peer2, 'p2').touch(wt)
+  m.shas.set(wt, 'sha-other')
+  m.ran.length = 0
+  await me.report(r)
+  expect(m.ran.find(a => a[2]?.includes('merge-tree'))!.slice(3), 'inert-merge-tree-driver-emptied').toContain('merge.drv.driver=')
+})
+
 test('guard: a foreign stop names the peer that edited the file; a dead peer\'s files stay protected', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
@@ -1120,12 +1149,12 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => a.slice(0, 8).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -C ${r} status`])
+  expect(m.ran.map(a => a.slice(0, 8).join(' '))).toEqual(['config', 'status'].map(sub => `git -c core.fsmonitor=false -c core.untrackedCache=false -C ${r} ${sub}`))
   m.advance(61)
   await decide(r, 'npm test')
-  expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
+  expect(m.ran.slice(2).map(a => a[0]), 'its own start time is read once').toEqual([])
   await decide(r, 'git switch x')
-  expect(m.ran.slice(1).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
+  expect(m.ran.slice(2).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
 })
 
 // --- resources: a shared one is not stopped under a live peer, an exclusive one is used by one session at a time ----
