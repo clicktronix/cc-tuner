@@ -1025,6 +1025,39 @@ test('guard: off, a lease and a TaskStop of a shared task stop nothing either', 
   expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b1' })).deny, 'guard-off-taskstop').toBeUndefined()
 })
 
+test('guard: a peer idle for 8 h blocks nothing that depends only on its liveness; its files and its report stay', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const wt = m.worktree(r, '/w/t/wt', 'wt')
+  declare(m, r, STACK)
+  declareMachine(m, { key: 'ports', kind: 'shared', stop: ['ports down'] })
+  const p = m.spawn()
+  const pc = m.spawn(p, 'sleep', 'sleep 3737')
+  const [peer, me] = [session('peer', p), session('me')]
+  await peer.touch(r)
+  await peer.touch(wt)
+  await me.bash(r, 'git status')
+  m.dirty(r, ' M f.txt')
+  await peer.edited(r, `${r}/f.txt`)
+  m.edit('peer', x => { x.checkouts[r]!.expected = 'feat-p' })
+  await me.peers.started([step('stack up')], r, 'me', 'b1')
+  const idle = (seconds: number) => m.edit('peer', x => { x.seen = now(m) - seconds })
+  const decisions = async () => [...await Promise.all(['git stash drop', 'git branch -D feat-p', `git worktree remove ${wt}`, `kill ${pc}`, 'stack down', 'ports down']
+    .map(async c => (await me.bash(r, c)).decision)), (await me.peers.taskStop('b1')) === undefined ? 'allow' : 'stop']
+  idle(8 * 3600 - 60)
+  expect(await decisions(), 'a peer called 7 h 59 min ago still blocks').toEqual(Array(7).fill('stop'))
+  idle(8 * 3600)
+  expect(await decisions(), 'guard-idle-peer-blocks-nothing-that-needs-only-its-liveness').toEqual(Array(7).fill('allow'))
+  const lost = await me.bash(r, 'git reset --hard')
+  expect(lost.decision, 'guard-idle-peer-files-stay-protected').toBe('stop')
+  expect(lost.reason).toContain(`pid ${p} on feat-p`)
+  expect(await me.report(r), 'the report still lists it').toContain(`pid ${p}`)
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) - 3600 })
+  expect((await me.bash(r, 'git switch x')).decision, 'the writer window of the switch stop is its own').toBe('stop')
+  await peer.touch(r)
+  expect(await decisions(), 'a call wakes it').toEqual(Array(7).fill('stop'))
+})
+
 test('guard: a git command with an option first is a note', async () => {
   const { r, ready, decide } = world()
   await ready

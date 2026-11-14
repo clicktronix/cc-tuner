@@ -85,6 +85,7 @@ const DAY = 24 * 3600
 const ACK_TTL = 30 * 60
 const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
+const IDLE = 8 * 3600
 const PS_TTL = 60
 const LEASE_IDLE = 10 * 60
 const NONE: Config = { off: false, resources: [] }
@@ -485,12 +486,12 @@ export class Peers {
 
   // --- peers --------------------------------------------------------------------------------------------
   // The live sessions next to `here` (same repository, or a repository of the same product), with the
-  // checkouts that make them so.
-  async peers(recs: Map<string, Rec>, me: string | undefined, here: Where): Promise<[Rec, [string, Checkout][]][]> {
+  // checkouts that make them so. A session with no call for 8 h is idle: `awake` leaves it out.
+  async peers(recs: Map<string, Rec>, me: string | undefined, here: Where, awake = false): Promise<[Rec, [string, Checkout][]][]> {
     const product = await this.product(here[0])
     const found: [Rec, [string, Checkout][]][] = []
     for (const [n, r] of recs) {
-      if (n === me) continue
+      if (n === me || (awake && this.now() - r.seen >= IDLE)) continue
       const cos: [string, Checkout][] = []
       for (const [top, co] of Object.entries(r.checkouts).sort(([a], [b]) => (a < b ? -1 : 1))) {
         if (co.repo === here[1] || (product !== undefined && await this.product(top) === product)) cos.push([top, co])
@@ -587,8 +588,8 @@ export class Peers {
   // The other live sessions that use a shared resource, as `who` names them: those next to `at`, or every
   // one for the machine's.
   async users(recs: Map<string, Rec>, me: string | undefined, at: Where | undefined, machine: boolean): Promise<string[]> {
-    if (!machine && at !== undefined) return (await this.peers(recs, me, at)).map(([r, cos]) => who(r, cos[0]![1]))
-    const others = [...recs].filter(([n]) => n !== me).map(([, r]) => r)
+    if (!machine && at !== undefined) return (await this.peers(recs, me, at, true)).map(([r, cos]) => who(r, cos[0]![1]))
+    const others = [...recs].filter(([n, r]) => n !== me && this.now() - r.seen < IDLE).map(([, r]) => r)
     const live = await this.live(others)
     return others.filter(r => live.has(r)).map(r => who(r, Object.values(r.checkouts)[0]))
   }
@@ -859,7 +860,7 @@ class Guard {
     return this.notes.length > 0 ? { decision: 'note', reason: this.notes.join(' ') } : { decision: 'allow' }
   }
 
-  private peers(at: Where) { return this.p.peers(this.recs, this.name, at) }
+  private peers(at: Where, awake = false) { return this.p.peers(this.recs, this.name, at, awake) }
   private note(text: string) { this.notes.push(`cc-tuner: ${text}`) }
 
   private once(key: string, text: string) {
@@ -1023,7 +1024,7 @@ class Guard {
   }
 
   private async stashDrop(at: Where, label: string) {
-    for (const [r, cos] of await this.peers(at)) {
+    for (const [r, cos] of await this.peers(at, true)) {
       for (const [top, co] of cos) {
         if (co.repo === at[1] && co.writer !== null) this.stop('stash drop', at[1], `\`${label}\` would drop a stash that ${who(r, co)} shares, working in ${top}.`)
       }
@@ -1032,7 +1033,7 @@ class Guard {
 
   private async delete(at: Where, names: readonly string[], label: string) {
     for (const name of names) {
-      for (const [r, cos] of await this.peers(at)) {
+      for (const [r, cos] of await this.peers(at, true)) {
         for (const [top, co] of cos) {
           if (co.repo === at[1] && co.expected === name) {
             this.stop('delete branch', `${at[1]}:${name}`, `\`${label}\` would delete ${name}, the branch ${who(r, co)} works on in ${top}.`)
@@ -1046,7 +1047,7 @@ class Guard {
     for (const p of paths) {
       const path = await this.p.real(join(d, p))
       const there = await this.p.where(path)
-      for (const [r, cos] of await this.peers(there ?? at)) {
+      for (const [r, cos] of await this.peers(there ?? at, true)) {
         for (const [top, co] of cos) {
           if (top === path || top.startsWith(`${path}/`)) this.stop('remove', path, `\`${label}\` would remove ${path}, where ${who(r, co)} works.`)
         }
@@ -1062,7 +1063,7 @@ class Guard {
   private async kill(name: string, a: string[], at: Where, prev: string[]) {
     if (probes(name, a)) return
     const peers = new Map<number, [Rec, Checkout]>()
-    for (const [r, cos] of await this.peers(at)) for (const [, co] of cos) peers.set(r.pid, [r, co])
+    for (const [r, cos] of await this.peers(at, true)) for (const [, co] of cos) peers.set(r.pid, [r, co])
     if (peers.size === 0) return
     let pids: number[] | undefined
     if (name === 'kill') {
