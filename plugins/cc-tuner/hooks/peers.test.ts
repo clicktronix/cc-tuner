@@ -22,6 +22,7 @@ class Machine {
   dirTimes = new Map<string, number>()
   clock = 1_800_000_000_000
   ran: string[][] = []
+  reads: string[] = []
   refs = new Set<string>()
   symbolic = new Map<string, string>()
   halfOnce = new Set<string>()
@@ -89,6 +90,7 @@ class Machine {
       config: async () => USER,
       home: async () => '/home/u',
       read: async p => {
+        this.reads.push(p)
         const f = this.files.get(p)
         if (f === undefined) throw new Error(`ENOENT ${p}`)
         const text = this.halfOnce.delete(p) ? f.text.slice(0, 20) : f.text
@@ -1019,6 +1021,67 @@ test('inspection: every git read takes its attributes from the empty tree, so no
   const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
   for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
   expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
+})
+
+test('inspection: the filter and merge driver names of .git/info/attributes are overridden on the command line, read once per change', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const file = `${r}/.git/info/attributes`
+  m.put(file, ['# a comment', '*.bin filter=lfs -text', 'f filter=evil merge=drv', '[attr]macro filter=viamacro', '', 'g diff=x'].join('\n'))
+  m.ran.length = 0
+  expect((await decide(r, 'git reset --hard')).decision).toBe('stop')
+  const status = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
+  const pairs = status.filter((x, i) => status[i - 1] === '-c')
+  for (const n of ['lfs', 'evil', 'viamacro']) {
+    for (const k of ['clean', 'smudge', 'process']) expect(pairs, `info-attributes-${n}-${k}`).toContain(`filter.${n}.${k}=`)
+    expect(pairs, `info-attributes-${n}-required`).toContain(`filter.${n}.required=false`)
+  }
+  expect(pairs, 'info-attributes-merge-driver').toContain('merge.drv.driver=')
+  expect(pairs.some(x => x.includes('.diff') || x.includes('.x.')), 'info-attributes-only-filter-and-merge').toBe(false)
+  const reads = m.reads.filter(p => p === file).length
+  await decide(r, 'git reset --hard')
+  expect(m.reads.filter(p => p === file).length, 'info-attributes-cached-by-mtime-and-size').toBe(reads)
+  m.put(file, 'f filter=other')
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  const again = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
+  expect(again, 'info-attributes-reread-after-a-change').toContain('filter.other.clean=')
+  expect(again).not.toContain('filter.evil.clean=')
+  m.put(file, 'f merge=drv2')
+  m.dirty(r, ' M x')
+  const conflicting = m.worktree(r, '/w/wt', 'feat')
+  const peer2 = m.spawn()
+  await new Session(m, peer2, 'p2').touch(conflicting)
+  m.shas.set(conflicting, 'sha-other')
+  m.ran.length = 0
+  await me.report(r)
+  const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
+  expect(merge, 'info-attributes-merge-tree-driver').toContain('merge.drv2.driver=')
+})
+
+test('inspection: an info/attributes file that cannot be read or is too large leaves the tree unread, and git status is not run', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const file = `${r}/.git/info/attributes`
+  m.put(file, 'f filter=evil\n'.repeat(10_000))
+  m.ran.length = 0
+  const big = await decide(r, 'git reset --hard')
+  expect(big.decision, 'info-attributes-oversized-stops').toBe('stop')
+  expect(big.reason).toContain('could not read git status')
+  expect(big.reason).toContain('CC_TUNER_ACK')
+  expect(m.ran.some(a => a[0] === 'git' && a.includes('status')), 'info-attributes-oversized-runs-no-status').toBe(false)
+  m.files.delete(file)
+  m.dirs.add(file)
+  m.ran.length = 0
+  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-unreadable-is-unread').toContain('could not read git status')
+  expect(m.ran.some(a => a[0] === 'git' && a.includes('status'))).toBe(false)
+  m.dirs.delete(file)
+  m.put(file, 'f filter=a=b')
+  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-a-name-with-equals-is-unread').toContain('could not read git status')
 })
 
 test('inspection: a git that does not know --attr-source (before 2.40) is never run unchecked; the guard says so and treats the tree as unread', async () => {

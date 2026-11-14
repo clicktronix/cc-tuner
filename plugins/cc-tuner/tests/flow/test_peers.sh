@@ -366,6 +366,26 @@ equals "inert-status-runs-no-filter-of-the-global-config" "no" "$(ran global)"
 equals "inert-status-runs-no-filter-of-a-submodule"   "no" "$(ran sub)"
 equals "inert-merge-tree-runs-no-merge-driver"        "no" "$(ran merge)"
 
+# `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
+# and only creates a marker file; a plain `git status` is the control that it runs.
+RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"
+commit_file "$RA" k one
+git -C "$RA" config filter.infomarker.clean "touch '$MA/clean'; cat"
+mkdir -p "$RA/.git/info"; printf '%s\n' 'k filter=infomarker' >> "$RA/.git/info/attributes"
+printf 'two\n' > "$RA/k"
+git -C "$RA" status >/dev/null 2>&1
+equals "info-attributes-control-a-plain-status-runs-the-filter" "yes" "$([ -e "$MA/clean" ] && echo yes || echo no)"
+rm -f "$MA/clean"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "git reset --hard"}}]}')"
+e2e "$RA" go
+check  "info-attributes-the-guard-still-sees-the-changed-file" "would discard k" "$(cat "$W/api.log")"
+equals "info-attributes-the-guard-runs-no-clean-filter" "no" "$([ -e "$MA/clean" ] && echo yes || echo no)"
+rm -f "$MA/clean"
+head -c 70000 /dev/zero | tr '\0' '#' >> "$RA/.git/info/attributes"
+e2e "$RA" go
+check  "info-attributes-an-oversized-file-is-unread" "could not read git status" "$(cat "$W/api.log")"
+equals "info-attributes-an-oversized-file-runs-no-filter" "no" "$([ -e "$MA/clean" ] && echo yes || echo no)"
+
 # --- an untracked file the destination tree holds is lost to reset --hard, checkout -f and switch -f -----------------
 # Each command runs in a session that did not write u.txt; the file is the user's, untracked, and a branch holds a file of that name.
 RU="$(repo)"

@@ -125,11 +125,13 @@ const NULL_SIGNAL = /^0+$/
 // Inspection is inert. A clean, smudge or process filter and a merge driver run only for a file whose attributes name
 // them, so every read takes its attributes from the empty tree (the repository's, the user's and the system's files
 // are never read); the one command a config can start by itself is core.fsmonitor. `--attr-source` needs git 2.40; an
-// older git exits 129 on it, which is never run around. `.git/info/attributes` is a local file git reads regardless.
+// older git exits 129 on it, which is never run around. `.git/info/attributes` is a local file git reads regardless, so
+// the filter and merge driver names it carries are overridden on the command line (which beats every config source, an
+// included file too): `inertNames` reads that one file.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' }
 const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null', `--attr-source=${EMPTY_TREE}`]
-const GIT = ['git', ...INERT]
+const ATTRIBUTES_MAX = 64 * 1024
 const USAGE = 129
 const LSTART = /^\s*(\d+)\s+(\d+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+(.*)$/
 
@@ -489,8 +491,45 @@ export class Peers {
 
   // Whether an inspection met a git too old for `--attr-source`: said once by the stop that follows.
   tooOld = false
+  // The `-c` overrides that silence every filter and merge driver `$common/info/attributes` names: [] for a repository
+  // with none, undefined for a file that cannot be read or is past 64 KiB. Read again only when its mtime or size changed.
+  private attributes = new Map<string, { key: string; args: string[] | undefined }>()
+  private async silenced(common: string): Promise<string[] | undefined> {
+    const file = `${common}/info/attributes`
+    const st = await this.w.stat(file)
+    if (st === undefined) return []
+    const key = `${st.mtimeMs}:${st.size}`
+    const hit = this.attributes.get(file)
+    if (hit !== undefined && hit.key === key && (st.mtimeMs ?? 0) > 0) return hit.args
+    let args: string[] | undefined
+    const text = st.kind === 'file' && (st.size ?? ATTRIBUTES_MAX + 1) <= ATTRIBUTES_MAX ? await this.w.read(file).catch(() => undefined) : undefined
+    if (text !== undefined && text.length <= ATTRIBUTES_MAX) {
+      const names = (attr: string) => [...new Set([...text.matchAll(new RegExp(`(?:^|\\s)${attr}=(\\S+)`, 'g'))].map(m => m[1]!))]
+      const [filters, merges] = [names('filter'), names('merge')]
+      // A name with `=` cannot be written as a `-c` key, so that file is unread too.
+      if (![...filters, ...merges].some(n => n.includes('='))) {
+        args = [
+          ...filters.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]),
+          ...merges.map(n => `merge.${n}.driver=`),
+        ].flatMap(x => ['-c', x])
+      }
+    }
+    this.attributes.set(file, { key, args })
+    return args
+  }
+
+  private async inert(top: string, common?: string): Promise<string[] | undefined> {
+    const dir = common ?? (await this.where(top))?.[1]
+    const named = dir === undefined ? [] : await this.silenced(dir)
+    return named === undefined ? undefined : [...INERT, ...named]
+  }
+
+  // Git is not run for `status` when the attributes file is unreadable: its clean filters could not be silenced, so
+  // the tree is unread like one git did not answer for.
   private async read(top: string, ...args: string[]) {
-    const r = await this.w.run([...GIT, '-C', top, ...args], { env: GIT_ENV })
+    const inert = await this.inert(top)
+    if (inert === undefined && args[0] === 'status') return { exitCode: 1, stdout: '' }
+    const r = await this.w.run(['git', ...(inert ?? INERT), '-C', top, ...args], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     return r
   }
@@ -598,10 +637,12 @@ export class Peers {
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
+    const inert = await this.inert(top, common)
+    if (inert === undefined) return undefined
     const r = await this.w.run(['/bin/sh', '-c',
       'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; t="$3"; m="$4"; n="$5"; shift 5; GIT_OBJECT_DIRECTORY="$d" GIT_ALTERNATE_OBJECT_DIRECTORIES="$o/objects" ' +
       'git "$@" -C "$t" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc',
-    'sh', await this.dir(), common, top, mine, theirs, ...INERT], { env: GIT_ENV })
+    'sh', await this.dir(), common, top, mine, theirs, ...inert], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
