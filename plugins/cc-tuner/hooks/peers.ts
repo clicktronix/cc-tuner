@@ -38,7 +38,8 @@ import type { EngineInterface } from 'claude-code'
 
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
-export interface Step { words: string[]; dir: string; writes: boolean }
+// op joins a step to the one before it: `&&`, `||`, `;` or `|`, empty for the first.
+export interface Step { words: string[]; dir: string; op: string; writes: boolean }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
@@ -921,6 +922,7 @@ export function ownedOpen(text: string): string[] {
 // One call's decisions: a stop throws Halt, a note is kept and the call goes on.
 class Guard {
   private notes: string[] = []
+  // The checkouts a switch step of this call moves, for the steps that run only if it succeeded: an unbroken chain of `&&`.
   private moved = new Set<string>()
   private staged = new Map<string, string[]>()
 
@@ -933,6 +935,7 @@ class Guard {
       if (ev.tool === 'Bash') {
         let prev: string[] = []
         for (const { st, at, d, blind } of plan) {
+          if (st.op !== '&&') this.moved.clear()
           const w = st.words ?? []
           if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind)
           prev = w
@@ -1071,7 +1074,8 @@ class Guard {
     const [head, want] = [await this.p.branch(top), this.r.checkouts[top]!.expected]
     if (!this.moved.has(top) && head !== want && !await this.p.rebasing(top)) {
       this.stop(`${action} on ${top}`, top, `\`${label}\` would run on ${head || 'a detached HEAD'} in ${top}, not on ${want || 'a detached HEAD'}, ` +
-        'where this session started; someone else switched it.', want === '' ? '' : `Switch back with \`git switch ${want}\`.`)
+        'where this session started; someone else switched it.',
+        `${want === '' ? '' : `Switch back with \`git switch ${want}\`. `}After a switch of your own, join the commit to it with \`&&\`, not \`;\`.`)
     }
   }
 

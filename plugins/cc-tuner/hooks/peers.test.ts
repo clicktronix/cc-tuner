@@ -206,7 +206,7 @@ class Session {
   start(cwd: string, sid = this.sid) { return this.peers.check({ session_id: sid, phase: 'start', cwd }) }
   report(cwd: string) { return this.peers.report(cwd) }
 }
-const step = (text: string, dir = ''): Step => ({ words: text === '' ? [] : text.split(' '), dir, writes: false })
+const step = (text: string, dir = '', op = ''): Step => ({ words: text === '' ? [] : text.split(' '), dir, op, writes: false })
 
 function machine() {
   const m = new Machine()
@@ -226,8 +226,8 @@ async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], 
   }
   return v
 }
-const at = (dir: string, text: string): Partial<Step> => step(text, dir)
-const then = (text: string): Partial<Step> => step(text)
+const at = (dir: string, text: string, op = ''): Partial<Step> => step(text, dir, op)
+const then = (text: string, op = '&&'): Partial<Step> => step(text, '', op)
 const writes = (text: string): Partial<Step> => ({ ...step(text), writes: true })
 
 // --- the adapter: the hooks module in front of the guard ----------------------------------------------------
@@ -306,6 +306,17 @@ test('the module moves the expectation only when HEAD changed during its own swi
   await $.tool.call({ tool: 'Bash', command: 'git status' })
   await $.tool.call({ tool: 'Bash', command: 'git switch -c x && git commit -m m' })
   expect(m.rec('e1').checkouts['/w/r']!.expected).toBe('x')
+})
+
+test('the module reads the operators: a commit after ; does not follow a switch that may not have run', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  m.head('/w/r', 'b')
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'false && git switch c; git commit --allow-empty -m wrong' })
+  expect(deny, 'guard-semicolon-commit-after-a-skipped-switch-is-stopped').toContain('would run on b')
+  expect(ran).toEqual(['git status'])
 })
 
 test('the Claude pid is read once per module load', async ($, on) => {
@@ -723,7 +734,7 @@ test('guard: the expected branch moves only when HEAD changed during this sessio
   state('a', 'b')
   await call(g, re, ['git switch nosuch'])
   expect(expected(), 'guard-drifted-failed-switch-keeps-it').toBe('a')
-  await call(g, re, ['git switch nosuch', then('true')])
+  await call(g, re, ['git switch nosuch', then('true', ';')])
   expect(expected(), 'guard-drifted-failed-switch-then-true-keeps-it').toBe('a')
   await call(g, re, ['false', then('git switch c')])
   expect(expected(), 'guard-drifted-skipped-switch-keeps-it').toBe('a')
@@ -818,7 +829,7 @@ test('guard: discarding or committing a foreign file stops, with no peer needed;
   expect(reason).toContain('.flow-seed')
   expect(reason).toContain('unknown owner')
   expect((await decide(other(), at(r, 'git reset --hard'))).decision, 'behind git -C').toBe('stop')
-  expect((await decide(r, at('../x', 'git status'), step('echo'), then('git reset --hard'))).decision, 'behind wrappers').toBe('stop')
+  expect((await decide(r, at('../x', 'git status'), step('echo', '', '-'), then('git reset --hard', ';'))).decision, 'behind wrappers').toBe('stop')
   expect((await decide(r, 'git status', then('git reset --hard'))).decision, 'in a compound').toBe('stop')
   for (const c of ['git clean -n', 'git clean -nd', 'git stash list', 'git status', 'git restore g.txt', 'git checkout -- g.txt', 'git add g.txt', 'git add sub/s.txt', 'git stash show']) {
     expect((await decide(r, c)).decision, c).toBe('allow')
@@ -930,6 +941,25 @@ test('guard: commit, push and PR run on the branch this session expects, whoever
   expect((await decide(r, 'git commit -m m')).decision, 'guard-detached-head-commit-stops-too').toBe('stop')
 })
 
+test('guard: a planned switch excuses a later commit only when it runs only if the switch succeeded', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.head(r, 'b')
+  const commit = (op: string) => then('git commit --allow-empty -m wrong', op)
+  expect((await decide(r, 'false', then('git switch c'), commit(';'))).decision, 'guard-skipped-switch-does-not-excuse-a-commit-after-semicolon').toBe('stop')
+  expect((await decide(r, 'false', then('git switch c'), commit('&&'))).decision, 'guard-and-commit-after-a-skipped-switch-never-runs-unexcused').toBe('allow')
+  expect((await decide(r, 'git switch c', commit(';'))).decision, 'guard-commit-after-a-semicolon-is-checked').toBe('stop')
+  expect((await decide(r, 'git switch c', commit('||'))).decision).toBe('stop')
+  expect((await decide(r, 'git switch c', commit('|'))).decision).toBe('stop')
+  expect((await decide(r, 'git switch c', commit('&&'))).decision, 'guard-and-commit-after-a-switch-is-excused').toBe('allow')
+  expect((await decide(r, 'git switch c', then('npm test'), commit('&&'))).decision, 'an unbroken chain of && reaches the commit').toBe('allow')
+  expect((await decide(r, 'git switch c', then('npm test'), commit(';'))).decision, 'a chain broken by ; does not').toBe('stop')
+  expect((await decide(r, 'git switch c', then('npm test', ';'), commit('&&'))).decision, 'a chain broken before the commit does not').toBe('stop')
+  const { reason } = await decide(r, 'git switch c', commit(';'))
+  expect(reason, 'the reason suggests &&').toContain('&&')
+})
+
 test('guard: deleting a peer\'s expected branch stops', async () => {
   const { m, r, peer, ready, decide, other } = world()
   await ready
@@ -1001,7 +1031,7 @@ test('guard: kill of a process that descends from a peer stops; its own or an un
   expect(await decide(r, 'killall mysleep')).toBe('allow')
   m.ports.set(4000, pc)
   expect(await decide(r, 'lsof -ti :4000', 'kill')).toBe('stop')
-  expect(await decide(r, 'lsof -ti :4000', then('kill'))).toBe('stop')
+  expect(await decide(r, 'lsof -ti :4000', then('kill', '|'))).toBe('stop')
   expect(await decide(r, 'lsof -ti :1', 'kill')).toBe('allow')
   expect(await decide(r, 'kill $PID')).toBe('note')
   m.end(p)
@@ -1406,12 +1436,12 @@ test('guard: only the fixed lsof and pgrep are run for a kill; a path to one is 
   await mine.touch(r)
   for (const first of ['./x/pgrep -f 3737', 'node_modules/.bin/lsof -ti :4000', '/tmp/pgrep -f a']) {
     m.ran.length = 0
-    const v = await mine.bash(r, first, then('kill'))
+    const v = await mine.bash(r, first, then('kill', '|'))
     expect(v.decision, first).toBe('note')
     expect(m.ran.filter(a => a[0]!.includes('/') && a[0] !== '/bin/sh'), `guard-runs-no-path-from-the-command: ${first}`).toEqual([])
   }
   m.ran.length = 0
-  await mine.bash(r, 'pgrep -f 3737', then('kill'))
+  await mine.bash(r, 'pgrep -f 3737', then('kill', '|'))
   expect(m.ran.map(a => a[0]), 'the fixed name still runs').toContain('pgrep')
 })
 
