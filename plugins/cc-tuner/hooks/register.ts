@@ -1,12 +1,19 @@
 import type { EngineInterface, Register } from 'claude-code'
+import { Peers, UNKNOWN, world, type Event, type Verdict } from './peers'
 
 // Claude Code stops a session's background tasks when the process exits, but
 // a /clear ends the conversation and leaves them running under the next one.
 // The agent that started them no longer knows they exist, so they are stopped
-// here. Ids are module state: a reload loses them, and exit still stops those.
+// here, except a shared resource's, which stays for the sessions using it and is
+// named in the next start line. Ids are module state: a reload loses them, and
+// exit still stops those. The shared ones are in the session's record, so a reload
+// keeps them, and the agent may stop one only while no other session of the product uses it.
 // An id leaves the set when the agent stops the task itself; a task that ends
 // on its own is not observable from a hook, and stopping it later is harmless.
 const started = new Set<string>()
+// The session the start line was last offered to: a new session id in the running process (/clear, /resume)
+// is a new conversation, and a fresh load of the module offers it again.
+let announced: string | undefined
 
 // The subagent panel shows an agent's type and its live activity, never its model, and a plugin
 // cannot redraw that panel. The status line carries the models of the subagents still running.
@@ -50,33 +57,50 @@ const TEMPLATE = /\.(example|sample|template|dist)$/
 // scanned as commands of its own wherever it sits, and an escaped one stays literal. A heredoc
 // delimiter is read the same way but, as in the shell, only loses its quotes: a $( … ) in it is
 // text. Comments, quoted heredoc bodies and other redirections drop out.
-interface Simple { words: string[]; inputs: string[] }
+// Each command also keeps the directory it runs in (`dir`, relative to where the text starts or
+// absolute, UNKNOWN after a `cd` it could not resolve) and whether a redirection writes a file (`writes`). A `cd`
+// moves the commands after it; a $( … ), backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage.
+interface Simple { words: string[]; inputs: string[]; dir: string; writes: boolean }
 const METACHARS = ' \t\n;&|()<>'
+const OPERATORS = ['&&', '||', '|&', '|', ';', '&']
+const at = (dir: string, to: string) => to.startsWith('/') || dir === '' ? to : dir === UNKNOWN ? UNKNOWN : `${dir}/${to}`
 
-function commands(text: string): Simple[] {
+function commands(text: string, base = ''): Simple[] {
   const found: Simple[] = []
   const heredocs: { end: string; tabs: boolean; quoted: boolean }[] = []
   let i = 0
   let quoted = false
   let literal = false
+  let dir = base
 
   // A command list from i; nested, it stops after the `)` that closes its $(.
   function list(nested: boolean) {
-    let current: Simple = { words: [], inputs: [] }
-    let depth = 0
-    const end = () => {
-      if (current.words.length > 0 || current.inputs.length > 0) found.push(current)
-      current = { words: [], inputs: [] }
+    let current: Simple = { words: [], inputs: [], dir, writes: false }
+    const parens: string[] = []
+    // Ends the command at an operator (`joined` is its text).
+    const end = (joined?: string) => {
+      if (current.words.length > 0 || current.inputs.length > 0) {
+        current.dir = dir
+        found.push(current)
+        const [name, ...args] = current.words.slice(lead(current.words))
+        const to = args.find(a => a !== '--' && !/^-[LPe@]+$/.test(a))
+        if (name === 'cd' && joined !== '|' && joined !== '&') dir = !to || to === '-' || to.startsWith('~') || to.includes('$') ? UNKNOWN : at(dir, to)
+      }
+      current = { words: [], inputs: [], dir, writes: false }
     }
     while (i < text.length) {
       const c = text[i]!
-      if (c === '\n') { end(); i++; bodies() } else if (c === ' ' || c === '\t') i++
-      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); depth++; i++ } else if (c === ')') {
+      if (c === '\n') { end(';'); i++; bodies() } else if (c === ' ' || c === '\t') i++
+      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); parens.push(dir); i++ } else if (c === ')') {
         end()
         i++
-        if (depth === 0 && nested) return
-        depth = Math.max(0, depth - 1)
-      } else if (';&|'.includes(c)) { end(); i++ } else if (c === '<' || c === '>') redirect(current)
+        if (parens.length === 0 && nested) return
+        dir = parens.pop() ?? dir
+      } else if (c === '&' && text[i + 1] === '>') { i++; redirect(current) } else if (';&|'.includes(c)) {
+        const joined = OPERATORS.find(o => text.startsWith(o, i))!
+        end(joined)
+        i += joined.length
+      } else if (c === '<' || c === '>') redirect(current)
       else {
         const w = word()
         if ((text[i] === '<' || text[i] === '>') && /^\d+$/.test(w)) redirect(current)
@@ -132,8 +156,10 @@ function commands(text: string): Simple[] {
   function substitution(): boolean {
     const kept = found.length
     if (text.startsWith('$(', i)) {
+      const outer = dir
       i += 2
       list(true)
+      dir = outer
       if (literal) found.length = kept
       return true
     }
@@ -144,7 +170,7 @@ function commands(text: string): Simple[] {
       body += text[i]
     }
     i++
-    if (!literal) found.push(...commands(body))
+    if (!literal) found.push(...commands(body, dir))
     return true
   }
 
@@ -160,6 +186,7 @@ function commands(text: string): Simple[] {
     if (outer) return
     if (heredoc) heredocs.push({ end: target, tabs: op === '<<-', quoted })
     else if (op === '<' || op === '<>') current.inputs.push(target)
+    if (/^(>>?|>\||<>|>&)$/.test(op) && target !== '/dev/null' && !(op === '>&' && /^(\d+-?|-)$/.test(target))) current.writes = true
   }
 
   // The heredoc bodies that start after a newline; unquoted ones expand like double quotes.
@@ -199,23 +226,29 @@ function dumps(name: string, args: string[]): boolean {
   return true
 }
 
+// Where the command proper starts: past control words, variable assignments and the wrappers that
+// only pass the command on (`command`, `builtin`, `exec`, with their options).
+function lead(words: string[]): number {
+  let at = 0
+  while (at < words.length && (PREFIXES.has(words[at]!) || ASSIGNMENT.test(words[at]!))) {
+    if (WRAPPERS.has(words[at]!)) {
+      const wrapper = words[at++]!
+      while (at < words.length && words[at]!.startsWith('-')) {
+        const option = words[at]!
+        if (wrapper === 'command' && LOOKUP.test(option)) at = words.length
+        else at += option === '-a' ? 2 : 1
+        if (option === '--') break
+      }
+    } else if (words[at++] === 'time' && words[at] === '-p') at++
+  }
+  return at
+}
+
 function secretLeak(command: string): string | undefined {
   for (const { words, inputs } of commands(command)) {
-    let at = 0
-    while (at < words.length && (PREFIXES.has(words[at]!) || ASSIGNMENT.test(words[at]!))) {
-      if (WRAPPERS.has(words[at]!)) {
-        const wrapper = words[at++]!
-        while (at < words.length && words[at]!.startsWith('-')) {
-          const option = words[at]!
-          if (wrapper === 'command' && LOOKUP.test(option)) at = words.length
-          else at += option === '-a' ? 2 : 1
-          if (option === '--') break
-        }
-      } else at++
-    }
-    const [name, ...args] = words.slice(at)
+    const [name, ...args] = words.slice(lead(words))
     if (name !== undefined && DUMPS.has(name) && dumps(name, args)) {
-      return `cc-tuner: \`${words.slice(at).join(' ')}\` prints every variable's value, secrets included, into the transcript. ` +
+      return `cc-tuner: \`${[name, ...args].join(' ')}\` prints every variable's value, secrets included, into the transcript. ` +
         `Check one is set with \`${CHECK_SET}\`; list names only with \`${LIST_NAMES}\`.`
     }
     const read = name === undefined || READERS.has(name) ? [...args, ...inputs] : []
@@ -228,20 +261,195 @@ function secretLeak(command: string): string | undefined {
   return undefined
 }
 
+// What the session's guard reads of a command: the commands that actually run, in order, each in the
+// directory it runs in. The wrappers that start another command unwrap, and the command inside keeps
+// the wrapper's scope: `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`. A `cd` is not a step, it
+// moved the directory of the steps after it. A wrapper it cannot read stays a step as written.
+type Step = Event['steps'] extends (infer S)[] | undefined ? S : never
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
+const XARGS_VALUED = new Set(['-n', '-I', '-L', '-P', '-d', '-E', '-s', '-a'])
+// Launchers that only start the command after them: their valued options, and the words that precede it.
+const LAUNCHERS = new Map<string, { valued: string[]; lead: number }>([
+  ['timeout', { valued: ['-s', '-k'], lead: 1 }], ['nice', { valued: ['-n'], lead: 0 }], ['nohup', { valued: [], lead: 0 }],
+])
+const GIT_QUIET = new Set(['--no-pager', '--no-optional-locks', '-P'])
+const base = (word: string | undefined) => (word ?? '').slice((word ?? '').lastIndexOf('/') + 1)
+
+function unwrap(simple: Simple): Step[] {
+  let words = simple.words.slice(lead(simple.words))
+  let dir = simple.dir
+  for (;;) {
+    const name = base(words[0])
+    const args = words.slice(1)
+    if (name === 'cd') return []
+    if (name === 'env') {
+      let k = 0
+      for (; k < args.length && (args[k]!.startsWith('-') || ASSIGNMENT.test(args[k]!)); k++) {
+        if (args[k] === '-S' || args[k]!.startsWith('--split-string')) break
+        if (args[k] === '-C') dir = at(dir, args[++k] ?? '')
+        else if (args[k] === '-u' || args[k] === '-P') k++
+      }
+      if (k < args.length && args[k]!.startsWith('-')) break
+      words = args.slice(k)
+    } else if (LAUNCHERS.has(name)) {
+      const { valued, lead: skip } = LAUNCHERS.get(name)!
+      let k = 0
+      while (k < args.length && args[k]!.startsWith('-')) k += valued.includes(args[k]!) ? 2 : 1
+      words = args.slice(k + skip)
+    } else if (name === 'xargs') {
+      let k = 0
+      while (k < args.length && args[k]!.startsWith('-')) k += XARGS_VALUED.has(args[k]!) ? 2 : 1
+      words = args.slice(k)
+    } else if (name === 'heavy.sh' || (SHELLS.has(name) && base(args[0]) === 'heavy.sh')) {
+      const dash = words.indexOf('--')
+      if (dash === -1) break
+      words = words.slice(dash + 1)
+    } else if (SHELLS.has(name)) {
+      const c = args.findIndex(a => /^-[a-z]*c[a-z]*$/.test(a))
+      if (c === -1 || args[c + 1] === undefined) break
+      const inner = commands(args[c + 1]!, dir).flatMap(unwrap)
+      return inner.map(step => ({ ...step, writes: step.writes || simple.writes }))
+    } else if (name === 'git') {
+      const rest: string[] = []
+      let k = 0
+      for (; k < args.length && args[k]!.startsWith('-'); k++) {
+        if (args[k] === '-C') dir = at(dir, args[++k] ?? '')
+        else if (args[k] === '-c') k++
+        else if (!GIT_QUIET.has(args[k]!)) rest.push(args[k]!)
+      }
+      words = ['git', ...rest, ...args.slice(k)]
+      break
+    } else break
+    words = words.slice(lead(words))
+  }
+  return words.length === 0 ? [] : [{ words, dir, writes: simple.writes }]
+}
+
+export function steps(command: string): Step[] {
+  return commands(command).flatMap(unwrap)
+}
+
+// The guard is peers.ts, which owns the record of what each session did and every decision: allow, a note
+// (the call runs and the agent reads it after the result) or a stop (the reason is the call's error). It
+// runs in this process; a failure there is never the tool call's: the call goes on.
+let peers: Peers | undefined
+const peersOf = ($: EngineInterface) => (peers ??= new Peers(world($)))
+
+// The way on from a stop is the same command prefixed with its key. The guard records every key a step
+// assigns; a leading prefix goes before the call, so a user's allow rule such as `Bash(git switch:*)` still matches.
+const ACK = /^(?:CC_TUNER_ACK=[0-9a-f]{8} )+/
+const ACK_WORD = /^CC_TUNER_ACK=([0-9a-f]{8})$/
+const acks = (command: string) => commands(command).flatMap(s => s.words.slice(0, lead(s.words)).flatMap(w => ACK_WORD.exec(w)?.[1] ?? []))
+
+const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T, verdict?: Verdict): T =>
+  verdict?.decision === 'note' && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), verdict.reason ?? ''] } : ran
+
+// A guard that fails never stops the call, but it says so: in the debug log, and once a session in the call's
+// own result, so the agent knows nothing is watching its steps.
+const told = new Set<string | undefined>()
+async function fault($: EngineInterface, err: unknown, tell: boolean): Promise<Verdict | undefined> {
+  const why = err instanceof Error ? err.message : String(err)
+  await Promise.resolve().then(() => $.ui.log(`cc-tuner: peers guard failed: ${why}`, { to: 'debug' })).catch(() => undefined)
+  const sid = await $.session.id().catch(() => undefined)
+  if (!tell || told.has(sid)) return undefined
+  told.add(sid)
+  return { decision: 'note', reason: `cc-tuner: the peers guard is inactive (${why})` }
+}
+
+async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'phase'>): Promise<(Verdict & { line?: string }) | undefined> {
+  try {
+    const t = Date.now()
+    const verdict = await peersOf($).check({ session_id: await $.session.id(), cwd: await $.session.cwd(), ...event })
+    await Promise.resolve()
+      .then(() => $.ui.log(`cc-tuner: peers decided ${verdict.decision} in ${Date.now() - t} ms`, { to: 'debug' }))
+      .catch(() => undefined)
+    return verdict
+  } catch (err) {
+    return fault($, err, event.phase === 'before')
+  }
+}
+
+async function withPeers<T>($: EngineInterface, f: (p: Peers) => Promise<T>): Promise<T | undefined> {
+  try {
+    return await f(peersOf($))
+  } catch (err) {
+    await fault($, err, false)
+    return undefined
+  }
+}
+
+const TOOLS = [
+  { name: 'peers_report', description: 'Lists the live Claude sessions of this repository and product: branch, claims, edited paths, and merge conflicts with HEAD.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'peers_claim', description: 'Publishes the open Owned paths of a plan as this session\'s claim, then reports peers and their overlap with it.', inputSchema: { type: 'object', properties: { plan: { type: 'string', description: 'The plan file, relative to the cwd.' } }, required: ['plan'] } },
+  { name: 'peers_release', description: 'Releases a resource lease this session holds.', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } },
+]
+
 export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await Promise.all(TOOLS.map(tool => $.tool.register(tool)))
+    return next(e)
+  })
+
+  // The start line rides the first prompt of each session, clear and resume: a `classic.SessionStart` hook
+  // never reaches the model where the built-in security default sits outermost (managed settings, Team and
+  // Enterprise organizations), which passes classic events past a user-installed plugin. The line goes into
+  // the prompt's `context`, which the model reads beside the prompt and the user never sees. A slash command
+  // carries it too: a session that opens with one would otherwise not hear of its peers until its second prompt.
+  on('prompt.submit', async ($, e, next) => {
+    const session_id = await $.session.id()
+    if (session_id === announced) return next(e)
+    announced = session_id
+    const line = (await guard($, { phase: 'start', session_id, cwd: await $.session.cwd() }))?.line
+    return next(line ? { ...e, context: [...(e.context ?? []), line] } : e)
+  })
+
+  on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {
+    const [p, cwd] = [peersOf($), await $.session.cwd()]
+    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await p.release(String(e.key ?? '')) }
+    if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await p.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
+    return { result: await p.report(cwd) }
+  })
+
+  // Another MCP server's tool may belong to an exclusive resource: one session at a time uses it.
+  on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, async ($, e, next) => {
+    const verdict = await peersOf($).lease(e.tool, await $.session.cwd(), await $.session.id()).catch(err => fault($, err, true))
+    if (verdict?.decision === 'stop') return { deny: verdict.reason ?? 'cc-tuner: stopped' }
+    return noted(await next(e), verdict)
+  })
+
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const leak = secretLeak(e.command)
+    const command = e.command.replace(ACK, '')
+    const leak = secretLeak(command)
     if (leak !== undefined) return { deny: leak }
-    const ran = await next(e)
+    const parsed = steps(command)
+    const before = await guard($, { phase: 'before', tool: 'Bash', steps: parsed, acks: acks(e.command) })
+    if (before?.decision === 'stop') return { deny: before.reason ?? 'cc-tuner: stopped' }
+    const ran = await next(command === e.command ? e : { ...e, command })
+    await guard($, { phase: 'after', tool: 'Bash', steps: parsed, seen: before?.seen, ok: ran.deny === undefined })
     if (ran.deny === undefined && ran.isError !== true && ran.result.backgroundTaskId) {
-      started.add(ran.result.backgroundTaskId)
+      const id = ran.result.backgroundTaskId
+      started.add(id)
+      await withPeers($, async p => p.started(parsed, await $.session.cwd(), await $.session.id(), id))
     }
-    return ran
+    return noted(ran, before)
+  })
+
+  on('tool.call', { tool: ['Edit', 'Write', 'NotebookEdit'] }, async ($, e, next) => {
+    const path = 'file_path' in e ? e.file_path : e.notebook_path
+    const before = await guard($, { phase: 'before', tool: e.tool, path })
+    const ran = await next(e)
+    if (ran.deny === undefined && ran.isError !== true) await guard($, { phase: 'after', tool: e.tool, path })
+    return noted(ran, before)
   })
 
   on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
+    const deny = await withPeers($, p => p.taskStop(String(e.task_id)))
+    if (deny !== undefined) return { deny }
     const ran = await next(e)
-    if (ran.deny === undefined && ran.isError !== true) started.delete(ran.result.task_id)
+    if (ran.deny === undefined && ran.isError !== true) {
+      started.delete(ran.result.task_id)
+      await withPeers($, p => p.unkeep(ran.result.task_id))
+    }
     return ran
   })
 
@@ -262,7 +470,8 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
-      const ids = [...started]
+      const kept = await withPeers($, p => p.kept())
+      const ids = [...started].filter(id => !kept?.includes(id))
       const results = await Promise.allSettled(ids.map(task_id => $.tool.call({ tool: 'TaskStop', task_id })))
       // Only confirmed stops leave the set: an id whose stop failed stays for the next /clear (exit
       // still stops it; a task that already ended can answer with an error, harmless to retry), and

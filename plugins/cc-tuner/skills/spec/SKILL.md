@@ -1,7 +1,7 @@
 ---
 description: Plan a feature or fix as an approved spec and execution plan for /cc-tuner:run. With --groom, record decisions in the existing issue.
 argument-hint: '<issue number | URL | free-text description> | --groom <issue number | URL>'
-allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, WebSearch, mcp__context7, mcp__cc-tuner__peers_report
 ---
 
 # /cc-tuner:spec
@@ -217,6 +217,9 @@ executable consumer owns that syntax.
 For a wide mechanical change that cannot stay green slice by slice, use **expand → migrate →
 contract**: introduce the new form beside the old, migrate consumers in independently checked batches,
 then remove the old form only after every batch.
+
+Before presenting, call `mcp__cc-tuner__peers_report` (when listed) and name any peer whose claim, edited
+paths or merge conflicts touch the slices' Owned paths.
 
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
 and blockers, plus the card's Priority when a board is named and neither the issue nor
