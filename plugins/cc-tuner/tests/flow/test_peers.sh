@@ -227,6 +227,10 @@ e2e "$RB" --resume "$SIDB" go
 check  "start-line-on-resume" "cc-tuner: live peers:" "$(cat "$W/api.log")"
 equals "record-resume-adopts-the-tombstone" "number" "$(e2e_rec ".acks[\"$KEY\"] | type")"
 
+script '{"when": "", "calls": []}'
+e2e "$RB" --session-id 00000000-0000-4000-8000-0000000000e4 "/cc-tuner:agent-rules"
+check  "start-line-on-a-slash-command" "cc-tuner: live peers:" "$(cat "$W/api.log")"
+
 script '{"when": "after-clear", "calls": []}' "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "CC_TUNER_ACK=0000abcd git status"}}]}')"
 # Each message is typed once the one before it is answered: lines read at once are queued into the first turn, and
 # a /clear queued there never clears anything.
@@ -242,7 +246,9 @@ rm -f "$W/stdin" "$W/api.log" "$W/fed"; mkfifo "$W/stdin"
 } > "$W/stdin" & FEED=$!; STARTED="$STARTED $FEED"
 STDIN="$W/stdin" e2e "$RB" --session-id 00000000-0000-4000-8000-0000000000e3 --input-format stream-json --output-format stream-json --verbose
 check  "start-line-on-clear" "cc-tuner: live peers:" "$(grep -F 'after-clear' "$W/api.log" | tail -n 1)"
-equals "record-clear-drops-acks" "null" "$(e2e_rec '.acks["0000abcd"]')"
+# A session nested under another claude shares its outermost parent's record, which a /clear in the nested one leaves alone.
+if [ "$(session_pid)" = "$CP" ]; then equals "record-clear-drops-acks" "null" "$(e2e_rec '.acks["0000abcd"]')"
+else printf 'NOTE record-clear-drops-acks not checked: this run is nested under another claude\n'; fi
 absent "record-clear-follows-the-new-session-id" "0000000000e3" "$(e2e_rec .session_id)"
 
 # --- resources: a shared stop and an exclusive lease, in real sessions --------------------------------------------

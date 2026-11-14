@@ -398,9 +398,8 @@ export const register: Register = on => {
   // never reaches the model where the built-in security default sits outermost (managed settings, Team and
   // Enterprise organizations), which passes classic events past a user-installed plugin. The line goes into
   // the prompt's `context`, which the model reads beside the prompt and the user never sees. A slash command
-  // is not a first prompt: the line waits for the next one.
+  // carries it too: a session that opens with one would otherwise not hear of its peers until its second prompt.
   on('prompt.submit', async ($, e, next) => {
-    if (e.command !== undefined) return next(e)
     const session_id = await $.session.id()
     if (session_id === announced) return next(e)
     announced = session_id

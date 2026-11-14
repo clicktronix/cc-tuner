@@ -191,11 +191,11 @@ function machine() {
 
 // A Bash call as the adapter makes it: `before`, the command's effect on the machine, then `after` with
 // what `before` saw.
-async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], effect?: () => void) {
+async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], effect?: () => void, ok = true) {
   const v = await s.before(cwd, ...steps)
   if (v.decision !== 'stop') {
     effect?.()
-    await s.after(cwd, steps, v.seen)
+    await s.after(cwd, steps, v.seen, ok)
   }
   return v
 }
@@ -679,11 +679,28 @@ test('guard: the expected branch moves only when HEAD changed during this sessio
   expect(expected(), 'guard-drifted-successful-switch-moves-it').toBe('c')
   state('a', 'b')
   await call(g, re, ['git checkout --detach'], () => m.head(re, undefined))
-  expect(expected(), 'guard-detaching-keeps-it').toBe('a')
-  m.head(re, 'a')
+  expect(expected(), 'guard-detaching-moves-it-to-the-detached-head').toBe('')
+  state('a', 'a')
   await call(g, re, [at(rw, 'git switch other')], () => m.head(rw, 'other'))
   expect(expected(rw), 'guard-switch-elsewhere-moves-that-checkout').toBe('other')
   expect(expected(), 'guard-switch-elsewhere-leaves-the-cwd-checkout').toBe('a')
+  state('a', 'b')
+  await call(g, re, ['git switch b'])
+  expect(expected(), 'guard-a-switch-to-the-branch-head-holds-adopts-it').toBe('b')
+  state('a', 'b')
+  await call(g, re, ['git switch b'], undefined, false)
+  expect(expected(), 'a call the engine denied adopts nothing').toBe('a')
+  for (const [command, to] of [['gh pr checkout 5', 'pr5'], ['gh pr merge 5', 'main2'], ['git branch -m renamed', 'renamed'], ['git checkout -b nb', 'nb']] as const) {
+    state('a', 'a')
+    await call(g, re, [command], () => m.head(re, to))
+    expect(expected(), `guard-switch-like-step-moves-it: ${command}`).toBe(to)
+  }
+  state('a', 'a')
+  await g.after(re, ['git switch a'])
+  expect(expected(), 'guard-after-without-before-still-reconciles: a no-op').toBe('a')
+  m.head(re, 'c')
+  await g.after(re, ['git switch c'])
+  expect(expected(), 'guard-after-without-before-still-reconciles: the named branch').toBe('c')
 })
 
 // --- the guard stops what would destroy a peer's checkout, files, branch or process ------------------------------
@@ -1432,4 +1449,84 @@ test('the module marks a writer only for a call the engine let through', async (
   expect(writerOf(m, 'e1', '/w/r'), 'guard-denied-call-marks-no-writer').toBeNull()
   await $.tool.call({ tool: 'Bash', command: 'npm test' })
   expect(typeof writerOf(m, 'e1', '/w/r')).toBe('number')
+})
+
+// --- guard semantics: what stops, and what the reason says ------------------------------------------------------
+test('ack: the key names the files, so a file that appears later stops again', async () => {
+  const { m, r, ready, decide, acked } = world()
+  await ready
+  m.dirty(r, ' M a.txt')
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, 'git reset --hard')).reason!)![1]!
+  expect((await acked(r, k, 'git reset --hard')).decision).toBe('allow')
+  expect((await decide(r, 'git reset --hard')).decision).toBe('allow')
+  m.dirty(r, ' M b.txt')
+  const again = await decide(r, 'git reset --hard')
+  expect(again.decision, 'guard-ack-key-includes-the-files').toBe('stop')
+  expect(again.reason).not.toContain(`ACK=${k}`)
+  const wt = m.worktree(r, '/w/t/wt', 'wt')
+  m.dirty(wt, '?? one.txt')
+  const rm = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, `rm -rf ${wt}`)).reason!)![1]!
+  m.dirty(wt, '?? two.txt')
+  expect((await decide(r, `rm -rf ${wt}`)).reason, 'a removal asks again for a new file').not.toContain(`ACK=${rm}`)
+})
+
+test('guard: checkout of a path that is no ref is a discard, and a forced switch discards tracked changes', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.put(`${r}/src/a.ts`, 'a')
+  m.refs.add('feature')
+  m.dirty(r, ' M src/a.ts')
+  const path = await decide(r, 'git checkout src/a.ts')
+  expect(path.decision, 'guard-checkout-of-a-path-without-dashes').toBe('stop')
+  expect(path.reason).toContain('would overwrite src/a.ts')
+  for (const c of ['git checkout feature', 'git checkout -b src/a.ts', 'git switch feature', 'git switch -c fresh', 'git checkout nosuchbranch']) expect((await decide(r, c)).decision, c).toBe('allow')
+  for (const c of ['git switch -f feature', 'git switch --force feature', 'git switch --discard-changes feature', 'git checkout -f feature', 'git checkout --force feature']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-forced-switch-discards: ${c}`).toBe('stop')
+    expect(v.reason).toContain('src/a.ts')
+  }
+  await me.edited(r, `${r}/src/a.ts`)
+  for (const c of ['git checkout src/a.ts', 'git switch -f feature', 'git checkout -f feature']) expect((await decide(r, c)).decision, `own: ${c}`).toBe('allow')
+})
+
+test('guard: a rebase in progress is not drift', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.head(r, undefined)
+  expect((await decide(r, 'git commit -m m')).decision).toBe('stop')
+  m.mkdir(`${r}/.git/rebase-merge`)
+  expect((await decide(r, 'git commit -m m')).decision, 'guard-rebase-in-progress-skips-drift').toBe('allow')
+  m.drop(`${r}/.git/rebase-merge`)
+  m.mkdir(`${r}/.git/rebase-apply`)
+  expect((await decide(r, 'git push origin main')).decision).toBe('allow')
+})
+
+test('guard: the reasons name the safe way first, and the choice is the agent\'s only where a peer owns the files', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M mine.txt')
+  const unknown = (await decide(r, 'git reset --hard')).reason!
+  expect(unknown, 'guard-unknown-owner-may-be-the-users').toContain("user's own edits")
+  expect(unknown).toContain('own paths')
+  expect(unknown).not.toContain('not a question for the user')
+  await peer.edited(r, `${r}/mine.txt`)
+  const owned = (await decide(r, 'git reset --hard')).reason!
+  expect(owned).toContain(`pid ${peer.pid} on main`)
+  expect(owned).toContain('not a question for the user')
+  m.end(peer.pid)
+  m.head(r, 'x')
+  const drift = (await decide(r, 'git commit -m m')).reason!
+  expect(drift, 'guard-drift-names-the-way-back').toContain('git switch main')
+  expect(drift.indexOf('git switch main')).toBeLessThan(drift.indexOf('CC_TUNER_ACK='))
+})
+
+test('record: a reftable HEAD is read through git', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  m.put(`${r}/.git/HEAD`, 'ref: refs/heads/.invalid\n')
+  m.symbolic.set(r, 'real')
+  await session('s').touch(r)
+  expect(m.rec('s').checkouts[r]!.expected, 'record-reftable-head').toBe('real')
 })

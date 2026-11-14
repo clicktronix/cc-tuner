@@ -101,6 +101,7 @@ const RELEASE = '[ "$(cat "$1/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$1"
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
 const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show'])
+const NO_OWNER = 'unknown owner'
 const OPAQUE = new Set(['sudo', 'doas', 'su', 'eval', 'watch', 'bash', 'sh', 'zsh', 'dash'])
 const NAMES_A_COMMAND = /(^|[\s/])(git|gh|kill|pkill|killall)(\s|$)/
 const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
@@ -171,7 +172,14 @@ function readOnly(step: Partial<Step>): boolean {
   if (args.some(a => WRITING_ARGS.has(a) || /^(--output|--pre|-fprint|-fls)/.test(a))) return false
   return name === 'git' ? args.length > 0 && READ_ONLY_GIT.has(args[0]!) : READ_ONLY.has(name)
 }
-const switches = (step: Partial<Step>) => { const w = step.words ?? []; return w.length > 1 && basename(w[0]!) === 'git' && (w[1] === 'switch' || w[1] === 'checkout') }
+// A step that may move HEAD: the ones this session's expected branch follows.
+function switches(step: Partial<Step>): boolean {
+  const [name, sub, rest] = [basename(step.words?.[0] ?? ''), step.words?.[1], step.words?.slice(2) ?? []]
+  return (name === 'git' && (sub === 'switch' || sub === 'checkout' || (sub === 'branch' && has(rest, '--move', 'mM'))))
+    || (name === 'gh' && sub === 'pr' && (rest[0] === 'checkout' || rest[0] === 'merge'))
+}
+// The branch a `git switch` or `git checkout` step names.
+const named = (step: Partial<Step>) => (step.words?.[1] === 'switch' || step.words?.[1] === 'checkout' ? operands(step.words.slice(2))[0] : undefined)
 
 const CRC = Array.from({ length: 256 }, (_, n) => {
   let c = n
@@ -345,10 +353,22 @@ export class Peers {
     return up === p ? p : join(await this.real(up), basename(p))
   }
 
+  // The branch HEAD names, read from the file; a reftable repository keeps a placeholder there, so git is asked.
   async branch(top: string, fallback = ''): Promise<string> {
     const gd = await this.gitdir(top)
-    const head = gd === undefined ? undefined : await this.w.read(`${gd}/HEAD`).catch(() => undefined)
-    return head?.trim().startsWith('ref: refs/heads/') ? head.trim().slice('ref: refs/heads/'.length) : fallback
+    const head = ((gd === undefined ? undefined : await this.w.read(`${gd}/HEAD`).catch(() => undefined)) ?? '').trim()
+    if (head === 'ref: refs/heads/.invalid') return (await this.git(top, 'symbolic-ref', '-q', '--short', 'HEAD')) ?? fallback
+    return head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : fallback
+  }
+
+  async rebasing(top: string): Promise<boolean> {
+    const gd = await this.gitdir(top)
+    return gd !== undefined && (await Promise.all(['rebase-merge', 'rebase-apply'].map(d => this.w.stat(`${gd}/${d}`)))).some(st => st !== undefined)
+  }
+
+  // Whether x names a file here that no ref of that name shadows: `git checkout x` then restores it.
+  async isPath(top: string, dir: string, x: string | undefined): Promise<boolean> {
+    return x !== undefined && (await this.git(top, 'rev-parse', '--verify', '--quiet', x)) === undefined && (await this.w.stat(join(dir, x))) !== undefined
   }
 
   // A resources file, read again only when its mtime or size changed; one that is missing or unreadable declares nothing.
@@ -714,10 +734,11 @@ export class Peers {
           if (!co.paths.includes(rel)) co.paths.push(rel)
           co.writer = now
         }
-        if (ev.phase === 'after' && ev.tool === 'Bash') {
-          for (const [top, old] of Object.entries(ev.seen ?? {})) {
-            const head = await this.branch(top)
-            if (r.checkouts[top] !== undefined && head !== '' && head !== old) r.checkouts[top].expected = head
+        if (ev.phase === 'after' && ev.tool === 'Bash' && ev.ok !== false) {
+          for (const { st, at, switch: sw } of plan) {
+            if (at === undefined || !sw) continue
+            const head = await this.branch(at[0])
+            if (head !== (ev.seen?.[at[0]] ?? head) || head === named(st)) r.checkouts[at[0]]!.expected = head
           }
         }
       }
@@ -836,11 +857,12 @@ class Guard {
     }
   }
 
-  private stop(action: string, target: string, text: string) {
+  // The safe way comes first; the ack is the way on, and its use is the agent's own call only where a peer owns what is at stake.
+  private stop(action: string, target: string, text: string, safe = '', peer = true) {
     const k = crc32(`${action}|${target}`)
     if (this.now - (this.r.acks[k] ?? 0) >= ACK_TTL) {
-      throw new Halt(`cc-tuner: ${text} To go on, run the same command prefixed CC_TUNER_ACK=${k}. ` +
-        'Re-running it is your choice, not a question for the user.')
+      throw new Halt(`cc-tuner: ${text}${safe && ` ${safe}`} To go on, run the same command prefixed CC_TUNER_ACK=${k}.` +
+        (peer ? ' Re-running it is your choice, not a question for the user.' : ''))
     }
   }
 
@@ -874,11 +896,14 @@ class Guard {
     const after = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
     if (sub.startsWith('-')) {
       this.note(`could not read \`${label}\`; if a peer works in ${top}, check first.`)
-    } else if (sub === 'checkout' && (a.includes('--') || a.includes('.'))) {
-      await this.lose(at, d, label, 'checkout', 'overwrite', 'tracked', after ?? ['.'])
     } else if (sub === 'switch' || sub === 'checkout') {
-      await this.switch(at)
-      this.moved.add(top)
+      if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
+        await this.lose(at, d, label, 'checkout', 'overwrite', 'tracked', after ?? operands(a))
+      } else {
+        if (has(a, '--force', 'f') || a.includes('--discard-changes')) await this.lose(at, d, label, sub, 'discard', 'tracked')
+        await this.switch(at)
+        this.moved.add(top)
+      }
     } else if (sub === 'reset' && a.includes('--hard')) {
       await this.lose(at, d, label, 'reset', 'discard', 'tracked')
     } else if (sub === 'stash') {
@@ -944,9 +969,9 @@ class Guard {
   private async drift(at: Where, label: string, action: string) {
     const top = at[0]
     const [head, want] = [await this.p.branch(top), this.r.checkouts[top]!.expected]
-    if (!this.moved.has(top) && head !== want) {
+    if (!this.moved.has(top) && head !== want && !await this.p.rebasing(top)) {
       this.stop(`${action} on ${top}`, top, `\`${label}\` would run on ${head || 'a detached HEAD'} in ${top}, not on ${want || 'a detached HEAD'}, ` +
-        'where this session started; someone else switched it.')
+        'where this session started; someone else switched it.', want === '' ? '' : `Switch back with \`git switch ${want}\`.`)
     }
   }
 
@@ -968,14 +993,21 @@ class Guard {
     const names = [...this.recs].filter(([n, r]) => n !== this.name && r.checkouts[top] !== undefined
       && files.some(f => owns(r.checkouts[top]!.paths, f)))
     const live = await this.p.starts(names.map(([, r]) => r.pid))
-    return names.map(([, r]) => (live.get(r.pid) === r.start ? who(r, r.checkouts[top]!) : `pid ${r.pid}, exited`)).join(', ') || 'unknown owner'
+    return names.map(([, r]) => (live.get(r.pid) === r.start ? who(r, r.checkouts[top]!) : `pid ${r.pid}, exited`)).join(', ') || NO_OWNER
   }
 
   private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[]) {
     const top = at[0]
     const files = await this.foreign(top, kinds, specs, d)
     if (files === undefined) this.unread(action, top, label)
-    else if (files.length > 0) this.stop(action, top, `\`${label}\` would ${verb} ${listing(files)} in ${top} (${await this.owner(top, files)}).`)
+    else if (files.length > 0) await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
+  }
+
+  private async foreignStop(action: string, target: string, files: string[], text: string) {
+    const owner = await this.owner(target, files)
+    const unknown = owner === NO_OWNER
+    this.stop(action, `${target}|${[...files].sort().join('|')}`, `${text} (${owner}).`,
+      `Act on your own paths instead${unknown ? "; those files may be the user's own edits" : ''}.`, !unknown)
   }
 
   private async stashDrop(at: Where, label: string) {
@@ -1010,7 +1042,7 @@ class Guard {
       if (there !== undefined && there[0] === path) {
         const files = await this.foreign(path, 'all', undefined, path)
         if (files === undefined) this.unread('remove', path, label)
-        else if (files.length > 0) this.stop('remove', path, `\`${label}\` would delete ${listing(files)} in ${path} (${await this.owner(path, files)}).`)
+        else if (files.length > 0) await this.foreignStop('remove', path, files, `\`${label}\` would delete ${listing(files)} in ${path}`)
       }
     }
   }
