@@ -755,7 +755,8 @@ export class Peers {
     })
   }
 
-  // The holder's call renews the lease at most once a minute; a renewal that finds the lock changed went to a takeover.
+  // The holder's call renews the lease at most once a minute; a renewal that finds the lock changed or busy asks again, and then
+  // the lock's holder decides.
   private async hold(key: string, me: [number, string], sid: string | null, renew = true): Promise<Verdict> {
     const [pid, start] = me
     const lock = await this.lock(key)
@@ -764,8 +765,10 @@ export class Peers {
     const mine = JSON.stringify({ v: 1, key, pid, start, session: sid, last: now })
     if (cur?.pid === pid && cur.start === start) {
       if (!renew || now - cur.last < LEASE_RENEW) return { decision: 'allow' }
-      const r = await this.w.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])
-      return r.exitCode === 1 ? this.hold(key, me, sid, false) : { decision: 'allow' }
+      let rc = 2
+      for (let i = 0; i < 3 && rc === 2; i++) rc = (await this.w.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])).exitCode
+      // A renewal that did not land (the lock changed, or stayed busy) is decided by who holds the lock now.
+      return rc === 0 ? { decision: 'allow' } : this.hold(key, me, sid, false)
     }
     if (st !== undefined) {
       // A lock nobody wrote into yet is as old as its directory.

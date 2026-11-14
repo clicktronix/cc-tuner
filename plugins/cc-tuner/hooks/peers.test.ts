@@ -29,6 +29,8 @@ class Machine {
   failing = new Map<string, number>()
   trees = new Map<string, string[]>()
   afterRead = new Map<string, () => Promise<void>>()
+  // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
+  busy: (() => void) | undefined
   private tick = 1
   private nextPid = 1000
 
@@ -134,7 +136,7 @@ class Machine {
     // Each script of the lease runs under the `.take` directory: while another caller holds it, the exit is 2.
     if (cmd === '/bin/sh' && a[1]?.includes('printf %s') && !a[1].includes('if mkdir')) {
       const [lock, seen, info] = a.slice(3) as [string, string, string]
-      if (this.dirs.has(`${lock}.take`)) return { exitCode: 2, stdout: '' }
+      if (this.dirs.has(`${lock}.take`)) { this.busy?.(); return { exitCode: 2, stdout: '' } }
       if (this.cat(`${lock}/holder.json`) !== seen) return { exitCode: 1, stdout: '' }
       this.put(`${lock}/holder.json`, info)
       return { stdout: '' }
@@ -1502,6 +1504,35 @@ test('resource: a renewal or a release that lost the race to a takeover changes 
   expect(m.dirs.has(lock)).toBe(true)
   m.dirs.delete(take)
   expect(await sr.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+})
+
+test('resource: a renewal that finds the lock busy asks again and then reads the holder: a takeover that finished in between stops it', async () => {
+  const { m, ra, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  await sr.peers.lease(CLICK, ra, 'sr')
+  m.advance(601)
+  m.dirs.add(take)
+  m.busy = () => {
+    m.busy = undefined
+    m.dirs.delete(take)
+    m.put(`${lock}/holder.json`, JSON.stringify({ v: 1, key: 'chrome', pid: sc.pid, start: m.procs.get(sc.pid)!.start, session: 'sc', last: Math.floor(m.clock / 1000) }))
+  }
+  const late = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(late.decision, 'resource-busy-renewal-during-a-takeover-stops').toBe('stop')
+  expect(late.reason).toContain(`leased to pid ${sc.pid}`)
+})
+
+test('resource: a renewal that stays busy and finds the lock still its own allows', async () => {
+  const { m, ra, sr } = products()
+  declareMachine(m, CHROME)
+  const take = `${DIR}/lease.chrome.take`
+  await sr.peers.lease(CLICK, ra, 'sr')
+  m.advance(601)
+  m.dirs.add(take)
+  m.ran.length = 0
+  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-busy-renewal-still-held-allows').toBe('allow')
+  expect(m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s')).length, 'resource-busy-renewal-asks-three-times').toBe(3)
 })
 
 test('resource: a repository resource is leased too, and a lock with no holder file yet is not up for grabs', async () => {
