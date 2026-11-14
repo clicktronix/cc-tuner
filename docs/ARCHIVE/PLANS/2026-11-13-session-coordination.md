@@ -34,6 +34,9 @@ never asked.
 - **Scope of an action.** The repository and the checkout are taken from the action's target path
   (an Edit's `file_path`, `git -C`, `cd x &&`), not from the session's cwd. Peers are live sessions
   in the same repository, or in repositories with the same `product` key.
+- **Idle peer.** A live session with no call for 8 h (owner decision 2026-11-14) blocks nothing that
+  depends only on its liveness (stash drop, its branch, `TaskStop`, a shared stop); its foreign files
+  stay protected.
 - **Writer.** A live session that made any call in the checkout in the last 2 h, except a known
   read-only form (`git status/log/diff/show`, `ls`, `cat`, `grep`, `rg`, `find` without a
   redirection, `-delete`/`-exec`, `--output` or `--pre`); an uncertain form counts as a writer call. Running tests
@@ -51,6 +54,7 @@ never asked.
     - A git, gh or kill command it cannot parse gets a note.
   - **Note**, and the action runs:
     - an edit in a checkout with another writer;
+    - an edit of a dirty file this session did not edit (whoever changed it), once per path per hour;
     - an edit of a path claimed by a peer;
     - a branch switch where a peer's cwd is.
   - **Stop:**
@@ -81,7 +85,10 @@ never asked.
     for MCP, tool patterns.
   - Slice 2 reads `product`; the resources slice reads the rest.
   - The user file `~/.config/cc-tuner/resources.json` holds machine resources (Chrome :9222), which
-    are checked across products.
+    are checked across products, and may map repositories to products (`"products": {"<name>":
+    ["<path>", …]}`), which works for every branch and worktree without a commit.
+  - `"guard": false` in either file turns the guard off for that repository or the machine (owner
+    decision 2026-11-14).
   - Every live product session consumes a shared resource.
   - An exclusive resource is leased by its first user until the holder runs `peers_release <key>`
     (checked under the same lock; anyone else's release is refused), 10 min of the holder's

@@ -195,6 +195,10 @@ Resources are declared, never detected. `.claude/cc-tuner-resources.json` holds 
 A `shared` resource stays up while another session of the product is live; an `exclusive` one is leased to
 its first user. Setup writes them only when asked.
 
+The user file may also map repositories to products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`,
+which covers every branch and worktree. `"guard": false` in either file turns the guard off there. A
+session idle for 8 h blocks nothing that depends only on its being alive; its uncommitted files stay protected.
+
 Known limits: a peer's liveness is cached for a minute. A kept task survives `/clear` and `/run`'s final
 cleanup, not the exit of the Claude process, which stops its background tasks itself.
 
