@@ -1045,6 +1045,10 @@ test('guard: a destructive command that recurses into submodules stops, since th
   for (const c of ['git reset --hard', 'git reset --soft --recurse-submodules', 'git restore g.txt', 'git reset --hard --no-recurse-submodules', 'git checkout -- g.txt']) {
     expect((await decide(r, c)).decision, `plain-${c}`).toBe('allow')
   }
+  for (const c of ['git reset --hard --recurse-submodules=on', 'git reset --hard --recurse-submodules=yes', 'git reset --hard --recurse-submodules=true',
+    'git reset --hard --no-recurse-submodules --recurse-submodules=1']) expect((await decide(r, c)).decision, `attached-on-${c}`).toBe('stop')
+  for (const c of ['git reset --hard --recurse-submodules=no', 'git reset --hard --recurse-submodules=off', 'git reset --hard --recurse-submodules=false',
+    'git reset --hard --recurse-submodules=on --no-recurse-submodules']) expect((await decide(r, c)).decision, `attached-off-${c}`).toBe('allow')
   m.configs.set(`${r}|submodule.recurse`, 'true')
   for (const c of ['git reset --hard', 'git restore g.txt', 'git checkout -f x']) expect((await decide(r, c)).decision, `config-${c}`).toBe('stop')
   for (const c of ['git reset --hard --no-recurse-submodules', 'git restore --no-recurse-submodules g.txt']) expect((await decide(r, c)).decision, `config-off-${c}`).toBe('allow')

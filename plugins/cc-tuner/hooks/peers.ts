@@ -1275,8 +1275,10 @@ class Guard {
   // Status ignores submodules, so what a destructive command discards inside them is not inspected: a recursion stops.
   private async recursing(at: Where, label: string, action: string, a: readonly string[]) {
     this.configured(at[0], label)
-    const last = flags(a).filter(x => x === '--recurse-submodules' || x === '--no-recurse-submodules').pop()
-    if (last === '--no-recurse-submodules' || (last === undefined && !(await this.p.recurses(at[0])))) return
+    // The last recursion flag wins; an attached value turns it off only when it is a false word.
+    const last = flags(a).filter(x => /^--(no-)?recurse-submodules(=|$)/.test(x)).pop()
+    const off = last !== undefined && (last.startsWith('--no-') || /=(no|off|false|0)$/i.test(last))
+    if (off || (last === undefined && !(await this.p.recurses(at[0])))) return
     this.stop(action, `${at[0]}|submodules`, `\`${label}\` would also reach the submodules of ${at[0]}, and submodules are not inspected.`,
       'Run it with --no-recurse-submodules, or check the submodules yourself.', false)
   }
