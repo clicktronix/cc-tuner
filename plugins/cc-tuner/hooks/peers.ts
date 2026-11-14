@@ -32,7 +32,7 @@ import type { EngineInterface } from 'claude-code'
 
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
-export interface Step { words: string[]; dir: string; op: string; writes: boolean }
+export interface Step { words: string[]; dir: string; writes: boolean }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
