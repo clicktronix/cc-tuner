@@ -277,6 +277,20 @@ test('the guard reads each command as steps that keep their directory and operat
   for (const [command, expected] of COMMANDS) expect(steps(command).map(show), command).toEqual(expected as unknown as string[])
 })
 
+test('a step keeps the git configuration given to its command as data: -c and --config-env pairs, GIT_CONFIG* assignments', () => {
+  const config = (command: string) => steps(command).at(-1)?.config
+  expect(config('git -c submodule.recurse=true reset --hard')).toEqual(['submodule.recurse=true'])
+  expect(config('git -c a=b --no-pager -c c=d -C x reset --hard')).toEqual(['a=b', 'c=d'])
+  expect(config('git --config-env=a=VAR reset --hard')).toEqual(['a=VAR'])
+  expect(config('git --config-env a=VAR reset --hard')).toEqual(['a=VAR'])
+  expect(config('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k GIT_CONFIG_VALUE_0=v git reset --hard')).toEqual(['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=k', 'GIT_CONFIG_VALUE_0=v'])
+  expect(config("env GIT_CONFIG_PARAMETERS='x' git reset --hard")).toEqual(['GIT_CONFIG_PARAMETERS=x'])
+  expect(config('GIT_CONFIG_COUNT=1 timeout 5 git reset --hard')).toEqual(['GIT_CONFIG_COUNT=1'])
+  expect(config("GIT_CONFIG_COUNT=1 bash -c 'git -c a=b reset --hard'")).toEqual(['GIT_CONFIG_COUNT=1', 'a=b'])
+  expect(config('GIT_CONFIG_GLOBAL=/x git reset --hard')).toEqual(['GIT_CONFIG_GLOBAL=/x'])
+  for (const command of ['git reset --hard', 'FOO=1 git reset --hard', 'env FOO=1 git reset --hard', 'git -C x reset --hard']) expect(config(command), command).toBeUndefined()
+})
+
 test('a step names the substitution it runs in, so a chain does not cross a $( ) or a backquote', () => {
   const scopes = (command: string) => steps(command).map(s => s.scope)
   const [a, b, c] = scopes('git switch x && echo "$(git status)" && git commit -m m')

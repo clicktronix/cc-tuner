@@ -418,11 +418,23 @@ test('a note rides after the result of a Bash call and of an edit, and the call 
   const ran = engine(on, m, m.spawn())
   const edit = await $.tool.call({ tool: 'Edit', file_path: '/w/r/a.ts', old_string: 'a', new_string: 'b' })
   expect(edit.context?.join(' ')).toContain('also writes in /w/r')
-  const bash = await $.tool.call({ tool: 'Bash', command: 'git -c x=y reset --hard' })
+  const bash = await $.tool.call({ tool: 'Bash', command: 'git -c x=y log' })
   expect(bash.deny).toBeUndefined()
   expect((await $.tool.call({ tool: 'Bash', command: 'git --git-dir=x status' })).context?.join(' ')).toContain('could not read')
   expect((await $.tool.call({ tool: 'Bash', command: 'git status' })).context).toBeUndefined()
-  expect(ran).toEqual(['git -c x=y reset --hard', 'git --git-dir=x status', 'git status'])
+  expect(ran).toEqual(['git -c x=y log', 'git --git-dir=x status', 'git status'])
+})
+
+test('a destructive command given git configuration is refused through the adapter, whichever way the configuration is written', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  for (const command of ['git -c submodule.recurse=true reset --hard', 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=submodule.recurse GIT_CONFIG_VALUE_0=true git reset --hard',
+    "env GIT_CONFIG_PARAMETERS='submodule.recurse=true' git reset --hard", "GIT_CONFIG_COUNT=1 bash -c 'git reset --hard'", 'git --config-env=submodule.recurse=V reset --hard']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('per-command git configuration is not inspected')
+  }
+  expect((await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny).toBeUndefined()
+  expect(ran).toEqual(['git reset --hard'])
 })
 
 test('an ack is recorded from the prefix and stripped before the command runs; only an assignment is one', async ($, on) => {
@@ -1037,6 +1049,32 @@ test('guard: a destructive command that recurses into submodules stops, since th
   for (const c of ['git reset --hard', 'git restore g.txt', 'git checkout -f x']) expect((await decide(r, c)).decision, `config-${c}`).toBe('stop')
   for (const c of ['git reset --hard --no-recurse-submodules', 'git restore --no-recurse-submodules g.txt']) expect((await decide(r, c)).decision, `config-off-${c}`).toBe('allow')
   expect((await decide(r, 'git status')).decision, 'config-a-read-passes').toBe('allow')
+})
+
+test('guard: a destructive command given git configuration of its own stops, since what it reaches is not inspected', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const given = (text: string, ...config: string[]) => ({ ...step(text), config })
+  const destructive = ['git reset --hard', 'git reset --hard HEAD~1', 'git restore g.txt', 'git checkout -f x', 'git switch -f x', 'git checkout -- g.txt', 'git clean -fd', 'git stash',
+    'gh pr checkout 5 --force']
+  for (const config of [['submodule.recurse=true'], ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=submodule.recurse', 'GIT_CONFIG_VALUE_0=true'], ['GIT_CONFIG_PARAMETERS=x'], ['core.quotepath=off']]) {
+    for (const c of destructive) {
+      const v = await decide(r, given(c, ...config))
+      expect(v.decision, `config-${c}-${config[0]}`).toBe('stop')
+      expect(v.reason, `config-says-so-${c}`).toContain('per-command git configuration is not inspected')
+      expect(v.reason, `config-names-the-setting-${c}`).toContain(config[0]!.split('=')[0]!)
+      expect(v.reason, `config-offers-the-ack-${c}`).toContain('CC_TUNER_ACK=')
+    }
+  }
+  const v = await decide(r, given('git reset --hard', 'GIT_CONFIG_VALUE_0=secret-value'))
+  expect(v.reason, 'config-prints-no-value').not.toContain('secret-value')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
+  expect((await me.check({ tool: 'Bash', cwd: r, steps: [given('git reset --hard', 'GIT_CONFIG_VALUE_0=secret-value')], acks: [key] })).decision, 'config-the-ack-is-the-way-on').toBe('allow')
+  for (const c of ['git status', 'git log', 'git commit -m m', 'git add g.txt', 'git reset --soft HEAD~1', 'git switch x', 'git push origin x']) {
+    expect((await decide(r, given(c, 'submodule.recurse=true'))).decision, `config-not-destructive-${c}`).toBe('allow')
+  }
+  for (const c of destructive) expect((await decide(r, c)).decision, `config-none-${c}`).toBe('allow')
 })
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'

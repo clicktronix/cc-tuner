@@ -39,7 +39,7 @@ import type { EngineInterface } from 'claude-code'
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
 // op joins a step to the one before it: `&&`, `||`, `;` or `|`, empty for the first.
-export interface Step { words: string[]; dir: string; op: string; writes: boolean; scope?: number }
+export interface Step { words: string[]; dir: string; op: string; writes: boolean; scope?: number; config?: string[] }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
@@ -1050,7 +1050,7 @@ class Guard {
           this.chains.set(st.scope ?? 0, this.moved)
           if (st.op !== '&&') this.moved.clear()
           const w = st.words ?? []
-          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind)
+          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind, st.config)
           prev = w
         }
       } else if (target !== undefined && this.here !== undefined && !await this.p.off(this.here[0])) {
@@ -1082,9 +1082,21 @@ class Guard {
     }
   }
 
+  // The git configuration the step in hand was given for itself (`-c`, `--config-env`, GIT_CONFIG*).
+  private config: readonly string[] = []
+
+  // That configuration is no setting the guard read and can change what a command reaches (`submodule.recurse`), so a
+  // command that discards anything and carries it has an unread scope.
+  private configured(top: string, label: string) {
+    if (this.config.length === 0) return
+    this.stop('git config', `${top}|config`, `\`${label}\` is given git configuration for this command alone (${listing([...new Set(this.config.map(x => x.split('=')[0]!))])}); ` +
+      'per-command git configuration is not inspected, so what the command reaches is unread.', 'Run it without -c, --config-env and GIT_CONFIG_*, or check the tree yourself.', false)
+  }
+
   // git and gh act on the checkout of their directory; rm and kill reach past it, so outside a repository
   // they are read from the cwd's.
-  private async step(w: string[], at: Where | undefined, d: string, prev: string[], blind: boolean) {
+  private async step(w: string[], at: Where | undefined, d: string, prev: string[], blind: boolean, config: readonly string[] = []) {
+    this.config = config
     const name = basename(w[0]!)
     const scope = at ?? this.here
     await this.shared(w, at)
@@ -1254,6 +1266,7 @@ class Guard {
 
   private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[], into?: string) {
     const top = at[0]
+    if (verb !== 'commit' && verb !== 'stage') this.configured(top, label)
     const files = await this.foreign(at, kinds, specs, d, into)
     if (files === undefined) this.unread(action, top, label)
     else if (files.length > 0) await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
@@ -1261,6 +1274,7 @@ class Guard {
 
   // Status ignores submodules, so what a destructive command discards inside them is not inspected: a recursion stops.
   private async recursing(at: Where, label: string, action: string, a: readonly string[]) {
+    this.configured(at[0], label)
     const last = flags(a).filter(x => x === '--recurse-submodules' || x === '--no-recurse-submodules').pop()
     if (last === '--no-recurse-submodules' || (last === undefined && !(await this.p.recurses(at[0])))) return
     this.stop(action, `${at[0]}|submodules`, `\`${label}\` would also reach the submodules of ${at[0]}, and submodules are not inspected.`,

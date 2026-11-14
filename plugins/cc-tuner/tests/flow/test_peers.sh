@@ -403,6 +403,26 @@ check  "inert-text-driver-the-report-still-sees-the-conflict" "conflicts with HE
 equals "inert-merge-tree-runs-no-text-driver" "no" "$([ -e "$MT/text" ] && echo yes || echo no)"
 equals "inert-merge-tree-leaves-the-object-store-unchanged" "$OBJ" "$(cd "$RT/.git/objects" && find . -type f | sort | shasum)"
 
+# Git configuration given to one command (`-c`, GIT_CONFIG_COUNT/KEY_n/VALUE_n, GIT_CONFIG_PARAMETERS) is no repository
+# setting the guard reads: `-c submodule.recurse=true reset --hard` also resets submodules, whose edits status never shows.
+# Such a destructive command stops; a plain `git reset --hard` still runs. The submodule holds a modified tracked file.
+RG="$(repo)"; commit_file "$RG" a one
+git init -q -b main "$W/subg"; commit_file "$W/subg" x one
+git -C "$RG" -c protocol.file.allow=always submodule add -q "$W/subg" sg 2>/dev/null; ( cd "$RG" && git commit -q -m sg )
+for c in "git -c submodule.recurse=true reset --hard" "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=submodule.recurse GIT_CONFIG_VALUE_0=true git reset --hard" \
+  "env GIT_CONFIG_PARAMETERS=\"'submodule.recurse'='true'\" git reset --hard" "RECURSE=true git --config-env=submodule.recurse=RECURSE reset --hard"; do
+  printf 'edit\n' > "$RG/sg/x"
+  script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+  e2e "$RG" go
+  check  "git-config-stops-on-real-git: $c" "per-command git configuration is not inspected" "$(cat "$W/api.log")"
+  equals "git-config-keeps-the-submodule-edit: $c" "edit" "$(cat "$RG/sg/x")"
+done
+printf 'edit\n' > "$RG/sg/x"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "git reset --hard && echo plain-$((40 + 2))"}}]}')"
+e2e "$RG" go
+check  "git-config-a-plain-reset-hard-still-runs" "plain-42" "$(cat "$W/api.log")"
+equals "git-config-a-plain-reset-hard-leaves-the-submodule-alone" "edit" "$(cat "$RG/sg/x")"
+
 # `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
 # and only creates a marker file; a plain `git status` is the control that it runs.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"

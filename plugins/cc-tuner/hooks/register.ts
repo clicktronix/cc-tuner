@@ -282,10 +282,19 @@ const LAUNCHERS = new Map<string, { valued: string[]; lead: number }>([
   ['timeout', { valued: ['-s', '-k'], lead: 1 }], ['nice', { valued: ['-n'], lead: 0 }], ['nohup', { valued: [], lead: 0 }],
 ])
 const GIT_QUIET = new Set(['--no-pager', '--no-optional-locks', '-P'])
+// Configuration a command is given for itself: its `-c` pairs, `--config-env` pairs and GIT_CONFIG* assignments. They
+// stay on the step as data, because they can change what git reaches (`submodule.recurse`) and the guard reads none.
+const GIT_CONFIG_ENV = /^GIT_CONFIG\w*=/
 const base = (word: string | undefined) => (word ?? '').slice((word ?? '').lastIndexOf('/') + 1)
 
 function unwrap(simple: Simple): Step[] {
-  let words = simple.words.slice(lead(simple.words))
+  const config: string[] = []
+  const peel = (ws: string[]) => {
+    const n = lead(ws)
+    config.push(...ws.slice(0, n).filter(w => GIT_CONFIG_ENV.test(w)))
+    return n
+  }
+  let words = simple.words.slice(peel(simple.words))
   let dir = simple.dir
   for (;;) {
     const name = base(words[0])
@@ -295,6 +304,7 @@ function unwrap(simple: Simple): Step[] {
       let k = 0
       for (; k < args.length && (args[k]!.startsWith('-') || ASSIGNMENT.test(args[k]!)); k++) {
         if (args[k] === '-S' || args[k]!.startsWith('--split-string')) break
+        if (GIT_CONFIG_ENV.test(args[k]!)) config.push(args[k]!)
         if (args[k] === '-C') dir = at(dir, args[++k] ?? '')
         else if (args[k] === '-u' || args[k] === '-P') k++
       }
@@ -317,21 +327,22 @@ function unwrap(simple: Simple): Step[] {
       const c = args.findIndex(a => /^-[a-z]*c[a-z]*$/.test(a))
       if (c === -1 || args[c + 1] === undefined) break
       const inner = commands(args[c + 1]!, dir, simple.op, simple.scope).flatMap(unwrap)
-      return inner.map(step => ({ ...step, writes: step.writes || simple.writes }))
+      return inner.map(step => ({ ...step, writes: step.writes || simple.writes, ...(config.length > 0 ? { config: [...config, ...step.config ?? []] } : {}) }))
     } else if (name === 'git') {
       const rest: string[] = []
       let k = 0
       for (; k < args.length && args[k]!.startsWith('-'); k++) {
         if (args[k] === '-C') dir = at(dir, args[++k] ?? '')
-        else if (args[k] === '-c') k++
+        else if (args[k] === '-c' || args[k] === '--config-env') config.push(args[++k] ?? '')
+        else if (args[k]!.startsWith('--config-env=')) config.push(args[k]!.slice('--config-env='.length))
         else if (!GIT_QUIET.has(args[k]!)) rest.push(args[k]!)
       }
       words = ['git', ...rest, ...args.slice(k)]
       break
     } else break
-    words = words.slice(lead(words))
+    words = words.slice(peel(words))
   }
-  return words.length === 0 ? [] : [{ words, dir, op: simple.op, writes: simple.writes, scope: simple.scope }]
+  return words.length === 0 ? [] : [{ words, dir, op: simple.op, writes: simple.writes, scope: simple.scope, ...(config.length > 0 ? { config } : {}) }]
 }
 
 export function steps(command: string): Step[] {
