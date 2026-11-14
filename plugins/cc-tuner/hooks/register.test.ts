@@ -277,6 +277,20 @@ test('the guard reads each command as steps that keep their directory and operat
   for (const [command, expected] of COMMANDS) expect(steps(command).map(show), command).toEqual(expected as unknown as string[])
 })
 
+test('a step names the substitution it runs in, so a chain does not cross a $( ) or a backquote', () => {
+  const scopes = (command: string) => steps(command).map(s => s.scope)
+  const [a, b, c] = scopes('git switch x && echo "$(git status)" && git commit -m m')
+  expect([a === c, b !== a], 'scope-a-substitution-is-a-scope-of-its-own').toEqual([true, true])
+  const [d, e, f] = scopes('git switch x && echo `git status` && git commit -m m')
+  expect([d === f, e !== d], 'scope-a-backquote-is-a-scope-of-its-own').toEqual([true, true])
+  const [g, h] = scopes('echo "$(git switch x && git commit -m m)"')
+  expect(g, 'scope-steps-of-one-substitution-share-it').toBe(h)
+  const [i, j] = scopes('echo "$(git status)" "$(git log)"')
+  expect(i, 'scope-two-substitutions-are-two-scopes').not.toBe(j)
+  const [k, l] = scopes("git switch x && bash -c 'git commit -m m'")
+  expect(k, 'scope-bash-c-keeps-the-chain').toBe(l)
+})
+
 test('a cd the guard cannot resolve leaves the later steps in a directory it does not know', () => {
   for (const command of ['cd "$X" && git reset --hard', 'cd ~/x && git reset --hard', 'cd - && git reset --hard', 'cd && git reset --hard',
     'cd x && cd "$Y/z" && git reset --hard', 'cd "$(pwd)" && git reset --hard', 'cd "$X"; cd y; git reset --hard']) {

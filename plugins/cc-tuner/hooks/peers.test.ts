@@ -317,6 +317,21 @@ test('the module reads the operators: a commit after ; does not follow a switch 
   expect(ran).toEqual(['git status'])
 })
 
+test('the module keeps substitution boundaries: a switch inside $( ) does not excuse a commit outside it', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  m.head('/w/r', 'b')
+  const bad = 'true && echo "$(git switch nonexistent 2>/dev/null)" && git commit --allow-empty -m wrong'
+  expect((await $.tool.call({ tool: 'Bash', command: bad })).deny, 'guard-switch-in-a-substitution-does-not-excuse-an-outer-commit').toContain('would run on b')
+  expect((await $.tool.call({ tool: 'Bash', command: 'echo `git switch c` && git commit --allow-empty -m wrong' })).deny, 'the same for a backquote').toContain('would run on b')
+  for (const command of ['git switch c && echo "$(date)" && git commit --allow-empty -m ok', 'echo "$(git switch c && git commit --allow-empty -m ok)"']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toBeUndefined()
+  }
+  expect(ran.length).toBe(3)
+})
+
 test('any tool call refreshes the session record, at most once a minute', async ($, on) => {
   const { m } = machine()
   m.repo('/w/r')

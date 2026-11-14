@@ -39,7 +39,7 @@ import type { EngineInterface } from 'claude-code'
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
 // op joins a step to the one before it: `&&`, `||`, `;` or `|`, empty for the first.
-export interface Step { words: string[]; dir: string; op: string; writes: boolean }
+export interface Step { words: string[]; dir: string; op: string; writes: boolean; scope?: number }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
@@ -945,8 +945,10 @@ export function ownedOpen(text: string): string[] {
 // One call's decisions: a stop throws Halt, a note is kept and the call goes on.
 class Guard {
   private notes: string[] = []
-  // The checkouts a switch step of this call moves, for the steps that run only if it succeeded: an unbroken chain of `&&`.
+  // The checkouts a switch step of this call moves, for the steps that run only if it succeeded: an unbroken chain of `&&`
+  // in the same scope (a substitution's steps are a scope of their own).
   private moved = new Set<string>()
+  private chains = new Map<number, Set<string>>()
   private staged = new Map<string, string[]>()
 
   constructor(private readonly p: Peers, private readonly recs: Map<string, Rec>, private readonly bad: string[], private readonly name: string,
@@ -958,6 +960,8 @@ class Guard {
       if (ev.tool === 'Bash') {
         let prev: string[] = []
         for (const { st, at, d, blind } of plan) {
+          this.moved = this.chains.get(st.scope ?? 0) ?? new Set()
+          this.chains.set(st.scope ?? 0, this.moved)
           if (st.op !== '&&') this.moved.clear()
           const w = st.words ?? []
           if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind)

@@ -60,13 +60,16 @@ const TEMPLATE = /\.(example|sample|template|dist)$/
 // Each command also keeps the directory it runs in (`dir`, relative to where the text starts or
 // absolute) and the operator that joins it to the command before it (`op`: `&&`, `||`, `;` or `|`,
 // empty for the first), and whether a redirection writes a file (`writes`). A `cd` moves the commands
-// after it; a $( … ), backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage.
-interface Simple { words: string[]; inputs: string[]; dir: string; op: string; writes: boolean }
+// after it; a $( … ), backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage. The commands
+// of one $( … ) or backquote share a `scope` of their own: what they do gates nothing outside, since the substitution's
+// failure does not fail the command around it.
+interface Simple { words: string[]; inputs: string[]; dir: string; op: string; writes: boolean; scope: number }
+let scopes = 0
 const METACHARS = ' \t\n;&|()<>'
 const OPERATORS = ['&&', '||', '|&', '|', ';', '&']
 const at = (dir: string, to: string) => to.startsWith('/') || dir === '' ? to : dir === UNKNOWN ? UNKNOWN : `${dir}/${to}`
 
-function commands(text: string, base = '', first = ''): Simple[] {
+function commands(text: string, base = '', first = '', top = 0): Simple[] {
   const found: Simple[] = []
   const heredocs: { end: string; tabs: boolean; quoted: boolean }[] = []
   let i = 0
@@ -74,10 +77,11 @@ function commands(text: string, base = '', first = ''): Simple[] {
   let literal = false
   let dir = base
   let op = first
+  let scope = top
 
   // A command list from i; nested, it stops after the `)` that closes its $(.
   function list(nested: boolean) {
-    let current: Simple = { words: [], inputs: [], dir, op, writes: false }
+    let current: Simple = { words: [], inputs: [], dir, op, writes: false, scope }
     const parens: string[] = []
     // Ends the command at an operator (`joined` is its text).
     const end = (joined?: string) => {
@@ -89,7 +93,7 @@ function commands(text: string, base = '', first = ''): Simple[] {
         const to = args.find(a => a !== '--' && !/^-[LPe@]+$/.test(a))
         if (name === 'cd' && joined !== '|' && joined !== '&') dir = !to || to === '-' || to.startsWith('~') || to.includes('$') ? UNKNOWN : at(dir, to)
       }
-      current = { words: [], inputs: [], dir, op, writes: false }
+      current = { words: [], inputs: [], dir, op, writes: false, scope }
       if (joined !== undefined) op = joined === '&' ? ';' : joined === '|&' ? '|' : joined
     }
     while (i < text.length) {
@@ -160,10 +164,11 @@ function commands(text: string, base = '', first = ''): Simple[] {
   function substitution(): boolean {
     const kept = found.length
     if (text.startsWith('$(', i)) {
-      const [outerDir, outerOp] = [dir, op]
+      const [outerDir, outerOp, outerScope] = [dir, op, scope]
       i += 2
+      scope = ++scopes
       list(true)
-      ;[dir, op] = [outerDir, outerOp]
+      ;[dir, op, scope] = [outerDir, outerOp, outerScope]
       if (literal) found.length = kept
       return true
     }
@@ -174,7 +179,7 @@ function commands(text: string, base = '', first = ''): Simple[] {
       body += text[i]
     }
     i++
-    if (!literal) found.push(...commands(body, dir, op))
+    if (!literal) found.push(...commands(body, dir, op, ++scopes))
     return true
   }
 
@@ -311,7 +316,7 @@ function unwrap(simple: Simple): Step[] {
     } else if (SHELLS.has(name)) {
       const c = args.findIndex(a => /^-[a-z]*c[a-z]*$/.test(a))
       if (c === -1 || args[c + 1] === undefined) break
-      const inner = commands(args[c + 1]!, dir, simple.op).flatMap(unwrap)
+      const inner = commands(args[c + 1]!, dir, simple.op, simple.scope).flatMap(unwrap)
       return inner.map(step => ({ ...step, writes: step.writes || simple.writes }))
     } else if (name === 'git') {
       const rest: string[] = []
@@ -326,7 +331,7 @@ function unwrap(simple: Simple): Step[] {
     } else break
     words = words.slice(lead(words))
   }
-  return words.length === 0 ? [] : [{ words, dir, op: simple.op, writes: simple.writes }]
+  return words.length === 0 ? [] : [{ words, dir, op: simple.op, writes: simple.writes, scope: simple.scope }]
 }
 
 export function steps(command: string): Step[] {
