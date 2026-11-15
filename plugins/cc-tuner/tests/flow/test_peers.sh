@@ -481,6 +481,16 @@ for c in "git reset --hard src" "git checkout -f src" "git switch -f src"; do
   equals "untracked-collision-keeps-the-file: $c"    "precious" "$(cat "$RU/u.txt")"
 done
 
+# A name that begins with a space is the tree's first entry; NUL-separated output must reach the check untrimmed.
+git -C "$RU" switch -q -f main; git -C "$RU" reset -q --hard "$BASE"; git -C "$RU" clean -qfd
+git -C "$RU" switch -q -c sp; printf 'tracked\n' > "$RU/ f"; git -C "$RU" add -- " f"; git -C "$RU" commit -qm sp; git -C "$RU" switch -q main
+printf 'precious\n' > "$RU/ f"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "git reset --hard sp"}}]}')"
+e2e "$RU" go
+check  "untracked-collision-leading-space-stops" "would discard" "$(cat "$W/api.log")"
+equals "untracked-collision-leading-space-keeps-the-file" "precious" "$(cat "$RU/ f")"
+rm -f "$RU/ f"
+
 # A file where the destination has a directory, or a directory where it has a file, is lost too: the paths collide though they differ.
 git -C "$RU" switch -q -f main; git -C "$RU" reset -q --hard "$BASE"; git -C "$RU" clean -qfd
 git -C "$RU" switch -q -c dd; commit_file "$RU" d tracked; git -C "$RU" switch -q main

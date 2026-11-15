@@ -438,8 +438,9 @@ export class Peers {
 
   // The files of a commit's tree, or undefined when git did not answer.
   async tree(top: string, rev: string): Promise<Set<string> | undefined> {
-    const out = await this.git(top, 'ls-tree', '-r', '--name-only', '-z', rev)
-    return out === undefined ? undefined : new Set(out.split('\0').filter(Boolean))
+    // NUL-separated names are read raw: trimming would turn a first name such as " f" into "f".
+    const r = await this.read(top, 'ls-tree', '-r', '--name-only', '-z', rev).catch(() => undefined)
+    return r === undefined || r.exitCode !== 0 ? undefined : new Set(r.stdout.split('\0').filter(Boolean))
   }
 
   // Whether `submodule.recurse` is on: the commands that take --recurse-submodules then recurse without it. The engine's
