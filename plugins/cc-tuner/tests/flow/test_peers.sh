@@ -339,8 +339,9 @@ rm -rf "$LOCK" "$LOCK.take"
 RI="$(repo)"; MK="$W/inert"; mkdir -p "$MK" "$W/home"
 printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' 'h filter=glob' 'i filter=inc' > "$RI/.gitattributes"
 commit_file "$RI" g one; commit_file "$RI" f one; commit_file "$RI" h one; commit_file "$RI" i one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
-git init -q -b main "$W/subsrc"; printf '%s\n' 'x filter=sf' > "$W/subsrc/.gitattributes"; commit_file "$W/subsrc" x one
-( cd "$W/subsrc" && git add .gitattributes && git commit -q -m attrs )
+git init -q -b main "$W/subsrc"; commit_file "$W/subsrc" x one 2> "$W/sm.err" || sed "s/^/FAIL diag subsrc commit: /" "$W/sm.err"
+printf '%s\n' 'x filter=sf' > "$W/subsrc/.gitattributes"; ( cd "$W/subsrc" && git add .gitattributes && git commit -q -m attrs ) 2> "$W/sm.err" || sed "s/^/FAIL diag subsrc attrs: /" "$W/sm.err"
+[ -n "$(git -C "$W/subsrc" rev-parse -q --verify HEAD)" ] || echo "FAIL diag subsrc has no commit: $(git -C "$W/subsrc" log --oneline 2>&1 | head -n 3)"
 git -C "$RI" -c protocol.file.allow=always submodule add -q "$W/subsrc" sm > "$W/sm.err" 2>&1 || sed "s/^/FAIL diag submodule add: /" "$W/sm.err"; ( cd "$RI" && git commit -q -m sm )
 git -C "$RI" switch -q -c side; commit_file "$RI" f side
 git -C "$RI" switch -q main; commit_file "$RI" f mine
@@ -430,7 +431,7 @@ check  "git-config-a-plain-reset-hard-still-runs" "plain-42" "$(cat "$W/api.log"
 equals "git-config-a-plain-reset-hard-leaves-the-submodule-alone" "edit" "$(cat "$RG/sg/x")"
 
 # On a CI-only failure, what the session itself printed is the only evidence of why it stopped.
-diag_rm() { grep -q "would delete foreign.txt" "$W/api.log" || { tail -n 25 "$W/claude.out" | sed "s/^/FAIL diag $1: /"; }; }
+diag_rm() { grep -q "would delete foreign.txt" "$W/api.log" || { tail -n 25 "$W/claude.out" | sed "s/^/FAIL diag $1: /"; grep -o '"tool_result"[^]]\{0,400\}' "$W/api.log" | sed "s/^/FAIL diag $1 result: /"; echo "FAIL diag $1 requests: $(grep -c '"role"' "$W/api.log")"; }; }
 
 # A recursive removal reaches every checkout under its target, not only a target that is itself a checkout root. The
 # parent holds a checkout a record of a finished session names (a tombstone) with a file nobody here edited; the session
