@@ -1196,7 +1196,7 @@ class Guard {
     if (rm) await this.remove(scope, '/', label, known)
     if (!rm || known.length < named.length) {
       this.stop('unresolved', `${this.here?.[0] ?? ''}|${w.join(' ')}`, `cannot tell which checkout \`${label}\` runs in: an earlier \`cd\` may have failed.`,
-        'Use `cd <dir> && …` or `git -C <dir>`.', false)
+        'Use `cd <literal dir> && …` or `git -C <dir>`.', false)
     }
   }
 

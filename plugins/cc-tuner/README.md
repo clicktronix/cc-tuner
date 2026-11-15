@@ -199,8 +199,8 @@ its first user. Setup writes these files only when asked. The user file can also
 products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`. `"guard": false` in either file
 turns the guard off there.
 
-Known limits: liveness is cached for a minute; a session idle for 8 h no longer counts as live, but its
-uncommitted files stay protected; a kept task survives `/clear` and `/run`'s cleanup, not the exit of its
+Known limits: liveness is cached for a minute; a session idle for 8 h stays in reports but blocks nothing that
+needs only its being live, and its uncommitted files stay protected; a kept task survives `/clear` and `/run`'s cleanup, not the exit of its
 Claude process.
 
 ### Companions

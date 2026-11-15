@@ -2,8 +2,8 @@
 
 **Goal:** a Claude Code session knows which live sessions work on its product (branch, checkout,
 claims) and which of their branches conflict with its own. An action that would destroy state it
-does not own is stopped with a reason addressed to the agent, which decides what to do. The user is
-never asked.
+does not own is stopped with a reason addressed to the agent, which decides what to do. The guard
+never asks the user; for files of unknown owner the reason says they may be the user's.
 **Issue:** #73
 **Sources:** [research and debate](2026-11-13-session-coordination-research.md); owner decisions
 2026-11-13 (three grilling rounds, one blind-spots round); Codex plan review, thread
@@ -131,7 +131,7 @@ never asked.
   the module too; `session-start.sh` keeps plan restore only and is unchanged.
 - **Rejected:**
   - messages as the record (best-effort delivery);
-  - asking the user;
+  - the guard asking the user (a permission prompt);
   - a git-common-dir store;
   - parent-directory products;
   - detected resources;

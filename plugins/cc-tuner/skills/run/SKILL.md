@@ -125,7 +125,8 @@ them, update their text in the plan (and the spec if the fact changes its Source
 ask once.
 
 Peers: if `mcp__cc-tuner__peers_claim` is listed, call it with the plan before the first slice, after each tick
-and before integrating the target. Before starting a slice that overlaps a peer's claim, say which peer.
+and before integrating the target. Before starting a slice whose Owned paths a peer's claims, edits or
+conflicts touch, say which peer.
 
 Mark tasks `in_progress` and `completed` as work advances. When a slice's criteria hold, tick the plan
 and whichever spec acceptance criteria it established **in the same commit**. When a unit did the
