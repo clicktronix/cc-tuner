@@ -518,6 +518,20 @@ e2e "$RM" go
 check  "submodules-config-recursion-stops-on-real-git" "submodules are not inspected" "$(cat "$W/api.log")"
 equals "submodules-config-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x")"
 
+# A `cd` that may have failed does not move the steps after it: `cd /nonexistent; git reset --hard` runs in the cwd's checkout,
+# and a guard that took the `cd` for done would read a directory that is no checkout. The edit is nobody's here; the control
+# joins the same `cd` to the reset with `&&`, which is read.
+RZ="$(repo)"; commit_file "$RZ" a one; printf 'precious\n' > "$RZ/a"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "cd /nonexistent/path; git reset --hard"}}]}')"
+e2e "$RZ" go
+check  "cd-that-may-have-failed-stops-a-reset-on-real-git" "could not tell which checkout" "$(cat "$W/api.log")"
+equals "cd-that-may-have-failed-keeps-the-foreign-edit" "precious" "$(cat "$RZ/a")"
+printf 'precious\n' > "$RZ/a"
+script "$(jq -nc --arg c "cd $RZ && git reset --hard" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+e2e "$RZ" go
+check  "cd-joined-with-and-is-read-on-real-git" "would discard a in" "$(cat "$W/api.log")"
+equals "cd-joined-with-and-keeps-the-foreign-edit" "precious" "$(cat "$RZ/a")"
+
 # --- a commit with paths takes only those paths, so a foreign staged file does not stop it ----------------------------
 RC="$(repo)"
 commit_file "$RC" own one; commit_file "$RC" foreign one

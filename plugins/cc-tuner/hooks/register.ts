@@ -60,7 +60,9 @@ const TEMPLATE = /\.(example|sample|template|dist)$/
 // Each command also keeps the directory it runs in (`dir`, relative to where the text starts or
 // absolute) and the operator that joins it to the command before it (`op`: `&&`, `||`, `;` or `|`,
 // empty for the first), and whether a redirection writes a file (`writes`). A `cd` moves the commands
-// after it; a $( … ), backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage. The commands
+// after it only while they run if it succeeded, that is joined to it by `&&` (as long as the chain goes on); a step
+// that may run after a `cd` that failed, or the one before it, is in a directory nobody can tell (UNKNOWN). A $( … ),
+// backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage. The commands
 // of one $( … ) or backquote share a `scope` of their own: what they do gates nothing outside, since the substitution's
 // failure does not fail the command around it.
 interface Simple { words: string[]; inputs: string[]; dir: string; op: string; writes: boolean; scope: number }
@@ -76,22 +78,35 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
   let quoted = false
   let literal = false
   let dir = base
+  // Whether `dir` came from a `cd` the steps so far depend on: the chain of `&&` that ends it ends it.
+  let armed = false
   let op = first
   let scope = top
 
   // A command list from i; nested, it stops after the `)` that closes its $(.
   function list(nested: boolean) {
     let current: Simple = { words: [], inputs: [], dir, op, writes: false, scope }
-    const parens: string[] = []
+    const parens: [string, boolean][] = []
     // Ends the command at an operator (`joined` is its text).
     const end = (joined?: string) => {
+      let moves = false
+      let to: string | undefined
       if (current.words.length > 0 || current.inputs.length > 0) {
         current.dir = dir
         current.op = op
         found.push(current)
         const [name, ...args] = current.words.slice(lead(current.words))
-        const to = args.find(a => a !== '--' && !/^-[LPe@]+$/.test(a))
-        if (name === 'cd' && joined !== '|' && joined !== '&') dir = !to || to === '-' || to.startsWith('~') || to.includes('$') ? UNKNOWN : at(dir, to)
+        to = args.find(a => a !== '--' && !/^-[LPe@]+$/.test(a))
+        moves = name === 'cd'
+      }
+      const chained = joined === undefined || joined === '&&'
+      const piped = joined === '|' || joined === '|&'
+      if (moves && !piped && joined !== '&') {
+        dir = chained && to && to !== '-' && !to.startsWith('~') && !to.includes('$') ? at(dir, to) : UNKNOWN
+        armed = chained && dir !== UNKNOWN
+      } else if (armed && !chained && !piped) {
+        dir = UNKNOWN
+        armed = false
       }
       current = { words: [], inputs: [], dir, op, writes: false, scope }
       if (joined !== undefined) op = joined === '&' ? ';' : joined === '|&' ? '|' : joined
@@ -99,11 +114,11 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
     while (i < text.length) {
       const c = text[i]!
       if (c === '\n') { end(';'); i++; bodies() } else if (c === ' ' || c === '\t') i++
-      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); parens.push(dir); i++ } else if (c === ')') {
+      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); parens.push([dir, armed]); armed = false; i++ } else if (c === ')') {
         end()
         i++
         if (parens.length === 0 && nested) return
-        dir = parens.pop() ?? dir
+        ;[dir, armed] = parens.pop() ?? [dir, armed]
       } else if (c === '&' && text[i + 1] === '>') { i++; redirect(current) } else if (';&|'.includes(c)) {
         const joined = OPERATORS.find(o => text.startsWith(o, i))!
         end(joined)
@@ -164,11 +179,12 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
   function substitution(): boolean {
     const kept = found.length
     if (text.startsWith('$(', i)) {
-      const [outerDir, outerOp, outerScope] = [dir, op, scope]
+      const [outerDir, outerArmed, outerOp, outerScope] = [dir, armed, op, scope]
       i += 2
       scope = ++scopes
+      armed = false
       list(true)
-      ;[dir, op, scope] = [outerDir, outerOp, outerScope]
+      ;[dir, armed, op, scope] = [outerDir, outerArmed, outerOp, outerScope]
       if (literal) found.length = kept
       return true
     }

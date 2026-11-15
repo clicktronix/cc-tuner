@@ -908,7 +908,8 @@ export class Peers {
     }
     // Outside every repository only a step that finds its own targets matters: a command of the machine's shared
     // resources (a stop can be refused, and a start makes this session a user of the resource, with a record that has no
-    // checkout) and a removal, whose roots come from the records. Nothing that needs the cwd's checkout does.
+    // checkout), a removal, whose roots come from the records, and a destructive step in a directory nobody could tell. Nothing
+    // that needs the cwd's checkout does.
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     return this.serial(async () => {
@@ -956,8 +957,8 @@ export class Peers {
     })
   }
 
-  private async finds(plan: { st: Partial<Step> }[]): Promise<boolean> {
-    return plan.some(p => basename(p.st.words?.[0] ?? '') === 'rm' && destroys(p.st.words!)) || this.machineUse(plan.map(p => p.st.words ?? []))
+  private async finds(plan: { st: Partial<Step>; blind: boolean }[]): Promise<boolean> {
+    return plan.some(p => (p.blind || basename(p.st.words?.[0] ?? '') === 'rm') && destroys(p.st.words ?? [])) || this.machineUse(plan.map(p => p.st.words ?? []))
   }
 
   // Whether a command starts or stops a shared resource the machine's own file declares.
@@ -1123,12 +1124,29 @@ class Guard {
     const name = basename(w[0]!)
     const scope = at ?? this.here
     await this.shared(w, at)
-    if (blind && (name === 'git' || name === 'gh' || name === 'rm')) this.note(`could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
+    if (blind && (name === 'git' || name === 'gh' || name === 'rm')) {
+      if (destroys(w)) await this.unresolved(w, scope)
+      else this.note(`could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
+    }
     else if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at, d)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
     else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
     else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) this.note(`could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
+  }
+
+  // A destructive step in a directory nobody could tell (an earlier `cd` may have failed, or goes where the guard cannot read)
+  // acts on a checkout nobody can name, so it stops. The absolute operands of a removal do not depend on the directory.
+  private async unresolved(w: string[], scope: Where | undefined) {
+    const label = w.join(' ').slice(0, 60)
+    const rm = basename(w[0]!) === 'rm'
+    const named = rm ? operands(w.slice(1)) : []
+    const known = named.filter(x => x.startsWith('/'))
+    if (rm) await this.remove(scope, '/', label, known)
+    if (!rm || known.length < named.length) {
+      this.stop('unresolved', `${this.here?.[0] ?? ''}|${w.join(' ')}`, `could not tell which checkout \`${label}\` runs in: an earlier \`cd\` may have failed or goes where the guard cannot read, ` +
+        'so it may lose files a peer or the user changed.', 'Join the `cd` to it with `&&` and a literal directory, or name the directory with `git -C <dir>`.', false)
+    }
   }
 
   // A shared resource's stop command, while another session uses the resource.

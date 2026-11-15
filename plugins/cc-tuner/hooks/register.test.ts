@@ -232,13 +232,16 @@ const COMMANDS = [
   ['git -C a -C b --no-pager log', ['a/b - git log']],
   ['git -c core.pager=cat log', ['. - git log']],
   ['cd x && git reset --hard', ['x && git reset --hard']],
-  ['cd a; cd b; git log', ['a/b ; git log']],
+  ['cd a; cd b; git log', [`${UNKNOWN} ; git log`]],
+  ['cd a && cd b && git log', ['a/b && git log']],
   ['cd /abs && git log', ['/abs && git log']],
   ['cd x | git log', ['. | git log']],
-  ['(cd a; git status); git log', ['a ; git status', '. ; git log']],
-  ['{ cd a; git status; }; git log', ['a ; git status', 'a ; git log']],
+  ['(cd a; git status); git log', [`${UNKNOWN} ; git status`, '. ; git log']],
+  ['(cd a && git status); git log', ['a && git status', '. ; git log']],
+  ['{ cd a && git status; }; git log', ['a && git status', `${UNKNOWN} ; git log`]],
   ['echo "$(cd ../x && git status)"; git reset --hard', ['../x && git status', '. - echo ', '. ; git reset --hard']],
-  ['echo `cd x; git status`', ['x ; git status', '. - echo ']],
+  ['echo `cd x; git status`', [`${UNKNOWN} ; git status`, '. - echo ']],
+  ['echo `cd x && git status`', ['x && git status', '. - echo ']],
   ['git switch -c x && git commit -m m', ['. - git switch -c x', '. && git commit -m m']],
   ['git add f && git commit -m m', ['. - git add f', '. && git commit -m m']],
   ['kill $(lsof -ti :3000)', ['. - lsof -ti :3000', '. - kill ']],
@@ -311,4 +314,26 @@ test('a cd the guard cannot resolve leaves the later steps in a directory it doe
     expect(steps(command).at(-1)?.dir, command).toBe(UNKNOWN)
   }
   expect(steps('(cd "$X"; git log); git reset --hard').map(s => s.dir), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
+})
+
+test('a cd the steps after it do not wait on leaves their directory unresolved: it may have failed', () => {
+  for (const command of ['cd x; git reset --hard', 'cd /nonexistent; git reset --hard', 'cd x || git reset --hard', 'cd x\ngit reset --hard',
+    'cd x && git status; git reset --hard', 'cd x && git status || git reset --hard', 'cd x && git status\ngit reset --hard',
+    'cd a && cd b; git reset --hard', 'cd a; cd /abs; git reset --hard', 'cd x; echo ok && git reset --hard', 'cd x && git status | cat; git reset --hard']) {
+    expect(steps(command).at(-1)?.dir, command).toBe(UNKNOWN)
+  }
+})
+
+test('a cd whose steps are joined to it with && keeps its directory, and one in its own subshell or pipeline moves nothing', () => {
+  const dirs = (command: string) => steps(command).map(s => s.dir)
+  expect(dirs('cd x && git reset --hard')).toEqual(['x'])
+  expect(dirs('cd x && cd y && git status && git reset --hard')).toEqual(['x/y', 'x/y'])
+  expect(dirs('cd a; cd /abs && git reset --hard'), 'an absolute cd that the chain depends on is certain').toEqual(['/abs'])
+  expect(dirs('cd x && (git status; git reset --hard)'), 'a group after a cd runs only if it succeeded').toEqual(['x', 'x'])
+  expect(dirs('(cd x; git status); git reset --hard'), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
+  expect(dirs('(cd x && git status); git reset --hard')).toEqual(['x', ''])
+  expect(dirs('echo "$(cd x; git status)"; git reset --hard')).toEqual([UNKNOWN, '', ''])
+  expect(dirs('cd x | git reset --hard'), 'a pipeline stage moves nothing').toEqual([''])
+  expect(dirs('cd x & git reset --hard')).toEqual([''])
+  expect(dirs('git switch y && git reset --hard'), 'no cd, no change').toEqual(['', ''])
 })

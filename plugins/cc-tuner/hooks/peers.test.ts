@@ -2042,7 +2042,7 @@ test('claim and report read the repository from the plan, not the session cwd', 
   expect(await me.peers.claim('/w', 'me', 'r1/docs/none.md')).toBe('cc-tuner: cannot read r1/docs/none.md')
 })
 
-test('guard: a step after a cd it could not read is a note, not a decision against the wrong checkout', async () => {
+test('guard: a destructive step in a directory the guard could not resolve stops: it cannot tell which checkout it runs in', async () => {
   const { m, session } = machine()
   const r = m.repo('/w/r')
   const [peer, me] = [session('peer'), session('me')]
@@ -2050,10 +2050,53 @@ test('guard: a step after a cd it could not read is a note, not a decision again
   await me.touch(r)
   m.dirty(r, ' M f')
   const blind = await me.bash(r, at(UNKNOWN, 'git reset --hard'))
-  expect(blind.decision, 'guard-unknown-directory-is-a-note').toBe('note')
-  expect(blind.reason).toContain('could not read the directory')
-  expect((await me.bash(r, at(UNKNOWN, 'git status'))).decision, 'a read-only step needs no directory').toBe('allow')
-  expect((await me.bash(r, at(UNKNOWN, 'npm test'))).decision).toBe('allow')
+  expect(blind.decision, 'guard-unknown-directory-stops-a-destructive-step').toBe('stop')
+  expect(blind.reason).toContain('could not tell which checkout')
+  expect(blind.reason).toContain('CC_TUNER_ACK=')
+  for (const c of ['git clean -fd', 'git checkout -- f', 'git restore f', 'git stash', 'git switch x', 'git commit -m m', 'git add .', 'git branch -D x', 'git push origin :x', 'git worktree remove w',
+    'gh pr checkout 5', 'rm -rf build', 'rm -r ../w']) {
+    expect((await me.bash(r, at(UNKNOWN, c))).decision, `guard-unknown-directory-stops: ${c}`).toBe('stop')
+  }
+  for (const c of ['git status', 'git log', 'git diff', 'git stash list', 'git branch', 'git push origin main', 'git reset', 'git clean -n', 'rm build/x', 'npm test', 'kill 1']) {
+    expect((await me.bash(r, at(UNKNOWN, c))).decision === 'stop', `a step that decides nothing needs no directory: ${c}`).toBe(false)
+  }
+  expect((await me.bash('/nowhere', at(UNKNOWN, 'git reset --hard'))).decision, 'guard-unknown-directory-stops-outside-a-repository-too').toBe('stop')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(blind.reason!)![1]!
+  const acked = await me.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard', UNKNOWN)], acks: [key] })
+  expect(acked.decision, 'the ack lets that command through').not.toBe('stop')
+  expect((await me.bash(r, at(UNKNOWN, 'git clean -fd'))).decision, 'the ack is for that command alone').toBe('stop')
+})
+
+test('guard: an absolute operand of a removal is read whatever directory an earlier cd left, a relative one is not', async () => {
+  const { m, session, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const ghost = session('ghost')
+  m.repo('/p/k/r')
+  await ghost.touch('/p/k/r')
+  m.end(ghost.pid)
+  m.dirty('/p/k/r', '?? foreign.txt')
+  const abs = await decide(r, at(UNKNOWN, 'rm -rf /p/k/r'))
+  expect(abs.decision).toBe('stop')
+  expect(abs.reason, 'the checkout is named, not the unknown directory').toContain('foreign.txt in /p/k/r')
+  m.status.set('/p/k/r', [])
+  expect((await decide(r, at(UNKNOWN, 'rm -rf /p/k/r /tmp/x'))).decision, 'absolute operands of a clean checkout are known').toBe('allow')
+  expect((await decide(r, at(UNKNOWN, 'rm -rf /p/k/r build'))).decision, 'a relative operand is not').toBe('stop')
+})
+
+test('a cd that may have failed leaves a destructive step stopped through the adapter, a chain with && does not', async ($, on) => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const peer = session('peer')
+  await peer.touch(r)
+  m.dirty(r, ' M foreign.txt')
+  const ran = engine(on, m, m.spawn())
+  for (const command of ['cd /nonexistent/path; git reset --hard', 'cd /nonexistent/path || git reset --hard', 'cd /nonexistent/path\ngit reset --hard', 'cd /nonexistent/path && git status; git reset --hard']) {
+    const { deny } = await $.tool.call({ tool: 'Bash', command })
+    expect(deny, command).toContain('could not tell which checkout')
+  }
+  expect(ran, 'none of them ran').toEqual([])
+  expect((await $.tool.call({ tool: 'Bash', command: 'cd /w/r && git reset --hard' })).deny, 'a cd the reset depends on is read').toContain('foreign.txt')
 })
 
 test('guard: a wrapper that starts another command it cannot unwrap is a note when that command is git, gh or kill', async () => {
