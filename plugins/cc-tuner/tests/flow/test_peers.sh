@@ -8,6 +8,8 @@
 # (CC_TUNER_PEERS_DIR).
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+# Repositories made here with a plain `git init` commit too where the machine has no git identity (CI runners have none).
+export GIT_AUTHOR_NAME='Flow Harness' GIT_AUTHOR_EMAIL=flow@example.invalid GIT_COMMITTER_NAME='Flow Harness' GIT_COMMITTER_EMAIL=flow@example.invalid
 
 W="$(flow_workdir)"
 export CC_TUNER_PEERS_DIR="$W/peers"
@@ -339,8 +341,8 @@ rm -rf "$LOCK" "$LOCK.take"
 RI="$(repo)"; MK="$W/inert"; mkdir -p "$MK" "$W/home"
 printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' 'h filter=glob' 'i filter=inc' > "$RI/.gitattributes"
 commit_file "$RI" g one; commit_file "$RI" f one; commit_file "$RI" h one; commit_file "$RI" i one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
-git init -q -b main "$W/subsrc"; commit_file "$W/subsrc" x one 2> "$W/sm.err" || sed "s/^/FAIL diag subsrc commit: /" "$W/sm.err"
-printf '%s\n' 'x filter=sf' > "$W/subsrc/.gitattributes"; ( cd "$W/subsrc" && git add .gitattributes && git commit -q -m attrs ) 2> "$W/sm.err" || sed "s/^/FAIL diag subsrc attrs: /" "$W/sm.err"
+git init -q -b main "$W/subsrc"; commit_file "$W/subsrc" x one
+printf '%s\n' 'x filter=sf' > "$W/subsrc/.gitattributes"; ( cd "$W/subsrc" && git add .gitattributes && git commit -q -m attrs )
 [ -n "$(git -C "$W/subsrc" rev-parse -q --verify HEAD)" ] || echo "FAIL diag subsrc has no commit: $(git -C "$W/subsrc" log --oneline 2>&1 | head -n 3)"
 git -C "$RI" -c protocol.file.allow=always submodule add -q "$W/subsrc" sm > "$W/sm.err" 2>&1 || sed "s/^/FAIL diag submodule add: /" "$W/sm.err"; ( cd "$RI" && git commit -q -m sm )
 git -C "$RI" switch -q -c side; commit_file "$RI" f side
