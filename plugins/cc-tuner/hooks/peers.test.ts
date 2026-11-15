@@ -11,7 +11,7 @@ const USER = '/user/resources.json'
 const LSTART = 'Sat Nov 14 00:07:21 2026'
 
 class Machine {
-  files = new Map<string, { text: string; mtimeMs: number }>()
+  files = new Map<string, { text: string; mtimeMs: number; ctimeMs?: number }>()
   dirs = new Set<string>(['/'])
   procs = new Map<number, { ppid: number; start: string; name: string; args: string }>()
   status = new Map<string, string[]>()
@@ -38,7 +38,9 @@ class Machine {
 
   mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
   // A write takes the clock's time, a fraction of a millisecond apart from the one before.
-  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); this.files.set(p, { text, mtimeMs: this.clock + this.tick++ / 1000 }) }
+  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); const t = this.clock + this.tick++ / 1000; this.files.set(p, { text, mtimeMs: t, ctimeMs: t }) }
+  // A copy that keeps the old modification time (`cp -p`): only the inode change time is now.
+  replace(p: string, text: string) { const f = this.files.get(p)!; this.files.set(p, { text, mtimeMs: f.mtimeMs, ctimeMs: this.clock + this.tick++ / 1000 }) }
   advance(seconds: number) { this.clock += seconds * 1000 }
   // What `$(cat file)` gives in the shell: the text without its trailing newlines.
   cat(p: string) { return (this.files.get(p)?.text ?? '').replace(/\n+$/, '') }
@@ -125,6 +127,9 @@ class Machine {
   private answer(pid: number, argv: readonly string[]): { exitCode?: number; stdout: string } {
     const [cmd, ...a] = argv
     if (cmd === '/bin/sh' && a[1] === 'echo $PPID') return { stdout: `${pid}\n` }
+    if (cmd === '/bin/sh' && a[1]?.includes('%Fc')) {
+      return { stdout: a.slice(3).map(f => { const x = this.files.get(f); return x === undefined ? '-' : String((x.ctimeMs ?? x.mtimeMs) / 1000) }).join('\n') + '\n' }
+    }
     if (cmd === 'ps') return { stdout: this.ps(a.includes('-p') ? a[a.indexOf('-p') + 1]!.split(',').map(Number) : undefined) }
     if (cmd === 'git' && a[2] === 'status') {
       const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
@@ -967,6 +972,13 @@ test('guard: alone in a checkout, a session owns what changed during its own Bas
   expect(between.decision, 'changed-half-a-second-after-its-call-is-not-its-own').toBe('stop')
   expect(between.reason).toContain('user.txt')
   expect(between.reason).not.toContain('a.txt')
+  m.advance(5)
+  await call(me, r, ['touch more'], () => changeIn(m, r, 'kept.txt'))
+  m.advance(5)
+  expect((await me.bash(r, 'git restore kept.txt')).decision, 'its-own-file').not.toBe('stop')
+  m.replace(`${r}/kept.txt`, 'restored with cp -p')
+  m.advance(5)
+  expect((await me.bash(r, 'git restore kept.txt')).decision, 'a-copy-that-kept-the-old-mtime-between-its-calls-is-not-its-own').toBe('stop')
   expect((await me.bash(r, 'eval git log')).decision, 'no-peer-means-no-could-not-read-note').toBe('allow')
 })
 
@@ -1003,6 +1015,41 @@ test('guard: once another session writes in the checkout, the session owns only 
   await me.bash(r, 'git status')
   await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt', 'gen/out.ts'))
   expect((await me.bash(r, 'git clean -fd')).decision, 'a-live-session-that-wrote-before-it-came-may-still-be-writing').toBe('stop')
+  // The first touch of a checkout inside the very call that writes there, next to a live writer.
+  const o = m.repo('/w/other')
+  await call(peer, o, ['make gen &'])
+  m.advance(60)
+  // It writes during this session's call and exits before the call ends, more than the minute liveness is kept.
+  await call(me, '/w/r', [at(o, 'npm test')], () => { changeIn(m, o, 'out.txt'); m.end(peer.pid); m.advance(60) })
+  m.advance(120)
+  expect((await me.bash(o, 'git reset --hard')).decision, 'a-first-touch-next-to-a-live-writer-is-mixed').toBe('stop')
+})
+
+test('guard: a sweep keeps the tombstone a live session still needs, and a resumed session infers nothing from before', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const me = session('me')
+  await me.bash(r, 'git status')
+  m.advance(5)
+  await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt'))
+  m.advance(5)
+  const peer = session('peer')
+  await call(peer, r, ['cp -p a.txt.bak a.txt'], () => m.replace(`${r}/a.txt`, 'theirs'))
+  m.end(peer.pid)
+  m.advance(25 * 3600)
+  await session('third').report(r)
+  expect(m.files.has(`${DIR}/peer.json`), 'sweep-keeps-a-tombstone-a-live-unmixed-checkout-needs').toBe(true)
+  expect((await me.bash(r, 'git restore a.txt')).decision, 'the-peers-later-write-is-not-its-own').toBe('stop')
+  expect(m.rec('me').checkouts[r]!.mixed, 'its-next-event-marks-the-checkout').toBe(true)
+  const { m: m2, session: s2 } = machine()
+  const r2 = m2.repo('/w/r')
+  const before = s2('sid-x')
+  await before.bash(r2, 'git status')
+  m2.advance(5)
+  await call(before, r2, ['prettier --write .'], () => changeIn(m2, r2, 'a.txt'))
+  m2.end(before.pid)
+  const after = s2('sid-x')
+  expect((await after.bash(r2, 'git restore a.txt')).decision, 'a-resumed-session-infers-nothing-from-before').toBe('stop')
 })
 
 test('guard: a switch next to a writer stops with a short reason; idle, cwd-only or dead peers do not', async () => {

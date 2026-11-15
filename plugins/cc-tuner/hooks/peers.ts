@@ -99,6 +99,8 @@ const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
 // How many of its own calls a session remembers.
 const CALLS = 200
+const CTIMES = 'if stat -f %Fc / >/dev/null 2>&1; then for f; do stat -f %Fc -- "$f" 2>/dev/null || echo -; done; ' +
+  'else for f; do stat -c %.9Z -- "$f" 2>/dev/null || echo -; done; fi'
 const CALL = '\u0000call'
 const IDLE = 8 * 3600
 const PS_TTL = 60
@@ -335,8 +337,11 @@ export class Peers {
   private now() { return Math.floor(this.w.now() / 1000) }
   ms() { return this.w.now() }
 
-  async mtime(p: string): Promise<number | undefined> {
-    return (await this.w.stat(p).catch(() => undefined))?.mtimeMs
+  // The inode change time of each file in ms, read by one `stat`: unlike the modification time, no tool can set it back.
+  async ctimes(files: readonly string[]): Promise<(number | undefined)[]> {
+    const r = await this.w.run(['/bin/sh', '-c', CTIMES, 'sh', ...files]).catch(() => undefined)
+    const lines = r?.exitCode === 0 ? r.stdout.split('\n') : []
+    return files.map((_, i) => { const t = Number(lines[i]); return lines[i] && Number.isFinite(t) ? t * 1000 : undefined })
   }
 
   // A checkout of this session where another session wrote since it came, or where a live one ever wrote (its background
@@ -630,7 +635,11 @@ export class Peers {
     if (now - this.swept < NOTE_TTL) return
     this.swept = now
     const live = await this.live([...recs.values()])
-    const old = [...recs].filter(([, r]) => !live.has(r) && now - (r.seen ?? 0) > DAY).map(([n]) => n)
+    // A tombstone whose writer mark keeps a live session's checkout from owning what it wrote stays until that session
+    // has seen it (its next event marks the checkout mixed).
+    const needed = (t: Rec) => [...live].some(x => x !== t && Object.entries(x.checkouts).some(([top, co]) =>
+      co.mixed !== true && co.since !== undefined && (t.checkouts[top]?.writer ?? -1) >= co.since))
+    const old = [...recs].filter(([, r]) => !live.has(r) && now - (r.seen ?? 0) > DAY && !needed(r)).map(([n]) => n)
     await this.forget(recs, old)
   }
 
@@ -653,7 +662,11 @@ export class Peers {
       const same = [...recs].filter(([, t]) => t.session_id === sid)
       const live = await this.live(same.map(([, t]) => t))
       found = same.find(([, t]) => !live.has(t))
-      if (found !== undefined) Object.assign(found[1], { pid, start, kept: [] })
+      // What happened while the session was gone left no evidence it can read: nothing there is inferred any more.
+      if (found !== undefined) {
+        Object.assign(found[1], { pid, start, kept: [] })
+        for (const co of Object.values(found[1].checkouts)) co.mixed = true
+      }
     }
     if (found !== undefined) return found
     const base = (sid ?? '').replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^\.+/, '') || `p${pid}`
@@ -948,9 +961,6 @@ export class Peers {
       const { recs, bad } = await this.load()
       const pid = await this.pid()
       if (pid === undefined) return { decision: 'allow', line: '' }
-      // Before a sweep can drop the tombstone of a session that wrote next to this one.
-      await this.mix(recs, this.mine(recs, pid, (await this.starts([pid])).get(pid)))
-      await this.sweep(recs)
       const now = this.now()
       // A new session id in this process (/clear, an in-process resume) is followed on whatever event shows it first, so
       // a start that came where nothing is recorded cannot carry the old conversation's acks into the new one.
@@ -961,6 +971,9 @@ export class Peers {
       const [name, r] = await this.session(recs, pid, sid)
       const co = here === undefined ? undefined : await this.touch(r, here)
       for (const { at } of plan) if (at !== undefined) await this.touch(r, at)
+      // Before anything is decided, and before a sweep: a checkout touched first in this very call is judged mixed too.
+      await this.mix(recs, [name, r])
+      await this.sweep(recs)
       for (const k of ev.acks ?? []) r.acks[k] = now
       let verdict: Verdict = { decision: 'allow' }
       if (ev.phase === 'before') verdict = await new Guard(this, recs, bad, name, r, pid, here, now).judge(ev, plan, target)
@@ -1019,9 +1032,10 @@ export class Peers {
     const tomb = same.find(([, t]) => !live.has(t))
     if (tomb === undefined) return
     for (const [top, c] of Object.entries(tomb[1].checkouts)) {
+      c.mixed = true
       const mine = r.checkouts[top]
       const writer = Math.max(mine?.writer ?? -1, c.writer ?? -1)
-      r.checkouts[top] = mine === undefined ? c : { ...c, writer: writer < 0 ? null : writer, paths: [...new Set([...c.paths, ...mine.paths])], mixed: c.mixed || mine.mixed }
+      r.checkouts[top] = mine === undefined ? c : { ...c, writer: writer < 0 ? null : writer, paths: [...new Set([...c.paths, ...mine.paths])], mixed: true }
     }
     Object.assign(r.claims, tomb[1].claims)
     r.calls = [...(tomb[1].calls ?? []), ...(r.calls ?? [])].sort((x, y) => x[0] - y[0]).slice(-CALLS)
@@ -1301,8 +1315,8 @@ class Guard {
   }
 
   // Whether a changed file is someone else's. This session's own are the paths it edited and, in a checkout no other
-  // session writes in, the files whose last change falls inside one of its own Bash calls; a file already changed when it
-  // came never is. Anything changed between its calls (the user, a tool left running) is not.
+  // session writes in, the files whose inode last changed inside one of its own Bash calls; a file already changed when
+  // it came never is. Anything changed between its calls (the user, a tool left running, a copy that kept old times) is not.
   private async others(at: Where, changed: readonly [string, string, string][]): Promise<(f: string) => boolean> {
     const top = at[0]
     const [mine, found] = [this.own(top), this.r.checkouts[top]?.found]
@@ -1310,11 +1324,9 @@ class Guard {
     const calls = this.r.checkouts[top]?.mixed ? [] : this.r.calls ?? []
     const made = new Set<string>()
     if (found !== undefined && calls.length > 0) {
-      for (const [x, y, f] of changed) {
-        if (owns(mine, f) || owns(found, f) || owns(edited, f) || x === 'D' || y === 'D') continue
-        const t = await this.p.mtime(join(top, f))
-        if (t !== undefined && calls.some(([s, e]) => t >= s && t <= e)) made.add(f)
-      }
+      const maybe = changed.filter(([x, y, f]) => !owns(mine, f) && !owns(found, f) && !owns(edited, f) && x !== 'D' && y !== 'D').map(([, , f]) => f)
+      const times = maybe.length === 0 ? [] : await this.p.ctimes(maybe.map(f => join(top, f)))
+      maybe.forEach((f, i) => { const t = times[i]; if (t !== undefined && calls.some(([s, e]) => t >= s && t <= e)) made.add(f) })
     }
     return f => !owns(mine, f) && !made.has(f)
   }

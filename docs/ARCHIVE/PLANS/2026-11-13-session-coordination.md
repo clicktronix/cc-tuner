@@ -44,14 +44,17 @@ never asked.
   on a branch switch; the other peer-dependent protections follow liveness.
 - **Foreign file.** A dirty or staged file this session cannot call its own. Its own are the paths it
   edited (Edit, Write; such a path stays its own even if another session edits it later) and, in a
-  checkout no other session writes in, the files whose last change falls inside one of its own Bash
-  calls. A checkout becomes mixed for good once another session writes there after this one came, or
-  when a live session ever wrote there (its background tasks may still); a writer marks itself before
-  it writes, and the mark is kept when its tombstone goes. Everything else is foreign and its
-  protection does not expire: a file already changed when the session first touched the checkout,
-  one changed between the session's calls (the user, a tool left running), a deleted file, and in a
-  mixed checkout every file it did not edit. Known limit: a user's edit made while the session's own
-  command runs, or later rewritten by such a command, counts as the session's.
+  checkout no other session writes in, the files whose inode last changed (ctime, which no tool sets
+  back) inside one of its own Bash calls in this process. A checkout becomes mixed for good once
+  another session writes there after this one came, or when a live session ever wrote there (its
+  background tasks may still); a writer marks itself before it writes, the check runs after the
+  call's first touch and before any decision, and a sweep keeps a tombstone while a live session's
+  unmixed checkout still depends on its mark. A resumed or adopted record infers nothing from before.
+  Everything else is foreign and its protection does not expire: a file already changed when the
+  session first touched the checkout, one changed between its calls (the user, a tool left running,
+  a copy that kept old times), a deleted file, and in a mixed checkout every file it did not edit.
+  Known limit: a writer with no record (the user, a tool outside Claude) changing a file while the
+  session's own command runs, or a file such a command later rewrites, counts as the session's.
 - **Guard.** It runs before every tool call and returns `allow`, `note` or `stop`.
   - **How it reads commands.**
     - It unwraps `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&` and `$(...)`, and
