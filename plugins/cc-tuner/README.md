@@ -166,10 +166,10 @@ the user is never asked.
 - **Notes**, and the action runs: an edit in a checkout with another writer or of a path a peer claimed; a
   branch switch where a peer's cwd is.
 
-A session's own files are the paths it edited and the files its own Bash calls changed while no other session
-ran a call; those pass. A file changed before the session came, edited by another session, or changed between
-its calls (the user, a peer, a tool left running) stays protected. A session alone in its product gets no
-"could not read" notes.
+A session's own files are the paths it edited and, in a checkout no other session writes in, the files its own
+Bash calls changed; those pass. A file changed before the session came or between its calls (the user, a tool
+left running) stays protected, and so does every file it did not edit once another session writes in the same
+checkout. A session alone in its product gets no "could not read" notes.
 
 A Bash stop is passed by running the same command prefixed `CC_TUNER_ACK=<key>` (the key is in the reason).
 The ack covers one action on one target for 30 minutes, and the prefix is stripped before the command runs.

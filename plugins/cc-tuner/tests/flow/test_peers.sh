@@ -181,8 +181,10 @@ effect() {
 }
 for pair in "git add -A|a.txt gen/out.ts " "git commit -qam fmt|fmt" "git restore .|a" "git stash -u|1" "git clean -fd|gone" "git reset --hard|a"; do
   c="${pair%%|*}"; RS="$(repo)"; commit_file "$RS" a.txt a
-  script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: "echo b >> a.txt && mkdir -p gen && echo x > gen/out.ts"}}, {name: "Bash", input: {command: $c}}]}')"
+  rm -f "$W/generated"
+  script "$(jq -nc --arg c "$c" --arg w "$W" '{when: "", calls: [{name: "Bash", input: {command: ("echo b >> a.txt && mkdir -p gen && echo x > gen/out.ts && touch " + $w + "/generated")}}, {name: "Bash", input: {command: $c}}]}')"
   e2e "$RS" go
+  equals "alone-the-first-call-changed-the-tree: $c" "yes" "$([ -e "$W/generated" ] && echo yes || echo no)"
   equals "alone-own-bash-change-runs: $c" "${pair#*|}" "$(effect "$c" "$RS")"
 done
 RS="$(repo)"; commit_file "$RS" a.txt a

@@ -227,6 +227,7 @@ async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], 
   const v = await s.before(cwd, ...steps)
   if (v.decision !== 'stop') {
     effect?.()
+    s.m.advance(0.01)
     await s.after(cwd, steps, v.seen, ok)
   }
   return v
@@ -932,17 +933,20 @@ function world() {
 }
 const now = (m: Machine) => Math.floor(m.clock / 1000)
 
-test('guard: a session owns what changed during its own Bash calls; what changed before it came, between its calls, or next to another writer\'s call stays protected', async () => {
+const changeIn = (m: Machine, top: string, ...files: string[]) => {
+  for (const f of files) { m.put(`${top}/${f}`, 'x'); m.dirty(top, `${f.startsWith('gen/') ? '??' : ' M'} ${f}`) }
+}
+
+test('guard: alone in a checkout, a session owns what changed during its own Bash calls; what changed before it came or between its calls stays protected', async () => {
   const { m, session } = machine()
   const [r, u] = [m.repo('/w/solo'), m.repo('/w/user')]
-  const change = (top: string, ...files: string[]) => { for (const f of files) { m.put(`${top}/${f}`, 'x'); m.dirty(top, `${f.startsWith('gen/') ? '??' : ' M'} ${f}`) } }
-  change(u, 'before.txt')
+  changeIn(m, u, 'before.txt')
   const me = session('me')
   await me.bash(r, 'git status')
   await me.bash(u, 'git status')
   m.advance(5)
-  await call(me, r, ['prettier --write .'], () => change(r, 'a.txt', 'gen/out.ts'))
-  await call(me, u, ['prettier --write .'], () => change(u, 'a.txt', 'gen/out.ts'))
+  await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt', 'gen/out.ts'))
+  await call(me, u, ['prettier --write .'], () => changeIn(m, u, 'a.txt', 'gen/out.ts'))
   m.advance(5)
   for (const c of ['git add -A', 'git add .', 'git commit -qam x', 'git restore .', 'git stash -u', 'git clean -fd', 'git reset --hard']) {
     expect((await me.bash(r, c)).decision, `own-bash-change: ${c}`).not.toBe('stop')
@@ -955,25 +959,50 @@ test('guard: a session owns what changed during its own Bash calls; what changed
     expect(v.reason).not.toContain('a.txt')
   }
   m.advance(30)
-  change(r, 'user.txt')
+  await call(me, r, ['touch late'])
+  m.advance(0.5)
+  changeIn(m, r, 'user.txt')
   m.advance(30)
   const between = await me.bash(r, 'git reset --hard')
-  expect(between.decision, 'changed-between-its-calls-is-not-its-own').toBe('stop')
+  expect(between.decision, 'changed-half-a-second-after-its-call-is-not-its-own').toBe('stop')
   expect(between.reason).toContain('user.txt')
   expect(between.reason).not.toContain('a.txt')
   expect((await me.bash(r, 'eval git log')).decision, 'no-peer-means-no-could-not-read-note').toBe('allow')
-  // Another session's call running while this one's: what either wrote has no single author, even after it exited.
-  m.advance(5)
+})
+
+test('guard: once another session writes in the checkout, the session owns only the paths it edited, for good', async () => {
+  for (const [label, act] of [
+    ['a-separate-call-after-ours', async (m: Machine, p: Session, r: string) => { await call(p, r, ['make gen'], () => changeIn(m, r, 'b.txt')) }],
+    ['an-edit', async (m: Machine, p: Session, r: string) => { await p.check({ tool: 'Edit', cwd: r, path: `${r}/b.txt` }); changeIn(m, r, 'b.txt'); await p.edited(r, `${r}/b.txt`) }],
+    ['a-call-still-running', async (m: Machine, p: Session, r: string) => { await p.before(r, 'make gen'); m.advance(16 * 60); changeIn(m, r, 'b.txt') }],
+  ] as const) {
+    const { m, session } = machine()
+    const r = m.repo('/w/r')
+    const me = session('me')
+    await me.bash(r, 'git status')
+    m.advance(5)
+    await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt'))
+    m.advance(5)
+    expect((await me.bash(r, 'git restore a.txt')).decision, `${label}: alone it is its own`).not.toBe('stop')
+    const peer = session('peer')
+    m.advance(5)
+    await act(m, peer, r)
+    await call(me, r, ['cp -p b.txt c.txt'], () => changeIn(m, r, 'c.txt'))
+    for (const f of ['a.txt', 'b.txt', 'c.txt']) expect((await me.bash(r, `git restore ${f}`)).decision, `${label}: ${f} has no single author`).toBe('stop')
+    m.end(peer.pid)
+    m.advance(25 * 3600)
+    await me.bash(r, 'git status')
+    expect((await me.bash(r, 'git restore a.txt')).decision, `${label}: still after the tombstone is swept`).toBe('stop')
+  }
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
   const peer = session('peer')
-  await peer.touch(r)
-  const running = await peer.before(r, 'make gen')
-  await call(me, r, ['prettier --write .'], () => change(r, 'b.txt'))
-  await peer.after(r, ['make gen'], running.seen)
-  m.end(peer.pid)
-  m.advance(25 * 3600)
-  const mixed = await me.bash(r, 'git restore b.txt')
-  expect(mixed.decision, 'a-call-next-to-another-writers-call-owns-nothing').toBe('stop')
-  expect((await me.bash(r, 'git restore a.txt')).decision, 'an-earlier-call-alone-still-owns-its-files').not.toBe('stop')
+  await call(peer, r, ['make gen &'])
+  m.advance(60)
+  const me = session('me')
+  await me.bash(r, 'git status')
+  await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt', 'gen/out.ts'))
+  expect((await me.bash(r, 'git clean -fd')).decision, 'a-live-session-that-wrote-before-it-came-may-still-be-writing').toBe('stop')
 })
 
 test('guard: a switch next to a writer stops with a short reason; idle, cwd-only or dead peers do not', async () => {

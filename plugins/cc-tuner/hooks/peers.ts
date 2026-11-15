@@ -49,15 +49,15 @@ interface Config { product?: string; off: boolean; products: Record<string, stri
 interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
 export interface Kept { id: string; key: string; top?: string }
-// `found`: the files already changed when the session first touched the checkout; absent in a record from before it.
-interface Checkout { repo: string; expected: string; writer: number | null; paths: string[]; found?: string[] }
+// `since` and `found`: when the session first touched the checkout and the files already changed then; absent in a
+// record from before them. `mixed`: another session has written there since, or a live one ever did.
+interface Checkout { repo: string; expected: string; writer: number | null; paths: string[]; since?: number; found?: string[]; mixed?: boolean }
 export interface Rec {
   v: 1; session_id: string | null; pid: number; start: string; seen: number
   claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: Kept[]
   checkouts: Record<string, Checkout>
-  // The session's own Bash calls that may write, as [start ms, end ms, 1 when another session ran a call at the same
-  // time], newest last; and the starts of those still running.
-  calls?: [number, number, number][]; busy?: number[]
+  // The session's own Bash calls that may write, as [start ms, end ms], newest last.
+  calls?: [number, number][]
 }
 type Where = readonly [top: string, common: string]
 
@@ -97,11 +97,8 @@ const DAY = 24 * 3600
 const ACK_TTL = 30 * 60
 const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
-// How many of its own calls a session remembers, how long a call that never ended counts as running, and the
-// filesystem's timestamp granularity around a call.
+// How many of its own calls a session remembers.
 const CALLS = 200
-const BUSY_TTL = 15 * 60 * 1000
-const SLACK = 1000
 const CALL = '\u0000call'
 const IDLE = 8 * 3600
 const PS_TTL = 60
@@ -289,9 +286,9 @@ function valid(r: unknown): r is Rec {
     && (r.session_id === null || typeof r.session_id === 'string') && isObject(r.acks) && Object.values(r.acks).every(t => typeof t === 'number')
     && Array.isArray(r.kept) && r.kept.every(k => isObject(k) && typeof k.id === 'string' && typeof k.key === 'string')
     && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
-    && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths) && (c.found === undefined || strings(c.found)))
-    && (r.calls === undefined || (Array.isArray(r.calls) && r.calls.every(c => Array.isArray(c) && c.length === 3 && c.every(n => typeof n === 'number'))))
-    && (r.busy === undefined || (Array.isArray(r.busy) && r.busy.every(n => typeof n === 'number')))
+    && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths)
+      && (c.found === undefined || (strings(c.found) && typeof c.since === 'number')) && (c.mixed === undefined || typeof c.mixed === 'boolean'))
+    && (r.calls === undefined || (Array.isArray(r.calls) && r.calls.every(c => Array.isArray(c) && c.length === 2 && c.every(n => typeof n === 'number'))))
 }
 
 function parseConfig(text: string): Config {
@@ -342,11 +339,17 @@ export class Peers {
     return (await this.w.stat(p).catch(() => undefined))?.mtimeMs
   }
 
-  // Whether another session, live or exited, ran a writing call in [s, e]: a file changed then has no single author.
-  private overlaps(recs: Map<string, Rec>, me: string, s: number, e: number): boolean {
-    const now = this.ms()
-    return [...recs].some(([n, r]) => n !== me && ((r.calls ?? []).some(([a, b]) => a <= e && b >= s)
-      || (r.busy ?? []).some(b => b <= e && now - b < BUSY_TTL)))
+  // A checkout of this session where another session wrote since it came, or where a live one ever wrote (its background
+  // tasks may still), is mixed for good: a writer marks itself before it writes, so no write there goes unseen.
+  private async mix(recs: Map<string, Rec>, me: [string, Rec] | undefined) {
+    if (me === undefined) return
+    const open = Object.entries(me[1].checkouts).filter(([, co]) => co.since !== undefined && co.mixed !== true)
+    const others = [...recs].filter(([n]) => n !== me[0]).map(([, r]) => r)
+    const writers = (top: string) => others.filter(r => (r.checkouts[top]?.writer ?? null) !== null)
+    const live = await this.live(open.flatMap(([top]) => writers(top)))
+    for (const [top, co] of open) {
+      if (writers(top).some(r => live.has(r) || r.checkouts[top]!.writer! >= co.since!)) co.mixed = true
+    }
   }
 
   // The record directory, made private the first time this load needs it.
@@ -650,7 +653,7 @@ export class Peers {
       const same = [...recs].filter(([, t]) => t.session_id === sid)
       const live = await this.live(same.map(([, t]) => t))
       found = same.find(([, t]) => !live.has(t))
-      if (found !== undefined) Object.assign(found[1], { pid, start, kept: [], busy: [] })
+      if (found !== undefined) Object.assign(found[1], { pid, start, kept: [] })
     }
     if (found !== undefined) return found
     const base = (sid ?? '').replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^\.+/, '') || `p${pid}`
@@ -666,7 +669,7 @@ export class Peers {
     const [top, common] = at
     if (r.checkouts[top] === undefined) {
       const [expected, changed] = [await this.branch(top), await this.status(at, [])]
-      r.checkouts[top] ??= { repo: common, expected, writer: null, paths: [], ...(changed && { found: changed.map(([, , f]) => f) }) }
+      r.checkouts[top] ??= { repo: common, expected, writer: null, paths: [], ...(changed && { since: this.now(), found: changed.map(([, , f]) => f) }) }
     }
     return r.checkouts[top]
   }
@@ -919,6 +922,8 @@ export class Peers {
   // noted call, marks the writer, so a long call counts while it runs; a stopped one marks none. `after` records the
   // paths an edit changed and moves the expected branch, only for a call the engine let run.
   async check(ev: Event): Promise<Verdict & { line?: string }> {
+    // A call's own writes are done before its `after` arrives, so its window closes here, before anything is read.
+    const ended = this.ms()
     const sid = ev.session_id || null
     const target = ev.path ? join(ev.cwd, ev.path) : undefined
     const here = await this.where(target !== undefined ? dirname(target) : ev.cwd)
@@ -941,9 +946,11 @@ export class Peers {
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     return this.serial(async () => {
       const { recs, bad } = await this.load()
-      await this.sweep(recs)
       const pid = await this.pid()
       if (pid === undefined) return { decision: 'allow', line: '' }
+      // Before a sweep can drop the tombstone of a session that wrote next to this one.
+      await this.mix(recs, this.mine(recs, pid, (await this.starts([pid])).get(pid)))
+      await this.sweep(recs)
       const now = this.now()
       // A new session id in this process (/clear, an in-process resume) is followed on whatever event shows it first, so
       // a start that came where nothing is recorded cannot carry the old conversation's acks into the new one.
@@ -958,20 +965,13 @@ export class Peers {
       let verdict: Verdict = { decision: 'allow' }
       if (ev.phase === 'before') verdict = await new Guard(this, recs, bad, name, r, pid, here, now).judge(ev, plan, target)
       const seen: Record<string, string> = {}
-      const ms = this.ms()
-      r.busy = (r.busy ?? []).filter(b => ms - b < BUSY_TTL)
       if (ev.phase === 'before' && ev.tool === 'Bash' && verdict.decision !== 'stop' && plan.some(p => p.writes && p.at !== undefined)) {
-        r.busy.push(ms)
-        seen[CALL] = String(ms)
+        seen[CALL] = String(this.ms())
       }
       const opened = Number(ev.seen?.[CALL])
-      if (ev.phase === 'after' && ev.tool === 'Bash' && Number.isFinite(opened)) {
-        const i = r.busy.indexOf(opened)
-        if (i >= 0) r.busy.splice(i, 1)
-        if (ev.ok !== false) {
-          (r.calls ??= []).push([opened, ms, this.overlaps(recs, name, opened, ms) ? 1 : 0])
-          r.calls.splice(0, Math.max(0, r.calls.length - CALLS))
-        }
+      if (ev.phase === 'after' && ev.tool === 'Bash' && ev.ok !== false && Number.isFinite(opened)) {
+        (r.calls ??= []).push([opened, ended])
+        r.calls.splice(0, Math.max(0, r.calls.length - CALLS))
       }
       if (verdict.decision !== 'stop') {
         for (const { at, writes, switch: sw } of plan) {
@@ -1021,7 +1021,7 @@ export class Peers {
     for (const [top, c] of Object.entries(tomb[1].checkouts)) {
       const mine = r.checkouts[top]
       const writer = Math.max(mine?.writer ?? -1, c.writer ?? -1)
-      r.checkouts[top] = mine === undefined ? c : { ...c, writer: writer < 0 ? null : writer, paths: [...new Set([...c.paths, ...mine.paths])] }
+      r.checkouts[top] = mine === undefined ? c : { ...c, writer: writer < 0 ? null : writer, paths: [...new Set([...c.paths, ...mine.paths])], mixed: c.mixed || mine.mixed }
     }
     Object.assign(r.claims, tomb[1].claims)
     r.calls = [...(tomb[1].calls ?? []), ...(r.calls ?? [])].sort((x, y) => x[0] - y[0]).slice(-CALLS)
@@ -1300,20 +1300,20 @@ class Guard {
     return this.r.checkouts[top]?.paths ?? []
   }
 
-  // Whether a changed file is someone else's. This session's own are the paths it edited and the files whose last
-  // change falls in one of its own Bash calls while no other session ran one; a file already changed when it came, or
-  // edited by another session, never is. Anything changed between its calls (the user, a peer, a tool left running) is not.
+  // Whether a changed file is someone else's. This session's own are the paths it edited and, in a checkout no other
+  // session writes in, the files whose last change falls inside one of its own Bash calls; a file already changed when it
+  // came never is. Anything changed between its calls (the user, a tool left running) is not.
   private async others(at: Where, changed: readonly [string, string, string][]): Promise<(f: string) => boolean> {
     const top = at[0]
     const [mine, found] = [this.own(top), this.r.checkouts[top]?.found]
     const edited = [...this.recs].filter(([n]) => n !== this.name).flatMap(([, r]) => r.checkouts[top]?.paths ?? [])
-    const calls = (this.r.calls ?? []).filter(c => c[2] === 0)
+    const calls = this.r.checkouts[top]?.mixed ? [] : this.r.calls ?? []
     const made = new Set<string>()
     if (found !== undefined && calls.length > 0) {
       for (const [x, y, f] of changed) {
         if (owns(mine, f) || owns(found, f) || owns(edited, f) || x === 'D' || y === 'D') continue
         const t = await this.p.mtime(join(top, f))
-        if (t !== undefined && calls.some(([s, e]) => t >= s - SLACK && t <= e + SLACK)) made.add(f)
+        if (t !== undefined && calls.some(([s, e]) => t >= s && t <= e)) made.add(f)
       }
     }
     return f => !owns(mine, f) && !made.has(f)

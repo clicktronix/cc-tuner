@@ -43,13 +43,15 @@ never asked.
   counts; a false writer stop passes with an ack. The 2 h window applies only to the writer stop
   on a branch switch; the other peer-dependent protections follow liveness.
 - **Foreign file.** A dirty or staged file this session cannot call its own. Its own are the paths it
-  edited (Edit, Write) and the files whose last change falls inside one of its own Bash calls while no
-  other session, live or exited, ran a call at the same time; the record keeps those call windows
-  with that mark, so the attribution outlives a peer's tombstone. Everything else is foreign and its
+  edited (Edit, Write; such a path stays its own even if another session edits it later) and, in a
+  checkout no other session writes in, the files whose last change falls inside one of its own Bash
+  calls. A checkout becomes mixed for good once another session writes there after this one came, or
+  when a live session ever wrote there (its background tasks may still); a writer marks itself before
+  it writes, and the mark is kept when its tombstone goes. Everything else is foreign and its
   protection does not expire: a file already changed when the session first touched the checkout,
-  one another session edited (a path this session edited too stays its own), one changed between the session's calls (the user, a peer, a tool left
-  running), and a deleted file. Known limit: a user's edit made while the session's own command runs,
-  or later rewritten by such a command, counts as the session's.
+  one changed between the session's calls (the user, a tool left running), a deleted file, and in a
+  mixed checkout every file it did not edit. Known limit: a user's edit made while the session's own
+  command runs, or later rewritten by such a command, counts as the session's.
 - **Guard.** It runs before every tool call and returns `allow`, `note` or `stop`.
   - **How it reads commands.**
     - It unwraps `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&` and `$(...)`, and
