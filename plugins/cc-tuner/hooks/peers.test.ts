@@ -33,14 +33,19 @@ class Machine {
   afterRead = new Map<string, () => Promise<void>>()
   // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
   busy: (() => void) | undefined
+  // Runs before each command the guard starts: a slow command in the middle of a decision.
+  onRun: ((argv: readonly string[]) => void) | undefined
   private tick = 1
   private nextPid = 1000
 
   mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
   // A write takes the clock's time, a fraction of a millisecond apart from the one before.
-  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); const t = this.clock + this.tick++ / 1000; this.files.set(p, { text, mtimeMs: t, ctimeMs: t }) }
+  // A record's time is unique per write (the module caches by it); any other file's falls a tenth of a millisecond in,
+  // before the call that wrote it ends.
+  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); const t = this.at(p); this.files.set(p, { text, mtimeMs: t, ctimeMs: t }) }
+  private at(p: string) { return this.clock + (p.startsWith(`${DIR}/`) ? this.tick++ / 1000 : 0.1) }
   // A copy that keeps the old modification time (`cp -p`): only the inode change time is now.
-  replace(p: string, text: string) { const f = this.files.get(p)!; this.files.set(p, { text, mtimeMs: f.mtimeMs, ctimeMs: this.clock + this.tick++ / 1000 }) }
+  replace(p: string, text: string) { const f = this.files.get(p)!; this.files.set(p, { text, mtimeMs: f.mtimeMs, ctimeMs: this.at(p) }) }
   advance(seconds: number) { this.clock += seconds * 1000 }
   // What `$(cat file)` gives in the shell: the text without its trailing newlines.
   cat(p: string) { return (this.files.get(p)?.text ?? '').replace(/\n+$/, '') }
@@ -115,12 +120,14 @@ class Machine {
         return this.dirs.has(p) ? { kind: 'dir', realPath: p, mtimeMs: this.dirTimes.get(p) } : f === undefined ? undefined : { kind: 'file', realPath: p, mtimeMs: f.mtimeMs, size: f.text.length }
       },
       run: async (argv, init) => {
+        this.onRun?.(argv)
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
         const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c' && !x.startsWith('--attr-source=')) : argv
         return { exitCode: this.failing.get(bare[0] === 'git' ? `git ${bare[3]}` : bare[0]!) ?? 0, ...this.answer(pid, bare) }
       },
-      now: () => this.clock,
+      // Whole milliseconds, as Date.now gives them; file times keep their fraction.
+      now: () => Math.floor(this.clock),
     }
   }
 
@@ -232,7 +239,8 @@ async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], 
   const v = await s.before(cwd, ...steps)
   if (v.decision !== 'stop') {
     effect?.()
-    s.m.advance(0.01)
+    // The call ends within the millisecond its last write took.
+    s.m.advance(0.0002)
     await s.after(cwd, steps, v.seen, ok)
   }
   return v
@@ -976,6 +984,7 @@ test('guard: alone in a checkout, a session owns what changed during its own Bas
   await call(me, r, ['touch more'], () => changeIn(m, r, 'kept.txt'))
   m.advance(5)
   expect((await me.bash(r, 'git restore kept.txt')).decision, 'its-own-file').not.toBe('stop')
+  m.advance(1)
   m.replace(`${r}/kept.txt`, 'restored with cp -p')
   m.advance(5)
   expect((await me.bash(r, 'git restore kept.txt')).decision, 'a-copy-that-kept-the-old-mtime-between-its-calls-is-not-its-own').toBe('stop')
@@ -1023,6 +1032,15 @@ test('guard: once another session writes in the checkout, the session owns only 
   await call(me, '/w/r', [at(o, 'npm test')], () => { changeIn(m, o, 'out.txt'); m.end(peer.pid); m.advance(60) })
   m.advance(120)
   expect((await me.bash(o, 'git reset --hard')).decision, 'a-first-touch-next-to-a-live-writer-is-mixed').toBe('stop')
+})
+
+test('guard: a writer mark is the time the call is let through, not the time its check began', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const peer = session('peer')
+  m.onRun = argv => { if (argv.includes('status')) { m.advance(5); m.onRun = undefined } }
+  await call(peer, r, ['make gen'])
+  expect(m.rec('peer').checkouts[r]!.writer, 'writer-mark-taken-after-a-slow-first-touch').toBe(now(m))
 })
 
 test('guard: a sweep keeps the tombstone a live session still needs, and a resumed session infers nothing from before', async () => {

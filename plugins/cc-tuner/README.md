@@ -167,7 +167,7 @@ the user is never asked.
   branch switch where a peer's cwd is.
 
 A session's own files are the paths it edited and, in a checkout no other session writes in, the files its own
-Bash calls changed in this process (read from the inode change time, one `stat` before a destructive command);
+Bash calls changed in this process (read from the inode change time, in one shell before a destructive command);
 those pass. A file changed before the session came or between its calls (the user, a tool
 left running) stays protected, and so does every file it did not edit once another session writes in the same
 checkout. A session alone in its product gets no "could not read" notes.

@@ -337,7 +337,8 @@ export class Peers {
   private now() { return Math.floor(this.w.now() / 1000) }
   ms() { return this.w.now() }
 
-  // The inode change time of each file in ms, read by one `stat`: unlike the modification time, no tool can set it back.
+  // The inode change time of each file in ms, read in one shell (a `stat` per file, so a missing one keeps the lines
+  // aligned): unlike the modification time, no tool can set it back.
   async ctimes(files: readonly string[]): Promise<(number | undefined)[]> {
     const r = await this.w.run(['/bin/sh', '-c', CTIMES, 'sh', ...files]).catch(() => undefined)
     const lines = r?.exitCode === 0 ? r.stdout.split('\n') : []
@@ -353,7 +354,8 @@ export class Peers {
     const writers = (top: string) => others.filter(r => (r.checkouts[top]?.writer ?? null) !== null)
     const live = await this.live(open.flatMap(([top]) => writers(top)))
     for (const [top, co] of open) {
-      if (writers(top).some(r => live.has(r) || r.checkouts[top]!.writer! >= co.since!)) co.mixed = true
+      // Marks are whole seconds: one taken in the second before this session came may belong to a write after it.
+      if (writers(top).some(r => live.has(r) || r.checkouts[top]!.writer! >= co.since! - 1)) co.mixed = true
     }
   }
 
@@ -989,10 +991,11 @@ export class Peers {
       if (verdict.decision !== 'stop') {
         for (const { at, writes, switch: sw } of plan) {
           if (at === undefined) continue
-          if (ev.phase === 'before' && writes) r.checkouts[at[0]]!.writer = now
+          // Taken now, after the slow first touch and the decision, right before the record is published.
+          if (ev.phase === 'before' && writes) r.checkouts[at[0]]!.writer = this.now()
           if (ev.phase === 'before' && sw) seen[at[0]] = await this.branch(at[0])
         }
-        if (ev.phase === 'before' && ev.tool !== undefined && EDITS.has(ev.tool) && co !== undefined) co.writer = now
+        if (ev.phase === 'before' && ev.tool !== undefined && EDITS.has(ev.tool) && co !== undefined) co.writer = this.now()
         if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined && here !== undefined && co !== undefined) {
           const rel = relpath(await this.real(target), here[0])
           if (!co.paths.includes(rel)) co.paths.push(rel)
@@ -1326,7 +1329,8 @@ class Guard {
     if (found !== undefined && calls.length > 0) {
       const maybe = changed.filter(([x, y, f]) => !owns(mine, f) && !owns(found, f) && !owns(edited, f) && x !== 'D' && y !== 'D').map(([, , f]) => f)
       const times = maybe.length === 0 ? [] : await this.p.ctimes(maybe.map(f => join(top, f)))
-      maybe.forEach((f, i) => { const t = times[i]; if (t !== undefined && calls.some(([s, e]) => t >= s && t <= e)) made.add(f) })
+      // Windows are whole milliseconds and file times finer, so a file time counts by the millisecond it falls in.
+      maybe.forEach((f, i) => { const t = times[i]; if (t !== undefined && calls.some(([s, e]) => Math.floor(t) >= s && Math.floor(t) <= e)) made.add(f) })
     }
     return f => !owns(mine, f) && !made.has(f)
   }
