@@ -914,7 +914,9 @@ export class Peers {
       const pid = await this.pid()
       if (pid === undefined) return { decision: 'allow', line: '' }
       const now = this.now()
-      if (ev.phase === 'start') {
+      // A new session id in this process (/clear, an in-process resume) is followed on whatever event shows it first, so
+      // a start that came where nothing is recorded cannot carry the old conversation's acks into the new one.
+      if (sid !== null) {
         const own = this.mine(recs, pid, (await this.starts([pid])).get(pid))
         if (own !== undefined && own[1].session_id !== sid) await this.follow(recs, own, sid)
       }

@@ -1428,6 +1428,25 @@ test('guard: a recursive removal of a parent inspects every known checkout under
   expect((await decide(r, 'rm -rf /p/u')).decision, 'remove-parent-of-an-unknown-checkout').toBe('allow')
 })
 
+test('record: /clear drops acks on any event, also when its start came outside every repository', async () => {
+  const { m, session, peer, me, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const ghost = session('ghost')
+  m.repo('/p/c/r')
+  await ghost.touch('/p/c/r')
+  m.end(ghost.pid)
+  m.dirty('/p/c/r', '?? foreign.txt')
+  m.mkdir('/nowhere')
+  const first = await me.bash('/nowhere', 'rm -rf /p/c/r')
+  expect(first.decision).toBe('stop')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(first.reason ?? '')![1]!
+  expect((await me.check({ cwd: '/nowhere', tool: 'Bash', acks: [key], steps: [step('rm -rf /p/c/r')] })).decision, 'clear-the-ack-passes-before').toBe('allow')
+  const cleared = new Session(m, me.pid, 'after-clear')
+  await cleared.start('/nowhere')
+  expect((await cleared.bash('/nowhere', 'rm -rf /p/c/r')).decision, 'clear-outside-a-repository-drops-the-ack').toBe('stop')
+})
+
 test('guard: a recursive removal of a known checkout is decided whatever the cwd is, a directory that is no repository included', async () => {
   const { m, session, peer, me, ready, decide } = world()
   await ready
