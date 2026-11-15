@@ -341,7 +341,7 @@ printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' 'h filter=glob' 'i
 commit_file "$RI" g one; commit_file "$RI" f one; commit_file "$RI" h one; commit_file "$RI" i one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
 git init -q -b main "$W/subsrc"; printf '%s\n' 'x filter=sf' > "$W/subsrc/.gitattributes"; commit_file "$W/subsrc" x one
 ( cd "$W/subsrc" && git add .gitattributes && git commit -q -m attrs )
-git -C "$RI" -c protocol.file.allow=always submodule add -q "$W/subsrc" sm 2>/dev/null; ( cd "$RI" && git commit -q -m sm )
+git -C "$RI" -c protocol.file.allow=always submodule add -q "$W/subsrc" sm > "$W/sm.err" 2>&1 || { echo "DIAG submodule add failed:"; sed "s/^/    /" "$W/sm.err"; }; ( cd "$RI" && git commit -q -m sm )
 git -C "$RI" switch -q -c side; commit_file "$RI" f side
 git -C "$RI" switch -q main; commit_file "$RI" f mine
 git -C "$RI" worktree add -q "$W/wi" side; WI="$(cd "$W/wi" && pwd -P)"
@@ -359,6 +359,7 @@ ran() { [ -e "$MK/$1" ] && echo yes || echo no; }
 guard_ran() { grep -qs '^by=1$' "$MK/$1" && echo yes || echo no; }
 HOME="$W/home" git -C "$RI" status >/dev/null 2>&1; git -C "$RI" merge-tree --write-tree main side >/dev/null 2>&1
 for m in process clean include global sub merge; do equals "inert-control-a-plain-status-runs-the-$m-filter" "yes" "$(ran $m)"; done
+[ "$(ran sub)" = yes ] || { echo "DIAG sub: $(git -C "$RI" submodule status 2>&1) | $(git -C "$RI/sm" config --get filter.sf.clean 2>&1) | $(git -C "$RI" status --porcelain 2>&1 | tr "\n" " ")"; }
 rm -f "$MK"/*
 script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input: {}}, {name: "Bash", input: {command: "git reset --hard"}}]}')"
 HOME="$W/home" e2e "$RI" go
@@ -428,6 +429,9 @@ e2e "$RG" go
 check  "git-config-a-plain-reset-hard-still-runs" "plain-42" "$(cat "$W/api.log")"
 equals "git-config-a-plain-reset-hard-leaves-the-submodule-alone" "edit" "$(cat "$RG/sg/x")"
 
+# On a CI-only failure, what the session itself printed is the only evidence of why it stopped.
+diag_rm() { grep -q "would delete foreign.txt" "$W/api.log" || { echo "DIAG claude.out ($1):"; tail -n 25 "$W/claude.out" | sed 's/^/    /'; }; }
+
 # A recursive removal reaches every checkout under its target, not only a target that is itself a checkout root. The
 # parent holds a checkout a record of a finished session names (a tombstone) with a file nobody here edited; the session
 # runs in another repository. The control removes the same parent once the checkout is clean.
@@ -437,6 +441,7 @@ RO="$(repo)"
 peer; PRM=$SP; fixture prm "$PRM" "$RP/r" null; kill "$PRM"; until [ -z "$(lstart "$PRM")" ]; do sleep 0.05; done
 script "$(jq -nc --arg c "rm -rf $RP" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
 e2e "$RO" go
+diag_rm rmparent
 check  "remove-a-parent-of-a-checkout-with-a-foreign-file-stops" "would delete foreign.txt in $RP/r" "$(cat "$W/api.log")"
 equals "remove-a-parent-keeps-the-foreign-file" "precious" "$(cat "$RP/r/foreign.txt")"
 rm -f "$RP/r/foreign.txt"
@@ -450,6 +455,7 @@ mkdir -p "$W/nonrepo"
 peer; PRX=$SP; fixture prx "$PRX" "$RX/r" null; kill "$PRX"; until [ -z "$(lstart "$PRX")" ]; do sleep 0.05; done
 script "$(jq -nc --arg c "rm -rf $RX/r" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
 e2e "$W/nonrepo" go
+diag_rm rmabs
 check  "remove-from-a-non-repository-cwd-stops" "would delete foreign.txt in $RX/r" "$(cat "$W/api.log")"
 equals "remove-from-a-non-repository-cwd-keeps-the-foreign-file" "precious" "$(cat "$RX/r/foreign.txt")"
 
