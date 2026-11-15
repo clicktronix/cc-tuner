@@ -914,6 +914,32 @@ function world() {
 }
 const now = (m: Machine) => Math.floor(m.clock / 1000)
 
+test('guard: a lone session owns what changed after it first touched the checkout; what was changed before, or next to another writer, stays protected', async () => {
+  const { m, session } = machine()
+  const [r, u] = [m.repo('/w/solo'), m.repo('/w/user')]
+  m.dirty(u, ' M before.txt')
+  const me = session('me')
+  await me.bash(r, 'git status')
+  await me.bash(u, 'git status')
+  for (const top of [r, u]) m.dirty(top, ' M a.txt', '?? gen/out.ts')
+  for (const c of ['git add -A', 'git add .', 'git commit -qam x', 'git restore .', 'git stash -u', 'git clean -fd', 'git reset --hard']) {
+    expect((await me.bash(r, c)).decision, `solo-own-bash-change: ${c}`).not.toBe('stop')
+  }
+  for (const c of ['git restore a.txt', 'git clean -fd gen', 'git add gen']) expect((await me.bash(u, c)).decision, `solo-own-path-next-to-the-users: ${c}`).not.toBe('stop')
+  for (const c of ['git add -A', 'git reset --hard', 'git restore .', 'git stash']) {
+    const v = await me.bash(u, c)
+    expect(v.decision, `solo-changed-before-the-session: ${c}`).toBe('stop')
+    expect(v.reason).toContain('before.txt')
+    expect(v.reason).not.toContain('a.txt')
+  }
+  expect((await me.bash(r, 'eval git log')).decision, 'solo-no-peer-means-no-could-not-read-note').toBe('allow')
+  const peer = session('peer')
+  await peer.touch(r)
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) })
+  expect((await me.bash(r, 'git restore a.txt')).decision, 'a-second-writer-makes-a-new-change-unattributable').toBe('stop')
+  expect((await me.bash(r, 'eval git log')).decision, 'with-a-peer-the-note-comes-back').toBe('note')
+})
+
 test('guard: a switch next to a writer stops with a short reason; idle, cwd-only or dead peers do not', async () => {
   const { m, r, peer, me, ready, decide, other } = world()
   await ready
@@ -1410,6 +1436,10 @@ test('guard: a recursive removal of a parent inspects every known checkout under
   m.dirty('/p/o/r', '?? mine.txt')
   await me.edited('/p/o/r', '/p/o/r/mine.txt', 'Write')
   expect((await decide(r, 'rm -rf /p/o')).decision, 'remove-parent-of-own-edits').toBe('allow')
+  // Another session wrote there after this one came and has exited: what it left is not this session's.
+  const co = session('co')
+  await co.touch('/p/o/r')
+  m.end(co.pid)
   m.dirty('/p/o/r', '?? foreign.txt')
   expect((await decide(r, 'rm -rf /p/o')).reason, 'remove-parent-of-own-and-foreign').toContain('foreign.txt in /p/o/r')
   // The checkout holding the session's cwd.
@@ -1549,8 +1579,8 @@ test('guard: an edit of a dirty or untracked file this session did not edit is a
   const { m, session } = machine()
   const r = m.repo('/w/r')
   const [peer, me] = [session('peer'), session('me')]
-  await me.bash(r, 'git status')
   m.dirty(r, ' M a.txt', '?? u.txt', ' M p.txt', ' M own.txt')
+  await me.bash(r, 'git status')
   await peer.edited(r, `${r}/p.txt`)
   m.edit('peer', x => { x.checkouts[r]!.writer = null })
   await me.edited(r, `${r}/own.txt`)
@@ -2134,6 +2164,7 @@ test('record: a record of the wrong shape or version is skipped and noted once a
   await ready
   expect(m.rec('peer').v, 'record-is-versioned').toBe(1)
   m.dirty(r, ' M f')
+  m.edit('me', x => { x.checkouts[r]!.found = ['f'] })
   m.edit('peer', x => { delete (x.checkouts[r] as Partial<Rec['checkouts'][string]>).paths })
   const first = await decide(r, 'git status')
   expect(first.decision).toBe('note')

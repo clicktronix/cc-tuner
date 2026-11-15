@@ -168,6 +168,21 @@ script '{"when": "", "calls": []}'
 CC_TUNER_PEERS_DIR="$W/fresh/peers" e2e "$RT" go
 equals "record-directory-is-made-private" "700" "$(stat -c %a "$W/fresh/peers" 2>/dev/null || stat -f %Lp "$W/fresh/peers")"
 
+# --- alone: what the session changed through Bash is its own; what was changed before it came is not ----------------
+# Each command gets a checkout of its own: a session exited in the same second as another came is a writer next to it.
+for c in "git add -A" "git commit -qam fmt" "git restore ." "git stash -u" "git clean -fd" "git reset --hard"; do
+  RS="$(repo)"; commit_file "$RS" a.txt a
+  script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: "echo b >> a.txt && mkdir -p gen && echo x > gen/out.ts"}}, {name: "Bash", input: {command: $c}}]}')"
+  e2e "$RS" go
+  equals "alone-own-bash-change-runs: $c" "0" "$(said 'CC_TUNER_ACK=')"
+done
+RS="$(repo)"; commit_file "$RS" a.txt a
+printf 'user\n' >> "$RS/a.txt"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "echo x > own.txt"}}, {name: "Bash", input: {command: "git add -A"}}]}')"
+e2e "$RS" go
+check  "alone-a-change-from-before-the-session-stops" "would stage a.txt in" "$(cat "$W/api.log")"
+equals "alone-the-stop-leaves-out-the-sessions-own" "0" "$(said 'stage a.txt, own.txt')"
+
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
 commit_file "$RB" f.txt one

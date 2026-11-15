@@ -49,7 +49,9 @@ interface Config { product?: string; off: boolean; products: Record<string, stri
 interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
 export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
 export interface Kept { id: string; key: string; top?: string }
-interface Checkout { repo: string; expected: string; writer: number | null; paths: string[] }
+// `since` and `found`: when the session first touched the checkout and the files already changed then; absent in a
+// record from before them.
+interface Checkout { repo: string; expected: string; writer: number | null; paths: string[]; since?: number; found?: string[] }
 export interface Rec {
   v: 1; session_id: string | null; pid: number; start: string; seen: number
   claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: Kept[]
@@ -279,7 +281,7 @@ function valid(r: unknown): r is Rec {
     && (r.session_id === null || typeof r.session_id === 'string') && isObject(r.acks) && Object.values(r.acks).every(t => typeof t === 'number')
     && Array.isArray(r.kept) && r.kept.every(k => isObject(k) && typeof k.id === 'string' && typeof k.key === 'string')
     && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
-    && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths))
+    && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths) && (c.found === undefined || (strings(c.found) && typeof c.since === 'number')))
 }
 
 function parseConfig(text: string): Config {
@@ -636,9 +638,15 @@ export class Peers {
     return [name, r]
   }
 
-  private async touch(r: Rec, [top, common]: Where): Promise<Checkout> {
+  // A checkout's first touch also notes what was already changed there: those files are not this session's.
+  private async touch(r: Rec, at: Where): Promise<Checkout> {
     r.seen = this.now()
-    return (r.checkouts[top] ??= { repo: common, expected: await this.branch(top), writer: null, paths: [] })
+    const [top, common] = at
+    if (r.checkouts[top] === undefined) {
+      const [expected, changed] = [await this.branch(top), await this.status(at, [])]
+      r.checkouts[top] ??= { repo: common, expected, writer: null, paths: [], ...(changed && { since: this.now(), found: changed.map(([, , f]) => f) }) }
+    }
+    return r.checkouts[top]
   }
 
   // --- peers --------------------------------------------------------------------------------------------
@@ -1107,13 +1115,13 @@ class Guard {
     await this.shared(w, at)
     if (blind && (name === 'git' || name === 'gh' || name === 'rm')) {
       if (destroys(w)) await this.unresolved(w, scope)
-      else this.note(`could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
+      else await this.unsure(scope, `could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
     }
     else if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at, d)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
     else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
-    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) this.note(`could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
+    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) await this.unsure(scope, `could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
   }
 
   // A destructive step in a directory nobody could tell (an earlier `cd` may have failed, or goes where the guard cannot read)
@@ -1148,7 +1156,7 @@ class Guard {
     const after = listed ? undefined : a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
     const args = (x: readonly string[]) => (listed ? undefined : x)
     if (sub.startsWith('-')) {
-      this.note(`could not read \`${label}\`; if a peer works in ${top}, check first.`)
+      await this.unsure(at, `could not read \`${label}\`; if a peer works in ${top}, check first.`)
     } else if (sub === 'switch' || sub === 'checkout') {
       if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (listed || after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
         await this.recursing(at, label, 'checkout', a)
@@ -1226,7 +1234,7 @@ class Guard {
       else if (!x.startsWith('-')) sel.push(x)
     }
     if (sel.length === 0) await this.delete(at, [await this.p.branch(at[0])], label)
-    else if (/^\d+$|^https?:\/\//.test(sel[0]!)) this.note(`\`${label}\` deletes a branch it does not name; if a peer works on it, check first.`)
+    else if (/^\d+$|^https?:\/\//.test(sel[0]!)) await this.unsure(at, `\`${label}\` deletes a branch it does not name; if a peer works on it, check first.`)
     else await this.delete(at, [sel[0]!], label)
   }
 
@@ -1253,19 +1261,36 @@ class Guard {
     return this.r.checkouts[top]?.paths ?? []
   }
 
+  // Whether a changed file is someone else's: changed before this session first touched the checkout, edited by
+  // another session, or changed while another session, live or exited, also wrote there. What changed since, with
+  // no other writer, is this session's own, whatever tool changed it.
+  private others(at: Where): (f: string) => boolean {
+    const top = at[0]
+    const { since, found } = this.r.checkouts[top] ?? {}
+    const next = [...this.recs].filter(([n]) => n !== this.name).flatMap(([, r]) => r.checkouts[top] ?? [])
+    const shared = since === undefined || found === undefined || next.some(co => co.writer !== null && co.writer >= since)
+    const [mine, edited] = [this.own(top), next.flatMap(co => co.paths)]
+    return f => !owns(mine, f) && (shared || owns(found!, f) || owns(edited, f))
+  }
+
+  // A note that only matters next to a peer: a session alone in its product gets none.
+  private async unsure(at: Where | undefined, text: string) {
+    if (at === undefined || (await this.peers(at)).length > 0) this.note(text)
+  }
+
   // The changed files of a checkout this session did not edit, within the paths a command reaches.
   // `into` is a commit about to be checked out over the tree: the untracked files its tree holds are overwritten too.
   private async foreign(at: Where, kinds: string, specs: readonly string[] | undefined, d: string, into?: string): Promise<string[] | undefined> {
     const top = at[0]
-    const mine = this.own(top)
+    const theirs = this.others(at)
     const reach = specs === undefined || specs.some(unresolved) ? undefined : await Promise.all(specs.map(async x => relpath(await this.p.real(join(d, x)), top)))
     const changed = await this.p.status(at, this.staged.get(top) ?? [])
     if (changed === undefined) return undefined
     const lost = changed
       .filter(([x]) => !((kinds === 'tracked' && x === '?') || (kinds === 'untracked' && x !== '?') || (kinds === 'staged' && ' ?'.includes(x))))
       .map(([, , f]) => f)
-      .filter(f => !owns(mine, f) && (reach === undefined || reach.some(x => covers(x, f))))
-    const loose = into === undefined ? [] : changed.filter(([x, , f]) => x === '?' && !owns(mine, f) && !lost.includes(f)).map(([, , f]) => f)
+      .filter(f => theirs(f) && (reach === undefined || reach.some(x => covers(x, f))))
+    const loose = into === undefined ? [] : changed.filter(([x, , f]) => x === '?' && theirs(f) && !lost.includes(f)).map(([, , f]) => f)
     if (loose.length === 0) return lost
     const tree = await this.p.tree(top, into!)
     if (tree === undefined) return undefined
@@ -1396,7 +1421,7 @@ class Guard {
   private async edit(at: Where, rel: string) {
     const [top, common] = at
     const key = `dirty:${top}|${rel}`
-    if (!owns(this.own(top), rel) && this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && ((await this.p.status(at, [], rel)) ?? []).length > 0) {
+    if (this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL && this.others(at)(rel) && ((await this.p.status(at, [], rel)) ?? []).length > 0) {
       this.once(key, `${rel} has uncommitted changes this session did not make (${await this.owner(top, [rel])}); read it before overwriting.`)
     }
     for (const [r, cos] of await this.peers(at)) {

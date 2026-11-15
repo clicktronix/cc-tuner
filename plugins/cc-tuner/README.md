@@ -158,13 +158,17 @@ one repository, or in repositories sharing a `product` key, see each other. Befo
 allows, notes or stops. A stop names the peer, what would be lost and one way on; the agent picks it, and
 the user is never asked.
 
-- **Stops:** a branch switch in a checkout another session writes in; discarding or committing files this
-  session did not edit (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push
+- **Stops:** a branch switch in a checkout another session writes in; discarding or committing files that
+  are not this session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push
   or PR from a branch other than the one the session started on; deleting a peer's branch or removing its
   worktree; a shared resource's stop command, or `TaskStop` of its start, while another product session is
   live; an exclusive resource leased to another session; `kill` of a peer's process.
 - **Notes**, and the action runs: an edit in a checkout with another writer or of a path a peer claimed; a
   branch switch where a peer's cwd is.
+
+A file is this session's when it changed after the session came and no other session wrote in that checkout
+since, whatever tool changed it. One changed before the session came, edited by another session, or changed
+next to another writer is not, and stays protected. A session alone in its product gets no notes.
 
 A Bash stop is passed by running the same command prefixed `CC_TUNER_ACK=<key>` (the key is in the reason).
 The ack covers one action on one target for 30 minutes, and the prefix is stripped before the command runs.
