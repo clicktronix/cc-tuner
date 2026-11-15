@@ -99,6 +99,9 @@ const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
 // How many of its own calls a session remembers.
 const CALLS = 200
+// Whether a writer's mark may be a write after this checkout's first touch. Marks are whole seconds: one taken in the
+// second before `since` may belong to a write after it.
+const wroteSince = (them: Checkout, me: Checkout) => them.writer !== null && me.since !== undefined && them.writer >= me.since - 1
 const CTIMES = 'if stat -f %Fc / >/dev/null 2>&1; then for f; do stat -f %Fc -- "$f" 2>/dev/null || echo -; done; ' +
   'else for f; do stat -c %.9Z -- "$f" 2>/dev/null || echo -; done; fi'
 const CALL = '\u0000call'
@@ -354,8 +357,7 @@ export class Peers {
     const writers = (top: string) => others.filter(r => (r.checkouts[top]?.writer ?? null) !== null)
     const live = await this.live(open.flatMap(([top]) => writers(top)))
     for (const [top, co] of open) {
-      // Marks are whole seconds: one taken in the second before this session came may belong to a write after it.
-      if (writers(top).some(r => live.has(r) || r.checkouts[top]!.writer! >= co.since! - 1)) co.mixed = true
+      if (writers(top).some(r => live.has(r) || wroteSince(r.checkouts[top]!, co))) co.mixed = true
     }
   }
 
@@ -640,7 +642,7 @@ export class Peers {
     // A tombstone whose writer mark keeps a live session's checkout from owning what it wrote stays until that session
     // has seen it (its next event marks the checkout mixed).
     const needed = (t: Rec) => [...live].some(x => x !== t && Object.entries(x.checkouts).some(([top, co]) =>
-      co.mixed !== true && co.since !== undefined && (t.checkouts[top]?.writer ?? -1) >= co.since))
+      co.mixed !== true && co.since !== undefined && t.checkouts[top] !== undefined && wroteSince(t.checkouts[top]!, co)))
     const old = [...recs].filter(([, r]) => !live.has(r) && now - (r.seen ?? 0) > DAY && !needed(r)).map(([n]) => n)
     await this.forget(recs, old)
   }
@@ -988,14 +990,14 @@ export class Peers {
         (r.calls ??= []).push([opened, ended])
         r.calls.splice(0, Math.max(0, r.calls.length - CALLS))
       }
+      const writing: Checkout[] = []
       if (verdict.decision !== 'stop') {
         for (const { at, writes, switch: sw } of plan) {
           if (at === undefined) continue
-          // Taken now, after the slow first touch and the decision, right before the record is published.
-          if (ev.phase === 'before' && writes) r.checkouts[at[0]]!.writer = this.now()
+          if (ev.phase === 'before' && writes) writing.push(r.checkouts[at[0]]!)
           if (ev.phase === 'before' && sw) seen[at[0]] = await this.branch(at[0])
         }
-        if (ev.phase === 'before' && ev.tool !== undefined && EDITS.has(ev.tool) && co !== undefined) co.writer = this.now()
+        if (ev.phase === 'before' && ev.tool !== undefined && EDITS.has(ev.tool) && co !== undefined) writing.push(co)
         if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined && here !== undefined && co !== undefined) {
           const rel = relpath(await this.real(target), here[0])
           if (!co.paths.includes(rel)) co.paths.push(rel)
@@ -1009,6 +1011,10 @@ export class Peers {
         }
       }
       r.acks = Object.fromEntries(Object.entries(r.acks).filter(([, t]) => now - t < NOTE_TTL))
+      // The writer mark is the time the record is published, after every read this call waited on: a session that came
+      // meanwhile has an earlier `since`, so it sees the mark as a write after it came.
+      const stamp = this.now()
+      for (const c of writing) c.writer = stamp
       await this.save(name, r)
       const out: Verdict & { line?: string } = { ...verdict }
       if (Object.keys(seen).length > 0) out.seen = seen

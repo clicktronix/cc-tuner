@@ -1043,6 +1043,17 @@ test('guard: a writer mark is the time the call is let through, not the time its
   expect(m.rec('peer').checkouts[r]!.writer, 'writer-mark-taken-after-a-slow-first-touch').toBe(now(m))
 })
 
+test('guard: writer marks are stamped after every awaited read of the call, right before the record is published', async () => {
+  const { m, session } = machine()
+  const [r, q] = [m.repo('/w/r'), m.repo('/w/q')]
+  const peer = session('peer')
+  await peer.bash(r, 'git status')
+  await peer.bash(q, 'git status')
+  m.afterRead.set(`${q}/.git/HEAD`, async () => { m.advance(5) })
+  await peer.before(r, 'make gen', at(q, 'git switch x', '&&'))
+  expect(m.rec('peer').checkouts[r]!.writer, 'writer-mark-taken-after-the-branch-read-of-a-later-step').toBe(now(m))
+})
+
 test('guard: a sweep keeps the tombstone a live session still needs, and a resumed session infers nothing from before', async () => {
   const { m, session } = machine()
   const r = m.repo('/w/r')
