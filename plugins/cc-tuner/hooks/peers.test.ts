@@ -37,7 +37,8 @@ class Machine {
   private nextPid = 1000
 
   mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
-  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); this.files.set(p, { text, mtimeMs: this.tick++ }) }
+  // A write takes the clock's time, a fraction of a millisecond apart from the one before.
+  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); this.files.set(p, { text, mtimeMs: this.clock + this.tick++ / 1000 }) }
   advance(seconds: number) { this.clock += seconds * 1000 }
   // What `$(cat file)` gives in the shell: the text without its trailing newlines.
   cat(p: string) { return (this.files.get(p)?.text ?? '').replace(/\n+$/, '') }
@@ -520,7 +521,7 @@ test('record: written on first touch with the pid, start time, session and first
   const { m, session } = machine()
   const r1 = m.repo('/w/r1')
   const s1 = session('s1')
-  expect(await s1.touch(r1)).toEqual({ decision: 'allow' })
+  expect((await s1.touch(r1)).decision).toBe('allow')
   expect(m.rec('s1')).toMatchObject({ pid: s1.pid, start: m.procs.get(s1.pid)!.start, session_id: 's1' })
   expect(m.rec('s1').checkouts[r1]!.expected, 'record-expected-first-touch').toBe('main')
   m.head(r1, 'other')
@@ -578,6 +579,21 @@ test('liveness-pid-reuse', async () => {
   expect(await me.report(r1), 'liveness-control-matching-start-is-live').toContain(`pid ${s4.pid}`)
   m.edit('s4', r => { r.start = 'Mon Jan  1 00:00:00 2001' })
   expect(await me.report(r1), 'a record whose pid was reused reads as live').not.toContain(`pid ${s4.pid}`)
+})
+
+test('record: an in-process resume keeps the newer writer mark and the calls of the tombstone it adopts', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const a = session('a')
+  await a.touch(r)
+  m.advance(10)
+  const b = session('b')
+  await call(b, r, ['make gen'])
+  const [mark, made] = [m.rec('b').checkouts[r]!.writer, m.rec('b').calls![0]!]
+  m.end(b.pid)
+  await a.check({ phase: 'after', tool: 'Read', cwd: r, session_id: 'b' })
+  expect(m.rec('a').checkouts[r]!.writer, 'resume-merge-keeps-the-newer-writer-mark').toBe(mark)
+  expect(m.rec('a').calls, 'resume-merge-keeps-the-adopted-calls').toContainEqual(made)
 })
 
 test('record: a tombstone untouched for 24 h is removed, and kept before', async () => {
@@ -864,7 +880,9 @@ test('guard: the expected branch moves only when HEAD changed during this sessio
   state('a', 'a')
   await call(g, re, ['git add f', then('git commit -m m')], () => m.head(re, 'b'))
   expect(expected(), 'guard-head-changed-without-a-switch-step-keeps-it').toBe('a')
-  expect(await g.bash(re, 'git add f'), 'guard-no-switch-step-takes-no-snapshot').toEqual({ decision: 'allow' })
+  const plain = await g.bash(re, 'git add f')
+  expect(plain.decision).toBe('allow')
+  expect(Object.keys(plain.seen ?? {}).filter(k => k.startsWith('/')), 'guard-no-switch-step-takes-no-snapshot').toEqual([])
   state('a', 'b')
   await call(g, re, ['git switch nosuch'])
   expect(expected(), 'guard-drifted-failed-switch-keeps-it').toBe('a')
@@ -914,30 +932,48 @@ function world() {
 }
 const now = (m: Machine) => Math.floor(m.clock / 1000)
 
-test('guard: a lone session owns what changed after it first touched the checkout; what was changed before, or next to another writer, stays protected', async () => {
+test('guard: a session owns what changed during its own Bash calls; what changed before it came, between its calls, or next to another writer\'s call stays protected', async () => {
   const { m, session } = machine()
   const [r, u] = [m.repo('/w/solo'), m.repo('/w/user')]
-  m.dirty(u, ' M before.txt')
+  const change = (top: string, ...files: string[]) => { for (const f of files) { m.put(`${top}/${f}`, 'x'); m.dirty(top, `${f.startsWith('gen/') ? '??' : ' M'} ${f}`) } }
+  change(u, 'before.txt')
   const me = session('me')
   await me.bash(r, 'git status')
   await me.bash(u, 'git status')
-  for (const top of [r, u]) m.dirty(top, ' M a.txt', '?? gen/out.ts')
+  m.advance(5)
+  await call(me, r, ['prettier --write .'], () => change(r, 'a.txt', 'gen/out.ts'))
+  await call(me, u, ['prettier --write .'], () => change(u, 'a.txt', 'gen/out.ts'))
+  m.advance(5)
   for (const c of ['git add -A', 'git add .', 'git commit -qam x', 'git restore .', 'git stash -u', 'git clean -fd', 'git reset --hard']) {
-    expect((await me.bash(r, c)).decision, `solo-own-bash-change: ${c}`).not.toBe('stop')
+    expect((await me.bash(r, c)).decision, `own-bash-change: ${c}`).not.toBe('stop')
   }
-  for (const c of ['git restore a.txt', 'git clean -fd gen', 'git add gen']) expect((await me.bash(u, c)).decision, `solo-own-path-next-to-the-users: ${c}`).not.toBe('stop')
+  for (const c of ['git restore a.txt', 'git clean -fd gen', 'git add gen']) expect((await me.bash(u, c)).decision, `own-path-next-to-the-users: ${c}`).not.toBe('stop')
   for (const c of ['git add -A', 'git reset --hard', 'git restore .', 'git stash']) {
     const v = await me.bash(u, c)
-    expect(v.decision, `solo-changed-before-the-session: ${c}`).toBe('stop')
+    expect(v.decision, `changed-before-the-session: ${c}`).toBe('stop')
     expect(v.reason).toContain('before.txt')
     expect(v.reason).not.toContain('a.txt')
   }
-  expect((await me.bash(r, 'eval git log')).decision, 'solo-no-peer-means-no-could-not-read-note').toBe('allow')
+  m.advance(30)
+  change(r, 'user.txt')
+  m.advance(30)
+  const between = await me.bash(r, 'git reset --hard')
+  expect(between.decision, 'changed-between-its-calls-is-not-its-own').toBe('stop')
+  expect(between.reason).toContain('user.txt')
+  expect(between.reason).not.toContain('a.txt')
+  expect((await me.bash(r, 'eval git log')).decision, 'no-peer-means-no-could-not-read-note').toBe('allow')
+  // Another session's call running while this one's: what either wrote has no single author, even after it exited.
+  m.advance(5)
   const peer = session('peer')
   await peer.touch(r)
-  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) })
-  expect((await me.bash(r, 'git restore a.txt')).decision, 'a-second-writer-makes-a-new-change-unattributable').toBe('stop')
-  expect((await me.bash(r, 'eval git log')).decision, 'with-a-peer-the-note-comes-back').toBe('note')
+  const running = await peer.before(r, 'make gen')
+  await call(me, r, ['prettier --write .'], () => change(r, 'b.txt'))
+  await peer.after(r, ['make gen'], running.seen)
+  m.end(peer.pid)
+  m.advance(25 * 3600)
+  const mixed = await me.bash(r, 'git restore b.txt')
+  expect(mixed.decision, 'a-call-next-to-another-writers-call-owns-nothing').toBe('stop')
+  expect((await me.bash(r, 'git restore a.txt')).decision, 'an-earlier-call-alone-still-owns-its-files').not.toBe('stop')
 })
 
 test('guard: a switch next to a writer stops with a short reason; idle, cwd-only or dead peers do not', async () => {

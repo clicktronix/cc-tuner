@@ -168,13 +168,22 @@ script '{"when": "", "calls": []}'
 CC_TUNER_PEERS_DIR="$W/fresh/peers" e2e "$RT" go
 equals "record-directory-is-made-private" "700" "$(stat -c %a "$W/fresh/peers" 2>/dev/null || stat -f %Lp "$W/fresh/peers")"
 
-# --- alone: what the session changed through Bash is its own; what was changed before it came is not ----------------
-# Each command gets a checkout of its own: a session exited in the same second as another came is a writer next to it.
-for c in "git add -A" "git commit -qam fmt" "git restore ." "git stash -u" "git clean -fd" "git reset --hard"; do
-  RS="$(repo)"; commit_file "$RS" a.txt a
+# --- alone: what the session's own Bash calls changed is its own; what was changed before it came is not -----------
+# Each command gets a checkout of its own, and its effect is read back from git.
+effect() {
+  case "$1" in
+    "git add -A") git -C "$2" diff --cached --name-only | tr '\n' ' ' ;;
+    "git commit -qam fmt") git -C "$2" log -1 --format=%s ;;
+    "git stash -u") git -C "$2" stash list | wc -l | tr -d ' ' ;;
+    "git clean -fd") [ -e "$2/gen" ] && echo kept || echo gone ;;
+    *) cat "$2/a.txt" ;;
+  esac
+}
+for pair in "git add -A|a.txt gen/out.ts " "git commit -qam fmt|fmt" "git restore .|a" "git stash -u|1" "git clean -fd|gone" "git reset --hard|a"; do
+  c="${pair%%|*}"; RS="$(repo)"; commit_file "$RS" a.txt a
   script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: "echo b >> a.txt && mkdir -p gen && echo x > gen/out.ts"}}, {name: "Bash", input: {command: $c}}]}')"
   e2e "$RS" go
-  equals "alone-own-bash-change-runs: $c" "0" "$(said 'CC_TUNER_ACK=')"
+  equals "alone-own-bash-change-runs: $c" "${pair#*|}" "$(effect "$c" "$RS")"
 done
 RS="$(repo)"; commit_file "$RS" a.txt a
 printf 'user\n' >> "$RS/a.txt"
@@ -182,6 +191,7 @@ script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "echo x > o
 e2e "$RS" go
 check  "alone-a-change-from-before-the-session-stops" "would stage a.txt in" "$(cat "$W/api.log")"
 equals "alone-the-stop-leaves-out-the-sessions-own" "0" "$(said 'stage a.txt, own.txt')"
+equals "alone-the-stopped-add-staged-nothing" "" "$(git -C "$RS" diff --cached --name-only)"
 
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"

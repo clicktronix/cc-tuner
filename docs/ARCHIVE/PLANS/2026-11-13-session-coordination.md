@@ -42,11 +42,14 @@ never asked.
   redirection, `-delete`/`-exec`, `--output` or `--pre`); an uncertain form counts as a writer call. Running tests
   counts; a false writer stop passes with an ack. The 2 h window applies only to the writer stop
   on a branch switch; the other peer-dependent protections follow liveness.
-- **Foreign file.** A dirty or staged file this session cannot call its own: it was already changed
-  when the session first touched the checkout, another session edited it, or another session, live or
-  exited, wrote in that checkout after this one came. Its protection does not expire. A file that
-  changed after the session came, with no other writer there, is the session's own, whatever tool
-  changed it (Edit, Write or its own Bash), so a session alone passes its own work without an ack.
+- **Foreign file.** A dirty or staged file this session cannot call its own. Its own are the paths it
+  edited (Edit, Write) and the files whose last change falls inside one of its own Bash calls while no
+  other session, live or exited, ran a call at the same time; the record keeps those call windows
+  with that mark, so the attribution outlives a peer's tombstone. Everything else is foreign and its
+  protection does not expire: a file already changed when the session first touched the checkout,
+  one another session edited (a path this session edited too stays its own), one changed between the session's calls (the user, a peer, a tool left
+  running), and a deleted file. Known limit: a user's edit made while the session's own command runs,
+  or later rewritten by such a command, counts as the session's.
 - **Guard.** It runs before every tool call and returns `allow`, `note` or `stop`.
   - **How it reads commands.**
     - It unwraps `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&` and `$(...)`, and
