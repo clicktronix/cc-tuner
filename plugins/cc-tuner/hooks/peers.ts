@@ -230,11 +230,10 @@ function destroys(w: readonly string[]): boolean {
 }
 // What a `git commit` says about its files: the paths it names, past the options that take a value and the message they
 // carry (`-mmine`, `-m mine`, `-am mine`), whether it takes all tracked changes (`-a`) or the staged files too (`-i`),
-// whether it takes the staged files at all (`-o` ignores them, and with `--amend` and no paths commits none), and the file
-// that lists its paths (`--pathspec-from-file`, split on NUL with `--pathspec-file-nul`).
+// and whether it takes the staged files at all (`-o` ignores them, and with `--amend` and no paths commits none).
 const COMMIT_VALUED = new Set(['--message', '--file', '--reuse-message', '--reedit-message', '--template', '--author', '--date', '--cleanup', '--fixup', '--squash', '--trailer'])
 function commitArgs(a: readonly string[]) {
-  const out = { paths: [] as string[], all: false, include: false, only: false, amend: false, nul: false, from: undefined as string | undefined }
+  const out = { paths: [] as string[], all: false, include: false, only: false, amend: false }
   for (let i = 0; i < a.length; i++) {
     const x = a[i]!
     if (x === '--') { out.paths.push(...a.slice(i + 1)); break }
@@ -242,9 +241,6 @@ function commitArgs(a: readonly string[]) {
     else if (x === '--include') out.include = true
     else if (x === '--only') out.only = true
     else if (x === '--amend') out.amend = true
-    else if (x === '--pathspec-file-nul') out.nul = true
-    else if (x === '--pathspec-from-file') out.from = a[++i] ?? ''
-    else if (x.startsWith('--pathspec-from-file=')) out.from = x.slice('--pathspec-from-file='.length)
     else if (COMMIT_VALUED.has(x)) i++
     else if (x.startsWith('-') && !x.startsWith('--')) {
       const bundle = x.slice(1)
@@ -1013,24 +1009,6 @@ export class Peers {
     }
   }
 
-  // The paths a `--pathspec-from-file` file lists, or undefined when they cannot be told: no such file, stdin, a file past
-  // 1 MiB, or a quoted element with an escape other than \\ and \".
-  async pathspecs(file: string, nul: boolean): Promise<string[] | undefined> {
-    const st = await this.w.stat(file)
-    if (st?.kind !== 'file' || (st.size ?? 0) > 1 << 20) return undefined
-    const text = await this.w.read(file).catch(() => undefined)
-    if (text === undefined) return undefined
-    const out: string[] = []
-    for (const line of text.split(nul ? '\0' : '\n')) {
-      const x = nul ? line : line.replace(/\r$/, '')
-      if (x === '') continue
-      if (nul || !x.startsWith('"')) out.push(x)
-      else if (/^"([^"\\]|\\[\\"])*"$/.test(x)) out.push(x.slice(1, -1).replace(/\\([\\"])/g, '$1'))
-      else return undefined
-    }
-    return out
-  }
-
   isDir = async (p: string) => (await this.w.stat(p))?.kind === 'dir'
 }
 
@@ -1162,13 +1140,16 @@ class Guard {
     const top = at[0]
     if (w.length < 2) return
     const [sub, a, label] = [w[1]!, w.slice(2), w.join(' ').slice(0, 60)]
-    const after = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
+    // Paths listed in a file are never read: the file can change before the command reads it, so the scope is unresolved.
+    const listed = a.some(x => x === '--pathspec-from-file' || x.startsWith('--pathspec-from-file='))
+    const after = listed ? undefined : a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
+    const args = (x: readonly string[]) => (listed ? undefined : x)
     if (sub.startsWith('-')) {
       this.note(`could not read \`${label}\`; if a peer works in ${top}, check first.`)
     } else if (sub === 'switch' || sub === 'checkout') {
-      if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
+      if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (listed || after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
         await this.recursing(at, label, 'checkout', a)
-        await this.lose(at, d, label, 'checkout', 'overwrite', 'tracked', after ?? operands(a))
+        await this.lose(at, d, label, 'checkout', 'overwrite', 'tracked', after ?? args(operands(a)))
       } else {
         if (has(a, '--force', 'f') || a.includes('--discard-changes')) {
           await this.recursing(at, label, sub, a)
@@ -1191,12 +1172,11 @@ class Guard {
       await this.lose(at, d, label, 'clean', 'delete', 'untracked', operands(a).length > 0 ? operands(a) : ['.'])
     } else if (sub === 'restore') {
       await this.recursing(at, label, 'restore', a)
-      await this.lose(at, d, label, 'restore', 'overwrite', 'tracked', operands(a))
+      await this.lose(at, d, label, 'restore', 'overwrite', 'tracked', args(operands(a)))
     } else if (sub === 'commit') {
       await this.drift(at, label, 'commit')
-      const { paths: named, all, include, only, amend, nul, from } = commitArgs(a)
-      const paths = from === undefined ? named : await this.p.pathspecs(join(d, from), nul)
-      if (paths === undefined) await this.lose(at, d, label, 'commit', 'commit', 'tracked')
+      const { paths, all, include, only, amend } = commitArgs(a)
+      if (listed) await this.lose(at, d, label, 'commit', 'commit', 'tracked')
       else if (paths.length === 0) {
         if (!(only && amend && !all)) await this.lose(at, d, label, 'commit', 'commit', all ? 'tracked' : 'staged')
       } else {
@@ -1204,14 +1184,14 @@ class Guard {
         await this.lose(at, d, label, 'commit', 'commit', 'tracked', paths)
       }
     } else if (sub === 'add') {
-      const args = operands(a)
+      const named = listed ? [] : operands(a)
       const wide: string[] = []
-      for (const x of args) if (x === '.' || /[*?[]/.test(x) || await this.p.isDir(join(d, x))) wide.push(x)
+      for (const x of named) if (x === '.' || /[*?[]/.test(x) || await this.p.isDir(join(d, x))) wide.push(x)
       const staged = this.staged.get(top) ?? []
-      for (const x of args) if (!wide.includes(x)) staged.push(relpath(await this.p.real(join(d, x)), top))
+      for (const x of named) if (!wide.includes(x)) staged.push(relpath(await this.p.real(join(d, x)), top))
       this.staged.set(top, staged)
-      if (has(a, '--all', 'A')) await this.lose(at, d, label, 'add', 'stage', 'all')
-      else if (has(a, '--update', 'u')) await this.lose(at, d, label, 'add', 'stage', 'tracked', args.length > 0 ? args : undefined)
+      if (has(a, '--all', 'A') || listed) await this.lose(at, d, label, 'add', 'stage', 'all')
+      else if (has(a, '--update', 'u')) await this.lose(at, d, label, 'add', 'stage', 'tracked', named.length > 0 ? named : undefined)
       else if (wide.length > 0) await this.lose(at, d, label, 'add', 'stage', 'all', wide)
     } else if (sub === 'push') {
       await this.drift(at, label, 'push')

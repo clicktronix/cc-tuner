@@ -1232,28 +1232,27 @@ test('guard: git commit protects what it will commit: its paths, or the staged f
   expect((await decide(r, 'git commit -m m')).decision, 'a plain commit takes only the staged files').toBe('allow')
 })
 
-test('guard: git commit --pathspec-from-file commits the paths the file lists, and every tracked change when it cannot be read', async () => {
+test('guard: a git command given --pathspec-from-file has a scope nobody read, so it reaches every foreign file', async () => {
   const { m, r, peer, me, ready, decide } = world()
   await ready
   m.end(peer.pid)
   m.status.set(r, ['M  foreign.txt', ' M own.txt', ' M other.txt'])
   await me.edited(r, `${r}/own.txt`)
   m.put(`${r}/own-list`, 'own.txt\n')
-  m.put(`${r}/other-list`, '"other.txt"\r\nown.txt\n')
-  m.put(`${r}/nul-list`, 'other.txt\0')
-  m.put(`${r}/odd-list`, '"caf\\303\\251"\n')
-  const go = (c: string) => decide(r, c)
-  expect((await go('git commit --pathspec-from-file=own-list -m m')).decision, 'pathspec-file-lists-an-own-path').toBe('allow')
-  expect((await go('git commit --pathspec-from-file own-list -m m')).decision, 'pathspec-file-in-the-two-word-form').toBe('allow')
-  const other = await go('git commit --pathspec-from-file=other-list -m m')
-  expect(other.decision, 'pathspec-file-lists-a-foreign-path').toBe('stop')
-  expect(other.reason).toContain('other.txt')
-  expect((await go('git commit --pathspec-from-file=nul-list --pathspec-file-nul -m m')).reason, 'pathspec-file-nul-is-split-on-nul').toContain('other.txt')
-  for (const c of ['git commit --pathspec-from-file=missing -m m', 'git commit --pathspec-from-file=- -m m', 'git commit --pathspec-from-file=odd-list -m m']) {
-    expect((await go(c)).reason, `pathspec-file-unreadable-takes-every-tracked-change: ${c}`).toContain('foreign.txt')
+  const verbs = ['restore', 'commit -m m', 'checkout', 'stash push', 'add']
+  for (const verb of verbs) {
+    const [sub, ...rest] = verb.split(' ')
+    for (const flag of ['--pathspec-from-file=own-list', '--pathspec-from-file own-list', '--pathspec-from-file=own-list --pathspec-file-nul', '--pathspec-file-nul --pathspec-from-file own-list', '--pathspec-from-file=-']) {
+      const c = `git ${sub} ${flag} ${rest.join(' ')}`.trim()
+      const v = await decide(r, c)
+      expect(v.decision, `pathspec-file-is-an-unread-scope: ${c}`).toBe('stop')
+      expect(v.reason, `pathspec-file-names-the-foreign-file: ${c}`).toContain('foreign.txt')
+    }
   }
-  m.put(`${r}/big-list`, 'own.txt\n'.repeat(200_000))
-  expect((await go('git commit --pathspec-from-file=big-list -m m')).decision, 'pathspec-file-too-big-is-unreadable').toBe('stop')
+  expect((await decide(r, 'git commit own.txt -m m')).decision, 'a commit of literal own paths is allowed').toBe('allow')
+  expect((await decide(r, 'git restore own.txt')).decision, 'a restore of a literal own path is allowed').toBe('allow')
+  expect((await decide(r, 'git commit -m m --pathspec-from-file=nowhere')).reason, 'a file that does not exist is as unread as one that does').toContain('foreign.txt')
+  expect(m.reads.filter(x => x.endsWith('own-list')), 'the guard never reads a pathspec file').toEqual([])
 })
 
 test('guard: git commit --only with no paths and --amend commits none of the staged files', async () => {
