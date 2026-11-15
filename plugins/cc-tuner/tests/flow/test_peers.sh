@@ -438,6 +438,16 @@ rm -f "$RP/r/foreign.txt"
 e2e "$RO" go
 equals "remove-a-parent-of-a-clean-checkout-runs" "no" "$([ -e "$RP" ] && echo yes || echo no)"
 
+# The same removal from a directory that is no repository is decided too: a removal finds its roots in the records, not in the cwd.
+RX="$W/rmabs"; mkdir -p "$RX"; git init -q -b main "$RX/r"; commit_file "$RX/r" a one; RX="$(cd "$RX" && pwd -P)"
+printf 'precious\n' > "$RX/r/foreign.txt"
+mkdir -p "$W/nonrepo"
+peer; PRX=$SP; fixture prx "$PRX" "$RX/r" null; kill "$PRX"; until [ -z "$(lstart "$PRX")" ]; do sleep 0.05; done
+script "$(jq -nc --arg c "rm -rf $RX/r" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+e2e "$W/nonrepo" go
+check  "remove-from-a-non-repository-cwd-stops" "would delete foreign.txt in $RX/r" "$(cat "$W/api.log")"
+equals "remove-from-a-non-repository-cwd-keeps-the-foreign-file" "precious" "$(cat "$RX/r/foreign.txt")"
+
 # `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
 # and only creates a marker file; a plain `git status` is the control that it runs.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"

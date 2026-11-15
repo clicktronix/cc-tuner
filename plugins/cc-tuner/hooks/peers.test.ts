@@ -1429,6 +1429,27 @@ test('guard: a recursive removal of a parent inspects every known checkout under
   expect((await decide(r, 'rm -rf /p/u')).decision, 'remove-parent-of-an-unknown-checkout').toBe('allow')
 })
 
+test('guard: a recursive removal of a known checkout is decided whatever the cwd is, a directory that is no repository included', async () => {
+  const { m, session, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const ghost = session('ghost')
+  m.repo('/p/n/r')
+  await ghost.touch('/p/n/r')
+  m.end(ghost.pid)
+  m.dirty('/p/n/r', '?? foreign.txt')
+  m.mkdir('/nowhere')
+  const v = await decide('/nowhere', 'rm -rf /p/n/r')
+  expect(v.decision, 'remove-from-a-non-repository-cwd').toBe('stop')
+  expect(v.reason).toContain('foreign.txt in /p/n/r')
+  expect((await decide('/nowhere', 'rm -rf /p/n')).decision, 'remove-a-parent-from-a-non-repository-cwd').toBe('stop')
+  expect((await decide('/p/n', 'rm -rf r')).decision, 'remove-a-relative-operand-from-a-non-repository-cwd').toBe('stop')
+  expect((await decide('/nowhere', 'rm -rf /tmp/scratch')).decision, 'remove-an-unknown-path-from-a-non-repository-cwd').toBe('allow')
+  m.status.set('/p/n/r', [])
+  expect((await decide('/nowhere', 'rm -rf /p/n/r')).decision, 'remove-a-clean-checkout-from-a-non-repository-cwd').toBe('allow')
+  void me
+})
+
 test('guard: kill of a process that descends from a peer stops; its own or an unrelated one does not', async () => {
   const { m, session, other } = machine() as ReturnType<typeof machine> & { other?: never }
   void other

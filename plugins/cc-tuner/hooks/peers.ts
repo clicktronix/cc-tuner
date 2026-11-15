@@ -210,6 +210,24 @@ function switches(step: Partial<Step>): boolean {
   return (name === 'git' && (sub === 'switch' || sub === 'checkout' || (sub === 'branch' && has(rest, '--move', 'mM'))))
     || (name === 'gh' && sub === 'pr' && (rest[0] === 'checkout' || rest[0] === 'merge'))
 }
+// The steps a guard decision is about: a recursive removal, and what git or gh discards, overwrites, deletes, stashes,
+// commits, stages or moves a branch of.
+function destroys(w: readonly string[]): boolean {
+  const [name, sub, a] = [basename(w[0] ?? ''), w[1] ?? '', w.slice(2)]
+  if (name === 'rm') return has(w.slice(1), '--recursive', 'rR')
+  if (name === 'gh') return sub === 'pr' && (a[0] === 'checkout' || (a[0] === 'merge' && has(a.slice(1), '--delete-branch', 'd')))
+  if (name !== 'git') return false
+  switch (sub) {
+    case 'switch': case 'checkout': case 'restore': case 'commit': case 'add': return true
+    case 'reset': return a.includes('--hard')
+    case 'clean': return !has(a, '--dry-run', 'n')
+    case 'stash': return ['push', 'save', 'drop', 'clear'].includes(a.length > 0 && !a[0]!.startsWith('-') ? a[0]! : 'push')
+    case 'push': return has(a, '--delete', 'd') || operands(a).some(x => x.startsWith(':'))
+    case 'branch': return has(a, '--delete', 'dD')
+    case 'worktree': return a[0] === 'remove'
+    default: return false
+  }
+}
 // What a `git commit` says about its files: the paths it names, past the options that take a value and the message they
 // carry (`-mmine`, `-m mine`, `-am mine`), whether it takes all tracked changes (`-a`) or the staged files too (`-i`),
 // whether it takes the staged files at all (`-o` ignores them, and with `--amend` and no paths commits none), and the file
@@ -888,10 +906,11 @@ export class Peers {
         plan.push({ st, writes, switch: sw, blind: blind && writes, at: known ? (d === norm(ev.cwd) ? here : await this.where(d)) : undefined, d })
       }
     }
-    // Outside every repository only a command of the machine's shared resources matters: a stop can be refused, and a
-    // start makes this session a user of the resource, with a record that has no checkout.
+    // Outside every repository only a step that finds its own targets matters: a command of the machine's shared
+    // resources (a stop can be refused, and a start makes this session a user of the resource, with a record that has no
+    // checkout) and a removal, whose roots come from the records. Nothing that needs the cwd's checkout does.
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
-    if ((bare && !(ev.phase === 'before' && await this.machineUse(plan.map(p => p.st.words ?? [])))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
+    if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     return this.serial(async () => {
       const { recs, bad } = await this.load()
       await this.sweep(recs)
@@ -935,6 +954,10 @@ export class Peers {
       if (ev.phase === 'start' && here !== undefined) out.line = await this.startLine(recs, name, r, here)
       return out
     })
+  }
+
+  private async finds(plan: { st: Partial<Step> }[]): Promise<boolean> {
+    return plan.some(p => basename(p.st.words?.[0] ?? '') === 'rm' && destroys(p.st.words!)) || this.machineUse(plan.map(p => p.st.words ?? []))
   }
 
   // Whether a command starts or stops a shared resource the machine's own file declares.
@@ -1104,7 +1127,7 @@ class Guard {
     else if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at, d)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
-    else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) { if (scope !== undefined) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1))) }
+    else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
     else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) this.note(`could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
   }
 
@@ -1313,9 +1336,9 @@ class Guard {
   // The checkouts a recursive removal of `path` reaches: every root at or under it that a record names (live or a
   // tombstone), this session's own, the one holding the session's cwd and the step's own, and the target itself when it
   // is one. A parent of a checkout is removed with it, so each is read as a direct removal of it would be.
-  private async roots(path: string, at: Where, there: Where | undefined): Promise<Where[]> {
+  private async roots(path: string, at: Where | undefined, there: Where | undefined): Promise<Where[]> {
     const prefix = path.endsWith('/') ? path : `${path}/`
-    const tops = [...this.recs.values(), this.r].flatMap(r => Object.keys(r.checkouts)).concat(at[0], this.here?.[0] ?? [], there?.[0] ?? [])
+    const tops = [...this.recs.values(), this.r].flatMap(r => Object.keys(r.checkouts)).concat(at?.[0] ?? [], this.here?.[0] ?? [], there?.[0] ?? [])
     const found: Where[] = []
     for (const top of [...new Set(tops)].filter(t => t === path || t.startsWith(prefix)).sort()) {
       const w = await this.p.where(top)
@@ -1324,12 +1347,12 @@ class Guard {
     return found
   }
 
-  private async remove(at: Where, d: string, label: string, paths: readonly string[]) {
+  private async remove(at: Where | undefined, d: string, label: string, paths: readonly string[]) {
     for (const p of paths) {
       const path = await this.p.real(join(d, p))
       const there = await this.p.where(path)
       const roots = await this.roots(path, at, there)
-      for (const w of [...roots, there ?? at]) {
+      for (const w of there ?? at ? [...roots, (there ?? at)!] : roots) {
         for (const [r, cos] of await this.peers(w, true)) {
           for (const [top, co] of cos) {
             if (top === path || top.startsWith(`${path}/`)) this.stop('remove', path, `\`${label}\` would remove ${path}, where ${who(r, co)} works.`)
