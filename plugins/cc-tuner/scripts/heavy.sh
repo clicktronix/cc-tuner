@@ -418,8 +418,13 @@ while True:
 leave_if_caller_gone()
 leave_queue()
 env = dict(os.environ, CC_TUNER_HEAVY_HELD=",".join("slot-%d" % i for i in sorted(held)))
+# A signal that comes while the command starts waits until its group is known and stop() is in place;
+# before, the default action ended this process and left the new session's group running.
+SIGS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+signal.pthread_sigmask(signal.SIG_BLOCK, SIGS)
 try:
-    child = subprocess.Popen(cmd, env=env, pass_fds=tuple(held.values()), start_new_session=True)
+    child = subprocess.Popen(cmd, env=env, pass_fds=tuple(held.values()), start_new_session=True,
+                             preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, SIGS))
 except OSError as e:
     sys.stderr.write("heavy.sh: cannot run %s: %s\n" % (cmd[0], e))
     sys.exit(127)
@@ -445,8 +450,9 @@ def stop(sig, _frame):
             time.sleep(0.1)
     sys.exit(128 + sig)
 
-for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+for sig in SIGS:
     signal.signal(sig, stop)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, SIGS)
 rc = child.wait()
 code = rc if rc >= 0 else 128 - rc
 left = members()
@@ -459,7 +465,7 @@ if left and os.fork() == 0:
     null = os.open(os.devnull, os.O_RDWR)
     for std in (0, 1, 2):
         os.dup2(null, std)
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    for sig in SIGS:
         signal.signal(sig, signal.SIG_DFL)
     for i in held:
         write_owner(i, "%s weight=%d (exited %d; keeper=%d holds the slot for leftover work) since=%s cwd=%s\ngroup=%d\n"
