@@ -331,7 +331,11 @@ rm -rf "$LOCK" "$LOCK.take"
 
 # --- inspection is inert: the guard's own git reads run nothing the repository, an included file or ~/.gitconfig configures ---
 # A clean filter runs while `git status` hashes a changed file, a merge driver while merge-tree merges two commits, and a
-# submodule's own filter while status goes into it. The marker files show whether any ran; a plain `git status` is the control.
+# submodule's own filter while status goes into it. A filter appends `by=<GIT_ATTR_NOSYSTEM>` to its marker file: the guard's
+# own git reads set GIT_ATTR_NOSYSTEM=1 (GIT_ENV), a plain `git status` does not. The session's host runs a plain `git status`
+# of its own at start (Claude Code on Linux: `status --short --ignore-submodules=dirty` for its gitStatus context, which runs
+# the repository's clean filters), so a marker file alone cannot tell whose git ran the filter: `ran` is the control's
+# question (did any git run it), `guard_ran` the guard's (did a git of the guard's run it).
 RI="$(repo)"; MK="$W/inert"; mkdir -p "$MK" "$W/home"
 printf '%s\n' 'f filter=evil' 'f merge=evil' 'g filter=plain' 'h filter=glob' 'i filter=inc' > "$RI/.gitattributes"
 commit_file "$RI" g one; commit_file "$RI" f one; commit_file "$RI" h one; commit_file "$RI" i one; ( cd "$RI" && git add .gitattributes && git commit -q -m attrs )
@@ -342,16 +346,17 @@ git -C "$RI" switch -q -c side; commit_file "$RI" f side
 git -C "$RI" switch -q main; commit_file "$RI" f mine
 git -C "$RI" worktree add -q "$W/wi" side; WI="$(cd "$W/wi" && pwd -P)"
 peer; PI=$SP; fixture pi "$PI" "$WI" null
-git -C "$RI" config filter.evil.process "touch '$MK/process'; cat"
-git -C "$RI" config filter.plain.clean "touch '$MK/clean'; cat"
+git -C "$RI" config filter.evil.process "echo by=\${GIT_ATTR_NOSYSTEM:-plain} >> '$MK/process'; cat"
+git -C "$RI" config filter.plain.clean "echo by=\${GIT_ATTR_NOSYSTEM:-plain} >> '$MK/clean'; cat"
 git -C "$RI" config filter.plain.required true
 git -C "$RI" config merge.evil.driver "touch '$MK/merge'"
-printf '[filter "inc"]\n\tclean = touch %s; cat\n' "$MK/include" > "$W/inc.cfg"; git -C "$RI" config include.path "$W/inc.cfg"
-printf '[filter "glob"]\n\tclean = touch %s; cat\n' "$MK/global" > "$W/home/.gitconfig"
-git -C "$RI/sm" config filter.sf.clean "touch '$MK/sub'; cat"
+printf '[filter "inc"]\n\tclean = echo by=${GIT_ATTR_NOSYSTEM:-plain} >> %s; cat\n' "$MK/include" > "$W/inc.cfg"; git -C "$RI" config include.path "$W/inc.cfg"
+printf '[filter "glob"]\n\tclean = echo by=${GIT_ATTR_NOSYSTEM:-plain} >> %s; cat\n' "$MK/global" > "$W/home/.gitconfig"
+git -C "$RI/sm" config filter.sf.clean "echo by=\${GIT_ATTR_NOSYSTEM:-plain} >> '$MK/sub'; cat"
 # The same size as the committed text, so git hashes the file rather than trusting the size.
 printf 'mind\n' > "$RI/f"; printf 'two\n' > "$RI/g"; printf 'two\n' > "$RI/h"; printf 'two\n' > "$RI/i"; printf 'two\n' > "$RI/sm/x"
 ran() { [ -e "$MK/$1" ] && echo yes || echo no; }
+guard_ran() { grep -qs '^by=1$' "$MK/$1" && echo yes || echo no; }
 HOME="$W/home" git -C "$RI" status >/dev/null 2>&1; git -C "$RI" merge-tree --write-tree main side >/dev/null 2>&1
 for m in process clean include global sub merge; do equals "inert-control-a-plain-status-runs-the-$m-filter" "yes" "$(ran $m)"; done
 rm -f "$MK"/*
@@ -359,11 +364,11 @@ script "$(jq -nc '{when: "", calls: [{name: "mcp__cc-tuner__peers_report", input
 HOME="$W/home" e2e "$RI" go
 check  "inert-the-guard-still-sees-the-changed-file"  "would discard f, g, h" "$(cat "$W/api.log")"
 check  "inert-the-report-still-sees-the-conflict"     "conflicts with HEAD: f" "$(cat "$W/api.log")"
-equals "inert-status-runs-no-clean-filter"            "no" "$(ran clean)"
-equals "inert-status-runs-no-filter-process"          "no" "$(ran process)"
-equals "inert-status-runs-no-filter-of-an-included-file" "no" "$(ran include)"
-equals "inert-status-runs-no-filter-of-the-global-config" "no" "$(ran global)"
-equals "inert-status-runs-no-filter-of-a-submodule"   "no" "$(ran sub)"
+equals "inert-status-runs-no-clean-filter"            "no" "$(guard_ran clean)"
+equals "inert-status-runs-no-filter-process"          "no" "$(guard_ran process)"
+equals "inert-status-runs-no-filter-of-an-included-file" "no" "$(guard_ran include)"
+equals "inert-status-runs-no-filter-of-the-global-config" "no" "$(guard_ran global)"
+equals "inert-status-runs-no-filter-of-a-submodule"   "no" "$(guard_ran sub)"
 equals "inert-merge-tree-runs-no-merge-driver"        "no" "$(ran merge)"
 
 # `merge.default` names the driver for a file whose attributes name none, so an attribute-free merge-tree runs it too. The
@@ -452,7 +457,7 @@ equals "remove-from-a-non-repository-cwd-keeps-the-foreign-file" "precious" "$(c
 # and only creates a marker file; a plain `git status` is the control that it runs.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"
 commit_file "$RA" k one
-git -C "$RA" config filter.infomarker.clean "touch '$MA/clean'; cat"
+git -C "$RA" config filter.infomarker.clean "echo by=\${GIT_ATTR_NOSYSTEM:-plain} >> '$MA/clean'; cat"
 mkdir -p "$RA/.git/info"; printf '%s\n' 'k filter=infomarker' >> "$RA/.git/info/attributes"
 printf 'two\n' > "$RA/k"
 git -C "$RA" status >/dev/null 2>&1
@@ -461,12 +466,12 @@ rm -f "$MA/clean"
 script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "git reset --hard"}}]}')"
 e2e "$RA" go
 check  "info-attributes-the-guard-still-sees-the-changed-file" "would discard k" "$(cat "$W/api.log")"
-equals "info-attributes-the-guard-runs-no-clean-filter" "no" "$([ -e "$MA/clean" ] && echo yes || echo no)"
+equals "info-attributes-the-guard-runs-no-clean-filter" "no" "$(grep -qs '^by=1$' "$MA/clean" && echo yes || echo no)"
 rm -f "$MA/clean"
 head -c 70000 /dev/zero | tr '\0' '#' >> "$RA/.git/info/attributes"
 e2e "$RA" go
 check  "info-attributes-an-oversized-file-is-unread" "could not read git status" "$(cat "$W/api.log")"
-equals "info-attributes-an-oversized-file-runs-no-filter" "no" "$([ -e "$MA/clean" ] && echo yes || echo no)"
+equals "info-attributes-an-oversized-file-runs-no-filter" "no" "$(grep -qs '^by=1$' "$MA/clean" && echo yes || echo no)"
 
 # --- an untracked file the destination tree holds is lost to reset --hard, checkout -f and switch -f -----------------
 # Each command runs in a session that did not write u.txt; the file is the user's, untracked, and a branch holds a file of that name.
