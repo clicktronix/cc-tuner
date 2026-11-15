@@ -157,7 +157,7 @@ equals "record-version" "1" "$(e2e_rec .v)"
 rm -rf "$CC_TUNER_PEERS_DIR/.objects.fresh"
 script '{"when": "", "calls": []}'
 CC_TUNER_PEERS_DIR="$W/fresh/peers" e2e "$RT" go
-equals "record-directory-is-made-private" "700" "$(stat -f %Lp "$W/fresh/peers" 2>/dev/null || stat -c %a "$W/fresh/peers")"
+equals "record-directory-is-made-private" "700" "$(stat -c %a "$W/fresh/peers" 2>/dev/null || stat -f %Lp "$W/fresh/peers")"
 
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
