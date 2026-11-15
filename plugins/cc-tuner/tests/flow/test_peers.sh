@@ -114,14 +114,21 @@ PY
 e2e() {
   local repo="$1" n=0; shift
   rm -f "$W/api.log" "$W/api.port" "$W/fed"
-  python3 "$W/fake_api.py" "$W/script.jsonl" "$W/api.log" > "$W/api.port" & API=$!; STARTED="$STARTED $API"
-  until [ -s "$W/api.port" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done
+  python3 "$W/fake_api.py" "$W/script.jsonl" "$W/api.log" > "$W/api.port" 2> "$W/api.err" & API=$!; STARTED="$STARTED $API"
+  until [ -s "$W/api.port" ] || ! kill -0 "$API" 2>/dev/null || [ "$n" -ge 600 ]; do sleep 0.05; n=$((n + 1)); done
+  [ -s "$W/api.port" ] || stand_in_lost "did not start"
   ( cd "$repo" && exec env CLAUDE_CONFIG_DIR="$W/claude-config" ANTHROPIC_BASE_URL="http://127.0.0.1:$(cat "$W/api.port")" \
       ANTHROPIC_API_KEY=sk-ant-stand-in DISABLE_TELEMETRY=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
       claude -p --model haiku --plugin-dir "$FLOW_PLUGIN" --managed-settings "$MANAGED" \
       --dangerously-skip-permissions "$@" < "${STDIN:-/dev/null}" > "$W/claude.out" 2>&1 ) & CP=$!; STARTED="$STARTED $CP"
   n=0; while kill -0 "$CP" 2>/dev/null && [ "$n" -lt 900 ] && [ ! -e "$W/fed" ]; do sleep 0.1; n=$((n + 1)); done
+  kill -0 "$API" 2>/dev/null || stand_in_lost "exited during the session"
   { kill "$CP" "$API"; wait "$API"; } 2>/dev/null; rm -f "$W/api.port"
+}
+# Without the model stand-in every later session waits out its time unanswered, so the suite ends here.
+stand_in_lost() {
+  fail "harness: the model stand-in $1; its stderr: $(tail -n 15 "$W/api.err" | tr '\n' '|'); the session: $(tail -n 5 "$W/claude.out" 2>/dev/null | tr '\n' '|')"
+  exit "$fails"
 }
 script() { printf '%s\n' "$@" > "$W/script.jsonl"; }
 bash_call() { jq -nc --arg c "$1" '{name: "Bash", input: {command: $c}}'; }
