@@ -86,7 +86,8 @@ never asked.
     way on.
     - For a Bash stop, the way on is the same command prefixed `CC_TUNER_ACK=<key>`, which covers
       one action on one target for 30 min. The guard records the ack and strips the prefix before
-      the call, so the user's allow rules still match. The reason says the choice is the agent's.
+      the call, so the user's allow rules still match. When a peer owns what is at stake, the reason
+      says the choice is the agent's; for files of unknown owner it says they may be the user's.
     - For a lease or a `TaskStop`, there is no ack. The way on is to wait, or to `SendMessage` the
       holder when that tool is available.
 - **Resources** are declared, not detected.

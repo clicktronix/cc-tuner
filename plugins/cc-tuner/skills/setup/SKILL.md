@@ -287,10 +287,9 @@ Never omit the row: an absent check reported as nothing is indistinguishable fro
 
 ## Resources files
 
-Session coordination reads two optional files that no node writes: `.claude/cc-tuner-resources.json` in a
-repository (its `product` key and the resources its sessions share or lease) and
-`~/.config/cc-tuner/resources.json` for machine resources such as Chrome's debugging port. Write one only
-when the user asks; the plugin README has the format.
+Session coordination reads two optional files: `.claude/cc-tuner-resources.json` (the repository's `product` key
+and its shared or leased resources) and `~/.config/cc-tuner/resources.json` (machine resources such as Chrome's
+debugging port). Write one only when the user asks; the plugin README has the format.
 
 ## Report
 

@@ -847,7 +847,7 @@ export class Peers {
     if (rule === undefined) return undefined
     const [user] = await this.users(recs, name, kept.top === undefined ? undefined : await this.where(kept.top), rule[1])
     return user === undefined ? undefined
-      : `cc-tuner: task ${task} runs ${kept.key}, which ${user} also uses. Wait until it is done, or SendMessage it when that tool is available.`
+      : `cc-tuner: task ${task} runs ${kept.key}, which ${user} also uses. Wait, or SendMessage that session if you can.`
   }
 
   // What a lease goes by: this session's Claude process and its start time.
@@ -910,12 +910,12 @@ export class Peers {
   }
 
   private taking(key: string): Verdict {
-    return { decision: 'stop', reason: `cc-tuner: ${key} is being taken over by another session; try again shortly.` }
+    return { decision: 'stop', reason: `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.` }
   }
 
   private leased(key: string, h: Holder | undefined, now: number): Verdict {
     const by = h === undefined ? 'another session' : `pid ${h.pid}, used ${now - h.last} s ago`
-    return { decision: 'stop', reason: `cc-tuner: ${key} is leased to ${by}. Wait for it, or SendMessage it when that tool is available.` }
+    return { decision: 'stop', reason: `cc-tuner: ${key} is leased to ${by}. Wait, or SendMessage that session if you can.` }
   }
 
   // Frees the lease only for its holder, checked against the holder file the shell removes it under.
@@ -930,7 +930,7 @@ export class Peers {
         const { exitCode } = await this.w.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])
         if (exitCode !== 2) return exitCode === 0 ? `cc-tuner: released ${key}.` : refused
       }
-      return `cc-tuner: ${key} is busy, being taken or renewed; try again.`
+      return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
     })
   }
 
@@ -1059,7 +1059,7 @@ export class Peers {
     }
     if (peers.length > 0) parts.push(`live peers: ${peers.join(', ')}`)
     if (r.kept.length > 0) parts.push(`kept at /clear: ${r.kept.map(k => `${k.key} (${k.id})`).join(', ')}`)
-    return parts.length === 0 ? '' : `cc-tuner: ${parts.join('; ')}. More: the peers_report tool.`
+    return parts.length === 0 ? '' : `cc-tuner: ${parts.join('; ')}. Details: peers_report.`
   }
 
   // The changed files as [index, worktree, path], or undefined when git did not answer: that is not a clean tree.
@@ -1152,8 +1152,8 @@ class Guard {
   private stop(action: string, target: string, text: string, safe = '', peer = true) {
     const k = crc32(`${action}|${target}`)
     if (this.now - (this.r.acks[k] ?? 0) >= ACK_TTL) {
-      throw new Halt(`cc-tuner: ${text}${safe && ` ${safe}`} To go on, run the same command prefixed CC_TUNER_ACK=${k}.` +
-        (peer ? ' Re-running it is your choice, not a question for the user.' : ''))
+      throw new Halt(`cc-tuner: ${text}${safe && ` ${safe}`} To go on, rerun it prefixed CC_TUNER_ACK=${k}.` +
+        (peer ? " Your call, not the user's." : ''))
     }
   }
 
@@ -1164,8 +1164,8 @@ class Guard {
   // command that discards anything and carries it has an unread scope.
   private configured(top: string, label: string) {
     if (this.config.length === 0) return
-    this.stop('git config', `${top}|config`, `\`${label}\` is given git configuration for this command alone (${listing([...new Set(this.config.map(x => x.split('=')[0]!))])}); ` +
-      'per-command git configuration is not inspected, so what the command reaches is unread.', 'Run it without -c, --config-env and GIT_CONFIG_*, or check the tree yourself.', false)
+    this.stop('git config', `${top}|config`, `\`${label}\` sets git config for itself (${listing([...new Set(this.config.map(x => x.split('=')[0]!))])}), which the guard does not read.`,
+      'Drop -c, --config-env and GIT_CONFIG_*, or check the tree yourself.', false)
   }
 
   // git and gh act on the checkout of their directory; rm and kill reach past it, so outside a repository
@@ -1177,13 +1177,13 @@ class Guard {
     await this.shared(w, at)
     if (blind && (name === 'git' || name === 'gh' || name === 'rm')) {
       if (destroys(w)) await this.unresolved(w, scope)
-      else await this.unsure(scope, `could not read the directory of \`${w.join(' ').slice(0, 60)}\`; if a peer works there, check first.`)
+      else await this.unsure(scope, `could not read the directory of \`${w.join(' ').slice(0, 60)}\`; peers_report shows who works there.`)
     }
     else if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at, d)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
     else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
-    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) await this.unsure(scope, `could not read \`${w.join(' ').slice(0, 60)}\`; if a peer works here, check first.`)
+    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) await this.unsure(scope, `could not read \`${w.join(' ').slice(0, 60)}\`; peers_report shows who works here.`)
   }
 
   // A destructive step in a directory nobody could tell (an earlier `cd` may have failed, or goes where the guard cannot read)
@@ -1195,8 +1195,8 @@ class Guard {
     const known = named.filter(x => x.startsWith('/'))
     if (rm) await this.remove(scope, '/', label, known)
     if (!rm || known.length < named.length) {
-      this.stop('unresolved', `${this.here?.[0] ?? ''}|${w.join(' ')}`, `could not tell which checkout \`${label}\` runs in: an earlier \`cd\` may have failed or goes where the guard cannot read, ` +
-        'so it may lose files a peer or the user changed.', 'Join the `cd` to it with `&&` and a literal directory, or name the directory with `git -C <dir>`.', false)
+      this.stop('unresolved', `${this.here?.[0] ?? ''}|${w.join(' ')}`, `cannot tell which checkout \`${label}\` runs in: an earlier \`cd\` may have failed.`,
+        'Use `cd <dir> && …` or `git -C <dir>`.', false)
     }
   }
 
@@ -1218,7 +1218,7 @@ class Guard {
     const after = listed ? undefined : a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
     const args = (x: readonly string[]) => (listed ? undefined : x)
     if (sub.startsWith('-')) {
-      await this.unsure(at, `could not read \`${label}\`; if a peer works in ${top}, check first.`)
+      await this.unsure(at, `could not read \`${label}\`; peers_report shows who works in ${top}.`)
     } else if (sub === 'switch' || sub === 'checkout') {
       if (sub === 'checkout' && !has(a, '--orphan', 'bB') && (listed || after !== undefined || await this.p.isPath(top, d, operands(a)[0]))) {
         await this.recursing(at, label, 'checkout', a)
@@ -1296,7 +1296,7 @@ class Guard {
       else if (!x.startsWith('-')) sel.push(x)
     }
     if (sel.length === 0) await this.delete(at, [await this.p.branch(at[0])], label)
-    else if (/^\d+$|^https?:\/\//.test(sel[0]!)) await this.unsure(at, `\`${label}\` deletes a branch it does not name; if a peer works on it, check first.`)
+    else if (/^\d+$|^https?:\/\//.test(sel[0]!)) await this.unsure(at, `\`${label}\` deletes a branch it does not name; peers_report shows who works on which.`)
     else await this.delete(at, [sel[0]!], label)
   }
 
@@ -1312,9 +1312,8 @@ class Guard {
     const top = at[0]
     const [head, want] = [await this.p.branch(top), this.r.checkouts[top]!.expected]
     if (!this.moved.has(top) && head !== want && !await this.p.rebasing(top)) {
-      this.stop(`${action} on ${top}`, top, `\`${label}\` would run on ${head || 'a detached HEAD'} in ${top}, not on ${want || 'a detached HEAD'}, ` +
-        'where this session started; someone else switched it.',
-        `${want === '' ? '' : `Switch back with \`git switch ${want}\`. `}After a switch of your own, join the commit to it with \`&&\`, not \`;\`.`)
+      this.stop(`${action} on ${top}`, top, `\`${label}\` would run on ${head || 'a detached HEAD'} in ${top}; this session started on ${want || 'a detached HEAD'}.`,
+        `${want === '' ? 'Join' : `Switch back with \`git switch ${want}\`, or join`} your own switch to the command with \`&&\`.`)
     }
   }
 
@@ -1396,8 +1395,8 @@ class Guard {
     const last = flags(a).filter(x => /^--(no-)?recurse-submodules(=|$)/.test(x)).pop()
     const off = last !== undefined && (last.startsWith('--no-') || /=(no|off|false|0)$/i.test(last))
     if (off || (last === undefined && !(await this.p.recurses(at[0])))) return
-    this.stop(action, `${at[0]}|submodules`, `\`${label}\` would also reach the submodules of ${at[0]}, and submodules are not inspected.`,
-      'Run it with --no-recurse-submodules, or check the submodules yourself.', false)
+    this.stop(action, `${at[0]}|submodules`, `\`${label}\` reaches the submodules of ${at[0]}, which the guard does not inspect.`,
+      'Add --no-recurse-submodules, or check them yourself.', false)
   }
 
   private async foreignStop(action: string, target: string, files: string[], text: string) {
@@ -1477,7 +1476,7 @@ class Guard {
       for (const x of operands(a)) pids.push(...(await this.p.pidsOf(['pgrep', '-x', x]) ?? []))
     }
     const label = [name, ...a].join(' ').slice(0, 60)
-    if (pids === undefined) return this.note(`could not tell which process \`${label}\` stops; if a peer's, check first.`)
+    if (pids === undefined) return this.note(`could not tell which process \`${label}\` stops; peers_report shows each peer's pid.`)
     const table = await this.p.table()
     for (const pid of pids) {
       let [p, hops] = [pid, 0]

@@ -124,8 +124,8 @@ them, update their text in the plan (and the spec if the fact changes its Source
 `plan-lint check` above. A change to acceptance, scope or an Owned path set is not yours to make:
 ask once.
 
-Peers: call `mcp__cc-tuner__peers_claim <plan>` before the first slice, after each tick and before integrating
-the target (when listed). Name a peer that overlaps an open slice's Owned paths before starting that slice.
+Peers: if `mcp__cc-tuner__peers_claim` is listed, call it with the plan before the first slice, after each tick
+and before integrating the target. Before starting a slice that overlaps a peer's claim, say which peer.
 
 Mark tasks `in_progress` and `completed` as work advances. When a slice's criteria hold, tick the plan
 and whichever spec acceptance criteria it established **in the same commit**. When a unit did the

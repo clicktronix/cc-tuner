@@ -446,7 +446,7 @@ test('a destructive command given git configuration is refused through the adapt
   const ran = engine(on, m, m.spawn())
   for (const command of ['git -c submodule.recurse=true reset --hard', 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=submodule.recurse GIT_CONFIG_VALUE_0=true git reset --hard',
     "env GIT_CONFIG_PARAMETERS='submodule.recurse=true' git reset --hard", "GIT_CONFIG_COUNT=1 bash -c 'git reset --hard'", 'git --config-env=submodule.recurse=V reset --hard']) {
-    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('per-command git configuration is not inspected')
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('sets git config for itself')
   }
   expect((await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny).toBeUndefined()
   expect(ran).toEqual(['git reset --hard'])
@@ -818,7 +818,7 @@ test('start: the line appears only with live peers or a kept task', async () => 
   const [p1, p2] = [session('t1'), session('t2')]
   expect((await p1.start(rs)).line).toBe('')
   const { line } = await p2.start(rs)
-  expect(line).toBe(`cc-tuner: live peers: main (rs, pid ${p1.pid}). More: the peers_report tool.`)
+  expect(line).toBe(`cc-tuner: live peers: main (rs, pid ${p1.pid}). Details: peers_report.`)
   expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
   expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
   m.edit('t2', r => { r.kept = [{ id: 'b1', key: 'dev server' }] })
@@ -1086,7 +1086,7 @@ test('guard: a switch next to a writer stops with a short reason; idle, cwd-only
   await ready
   for (const c of ['git switch x', 'git switch -c y', 'git checkout x', 'git checkout -b y', 'git switch --detach']) expect((await decide(r, c)).decision, c).toBe('stop')
   const { reason } = await decide(r, 'git switch x')
-  for (const part of [`pid ${peer.pid}`, 'main', r, 'run the same command prefixed CC_TUNER_ACK=', 'not a question for the user']) expect(reason).toContain(part)
+  for (const part of [`pid ${peer.pid}`, 'main', r, 'rerun it prefixed CC_TUNER_ACK=', 'Your call, not the user']) expect(reason).toContain(part)
   expect(reason!.length).toBeLessThan(300)
   expect((await decide(r, at(other(), 'git switch x'))).decision, 'guard-switch-elsewhere-is-allowed').toBe('allow')
   expect((await decide(r, 'git status', then('git switch x'))).decision).toBe('stop')
@@ -1206,7 +1206,7 @@ test('guard: a destructive command that recurses into submodules stops, since th
     'git checkout -f --recurse-submodules x', 'git switch -f --recurse-submodules x', 'git switch --discard-changes --recurse-submodules x', 'git checkout --recurse-submodules -- g.txt']) {
     const v = await decide(r, c)
     expect(v.decision, `submodules-${c}`).toBe('stop')
-    expect(v.reason, `submodules-say-so-${c}`).toContain('submodules are not inspected')
+    expect(v.reason, `submodules-say-so-${c}`).toContain('which the guard does not inspect')
     expect(v.reason, `submodules-offer-the-ack-${c}`).toContain('CC_TUNER_ACK=')
   }
   for (const c of ['git reset --hard', 'git reset --soft --recurse-submodules', 'git restore g.txt', 'git reset --hard --no-recurse-submodules', 'git checkout -- g.txt']) {
@@ -1233,7 +1233,7 @@ test('guard: a destructive command given git configuration of its own stops, sin
     for (const c of destructive) {
       const v = await decide(r, given(c, ...config))
       expect(v.decision, `config-${c}-${config[0]}`).toBe('stop')
-      expect(v.reason, `config-says-so-${c}`).toContain('per-command git configuration is not inspected')
+      expect(v.reason, `config-says-so-${c}`).toContain('sets git config for itself')
       expect(v.reason, `config-names-the-setting-${c}`).toContain(config[0]!.split('=')[0]!)
       expect(v.reason, `config-offers-the-ack-${c}`).toContain('CC_TUNER_ACK=')
     }
@@ -1470,7 +1470,7 @@ test('guard: commit, push and PR run on the branch this session expects, whoever
   for (const c of ['git commit -m m', 'git push origin x', 'gh pr create --fill', 'gh pr merge 5', 'gh pr merge --squash']) expect((await decide(r, c)).decision, c).toBe('stop')
   const { reason } = await decide(r, 'git commit -m m')
   expect(reason).toContain('on x')
-  expect(reason).toContain('not on main')
+  expect(reason).toContain('this session started on main')
   expect((await decide(other(), at(r, 'git commit -m m'))).decision).toBe('stop')
   expect((await decide(r, 'git status')).decision).toBe('allow')
   expect((await decide(r, 'git switch main', then('git commit -m m'))).decision).toBe('allow')
@@ -1878,7 +1878,7 @@ test('resource: a shared stop command stops while a product session is live, and
   for (const [s, top] of [[sr, ra], [sb, rb], [sc, rc], [sd, rd]] as const) await s.touch(top)
   for (const c of ['stack down', 'docker compose down -v']) expect((await sr.bash(ra, c)).decision, c).toBe('stop')
   const { reason } = await sr.bash(ra, 'stack down')
-  for (const part of ['stack', `pid ${sb.pid}`, 'run the same command prefixed CC_TUNER_ACK=']) expect(reason).toContain(part)
+  for (const part of ['stack', `pid ${sb.pid}`, 'rerun it prefixed CC_TUNER_ACK=']) expect(reason).toContain(part)
   expect((await sr.bash(rc, at(ra, 'stack down'))).decision, 'behind git -C or cd').toBe('stop')
   expect((await sr.bash(ra, 'bash', at(ra, 'stack down'))).decision, 'behind a wrapper').toBe('stop')
   for (const c of ['stack up', 'stack status', 'docker compose up']) expect((await sr.bash(ra, c)).decision, c).toBe('allow')
@@ -1997,7 +1997,7 @@ test('resource: a renewal or a release that lost the race to a takeover changes 
   expect(await sc.peers.release('chrome'), 'resource-release-after-a-takeover-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
   expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid).toBe(sr.pid)
   m.dirs.add(take)
-  expect(await sr.peers.release('chrome'), 'resource-release-while-the-lock-is-busy-waits').toContain('busy')
+  expect(await sr.peers.release('chrome'), 'resource-release-while-the-lock-is-busy-waits').toContain('try again shortly')
   expect(m.dirs.has(lock)).toBe(true)
   m.dirs.delete(take)
   expect(await sr.peers.release('chrome')).toBe('cc-tuner: released chrome.')
@@ -2030,7 +2030,7 @@ test('resource: a renewal that stays busy stops with no ack, so a takeover that 
   m.ran.length = 0
   const busy = await sr.peers.lease(CLICK, ra, 'sr')
   expect(busy.decision, 'resource-busy-renewal-stops').toBe('stop')
-  expect(busy.reason).toContain('taken over')
+  expect(busy.reason).toContain('taken or renewed')
   expect(busy.reason).toContain('try again')
   expect(busy.reason, 'a busy renewal offers no ack').not.toContain('CC_TUNER_ACK')
   expect(m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s')).length, 'resource-busy-renewal-asks-three-times').toBe(3)
@@ -2240,7 +2240,7 @@ test('guard: a destructive step in a directory the guard could not resolve stops
   m.dirty(r, ' M f')
   const blind = await me.bash(r, at(UNKNOWN, 'git reset --hard'))
   expect(blind.decision, 'guard-unknown-directory-stops-a-destructive-step').toBe('stop')
-  expect(blind.reason).toContain('could not tell which checkout')
+  expect(blind.reason).toContain('cannot tell which checkout')
   expect(blind.reason).toContain('CC_TUNER_ACK=')
   for (const c of ['git clean -fd', 'git checkout -- f', 'git restore f', 'git stash', 'git switch x', 'git commit -m m', 'git add .', 'git branch -D x', 'git push origin :x', 'git worktree remove w',
     'gh pr checkout 5', 'rm -rf build', 'rm -r ../w']) {
@@ -2282,7 +2282,7 @@ test('a cd that may have failed leaves a destructive step stopped through the ad
   const ran = engine(on, m, m.spawn())
   for (const command of ['cd /nonexistent/path; git reset --hard', 'cd /nonexistent/path || git reset --hard', 'cd /nonexistent/path\ngit reset --hard', 'cd /nonexistent/path && git status; git reset --hard']) {
     const { deny } = await $.tool.call({ tool: 'Bash', command })
-    expect(deny, command).toContain('could not tell which checkout')
+    expect(deny, command).toContain('cannot tell which checkout')
   }
   expect(ran, 'none of them ran').toEqual([])
   expect((await $.tool.call({ tool: 'Bash', command: 'cd /w/r && git reset --hard' })).deny, 'a cd the reset depends on is read').toContain('foreign.txt')
@@ -2544,11 +2544,11 @@ test('guard: the reasons name the safe way first, and the choice is the agent\'s
   const unknown = (await decide(r, 'git reset --hard')).reason!
   expect(unknown, 'guard-unknown-owner-may-be-the-users').toContain("user's own edits")
   expect(unknown).toContain('own paths')
-  expect(unknown).not.toContain('not a question for the user')
+  expect(unknown).not.toContain('Your call, not the user')
   await peer.edited(r, `${r}/mine.txt`)
   const owned = (await decide(r, 'git reset --hard')).reason!
   expect(owned).toContain(`pid ${peer.pid} on main`)
-  expect(owned).toContain('not a question for the user')
+  expect(owned).toContain('Your call, not the user')
   m.end(peer.pid)
   m.head(r, 'x')
   const drift = (await decide(r, 'git commit -m m')).reason!

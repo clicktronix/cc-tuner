@@ -153,60 +153,55 @@ asks once when the file is absent. Boards stay GitHub-only.
 
 ### Sessions of one product
 
-The hooks module keeps one record per live Claude session in `~/.cache/cc-tuner/sessions`, so sessions in
-one repository, or in repositories sharing a `product` key, see each other. Before every tool call a guard
-allows, notes or stops. A stop names the peer, what would be lost and one way on; the agent picks it, and
-the user is never asked.
+The hooks module keeps a record per live Claude session in `~/.cache/cc-tuner/sessions`. Sessions in one
+repository, or in repositories with the same `product` key, see each other. Before each tool call a guard
+allows, notes or stops. A stop names who and what would be lost and offers a way on; the agent decides.
 
-- **Stops:** a branch switch in a checkout another session writes in; discarding or committing files that
-  are not this session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push
-  or PR from a branch other than the one the session started on; deleting a peer's branch or removing its
-  worktree; a shared resource's stop command, or `TaskStop` of its start, while another product session is
-  live; an exclusive resource leased to another session; `kill` of a peer's process.
-- **Notes**, and the action runs: an edit in a checkout with another writer or of a path a peer claimed; a
-  branch switch where a peer's cwd is.
+- **Stops:** a branch switch where another session writes; discarding or committing files that are not this
+  session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push or PR from a
+  branch other than the one the session started on; deleting a peer's branch or worktree; stopping a shared
+  resource, or the task that started it, while another session of the product is live; an exclusive resource
+  leased to another session; `kill` of a peer's process.
+- **Notes** (the action runs): an edit where another session writes or of a path a peer claimed; a branch
+  switch where a peer's cwd is.
 
-A session's own files are the paths it edited and, in a checkout no other session writes in, the files its own
-Bash calls changed in this process (read from the inode change time, in one shell before a destructive command);
-those pass. A file changed before the session came or between its calls (the user, a tool
-left running) stays protected, and so does every file it did not edit once another session writes in the same
-checkout. A session alone in its product gets no "could not read" notes.
+A session's own files are the ones it edited and, where no other session writes, the ones its Bash calls
+changed. Files changed before it came or between its calls (by the user or a background tool) stay protected.
+A session with no peers gets no notes about peers.
 
-A Bash stop is passed by running the same command prefixed `CC_TUNER_ACK=<key>` (the key is in the reason).
-The ack covers one action on one target for 30 minutes, and the prefix is stripped before the command runs.
-Lease and `TaskStop` stops have no ack: wait, or `SendMessage` the holder.
+To pass a Bash stop, rerun the command prefixed `CC_TUNER_ACK=<key>` from the reason. The ack covers that
+action for 30 minutes; the prefix is stripped before the command runs. Lease and `TaskStop` stops have no
+ack: wait, or `SendMessage` the holder.
 
-Three tools, `mcp__cc-tuner__peers_*`:
+Tools, `mcp__cc-tuner__peers_*`:
 
-- `peers_report` lists the product's live peers with branch, claims and edited paths, and for peers in the
-  same repository the `git merge-tree` conflicts of HEAD against their branch. `/spec` calls it before the
-  approval.
-- `peers_claim <plan>` publishes the plan's open Owned paths as this session's claim, then reports their
-  overlap with peers. `/run` calls it before the first slice, after each tick and before integration.
-- `peers_release <key>` gives up an exclusive resource lease; so do 10 minutes of silence and the holder's
-  death.
+- `peers_report`: live peers with branch, claims, edited paths and, in the same repository, merge conflicts
+  of HEAD with their branch. `/spec` calls it before the approval.
+- `peers_claim <plan>`: publishes the plan's open Owned paths as a claim and reports overlaps. `/run` calls it
+  before the first slice, after each tick and before integration.
+- `peers_release <key>`: gives up an exclusive lease. A lease also ends after 10 idle minutes or when its
+  holder exits.
 
-Resources are declared, never detected. `.claude/cc-tuner-resources.json` holds the repository's:
+Resources are declared, never detected. The repository's go in `.claude/cc-tuner-resources.json`:
 
 ```json
 {"product": "shop", "resources": [{"key": "stack", "kind": "shared", "start": ["pnpm stack:up"], "stop": ["pnpm stack:down"]}]}
 ```
 
-`~/.config/cc-tuner/resources.json` holds the machine's, checked across products:
+The machine's go in `~/.config/cc-tuner/resources.json` and apply across products:
 
 ```json
 {"resources": [{"key": "chrome", "kind": "exclusive", "tools": ["mcp__chrome-devtools__*"]}]}
 ```
 
 A `shared` resource stays up while another session of the product is live; an `exclusive` one is leased to
-its first user. Setup writes them only when asked.
+its first user. Setup writes these files only when asked. The user file can also map repositories to
+products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`. `"guard": false` in either file
+turns the guard off there.
 
-The user file may also map repositories to products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`,
-which covers every branch and worktree. `"guard": false` in either file turns the guard off there. A
-session idle for 8 h blocks nothing that depends only on its being alive; its uncommitted files stay protected.
-
-Known limits: a peer's liveness is cached for a minute. A kept task survives `/clear` and `/run`'s final
-cleanup, not the exit of the Claude process, which stops its background tasks itself.
+Known limits: liveness is cached for a minute; a session idle for 8 h no longer counts as live, but its
+uncommitted files stay protected; a kept task survives `/clear` and `/run`'s cleanup, not the exit of its
+Claude process.
 
 ### Companions
 

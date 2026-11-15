@@ -227,12 +227,12 @@ SIDB=00000000-0000-4000-8000-0000000000e2
 e2e "$RB" --session-id "$SIDB" go
 LOG="$(cat "$W/api.log")"
 check  "start-line-on-startup"                 "cc-tuner: live peers: main ($(basename "$RB"), pid $PB)" "$LOG"
-check  "start-line-names-the-tool"             "More: the peers_report tool." "$LOG"
+check  "start-line-names-the-tool"             "Details: peers_report." "$LOG"
 check  "guard-foreign-file-stops-on-real-git"  'would delete foreign.txt in' "$LOG"
 check  "guard-kill-of-a-peers-child-stops"     "would stop process $PBC, which belongs to pid $PB" "$LOG"
 check  "guard-kill-signal-0-is-a-probe-and-runs" "alive42" "$(cat "$W/api.log")"
-check  "guard-stop-reaches-the-model"          "run the same command prefixed CC_TUNER_ACK=$KEY" "$LOG"
-check  "guard-stop-says-the-choice-is-the-agents" "not a question for the user" "$LOG"
+check  "guard-stop-reaches-the-model"          "rerun it prefixed CC_TUNER_ACK=$KEY" "$LOG"
+check  "guard-stop-says-the-choice-is-the-agents" "Your call, not the user" "$LOG"
 equals "guard-acked-command-ran-without-the-prefix" "z" "$(git -C "$RB" branch --show-current)"
 equals "guard-ack-is-recorded"                 "number" "$(e2e_rec ".acks[\"$KEY\"] | type")"
 check  "guard-note-reaches-the-model"          "also writes in $RB" "$LOG"
@@ -358,8 +358,8 @@ script "$(jq -nc --arg b "$BACKDATE" --arg t "$TAKEN" '{when: "", calls: [
   {name: "mcp__lab__ping", input: {}}, {name: "Bash", input: {command: $b}}, {name: "mcp__lab__ping", input: {}},
   {name: "Bash", input: {command: $t}}, {name: "mcp__lab__ping", input: {}}]}')"
 lab 00000000-0000-4000-8000-0000000000f4
-check  "resource-lease-busy-renewal-stops" "lab is being taken over by another session; try again shortly" "$(cat "$W/api.log")"
-absent "resource-lease-busy-renewal-offers-no-ack" "CC_TUNER_ACK=" "$(grep -F 'being taken over' "$W/api.log" | head -n 1)"
+check  "resource-lease-busy-renewal-stops" "lab is being taken or renewed by another session; try again shortly" "$(cat "$W/api.log")"
+absent "resource-lease-busy-renewal-offers-no-ack" "CC_TUNER_ACK=" "$(grep -F 'being taken or renewed' "$W/api.log" | head -n 1)"
 check  "resource-lease-after-the-takeover-names-the-new-holder" "lab is leased to pid $PT" "$(cat "$W/api.log")"
 equals "resource-lease-takeover-holder-stays" "$PT" "$(jq -r .pid "$LOCK/holder.json")"
 kill "$PT"; until [ -z "$(lstart "$PT")" ]; do sleep 0.05; done
@@ -457,7 +457,7 @@ for c in "git -c submodule.recurse=true reset --hard" "GIT_CONFIG_COUNT=1 GIT_CO
   printf 'edit\n' > "$RG/sg/x"
   script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
   e2e "$RG" go
-  check  "git-config-stops-on-real-git: $c" "per-command git configuration is not inspected" "$(cat "$W/api.log")"
+  check  "git-config-stops-on-real-git: $c" "sets git config for itself" "$(cat "$W/api.log")"
   equals "git-config-keeps-the-submodule-edit: $c" "edit" "$(cat "$RG/sg/x")"
 done
 printf 'edit\n' > "$RG/sg/x"
@@ -563,7 +563,7 @@ for c in "git reset --hard --recurse-submodules" "git reset --hard"; do
   script "$(jq -nc --arg c "$c" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
   e2e "$RM" go
   case "$c" in
-    *recurse*) check "submodules-recursion-stops-on-real-git" "submodules are not inspected" "$(cat "$W/api.log")"
+    *recurse*) check "submodules-recursion-stops-on-real-git" "which the guard does not inspect" "$(cat "$W/api.log")"
                check "submodules-recursion-offers-the-ack" "CC_TUNER_ACK=" "$(cat "$W/api.log")"
                equals "submodules-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x")" ;;
     *) absent "submodules-no-recursion-is-not-stopped" "CC_TUNER_ACK=" "$(cat "$W/api.log")"
@@ -573,7 +573,7 @@ done
 git -C "$RM" config submodule.recurse true; printf 'precious\n' > "$RM/sm/x"
 script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "git reset --hard"}}]}')"
 e2e "$RM" go
-check  "submodules-config-recursion-stops-on-real-git" "submodules are not inspected" "$(cat "$W/api.log")"
+check  "submodules-config-recursion-stops-on-real-git" "which the guard does not inspect" "$(cat "$W/api.log")"
 equals "submodules-config-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x")"
 
 # A `cd` that may have failed does not move the steps after it: `cd /nonexistent; git reset --hard` runs in the cwd's checkout,
@@ -582,7 +582,7 @@ equals "submodules-config-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x"
 RZ="$(repo)"; commit_file "$RZ" a one; printf 'precious\n' > "$RZ/a"
 script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "cd /nonexistent/path; git reset --hard"}}]}')"
 e2e "$RZ" go
-check  "cd-that-may-have-failed-stops-a-reset-on-real-git" "could not tell which checkout" "$(cat "$W/api.log")"
+check  "cd-that-may-have-failed-stops-a-reset-on-real-git" "cannot tell which checkout" "$(cat "$W/api.log")"
 equals "cd-that-may-have-failed-keeps-the-foreign-edit" "precious" "$(cat "$RZ/a")"
 printf 'precious\n' > "$RZ/a"
 script "$(jq -nc --arg c "cd $RZ && git reset --hard" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
