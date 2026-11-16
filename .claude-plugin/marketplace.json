@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Set up Claude Code for a repository and take tasks from specification through implementation, verification, review and authorized delivery. Start with /cc-tuner:setup.",
-    "version": "0.22.1"
+    "version": "0.23.0"
   },
   "plugins": [
     {
       "name": "cc-tuner",
       "source": "./plugins/cc-tuner",
       "description": "Set up Claude Code for a repository and take tasks from specification through implementation, verification, review and authorized delivery. Start with /cc-tuner:setup.",
-      "version": "0.22.1"
+      "version": "0.23.0"
     }
   ]
 }
