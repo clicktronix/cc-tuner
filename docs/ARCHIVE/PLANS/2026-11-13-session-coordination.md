@@ -56,6 +56,9 @@ never asks the user; for files of unknown owner the reason says they may be the 
   Known limit: a writer with no record (the user, a tool outside Claude) changing a file while the
   session's own command runs, or a file such a command later rewrites, counts as the session's.
 - **Guard.** It runs before every tool call and returns `allow`, `note` or `stop`.
+  - **Threat model** (owner decision 2026-11-16): sessions are cooperative agents that err by accident. The guard
+    is a safety net for the commands such agents write, not a sandbox: a command built to evade it (stacked
+    placement overrides, wrappers nested to hide a target) is out of scope and goes to a follow-up issue.
   - **How it reads commands.**
     - It unwraps `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&` and `$(...)`, and
       each scope keeps its own directory. A git step pointed elsewhere (`--git-dir`, `--work-tree`,
