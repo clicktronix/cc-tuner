@@ -671,12 +671,9 @@ export class Peers {
     return r.isStdoutTruncated ? { ...r, exitCode: TRUNCATED } : r
   }
 
-  // The core settings of the checkout as `-c` pairs (the user's included, a leading ~ of a path expanded), undefined when
-  // config could not be read. Kept a minute: none of them runs anything, so a stale one only shapes the report.
-  private cores = new Map<string, { at: number; args: string[]; files: [string, string] }>()
-  private async core(top: string, branch: string): Promise<{ args: string[]; files: [string, string] } | undefined> {
-    const hit = this.cores.get(`${top}\0${branch}`)
-    if (hit !== undefined && this.now() - hit.at < PS_TTL) return hit
+  // The core settings of the checkout as `-c` pairs (the user's included, a leading ~ of a path expanded) and its attribute
+  // files, undefined when config could not be read. Read for every status: they decide what a destructive step would lose.
+  private async core(top: string): Promise<{ args: string[]; files: [string, string] } | undefined> {
     const r = await this.run(['git', ...INERT, '-C', top, 'config', '-z', '--get-regexp', '^core\\.'], { env: GIT_ENV }).catch(() => undefined)
     if (r === undefined || (r.exitCode !== 0 && r.exitCode !== 1)) return undefined
     const home = await this.w.home()
@@ -689,9 +686,7 @@ export class Peers {
     }
     const files = await this.attributeFiles(top)
     if (files === undefined) return undefined
-    const entry = { at: this.now(), args: out, files }
-    this.cores.set(`${top}\0${branch}`, entry)
-    return entry
+    return { args: out, files }
   }
 
   // status runs isolated (see ISOLATED_STATUS); every other read runs in the checkout, where none can start a filter.
@@ -701,7 +696,7 @@ export class Peers {
       // Core settings can depend on the branch (includeIf.onbranch): they are read for the HEAD the checkout has, and a HEAD
       // that changed at all (a round trip included) while they were read or used leaves the tree unread.
       const head = await this.head(top)
-      const [common, gd, core] = [(await this.where(top))?.[1], await this.gitdir(top), await this.core(top, head)]
+      const [common, gd, core] = [(await this.where(top))?.[1], await this.gitdir(top), await this.core(top)]
       if (common === undefined || gd === undefined || core === undefined || (await this.head(top)) !== head) return { exitCode: 1, stdout: '' }
       const inert = INERT.filter((x, i) => x !== 'core.attributesFile=/dev/null' && INERT[i + 1] !== 'core.attributesFile=/dev/null')
       r = await this.run(['/bin/sh', '-c', ISOLATED_STATUS, 'sh', await this.dir(), common, gd, top, ...core.files, ...inert, ...core.args, ...args], { env: GIT_ENV })

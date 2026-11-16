@@ -1343,6 +1343,24 @@ test('inspection: the isolated status takes the core settings that shape it, and
   expect(pairs.some(x => x.startsWith('core.hookspath') || x === 'core.fsmonitor=/evil'), 'core-nothing-that-runs-anything').toBe(false)
 })
 
+test('inspection: core settings and attribute files are read again for every status, however recent the last one', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const s = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'same')
+  m.core.set(r, ['core.excludesfile\n/old-ignore'])
+  m.configs.set(`${r}|core.attributesFile`, '/old-attributes')
+  await s.bash(r, 'git status')
+  m.core.set(r, ['core.excludesfile\n/new-ignore'])
+  m.configs.set(`${r}|core.attributesFile`, '/new-attributes')
+  m.ran.length = 0
+  await s.bash(r, 'git reset --hard')
+  const status = m.ran.find(isolatedStatus)!
+  expect(status, 'excludes-file-read-again').toContain('core.excludesfile=/new-ignore')
+  expect(status[8], 'attributes-file-read-again').toBe('/new-attributes')
+})
+
 test('inspection: a branch that moves while status is read leaves the tree unread', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
@@ -2073,12 +2091,13 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => (isolatedStatus(a) ? 'isolated status' : a.slice(0, 11).join(' ')))).toEqual(['isolated status'])
+  const label = (a: readonly string[]) => (isolatedStatus(a) ? 'isolated status' : a[0] === '/bin/sh' ? 'xdg' : a.includes('--get-regexp') ? 'core' : a.includes('var') ? 'system attributes' : a.includes('--get') ? 'user attributes' : a.join(' '))
+  expect(m.ran.map(label), 'settings are read fresh right before the status they shape').toEqual(['core', 'user attributes', 'xdg', 'system attributes', 'isolated status'])
   m.advance(61)
   await decide(r, 'npm test')
-  expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
+  expect(m.ran.slice(5).map(a => a[0]), 'its own start time is read once').toEqual([])
   await decide(r, 'git switch x')
-  expect(m.ran.slice(1).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
+  expect(m.ran.slice(5).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
 })
 
 // --- resources: a shared one is not stopped under a live peer, an exclusive one is used by one session at a time ----
