@@ -1293,7 +1293,7 @@ test('inspection: status runs in a git directory of its own with no config, hook
   const status = m.ran.find(isolatedStatus)!
   expect(status, 'status-runs-isolated').toBeDefined()
   for (const part of ['GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1', 'init -q --bare --template=', '--object-format="$f"', 'objects/info/alternates',
-    'GIT_INDEX_FILE="$g/index"', '--git-dir="$d" --work-tree="$w"', 'unset GIT_DIR']) expect(status[2], `isolated-${part}`).toContain(part)
+    'GIT_INDEX_FILE="$g/index"', '--git-dir="$d" --work-tree="$w"', 'unset GIT_DIR', 'for x in exclude attributes']) expect(status[2], `isolated-${part}`).toContain(part)
   expect(status.slice(4, 8), 'isolated-gets-the-common-dir-git-dir-and-checkout').toEqual([DIR, `${r}/.git`, `${r}/.git`, r])
   for (const x of INERT) expect(status, `isolated-${x}`).toContain(x)
   expect(m.reads.includes(`${r}/.git/info/attributes`), 'info-attributes-is-never-read-by-the-guard').toBe(false)
@@ -1325,6 +1325,15 @@ test('inspection: the isolated status takes the core settings that shape it, and
   const pairs = (a => a.filter((x, i) => a[i - 1] === '-c'))(m.ran.find(isolatedStatus)!)
   for (const x of ['core.autocrlf=input', 'core.excludesfile=/home/u/ignore', 'core.ignorecase=true']) expect(pairs, `core-copied-${x}`).toContain(x)
   expect(pairs.some(x => x.startsWith('core.hookspath') || x === 'core.fsmonitor=/evil'), 'core-nothing-that-runs-anything').toBe(false)
+})
+
+test('inspection: a branch that moves while status is read leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.onRun = argv => { if (isolatedStatus(argv)) { m.head(r, 'side'); m.onRun = undefined } }
+  expect((await decide(r, 'git reset --hard')).reason, 'branch-moved-during-status-is-unread').toContain('could not read git status')
 })
 
 test('inspection: config that cannot be read leaves status unread, and it is not run', async () => {
@@ -1431,6 +1440,9 @@ test('inspection: a process list that cannot be read stops a kill and a shared s
   m.put(USER, JSON.stringify({ guard: false, resources: [] }))
   expect((await fresh.bash(r, 'git reset --hard')).decision, 'guard-false-is-honoured-when-ps-is-unread').toBe('allow')
   m.files.delete(USER)
+  m.put(`${o}/.claude/cc-tuner-resources.json`, JSON.stringify({ guard: false, resources: [] }))
+  expect((await fresh.bash(o, at(r, 'git reset --hard'))).decision, 'an-opt-out-of-the-cwd-does-not-cover-another-checkout').toBe('stop')
+  expect((await fresh.bash(r, at(o, 'git reset --hard'))).decision, 'the-target-checkout-opt-out-is-honoured').toBe('allow')
   m.failing.delete('ps -A')
   m.failing.delete('ps')
   m.dirty(r, ' M f')

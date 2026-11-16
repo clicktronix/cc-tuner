@@ -145,6 +145,8 @@ stand_in_lost() {
 }
 script() { printf '%s\n' "$@" > "$W/script.jsonl"; }
 bash_call() { jq -nc --arg c "$1" '{name: "Bash", input: {command: $c}}'; }
+# one <command> -> a script whose session makes that one Bash call.
+one() { script "$(jq -nc --argjson c "$(bash_call "$1")" '{when: "", calls: [$c]}')"; }
 
 session_pid() { printf %s "$CP"; }
 
@@ -208,7 +210,7 @@ check  "alone-a-change-from-before-the-session-stops" "would stage a.txt in" "$(
 equals "alone-the-stop-leaves-out-the-sessions-own" "0" "$(said 'stage a.txt, own.txt')"
 equals "alone-the-stopped-add-staged-nothing" "" "$(git -C "$RS" diff --cached --name-only)"
 
-# --- git's own view: eol normalisation holds (a SHA-256 repository is the module tests': claude -p itself does not finish there)
+# --- git's own view: eol normalisation, info/attributes and a SHA-256 repository read as git reads them -------------------
 RE="$(repo)"; printf '*.txt text eol=crlf\n' > "$RE/.gitattributes"; printf 'hello\r\n' > "$RE/line.txt"
 ( cd "$RE" && git add . && git commit -q -m crlf )
 cat "$RE/line.txt" > "$RE/line.tmp" && mv "$RE/line.tmp" "$RE/line.txt"; touch -t 203001010000 "$RE/line.txt"
@@ -216,10 +218,23 @@ equals "crlf-plain-git-sees-a-clean-tree" "" "$(git -C "$RE" status --porcelain)
 script "$(jq -nc --arg w "$W" '{when: "", calls: [{name: "Bash", input: {command: ("git add -A && touch " + $w + "/crlf.ran")}}]}')"
 e2e "$RE" go
 equals "crlf-a-rewrite-with-the-same-bytes-is-no-change" "yes" "$([ -e "$W/crlf.ran" ] && echo yes || echo no)"
+# .git/info/attributes overrides the tracked attributes, for the guard as for git: `-ident` keeps a foreign edit inside $Id$.
+RI="$(repo)"; printf 'f ident\n' > "$RI/.gitattributes"; printf '$Id$\n' > "$RI/f"; ( cd "$RI" && git add . && git commit -q -m ident )
+mkdir -p "$RI/.git/info"; printf 'f -ident\n' > "$RI/.git/info/attributes"; printf '$Id: foreign $\n' > "$RI/f"
+equals "ident-plain-git-sees-the-change" " M f" "$(git -C "$RI" status --porcelain)"
+one 'git reset --hard'
+e2e "$RI" go
+check  "ident-the-guard-reads-info-attributes-too" "would discard f in" "$(cat "$W/api.log")"
+RS2="$(flow_workdir)/sha256"; mkdir -p "$RS2"; RS2="$(cd "$RS2" && pwd -P)"
+git -C "$RS2" init -q --object-format=sha256 -b main; commit_file "$RS2" tracked.txt a
+printf 'b\n' > "$RS2/tracked.txt"
+one 'git reset --hard'
+e2e "$RS2" go
+check  "sha256-status-is-read" "would discard tracked.txt in" "$(cat "$W/api.log")"
 
 # A partial clone fetches a missing tree through its remote on demand, and the remote can be a program: the guard's git runs
-# no transport. The remote only appends a marker; a plain `git status` is the control that it runs. A session there does not
-# finish (claude's own git status runs the remote too), so git is run with the guard's environment, which the module tests pin.
+# no transport. The remote appends a marker naming who ran it; a plain `git status` is the control that it runs (claude's own
+# git status in the session runs it too, as `by=plain`).
 SRC="$(repo)"; git -C "$SRC" config uploadpack.allowFilter true; MLZ="$W/lazy.marker"
 git clone -q --no-checkout --filter=tree:0 "file://$SRC" "$W/partial" 2>/dev/null; RL2="$(cd "$W/partial" && pwd -P)"
 git -C "$RL2" config remote.origin.url "ext::sh -c echo% by=\${GIT_ATTR_NOSYSTEM:-plain}% >>% $MLZ"
@@ -230,6 +245,10 @@ rm -f "$MLZ"
 GIT_ALLOW_PROTOCOL=cc-tuner-none GIT_NO_LAZY_FETCH=1 GIT_ATTR_NOSYSTEM=1 git -C "$RL2" status --porcelain >/dev/null 2>&1
 equals "lazy-fetch-the-guards-git-fails-the-read" "yes" "$([ $? -ne 0 ] && echo yes || echo no)"
 equals "lazy-fetch-the-guards-git-runs-no-remote" "no" "$([ -e "$MLZ" ] && echo yes || echo no)"
+one 'git reset --hard'
+e2e "$RL2" go
+equals "lazy-fetch-the-guard-in-a-session-runs-no-remote" "no" "$(grep -qs '^by=1$' "$MLZ" && echo yes || echo no)"
+check  "lazy-fetch-a-missing-object-is-unread" "could not read git status" "$(cat "$W/api.log")"
 
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
