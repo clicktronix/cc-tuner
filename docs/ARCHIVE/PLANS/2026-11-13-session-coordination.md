@@ -127,10 +127,12 @@ never asks the user; for files of unknown owner the reason says they may be the 
   cleanup leaves a task the guard keeps. `/clear` keeps a task that started a shared resource;
   stopping it is refused only while another product session is live, and it ends with its Claude
   process.
-- **Git reads** by the guard are inert: `GIT_OPTIONAL_LOCKS=0`, `core.fsmonitor=false`, submodules ignored;
-  `status` reads the real attributes (eol normalisation is git's) with every filter driver config defines
-  silenced on the command line; merge-tree runs in a bare repository of its own. Output the engine cut
-  off counts as no answer.
+- **Git reads** by the guard are inert: `GIT_OPTIONAL_LOCKS=0`, `core.fsmonitor=false`, submodules ignored, no
+  transport and no lazy fetch (`GIT_ALLOW_PROTOCOL` naming no protocol, `GIT_NO_LAZY_FETCH`), attributes from
+  the empty tree of the repository's object format with the filters `.git/info/attributes` names silenced, so
+  no config can make a filter run; a tracked file git then calls changed is asked again with CR at line ends
+  ignored. merge-tree runs in a bare repository of its own. Output the engine cut off, or a `ps` that fails,
+  counts as no answer: a destructive step then stops with an ack.
 - **Tools** the module registers: `peers_report`, `peers_claim <plan>`, `peers_release <key>`. The guard
   itself is the `tool.call` handler.
 - **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its `tool.call`
@@ -262,7 +264,7 @@ test group in brackets.
 - **Full:** `bash tests/run.sh` (claude at `tests/flow/CLAUDE_CODE_VERSION`). The EVALUATED_SHA
   guard is handled as in #75.
 - **Static:** module validation and type check in `test_mod.sh`.
-- **Runtime:** macOS and Linux, git ≥ 2.38 (`merge-tree --write-tree`), no network.
+- **Runtime:** macOS and Linux, git ≥ 2.40 (`--attr-source`), no network.
 - **Mutation:** make `live()` in `hooks/peers.ts` ignore the start time. `liveness-pid-reuse` must then
   FAIL with `a record whose pid was reused reads as live`.
 - **Known limit:** a peer's liveness is cached for a minute, so a peer that just exited can cause a

@@ -99,6 +99,7 @@ const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
 // How many of its own calls a session remembers.
 const CALLS = 200
+const UNREAD_TOOL = 'cc-tuner: could not read the process list; try again shortly.'
 // Whether a writer's mark may be a write after this checkout's first touch. Marks are whole seconds: one taken in the
 // second before `since` may belong to a write after it.
 const wroteSince = (them: Checkout, me: Checkout) => them.writer !== null && me.since !== undefined && them.writer >= me.since - 1
@@ -143,11 +144,16 @@ const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
-// Inspection is inert. The one command a config can start by itself is core.fsmonitor. A clean, smudge or process filter
-// runs only when config defines the driver an attribute names, so `status` reads the real attributes (eol and text
-// normalisation stay git's) with every filter driver config defines overridden on the command line, which beats every
-// config source, an included file too: see `silenced`. A merge driver is the one thing config can select without
-// attributes (`merge.default`, a driver named `text`), so merge-tree never runs in the repository: see ISOLATED_MERGE.
+// Inspection is inert. A clean, smudge or process filter runs only for a file whose attributes name it, so every read takes
+// its attributes from the empty tree of the repository's object format (the repository's, the user's and the system's
+// files are never read): no config, however it is included and whatever branch it is evaluated on, can make one run. The one
+// command a config can start by itself is core.fsmonitor. `.git/info/attributes` is a local file git reads regardless, so the
+// filter names it carries are overridden on the command line: `silenced` reads that one file. Without attributes git cannot
+// normalise line endings, so a tracked file it calls changed is asked again with CR at line ends ignored: see `status`.
+// A merge driver is the one thing config can select without attributes (`merge.default`, a driver named `text`), so
+// merge-tree never runs in the repository: see ISOLATED_MERGE.
+const EMPTY_TREE = { sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904', sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321' }
+const ATTRIBUTES_MAX = 64 * 1024
 // No transport either: a partial clone fetches missing objects on demand through its remote, and a remote can be a
 // program (`ext::`, a remote helper). GIT_ALLOW_PROTOCOL naming no real protocol forbids every one over any config, and
 // GIT_NO_LAZY_FETCH (git 2.44) stops the fetch itself; a missing object then fails the read, which is unread.
@@ -319,6 +325,9 @@ function holder(text: string): Holder | undefined {
   }
 }
 
+// ps could not be read: who this session is, or which peers still run, is unknown. Never taken for "none".
+export class Unread extends Error { constructor() { super('cc-tuner: could not read the process list') } }
+
 class Halt extends Error {}
 
 // One module load's view of the record store: the Claude pid, start times read in the last minute, and
@@ -376,10 +385,11 @@ export class Peers {
   }
 
   // --- processes ----------------------------------------------------------------------------------------
-  // `ps` rows as (pid, ppid, start, name), undefined when the engine cut the output off.
-  private async rows(argv: readonly string[]): Promise<[number, number, string, string][] | undefined> {
-    const r = await this.run(argv, { env: PS_ENV })
-    if (r.exitCode === TRUNCATED) return undefined
+  // `ps` rows as (pid, ppid, start, name), undefined when ps failed or the engine cut the output off. `ps -p` exits 1 for
+  // a pid that is gone, which is an answer.
+  private async rows(argv: readonly string[], ok = [0]): Promise<[number, number, string, string][] | undefined> {
+    const r = await this.run(argv, { env: PS_ENV }).catch(() => undefined)
+    if (r === undefined || r.exitCode === TRUNCATED || !ok.includes(r.exitCode)) return undefined
     const out: [number, number, string, string][] = []
     for (const line of r.stdout.split('\n')) {
       const m = LSTART.exec(line)
@@ -402,7 +412,9 @@ export class Peers {
   // One process's (ppid, name), asked of `ps` alone: what a walk up the tree uses when the full list was cut off.
   async parent(pid: number, table?: Map<number, { ppid: number; name: string }>): Promise<{ ppid: number; name: string } | undefined> {
     if (table !== undefined) return table.get(pid)
-    const row = (await this.rows(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', String(pid)]))?.find(([p]) => p === pid)
+    const rows = await this.rows(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', String(pid)], [0, 1])
+    if (rows === undefined) throw new Unread()
+    const row = rows.find(([p]) => p === pid)
     if (row !== undefined) this.ps.set(pid, { start: row[2], at: this.now() })
     return row === undefined ? undefined : { ppid: row[1], name: row[3] }
   }
@@ -413,11 +425,13 @@ export class Peers {
     const need = [...new Set(pids)].filter(p => { const e = this.ps.get(p); return e === undefined || (at - e.at >= PS_TTL && p !== this.claude) })
     if (need.length > 0) {
       // A list cut off is asked again one pid at a time; a pid whose own answer is cut off keeps what was known.
-      const ask = (ps: number[]) => this.rows(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', ps.join(',')])
+      const ask = (ps: number[]) => this.rows(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', ps.join(',')], [0, 1])
       const all = await ask(need)
       for (const p of need) {
         const rows = all ?? await ask([p])
-        if (rows !== undefined) this.ps.set(p, { start: rows.find(([q]) => q === p)?.[2], at })
+        // Whether a peer still runs decides what is protected, so a pid ps cannot answer for is no answer at all.
+        if (rows === undefined) throw new Unread()
+        this.ps.set(p, { start: rows.find(([q]) => q === p)?.[2], at })
       }
     }
     return new Map(pids.map(p => [p, this.ps.get(p)?.start]))
@@ -580,7 +594,7 @@ export class Peers {
     return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
-  // Whether an inspection met a git too old for it (merge-tree --write-tree needs 2.38): said once by the stop that follows.
+  // Whether an inspection met a git too old for `--attr-source` (2.40): said once by the stop that follows.
   tooOld = false
 
   // Every command runs through here: output the engine cut off is no answer.
@@ -589,21 +603,43 @@ export class Peers {
     return r.isStdoutTruncated ? { ...r, exitCode: TRUNCATED } : r
   }
 
-  // The `-c` overrides that silence every filter driver config defines, so `status` can read the real attributes: [] for
-  // none, undefined when config could not be read or names a driver no `-c` key can spell.
-  private async silenced(top: string): Promise<string[] | undefined> {
-    const r = await this.run(['git', ...INERT, '-C', top, 'config', '-z', '--name-only', '--get-regexp', '^filter\\.'], { env: GIT_ENV }).catch(() => undefined)
-    if (r === undefined || (r.exitCode !== 0 && r.exitCode !== 1)) return undefined
-    const names = [...new Set(r.stdout.split('\0').filter(Boolean).map(k => k.slice('filter.'.length, k.lastIndexOf('.'))))]
-    if (names.some(n => n === '' || n.includes('='))) return undefined
-    return names.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]).flatMap(x => ['-c', x])
+  // The `-c` overrides that silence every filter `$common/info/attributes` names: [] for a repository with none, undefined
+  // for a file that cannot be read or is past 64 KiB. Read again only when its mtime or size changed.
+  private attributes = new Map<string, { key: string; args: string[] | undefined }>()
+  private async silenced(common: string): Promise<string[] | undefined> {
+    const file = `${common}/info/attributes`
+    const st = await this.w.stat(file)
+    if (st === undefined) return []
+    const key = `${st.mtimeMs}:${st.size}`
+    const hit = this.attributes.get(file)
+    if (hit !== undefined && hit.key === key && (st.mtimeMs ?? 0) > 0) return hit.args
+    let args: string[] | undefined
+    const text = st.kind === 'file' && (st.size ?? ATTRIBUTES_MAX + 1) <= ATTRIBUTES_MAX ? await this.w.read(file).catch(() => undefined) : undefined
+    if (text !== undefined && text.length <= ATTRIBUTES_MAX) {
+      const filters = [...new Set([...text.matchAll(/(?:^|\s)filter=(\S+)/g)].map(m => m[1]!))]
+      // A name with `=` cannot be written as a `-c` key, so that file is unread too.
+      if (!filters.some(n => n.includes('='))) {
+        args = filters.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]).flatMap(x => ['-c', x])
+      }
+    }
+    this.attributes.set(file, { key, args })
+    return args
   }
 
-  // `status` runs only with every filter driver silenced; config that cannot be read leaves the tree unread.
+  // The empty tree in the repository's object format, read from its config file (`extensions.objectformat`).
+  private async empty(common: string): Promise<string> {
+    const config = await this.w.read(`${common}/config`).catch(() => '')
+    return /^\s*objectformat\s*=\s*sha256\s*$/im.test(config) ? EMPTY_TREE.sha256 : EMPTY_TREE.sha1
+  }
+
+  // Every read: attributes from the empty tree, info/attributes filters silenced; a file that cannot be read leaves
+  // `status` unread like one git did not answer for.
   private async read(top: string, ...args: string[]) {
-    const named = args[0] === 'status' ? await this.silenced(top) : []
-    if (named === undefined) return { exitCode: 1, stdout: '' }
-    const r = await this.run(['git', ...INERT, ...named, '-C', top, ...args], { env: GIT_ENV })
+    const common = (await this.where(top))?.[1]
+    const named = common === undefined ? [] : await this.silenced(common)
+    if (named === undefined && args[0] === 'status') return { exitCode: 1, stdout: '' }
+    const tree = common === undefined ? EMPTY_TREE.sha1 : await this.empty(common)
+    const r = await this.run(['git', ...INERT, `--attr-source=${tree}`, ...(named ?? []), '-C', top, ...args], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     return r
   }
@@ -752,6 +788,10 @@ export class Peers {
   }
 
   async report(dir: string): Promise<string> {
+    return this.known(() => this.reportOf(dir), UNREAD_TOOL)
+  }
+
+  private async reportOf(dir: string): Promise<string> {
     const here = await this.where(dir)
     if (here === undefined) return 'cc-tuner: not in a git repository'
     const { recs, bad, name, me } = await this.view()
@@ -783,6 +823,10 @@ export class Peers {
 
   // Publishes the open Owned paths of a plan as this session's claim, then reports their overlap.
   async claim(cwd: string, sid: string | null, plan: string): Promise<string> {
+    return this.known(() => this.claimOf(cwd, sid, plan), UNREAD_TOOL)
+  }
+
+  private async claimOf(cwd: string, sid: string | null, plan: string): Promise<string> {
     const path = join(cwd, plan)
     const here = await this.where(dirname(path))
     if (here === undefined) return 'cc-tuner: not in a git repository'
@@ -854,6 +898,10 @@ export class Peers {
 
   // Why a task that started a shared resource must not be stopped now, or undefined when it may be.
   async taskStop(task: string): Promise<string | undefined> {
+    return this.known(() => this.taskStopOf(task), `${UNREAD_TOOL} Task ${task} keeps running.`)
+  }
+
+  private async taskStopOf(task: string): Promise<string | undefined> {
     const { recs, name, me } = await this.view()
     const kept = me?.kept.find(k => k.id === task)
     if (kept === undefined || await this.off(kept.top)) return undefined
@@ -870,10 +918,21 @@ export class Peers {
     return pid === undefined ? undefined : [pid, (await this.starts([pid])).get(pid) ?? '']
   }
 
+  // A tool answer when ps could not be read: the call is refused with the reason, never answered as if nobody ran.
+  private async known<T>(f: () => Promise<T>, unread: T): Promise<T> {
+    try {
+      return await f()
+    } catch (err) {
+      if (err instanceof Unread) return unread
+      throw err
+    }
+  }
+
   // A machine resource's lock is one per machine; a repository's is one per product (or repository without one). Each
   // part is escaped, dots included, so no machine key and no product with a key can name the same lock.
   private async lock(key: string, at?: Where) {
-    const enc = (x: string) => x.replace(/[^A-Za-z0-9_-]/g, c => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+    // Fixed width per UTF-16 unit, so no two different names escape to the same one.
+    const enc = (x: string) => x.replace(/[^A-Za-z0-9_-]/g, c => `%${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
     const name = at === undefined ? `m.${enc(key)}` : `r.${enc((await this.product(...at)) ?? `repo-${crc32(at[1])}`)}.${enc(key)}`
     return `${await this.dir()}/lease.${name}`
   }
@@ -893,7 +952,7 @@ export class Peers {
     if (await this.off(at?.[0])) return { decision: 'allow' }
     const hits = (await this.rules(at?.[0])).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
     if (hits.length === 0) return { decision: 'allow' }
-    return this.serial(async () => {
+    return this.serial(async () => this.known(async (): Promise<Verdict> => {
       const me = await this.self()
       if (me === undefined) return { decision: 'allow' }
       await this.retry(me)
@@ -909,9 +968,11 @@ export class Peers {
           return v
         }
         if (v.reason !== undefined) { notes.push(v.reason); taken.push(lock) }
+        // A lock this call holds now is in use: no give-back still owed may free it.
+        this.pending.delete(lock)
       }
       return notes.length > 0 ? { decision: 'note', reason: notes.join(' ') } : { decision: 'allow' }
-    })
+    }, { decision: 'stop', reason: 'cc-tuner: could not read the process list, so who holds the resource is unknown; try again shortly.' }))
   }
 
   // The holder's call renews the lease at most once a minute. A renewal that stays busy past its retries is a takeover under
@@ -970,14 +1031,14 @@ export class Peers {
     const at = await this.where(cwd)
     const rules = (await this.rules(at?.[0])).filter(([r]) => r.kind === 'exclusive' && r.key === key)
     const locks = await Promise.all((rules.length > 0 ? rules : [[undefined, true] as const]).map(([, machine]) => this.lock(key, machine ? undefined : at)))
-    return this.serial(async () => {
+    return this.serial(async () => this.known(async () => {
       const me = await this.self()
       if (me === undefined) return refused
       await this.retry(me)
       const done = await Promise.all([...new Set(locks)].map(lock => this.free(lock, me)))
       if (done.includes(undefined)) return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
       return done.includes(true) ? `cc-tuner: released ${key}.` : refused
-    })
+    }, UNREAD_TOOL))
   }
 
   // --- the guard ----------------------------------------------------------------------------------------
@@ -1007,7 +1068,12 @@ export class Peers {
     // that needs the cwd's checkout does.
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
-    return this.serial(async () => {
+    // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
+    const k = crc32(`processes|${ev.cwd}`)
+    const unread: Verdict & { line?: string } = ev.phase === 'before' && plan.some(p => destroys(p.st.words ?? [])) && !(ev.acks ?? []).includes(k)
+      ? { decision: 'stop', reason: `cc-tuner: could not read the process list, so peers and this session are unknown. To go on, rerun it prefixed CC_TUNER_ACK=${k}.` }
+      : { decision: 'allow', line: '' }
+    return this.serial(() => this.known(async () => {
       const { recs, bad } = await this.load()
       const pid = await this.pid()
       if (pid === undefined) return { decision: 'allow', line: '' }
@@ -1066,7 +1132,7 @@ export class Peers {
       if (Object.keys(seen).length > 0) out.seen = seen
       if (ev.phase === 'start' && here !== undefined) out.line = await this.startLine(recs, name, r, here)
       return out
-    })
+    }, unread))
   }
 
   private async finds(plan: { st: Partial<Step>; blind: boolean }[]): Promise<boolean> {
@@ -1115,6 +1181,16 @@ export class Peers {
     if (r === undefined || r.exitCode !== 0) return undefined
     let found: [string, string, string][] = []
     for (const e of r.stdout.split('\0')) if (e.length > 3) found.push([e[0]!, e[1]!, e.slice(3)])
+    // A tracked file that differs from the index only in CR at line ends is git's eol conversion, which needs the
+    // attributes left unread: it is asked again with those CRs ignored. An answer that fails keeps every file changed.
+    const worktree = found.filter(([x, y]) => x !== '?' && y === 'M').map(([, , f]) => f)
+    if (worktree.length > 0) {
+      const d = await this.read(top, 'diff', '--name-only', '-z', '--ignore-cr-at-eol', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', '--', ...worktree).catch(() => undefined)
+      if (d !== undefined && d.exitCode === 0) {
+        const real = new Set(d.stdout.split('\0').filter(Boolean))
+        found = found.filter(([x, y, f]) => !(x === ' ' && y === 'M' && !real.has(f)))
+      }
+    }
     for (const p of staged) found = [...found.filter(e => e[2] !== p), ['A', ' ', p]]
     return found
   }
@@ -1415,7 +1491,7 @@ class Guard {
   }
 
   private unread(action: string, top: string, label: string) {
-    if (this.p.tooOld) this.note('git 2.38 or newer is needed to inspect safely.')
+    if (this.p.tooOld) this.note('git 2.40 or newer is needed to inspect safely.')
     this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
   }
 

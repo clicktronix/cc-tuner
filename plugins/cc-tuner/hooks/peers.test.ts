@@ -30,8 +30,9 @@ class Machine {
   failing = new Map<string, number>()
   trees = new Map<string, string[]>()
   configs = new Map<string, string>()
-  // The filter driver keys each repository's config defines (`filter.<name>.<var>`), and the commands whose output is cut off.
-  filters = new Map<string, string[]>()
+  // Files whose change is only CR at line ends, per repository: `git diff --ignore-cr-at-eol` leaves them out.
+  crOnly = new Map<string, string[]>()
+  // The commands whose output is cut off.
   truncate = new Set<string>()
   afterRead = new Map<string, () => Promise<void>>()
   // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
@@ -150,9 +151,9 @@ class Machine {
       const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
       return { stdout: (this.status.get(a[1]!) ?? []).filter(e => spec === undefined || spec.includes(e.slice(3))).map(e => `${e}\0`).join('') }
     }
-    if (cmd === 'git' && a[2] === 'config' && a.includes('--get-regexp')) {
-      const keys = this.filters.get(a[1]!) ?? []
-      return keys.length === 0 ? { exitCode: 1, stdout: '' } : { stdout: keys.map(k => `${k}\0`).join('') }
+    if (cmd === 'git' && a[2] === 'diff') {
+      const asked = a.slice(a.indexOf('--') + 1)
+      return { stdout: asked.filter(f => !(this.crOnly.get(a[1]!) ?? []).includes(f)).map(f => `${f}\0`).join('') }
     }
     if (cmd === 'git' && a[2] === 'config') {
       const v = this.configs.get(`${a[1]}|${a[a.length - 1]}`)
@@ -1265,9 +1266,10 @@ test('guard: a destructive command given git configuration of its own stops, sin
   for (const c of destructive) expect((await decide(r, c)).decision, `config-none-${c}`).toBe('allow')
 })
 
-const INERT = ['core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false']
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+const INERT = [`--attr-source=${EMPTY_TREE}`, 'core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false']
 
-test('inspection: every git read is inert, and status reads the real attributes with every configured filter driver silenced', async () => {
+test('inspection: every git read takes its attributes from the empty tree, so no filter or merge driver can run, and reads no config', async () => {
   const { m, r, peer, me, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
@@ -1277,60 +1279,97 @@ test('inspection: every git read is inert, and status reads the real attributes 
   const gits = m.ran.filter(a => a[0] === 'git')
   expect(gits.length).toBeGreaterThan(0)
   for (const argv of gits) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
-  expect(m.ran.some(a => a.some(x => x.startsWith('--attr-source'))), 'inert-real-attributes-so-eol-normalisation-holds').toBe(false)
   expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
   expect(m.ran.find(a => a.includes('status')), 'inert-status-ignores-submodules').toContain('--ignore-submodules=all')
-  expect(m.ran.some(a => a.includes('config') && !a.includes('submodule.recurse') && !a.includes('--get-regexp')), 'inert-config-read-only-for-filters-and-submodule.recurse').toBe(false)
+  expect(m.ran.some(a => a.includes('config') && !a.includes('submodule.recurse')), 'inert-no-config-is-read-but-submodule.recurse').toBe(false)
   const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
   await new Session(m, peer2, 'p2').touch(wt)
   m.shas.set(wt, 'sha-other')
   m.ran.length = 0
   await me.report(r)
   const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
-  for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
+  for (const x of INERT.slice(1)) expect(merge, `inert-merge-tree-${x}`).toContain(x)
   expect(merge[2], 'inert-merge-tree-runs-in-a-bare-repository-of-its-own').toContain('init -q --bare')
+  expect(merge[2], 'inert-merge-tree-takes-the-object-format').toContain('--object-format=')
   expect(merge[2], 'inert-merge-tree-borrows-the-objects').toContain('objects/info/alternates')
   expect(merge[2], 'inert-merge-tree-reads-no-user-or-system-config').toContain('GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1')
   expect(merge[2], 'inert-merge-tree-names-come-raw').toContain('--name-only -z')
   expect(merge.join(' '), 'inert-merge-tree-names-no-driver-override').not.toContain('merge.')
   expect(merge, 'inert-merge-tree-not-in-the-checkout').not.toContain('-C')
-  expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
 })
 
-test('inspection: status silences each filter driver config defines, and only filters', async () => {
+test('inspection: a SHA-256 repository reads its attributes from its own empty tree', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
   m.end(peer.pid)
-  m.filters.set(r, ['filter.lfs.clean', 'filter.lfs.process', 'filter.a.b.smudge', 'filter.evil.required'])
+  m.put(`${r}/.git/config`, '[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectformat = sha256\n')
+  m.ran.length = 0
+  expect((await decide(r, 'git reset --hard')).reason, 'sha256-status-is-read').toContain('would discard f')
+  expect(m.ran.find(a => a.includes('status')), 'sha256-empty-tree').toContain('--attr-source=6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321')
+})
+
+test('inspection: a tracked file changed only in CR at line ends is no change; one that fails the second read stays changed', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M line.txt', ' M real.txt')
+  m.crOnly.set(r, ['line.txt'])
+  const v = await decide(r, 'git reset --hard')
+  expect(v.reason, 'cr-only-change-is-no-change').not.toContain('line.txt')
+  expect(v.reason, 'a-real-change-stays').toContain('real.txt')
+  m.failing.set('git diff', 128)
+  expect((await decide(r, 'git reset --hard')).reason, 'a-failed-second-read-keeps-every-file').toContain('line.txt')
+  m.failing.delete('git diff')
+  m.status.set(r, [' M line.txt'])
+  expect((await decide(r, 'git add -A')).decision, 'a-clean-crlf-file-stays-clean').not.toBe('stop')
+})
+
+test('inspection: the filter names of .git/info/attributes are overridden on the command line, read once per change', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const file = `${r}/.git/info/attributes`
+  m.put(file, ['# a comment', '*.bin filter=lfs -text', 'f filter=evil merge=drv', '[attr]macro filter=viamacro', '', 'g diff=x'].join('\n'))
   m.ran.length = 0
   expect((await decide(r, 'git reset --hard')).decision).toBe('stop')
   const status = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
   const pairs = status.filter((x, i) => status[i - 1] === '-c')
-  for (const n of ['lfs', 'a.b', 'evil']) {
-    for (const k of ['clean', 'smudge', 'process']) expect(pairs, `filter-${n}-${k}`).toContain(`filter.${n}.${k}=`)
-    expect(pairs, `filter-${n}-required`).toContain(`filter.${n}.required=false`)
+  for (const n of ['lfs', 'evil', 'viamacro']) {
+    for (const k of ['clean', 'smudge', 'process']) expect(pairs, `info-attributes-${n}-${k}`).toContain(`filter.${n}.${k}=`)
+    expect(pairs, `info-attributes-${n}-required`).toContain(`filter.${n}.required=false`)
   }
-  expect(pairs.some(x => x.startsWith('merge.') || x.startsWith('diff.')), 'filter-only-filters').toBe(false)
-  const reads = m.ran.filter(a => a.includes('--get-regexp')).length
-  expect(m.ran.filter(a => a[0] === 'git' && a.includes('ls-tree')).every(a => !a.includes('filter.lfs.clean=')), 'filter-silencing-only-for-status').toBe(true)
-  expect(reads, 'filter-config-read-once-per-status').toBe(1)
+  expect(pairs.some(x => x.includes('.diff') || x.includes('.x.') || x.startsWith('merge.')), 'info-attributes-only-filters').toBe(false)
+  const reads = m.reads.filter(p => p === file).length
+  await decide(r, 'git reset --hard')
+  expect(m.reads.filter(p => p === file).length, 'info-attributes-cached-by-mtime-and-size').toBe(reads)
+  m.put(file, 'f filter=other')
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  const again = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
+  expect(again, 'info-attributes-reread-after-a-change').toContain('filter.other.clean=')
+  expect(again).not.toContain('filter.evil.clean=')
 })
 
-test('inspection: config that cannot be read, or a driver no -c key can spell, leaves the tree unread, and git status is not run', async () => {
+test('inspection: an info/attributes file that cannot be read or is too large leaves the tree unread, and git status is not run', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
   m.end(peer.pid)
-  m.failing.set('git config', 2)
+  const file = `${r}/.git/info/attributes`
+  m.put(file, 'f filter=evil\n'.repeat(10_000))
   m.ran.length = 0
-  const v = await decide(r, 'git reset --hard')
-  expect(v.reason, 'filter-config-unreadable-is-unread').toContain('could not read git status')
-  expect(v.reason).toContain('CC_TUNER_ACK')
-  expect(m.ran.some(a => a[0] === 'git' && a.includes('status')), 'filter-config-unreadable-runs-no-status').toBe(false)
-  m.failing.delete('git config')
-  m.filters.set(r, ['filter.a=b.clean'])
-  expect((await decide(r, 'git reset --hard')).reason, 'filter-a-name-with-equals-is-unread').toContain('could not read git status')
+  const big = await decide(r, 'git reset --hard')
+  expect(big.decision, 'info-attributes-oversized-stops').toBe('stop')
+  expect(big.reason).toContain('could not read git status')
+  expect(m.ran.some(a => a[0] === 'git' && a.includes('status')), 'info-attributes-oversized-runs-no-status').toBe(false)
+  m.files.delete(file)
+  m.dirs.add(file)
+  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-unreadable-is-unread').toContain('could not read git status')
+  m.dirs.delete(file)
+  m.put(file, 'f filter=a=b')
+  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-a-name-with-equals-is-unread').toContain('could not read git status')
 })
 
 test('inspection: output the engine cut off is no answer: status, a tree and merge-tree read as unread, and nothing incomplete is cached', async () => {
@@ -1381,7 +1420,24 @@ test('inspection: a merge-tree that failed with exit 1 and no tree is no result,
   expect([...m.files.keys()].some(f => f.includes('/merge/')), 'merge-tree-error-is-not-cached').toBe(false)
 })
 
-test('inspection: a git too old for merge-tree --write-tree is never run unchecked; the guard says so and treats the tree as unread', async () => {
+test('inspection: a process list that cannot be read stops a destructive step with an ack, and lets the rest run', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M f')
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  const v = await fresh.bash(r, 'git reset --hard')
+  expect(v.decision, 'unread-processes-stop-a-destructive-step').toBe('stop')
+  expect(v.reason).toContain('could not read the process list')
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'the-ack-passes-it').toBe('allow')
+  expect((await fresh.bash(r, 'npm test')).decision, 'a-step-that-destroys-nothing-runs').toBe('allow')
+  expect(await fresh.peers.report(r), 'report-says-so').toContain('could not read the process list')
+})
+
+test('inspection: a git that does not know --attr-source (before 2.40) is never run unchecked; the guard says so and treats the tree as unread', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
@@ -1389,7 +1445,7 @@ test('inspection: a git too old for merge-tree --write-tree is never run uncheck
   m.failing.set('git status', 129)
   const { decision, reason } = await decide(r, 'git reset --hard')
   expect(decision).toBe('stop')
-  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.38 or newer is needed to inspect safely')
+  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.40 or newer is needed to inspect safely')
   expect(reason, 'inert-old-git-is-unread').toContain('could not read git status')
 })
 
@@ -1909,12 +1965,12 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => a.slice(0, 10).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null -C ${r} config`, `git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null -C ${r} status`])
+  expect(m.ran.map(a => a.slice(0, 11).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null --attr-source=${EMPTY_TREE} -C ${r} status`])
   m.advance(61)
   await decide(r, 'npm test')
-  expect(m.ran.slice(2).map(a => a[0]), 'its own start time is read once').toEqual([])
+  expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
   await decide(r, 'git switch x')
-  expect(m.ran.slice(2).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
+  expect(m.ran.slice(1).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
 })
 
 // --- resources: a shared one is not stopped under a live peer, an exclusive one is used by one session at a time ----
@@ -2217,6 +2273,30 @@ test('resource: lock names cannot collide across scopes, and a release frees eve
   expect((await a.peers.lease('both', r, 'a')).decision).toBe('note')
   expect(await a.peers.release('x', r)).toBe('cc-tuner: released x.')
   expect((await b.peers.lease('both', r, 'b')).decision, 'release-freed-both-holdings-of-x').toBe('note')
+})
+
+test('resource: a lock a later call uses again is no longer owed back', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.includes('] && rm -rf "$d" || exit 1')) throw new Error('release failed') }
+  expect((await b.peers.lease('mirror', r, 'b')).decision).toBe('stop')
+  expect((await b.peers.lease('capture', r, 'b')).decision, 'b-uses-screen-it-still-holds').toBe('allow')
+  m.onRun = undefined
+  expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'a-lock-in-use-was-not-given-back').toBe('stop')
+})
+
+test('resource: product names that differ only beyond one byte do not share a lock', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/one'), m.repo('/w/two')]
+  m.put(`${r1}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: '\u00e9a', resources: [{ key: 'db', kind: 'exclusive', tools: ['use-db'] }] }))
+  m.put(`${r2}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: '\u0e9a', resources: [{ key: 'db', kind: 'exclusive', tools: ['use-db'] }] }))
+  const [a, c] = [session('a'), session('c')]
+  expect((await a.peers.lease('use-db', r1, 'a')).decision).toBe('note')
+  expect((await c.peers.lease('use-db', r2, 'c')).decision, 'unicode-products-are-two-locks').toBe('note')
 })
 
 test('resource: a holder file with a trailing newline still lets a dead holder\'s lease move', async () => {
