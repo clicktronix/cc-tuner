@@ -300,6 +300,10 @@ test('a step whose git is pointed at another repository runs in a directory nobo
     expect(steps(command).at(-1), command).toMatchObject({ words: ['git', 'reset', '--hard'], dir: UNKNOWN })
   }
   expect(steps('FOO=1 git reset --hard').at(-1)!.dir, 'another-assignment-keeps-the-directory').not.toBe(UNKNOWN)
+  expect(steps('GIT_INDEX_FILE=/tmp/i git reset --hard').at(-1)!.dir, 'an-alternate-index-is-elsewhere-too').toBe(UNKNOWN)
+  expect(steps("GIT_DIR=/b/.git GIT_WORK_TREE=/b bash -c 'cd /a && git reset --hard'").at(-1)!.dir, 'a-nested-cd-keeps-the-placement').toBe(UNKNOWN)
+  expect(steps('git --git-dir /b/.git --work-tree=/b reset --hard').at(-1)!.place, 'the-placement-stays-as-data').toEqual(['--git-dir=/b/.git', '--work-tree=/b'])
+  expect(steps("GIT_DIR=/b/.git bash -c 'git --work-tree=/b reset --hard'").at(-1)!.place, 'an-outer-placement-is-inherited').toEqual(['GIT_DIR=/b/.git', '--work-tree=/b'])
 })
 
 test('a step names the substitution it runs in, so a chain does not cross a $( ) or a backquote', () => {

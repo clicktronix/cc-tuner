@@ -59,7 +59,9 @@ never asks the user; for files of unknown owner the reason says they may be the 
   - **How it reads commands.**
     - It unwraps `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&` and `$(...)`, and
       each scope keeps its own directory. A git step pointed elsewhere (`--git-dir`, `--work-tree`,
-      `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`) runs in a directory nobody can tell, so a destructive one stops.
+      `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, inherited through `env` and `bash -c`) runs in a
+      directory nobody can tell whatever `cd` follows, so a destructive one stops; the placement stays on the step and
+      its ack covers that placement only.
     - It checks a compound command step by step. `switch -c x && commit` moves the expected branch
       first. In `add f && commit`, `f` is staged for the following commit.
     - A git, gh or kill command it cannot parse gets a note.

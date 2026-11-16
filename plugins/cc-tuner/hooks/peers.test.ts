@@ -3028,3 +3028,16 @@ test('inspection: the ack for an unread process list covers that command in that
   const recursing = { ...step('git reset --hard'), config: ['submodule.recurse=true'] }
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [recursing], acks: [k] })).decision, 'its-own-config-is-part-of-the-command').toBe('stop')
 })
+
+test('guard: the ack for a git step pointed elsewhere covers that placement only', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  const placed = (to: string) => ({ ...step('git reset --hard'), dir: UNKNOWN, place: [`--git-dir=${to}/.git`, `--work-tree=${to}`] })
+  const v = await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/b')] })
+  expect(v.decision, 'unknown-placement-stops').toBe('stop')
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/c')], acks: [k] })).decision, 'another-placement-needs-its-own-ack').toBe('stop')
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/b')], acks: [k] })).decision, 'its-own-passes').toBe('allow')
+})

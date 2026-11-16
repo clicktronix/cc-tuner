@@ -39,7 +39,8 @@ import type { EngineInterface } from 'claude-code'
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
 // op joins a step to the one before it: `&&`, `||`, `;` or `|`, empty for the first.
-export interface Step { words: string[]; dir: string; op: string; writes: boolean; scope?: number; config?: string[] }
+// config: git configuration the step gives itself; place: what points its git at another repository or index.
+export interface Step { words: string[]; dir: string; op: string; writes: boolean; scope?: number; config?: string[]; place?: string[] }
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
@@ -1153,13 +1154,13 @@ export class Peers {
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
-    // Its ack covers this call's guarded steps, each with its directory and the git configuration it gives itself.
+    // Its ack covers this call's guarded steps, each with its directory, its own git configuration and placement.
     const guarded: string[] = []
     if (ev.phase === 'before') {
       for (const p of plan) {
         const w = p.st.words ?? []
         if (await this.off((p.at ?? here)?.[0])) continue
-        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w, '', ...p.st.config ?? []].join('\0'))
+        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w, '', ...p.st.config ?? [], '', ...p.st.place ?? []].join('\0'))
       }
     }
     const k = crc32(['processes', ...guarded].join('\n'))
@@ -1339,7 +1340,7 @@ class Guard {
           this.chains.set(st.scope ?? 0, this.moved)
           if (st.op !== '&&') this.moved.clear()
           const w = st.words ?? []
-          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind, st.config)
+          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind, st.config, st.place)
           prev = w
         }
       } else if (target !== undefined && this.here !== undefined && !await this.p.off(this.here[0])) {
@@ -1384,13 +1385,13 @@ class Guard {
 
   // git and gh act on the checkout of their directory; rm and kill reach past it, so outside a repository
   // they are read from the cwd's.
-  private async step(w: string[], at: Where | undefined, d: string, prev: string[], blind: boolean, config: readonly string[] = []) {
+  private async step(w: string[], at: Where | undefined, d: string, prev: string[], blind: boolean, config: readonly string[] = [], place: readonly string[] = []) {
     this.config = config
     const name = basename(w[0]!)
     const scope = at ?? this.here
     await this.shared(w, at)
     if (blind && (name === 'git' || name === 'gh' || name === 'rm')) {
-      if (destroys(w)) await this.unresolved(w, scope)
+      if (destroys(w)) await this.unresolved(w, scope, place)
       else await this.unsure(scope, `could not read the directory of \`${w.join(' ').slice(0, 60)}\`; peers_report shows who works there.`)
     }
     else if (name === 'git' && at !== undefined) await this.git(w, at, d)
@@ -1402,14 +1403,15 @@ class Guard {
 
   // A destructive step in a directory nobody could tell (an earlier `cd` may have failed, or goes where the guard cannot read)
   // acts on a checkout nobody can name, so it stops. The absolute operands of a removal do not depend on the directory.
-  private async unresolved(w: string[], scope: Where | undefined) {
+  private async unresolved(w: string[], scope: Where | undefined, place: readonly string[] = []) {
     const label = w.join(' ').slice(0, 60)
     const rm = basename(w[0]!) === 'rm'
     const named = rm ? operands(w.slice(1)) : []
     const known = named.filter(x => x.startsWith('/'))
     if (rm) await this.remove(scope, '/', label, known)
     if (!rm || known.length < named.length) {
-      this.stop('unresolved', `${this.here?.[0] ?? ''}|${w.join(' ')}`, `cannot tell which checkout \`${label}\` runs in: an earlier \`cd\` may have failed.`,
+      this.stop('unresolved', `${this.here?.[0] ?? ''}|${[...place, ...w].join(' ')}`,
+        `cannot tell which checkout \`${label}\` runs in: ${place.length > 0 ? `git is pointed elsewhere (${listing(place)})` : 'an earlier `cd` may have failed'}.`,
         'Use `cd <literal dir> && …` or `git -C <dir>`.', false)
     }
   }
