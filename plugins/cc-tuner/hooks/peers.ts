@@ -547,7 +547,8 @@ export class Peers {
       }
       // Only git's line terminator goes: a file name may end in a space.
       const path = r.stdout.replace(/\n$/, '')
-      return path === '' || path.startsWith('/') ? path : join(top, path)
+      // Joined literally: `link/..` is git's to resolve through the link, not ours to collapse.
+      return path === '' || path.startsWith('/') ? path : `${top}/${path}`
     }
     const [user, system] = [await ask('GIT_ATTR_GLOBAL'), await ask('GIT_ATTR_SYSTEM')]
     return user === undefined || system === undefined ? undefined : [user, system]

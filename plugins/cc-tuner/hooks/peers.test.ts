@@ -1402,6 +1402,10 @@ test('inspection: attribute files come from git var as git resolves them; a fail
   const status = m.ran.find(isolatedStatus)!
   expect(status[8], 'a-relative-path-is-the-checkouts-and-a-trailing-space-stays').toBe(`${r}/.git/custom attributes `)
   expect(status[2], 'copied-files-are-kept-apart-by-a-newline').toContain('{ cat "$x" && echo; }')
+  m.attrPaths.set('GIT_ATTR_GLOBAL', 'link/../attributes')
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![8], 'a-relative-path-is-joined-literally').toBe(`${r}/link/../attributes`)
   m.attrPaths.clear()
   m.failing.set('git var', 128)
   const v = await fresh().bash(r, 'git reset --hard')

@@ -205,6 +205,8 @@ turns the guard off there.
 `/clear` keeps a task that started a shared resource; stopping it, as `/run`'s cleanup does, is refused only while
 another session of the product is live, and the task ends with its Claude process.
 
+The guard needs git 2.42 or newer: with an older git it cannot read a checkout, so a destructive step stops with an ack.
+
 Known limits: liveness is cached for a minute; a session idle for 8 h stays in reports but blocks nothing that
 needs only its being live, and its uncommitted files stay protected.
 
