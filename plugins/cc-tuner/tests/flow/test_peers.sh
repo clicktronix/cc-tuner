@@ -226,9 +226,11 @@ one 'git reset --hard'
 e2e "$RI" go
 check  "ident-the-guard-reads-info-attributes-too" "would discard f in" "$(cat "$W/api.log")"
 # The user's attribute file counts too: a macro there (`[attr]noident -ident`) turns ident off for a file that names it.
-RM="$(repo)"; printf 'f ident noident\n' > "$RM/.gitattributes"; printf '$Id$\n' > "$RM/f"; ( cd "$RM" && git add . && git commit -q -m ident )
+# The edit keeps the size, so only the attribute (not a size change) tells git the file differs.
+# Committed under ident (the blob holds the collapsed $Id$), then the user's macro turns ident off for f.
+RM="$(repo)"; printf 'f ident noident\n' > "$RM/.gitattributes"; printf '$Id: original $\n' > "$RM/f"; ( cd "$RM" && git add . && git commit -q -m ident )
 printf '[attr]noident -ident\n' > "$W/user-attributes"; git -C "$RM" config core.attributesFile "$W/user-attributes"
-printf '$Id: foreign $\n' > "$RM/f"
+printf '$Id: foreignx $\n' > "$RM/f"
 equals "user-attributes-plain-git-sees-the-change" " M f" "$(git -C "$RM" status --porcelain)"
 one 'git reset --hard'
 e2e "$RM" go

@@ -27,6 +27,8 @@ class Machine {
   symbolic = new Map<string, string>()
   halfOnce = new Set<string>()
   envs: Record<string, Record<string, string> | undefined> = {}
+  // Every command with the environment it ran with.
+  calls: [readonly string[], Record<string, string> | undefined][] = []
   failing = new Map<string, number>()
   trees = new Map<string, string[]>()
   configs = new Map<string, string>()
@@ -132,6 +134,7 @@ class Machine {
         this.onRun?.(argv)
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
+        this.calls.push([[...argv], init?.env])
         const strip = (xs: readonly string[]) => xs.filter((x, i) => x !== '-c' && xs[i - 1] !== '-c' && !x.startsWith('--attr-source=') && x !== '--literal-pathspecs')
         // status runs isolated: a shell that names the checkout fourth, two attribute files after it, then git's arguments.
         const isolated = argv[0] === '/bin/sh' && argv[2]?.includes('--work-tree="$w"')
@@ -1299,9 +1302,13 @@ test('inspection: status runs in a git directory of its own with no config, hook
   expect(status[2], 'isolated-reads-the-copied-user-and-system-attributes').toContain('core.attributesFile="$d/attrs"')
   expect(status, 'isolated-not-the-null-attributes-file').not.toContain('core.attributesFile=/dev/null')
   expect(m.reads.includes(`${r}/.git/info/attributes`), 'info-attributes-is-never-read-by-the-guard').toBe(false)
-  for (const argv of m.ran.filter(a => a[0] === 'git')) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
+  // Discovering the user's and system's attribute files asks git as it reads them, so that call alone lacks the null file.
+  const discovery = (a: readonly string[]) => a.includes('var') || a.includes('core.attributesFile')
+  for (const argv of m.ran.filter(a => a[0] === 'git')) for (const x of INERT) if (!(discovery(argv) && x.startsWith('core.attributesFile'))) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
   expect(m.ran.some(a => a.some(x => x.startsWith('--attr-source'))), 'no-attr-source-needed').toBe(false)
-  expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
+  const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' }
+  for (const [argv, env] of m.calls.filter(([a]) => (a[0] === 'git' && !discovery(a)) || isolatedStatus(a))) expect(env, `inert-git-env-${argv.slice(-2).join(' ')}`).toEqual(GIT_ENV)
+  for (const [, env] of m.calls.filter(([a]) => a[0] === 'git' && discovery(a))) expect(env, 'discovery-runs-no-transport').toMatchObject({ GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
   const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
   await new Session(m, peer2, 'p2').touch(wt)
   m.shas.set(wt, 'sha-other')
@@ -1360,6 +1367,23 @@ test('inspection: in a reftable repository HEAD is read through git, so a switch
   m.put(`${r}/.git/reftable/tables.list`, 'x')
   m.onRun = argv => { if (isolatedStatus(argv)) { m.symbolic.set(r, 'refs/heads/side'); m.put(`${r}/.git/reftable/tables.list`, 'y'); m.onRun = undefined } }
   expect((await decide(r, 'git reset --hard')).reason, 'reftable-switch-is-unread').toContain('could not read git status')
+})
+
+test('inspection: a linked worktree on reftable is watched through its own table list', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const wt = m.worktree(r, '/w/wt', 'wt-main')
+  const gd = `${r}/.git/worktrees/wt`
+  m.put(`${gd}/HEAD`, 'ref: refs/heads/.invalid\n')
+  m.symbolic.set(wt, 'refs/heads/wt-main')
+  m.put(`${gd}/reftable/tables.list`, 'x')
+  m.dirty(wt, ' M f')
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  await fresh.bash(wt, 'git status')
+  m.advance(61)
+  m.onRun = argv => { if (argv.includes('--get-regexp')) { m.put(`${gd}/reftable/tables.list`, 'side'); m.put(`${gd}/reftable/tables.list`, 'back'); m.onRun = undefined } }
+  expect((await fresh.bash(wt, 'git reset --hard')).reason, 'worktree-reftable-round-trip-is-unread').toContain('could not read git status')
 })
 
 test('inspection: config that cannot be read leaves status unread, and it is not run', async () => {

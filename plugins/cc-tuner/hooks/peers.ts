@@ -528,18 +528,25 @@ export class Peers {
     if (gd === undefined) return ''
     const [raw, st] = [((await this.w.read(`${gd}/HEAD`).catch(() => undefined)) ?? '').trim(), await this.w.stat(`${gd}/HEAD`)]
     if (raw !== 'ref: refs/heads/.invalid') return `${raw}\0${st?.mtimeMs ?? ''}`
+    // A linked worktree keeps its HEAD in a reftable of its own, beside the common one.
     const common = (await this.where(top))?.[1] ?? gd
-    const tables = await this.w.stat(`${common}/reftable/tables.list`)
-    return `${(await this.git(top, 'symbolic-ref', '-q', 'HEAD')) ?? (await this.git(top, 'rev-parse', '-q', '--verify', 'HEAD')) ?? ''}\0${tables?.mtimeMs ?? ''}`
+    const [own, shared] = [await this.w.stat(`${gd}/reftable/tables.list`), await this.w.stat(`${common}/reftable/tables.list`)]
+    return `${(await this.git(top, 'symbolic-ref', '-q', 'HEAD')) ?? (await this.git(top, 'rev-parse', '-q', '--verify', 'HEAD')) ?? ''}\0${own?.mtimeMs ?? ''}\0${shared?.mtimeMs ?? ''}`
   }
 
-  // The user's and the system's attribute files git would read, as paths ('' for none): core.attributesFile or the XDG
-  // default, and `git var GIT_ATTR_SYSTEM` where git has it.
+  // The user's and the system's attribute files git would read, as paths ('' for none), asked of git as it reads them
+  // (not under the guard's own core.attributesFile=/dev/null or GIT_ATTR_NOSYSTEM): `git var` (2.42), else
+  // core.attributesFile, else the XDG default.
   private async attributeFiles(top: string): Promise<[string, string]> {
-    const set = await this.git(top, 'config', '--type=path', '--get', 'core.attributesFile')
-    const xdg = (await this.w.home()) === undefined ? '' : `${(await this.w.home())!}/.config/git/attributes`
-    const system = (await this.git(top, 'var', 'GIT_ATTR_SYSTEM')) ?? ''
-    return [set ?? xdg, system]
+    const env = { GIT_OPTIONAL_LOCKS: '0', GIT_ALLOW_PROTOCOL: GIT_ENV.GIT_ALLOW_PROTOCOL, GIT_NO_LAZY_FETCH: '1' }
+    const ask = async (...args: string[]) => {
+      const r = await this.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '--literal-pathspecs', '-C', top, ...args], { env }).catch(() => undefined)
+      return r?.exitCode === 0 ? r.stdout.trim() : undefined
+    }
+    const home = await this.w.home()
+    const user = (await ask('var', 'GIT_ATTR_GLOBAL')) ?? (await ask('config', '--type=path', '--get', 'core.attributesFile'))
+      ?? (home === undefined ? '' : `${home}/.config/git/attributes`)
+    return [user, (await ask('var', 'GIT_ATTR_SYSTEM')) ?? '']
   }
 
   // `fallback` stands for a HEAD that could not be read; a detached one is ''.
