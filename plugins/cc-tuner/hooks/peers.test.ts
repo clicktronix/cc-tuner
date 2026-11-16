@@ -1,0 +1,3043 @@
+import type { On, PromptSubmitInput } from 'claude-code'
+import { expect, test } from 'claude-code/testing'
+import { Peers, UNKNOWN, lockName, ownedOpen, type Event, type Rec, type Step, type World } from './peers'
+
+// A machine in memory: files, git checkouts, a process table, and the answers of the few commands the guard
+// runs (`ps`, `git status`, `git rev-parse`, merge-tree, `pgrep`, `lsof`). Every session is a real Peers over
+// it with its own Claude pid, so records are written by the code that writes them in a session. Real git,
+// `ps` and the engine's `$.fs` are driven end to end by tests/flow/test_peers.sh.
+const DIR = '/peers'
+const USER = '/user/resources.json'
+const LSTART = 'Sat Nov 14 00:07:21 2026'
+
+class Machine {
+  files = new Map<string, { text: string; mtimeMs: number; ctimeMs?: number }>()
+  dirs = new Set<string>(['/'])
+  procs = new Map<number, { ppid: number; start: string; name: string; args: string }>()
+  status = new Map<string, string[]>()
+  shas = new Map<string, string>()
+  merges = new Map<string, string>()
+  ports = new Map<number, number>()
+  stopped: string[] = []
+  dirTimes = new Map<string, number>()
+  clock = 1_800_000_000_000
+  ran: string[][] = []
+  reads: string[] = []
+  refs = new Set<string>()
+  symbolic = new Map<string, string>()
+  halfOnce = new Set<string>()
+  envs: Record<string, Record<string, string> | undefined> = {}
+  // Every command with the environment it ran with.
+  calls: [readonly string[], Record<string, string> | undefined][] = []
+  failing = new Map<string, number>()
+  trees = new Map<string, string[]>()
+  configs = new Map<string, string>()
+  // Files whose change is only CR at line ends, per repository: `git diff --ignore-cr-at-eol` leaves them out.
+  crOnly = new Map<string, string[]>()
+  // `key\nvalue` entries `git config --get-regexp ^core\.` gives per repository.
+  core = new Map<string, string[]>()
+  // What `git var` reports for an attribute file, by variable.
+  attrPaths = new Map<string, string>()
+  // The default user attribute file the shell builds from XDG_CONFIG_HOME or HOME.
+  xdg = '/home/u/.config/git/attributes'
+  // The commands whose output is cut off, and symbolic links (path -> target).
+  truncate = new Set<string>()
+  links = new Map<string, string>()
+  afterRead = new Map<string, () => Promise<void>>()
+  // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
+  busy: (() => void) | undefined
+  // Runs before each command the guard starts: a slow command in the middle of a decision.
+  onRun: ((argv: readonly string[]) => void) | undefined
+  private tick = 1
+  private nextPid = 1000
+
+  mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
+  // A write takes the clock's time, a fraction of a millisecond apart from the one before.
+  // A record's or a git file's time is unique per write (the module caches by it, and reads HEAD's as its generation); any
+  // other file's falls a tenth of a millisecond in, before the call that wrote it ends.
+  put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); const t = this.at(p); this.files.set(p, { text, mtimeMs: t, ctimeMs: t }) }
+  private at(p: string) { return this.clock + (p.startsWith(`${DIR}/`) || p.includes('/.git/') ? this.tick++ / 1000 : 0.1) }
+  // A copy that keeps the old modification time (`cp -p`): only the inode change time is now.
+  replace(p: string, text: string) { const f = this.files.get(p)!; this.files.set(p, { text, mtimeMs: f.mtimeMs, ctimeMs: this.at(p) }) }
+  advance(seconds: number) { this.clock += seconds * 1000 }
+  // What `$(cat file)` gives in the shell: the text without its trailing newlines.
+  cat(p: string) { return (this.files.get(p)?.text ?? '').replace(/\n+$/, '') }
+  drop(dir: string) {
+    for (const p of [...this.files.keys()]) if (p.startsWith(`${dir}/`)) this.files.delete(p)
+    this.dirs.delete(dir)
+  }
+
+  // A process: a stand-in Claude by default, its start time distinct from every other one.
+  spawn(ppid = 1, name = 'sleep', args = name): number {
+    const pid = this.nextPid++
+    this.procs.set(pid, { ppid, start: `Sat Nov 14 00:${String(Math.floor(pid / 60) % 60).padStart(2, '0')}:${String(pid % 60).padStart(2, '0')} 2026`, name, args })
+    return pid
+  }
+  // The process ends, and the minute a start time is kept for passes.
+  end(pid: number) { this.procs.delete(pid); this.advance(61) }
+
+  repo(top: string, branch = 'main'): string {
+    this.mkdir(`${top}/.git`)
+    this.put(`${top}/.git/HEAD`, `ref: refs/heads/${branch}\n`)
+    this.shas.set(top, `sha-${top}`)
+    return top
+  }
+  worktree(main: string, top: string, branch: string): string {
+    const gd = `${main}/.git/worktrees/${top.slice(top.lastIndexOf('/') + 1)}`
+    this.mkdir(top)
+    this.put(`${top}/.git`, `gitdir: ${gd}\n`)
+    this.put(`${gd}/HEAD`, `ref: refs/heads/${branch}\n`)
+    this.put(`${gd}/commondir`, '../..\n')
+    this.shas.set(top, `sha-${top}`)
+    return top
+  }
+  head(top: string, branch: string | undefined) {
+    const git = this.files.get(`${top}/.git`)
+    const gd = git === undefined ? `${top}/.git` : git.text.slice(7).trim()
+    this.put(`${gd}/HEAD`, branch === undefined ? 'abc123\n' : `ref: refs/heads/${branch}\n`)
+  }
+  dirty(top: string, ...entries: string[]) { this.status.set(top, [...(this.status.get(top) ?? []), ...entries]) }
+
+  rec(name: string): Rec { return JSON.parse(this.files.get(`${DIR}/${name}.json`)!.text) as Rec }
+  edit(name: string, change: (r: Rec) => void) { const r = this.rec(name); change(r); this.put(`${DIR}/${name}.json`, JSON.stringify(r)) }
+  records(pid: number) { return [...this.files].filter(([p, f]) => p.startsWith(`${DIR}/`) && p.endsWith('.json') && (JSON.parse(f.text) as { pid?: number }).pid === pid).length }
+
+  ps(pids?: number[]): string {
+    return [...this.procs].filter(([p]) => pids === undefined || pids.includes(p)).map(([p, x]) => `${p} ${x.ppid} ${x.start} /bin/${x.name}`).join('\n')
+  }
+
+  world(pid: number): World {
+    return {
+      dir: async () => DIR,
+      config: async () => USER,
+      home: async () => '/home/u',
+      read: async p => {
+        this.reads.push(p)
+        const f = this.files.get(this.links.get(p) ?? p)
+        if (f === undefined) throw new Error(`ENOENT ${p}`)
+        const text = this.halfOnce.delete(p) ? f.text.slice(0, 20) : f.text
+        const hook = this.afterRead.get(p)
+        if (hook !== undefined) { this.afterRead.delete(p); await hook() }
+        return text
+      },
+      write: async (p, text) => this.put(p, text),
+      list: async d => {
+        if (!this.dirs.has(d)) throw new Error(`ENOENT ${d}`)
+        const files = [...this.files].filter(([p]) => p.slice(0, p.lastIndexOf('/')) === d)
+          .map(([p, f]) => ({ name: p.slice(d.length + 1), kind: 'file', size: f.text.length, mtimeMs: f.mtimeMs }))
+        const dirs = [...this.dirs].filter(p => p !== '/' && p.slice(0, p.lastIndexOf('/')) === d).map(p => ({ name: p.slice(d.length + 1), kind: 'dir', size: 0, mtimeMs: 0 }))
+        return [...files, ...dirs]
+      },
+      stat: async p => {
+        const link = this.links.get(p)
+        if (link !== undefined) { const t = this.files.get(link); return t === undefined ? undefined : { kind: 'file', realPath: link, mtimeMs: t.mtimeMs, size: t.text.length } }
+        const f = this.files.get(p)
+        return this.dirs.has(p) ? { kind: 'dir', realPath: p, mtimeMs: this.dirTimes.get(p) } : f === undefined ? undefined : { kind: 'file', realPath: p, mtimeMs: f.mtimeMs, size: f.text.length }
+      },
+      run: async (argv, init) => {
+        this.onRun?.(argv)
+        this.ran.push([...argv])
+        this.envs[argv[0]!] = init?.env
+        this.calls.push([[...argv], init?.env])
+        const strip = (xs: readonly string[]) => xs.filter((x, i) => x !== '-c' && xs[i - 1] !== '-c' && !x.startsWith('--attr-source=') && x !== '--literal-pathspecs')
+        // status runs isolated: a shell that names the checkout fourth, two attribute files after it, then git's arguments.
+        const isolated = argv[0] === '/bin/sh' && argv[2]?.includes('--work-tree="$w"')
+        const bare = isolated ? ['git', '-C', argv[7]!, ...strip(argv.slice(10))] : argv[0] === 'git' ? strip(argv) : argv
+        const name = bare[0] === 'git' ? `git ${bare[3]}` : bare[0] === '/bin/sh' && bare[2]?.includes('merge-tree') ? 'merge-tree'
+          : bare[0] === 'ps' && bare.includes('-A') ? 'ps -A' : bare[0]!
+        const failing = this.failing.get(name)
+        const out = { exitCode: 0, ...this.answer(pid, bare), ...(failing !== undefined && { exitCode: failing }) }
+        // Output cut off loses its end, as the engine's limit does.
+        return this.truncate.has(name) ? { ...out, stdout: out.stdout.slice(0, Math.floor(out.stdout.length / 2)), isStdoutTruncated: true } : out
+      },
+      // Whole milliseconds, as Date.now gives them; file times keep their fraction.
+      now: () => Math.floor(this.clock),
+    }
+  }
+
+  private answer(pid: number, argv: readonly string[]): { exitCode?: number; stdout: string } {
+    const [cmd, ...a] = argv
+    if (cmd === '/bin/sh' && a[1] === 'echo $PPID') return { stdout: `${pid}\n` }
+    if (cmd === '/bin/sh' && a[1]?.includes('%Fc')) {
+      return { stdout: a.slice(3).map(f => { const x = this.files.get(f); return x === undefined ? '-' : String((x.ctimeMs ?? x.mtimeMs) / 1000) }).join('\n') + '\n' }
+    }
+    if (cmd === 'ps') return { stdout: this.ps(a.includes('-p') ? a[a.indexOf('-p') + 1]!.split(',').map(Number) : undefined) }
+    if (cmd === 'git' && a[2] === 'status') {
+      const spec = a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
+      return { stdout: (this.status.get(a[1]!) ?? []).filter(e => spec === undefined || spec.includes(e.slice(3))).map(e => `${e}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'diff') {
+      const asked = a.slice(a.indexOf('--') + 1)
+      return { stdout: asked.filter(f => !(this.crOnly.get(a[1]!) ?? []).includes(f)).map(f => `${f}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'config' && a.includes('--get-regexp')) {
+      const entries = this.core.get(a[1]!) ?? []
+      return entries.length === 0 ? { exitCode: 1, stdout: '' } : { stdout: entries.map(e => `${e}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'config') {
+      const v = this.configs.get(`${a[1]}|${a[a.length - 1]}`)
+      return v === undefined ? { exitCode: 1, stdout: '' } : { stdout: a.includes('--show-scope') ? `command\tfalse\nlocal\t${v}\n` : `${v}\n` }
+    }
+    if (cmd === 'git' && a[2] === 'ls-tree') {
+      return { stdout: (this.trees.get(`${a[1]}|${a[a.length - 1]}`) ?? []).map(f => `${f}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: 'sha\n' } : { exitCode: 1, stdout: '' }
+    if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
+    if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
+    // The lease scripts, as the shell runs them: one atomic step each.
+    // Each script of the lease runs under the `.take` directory: while another caller holds it, the exit is 2.
+    if (cmd === '/bin/sh' && a[1]?.includes('printf %s') && !a[1].includes('if mkdir')) {
+      const [lock, seen, info] = a.slice(3) as [string, string, string]
+      if (this.dirs.has(`${lock}.take`)) { this.busy?.(); return { exitCode: 2, stdout: '' } }
+      if (this.cat(`${lock}/holder.json`) !== seen) return { exitCode: 1, stdout: '' }
+      this.put(`${lock}/holder.json`, info)
+      return { stdout: '' }
+    }
+    if (cmd === '/bin/sh' && a[1]?.includes('printf %s')) {
+      const [lock, seen, info] = a.slice(3) as [string, string, string]
+      if (!this.dirs.has(lock.slice(0, lock.lastIndexOf('/')))) return { exitCode: 1, stdout: '' }
+      if (this.dirs.has(lock) && this.dirs.has(`${lock}.take`)) return { exitCode: 2, stdout: '' }
+      const old = this.clock - (this.dirTimes.get(lock) ?? 0) > 540_000
+      if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen && (seen !== '' || old)) this.drop(lock)
+      if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
+      this.put(`${lock}/holder.json`, info)
+      this.dirTimes.set(lock, this.clock)
+      return { stdout: '' }
+    }
+    if (cmd === '/bin/sh' && a[1]?.includes('holder.json') && a[1].includes('rm -rf')) {
+      if (this.dirs.has(`${a[3]}.take`)) return { exitCode: 2, stdout: '' }
+      if (this.cat(`${a[3]}/holder.json`) !== a[4]) return { exitCode: 1, stdout: '' }
+      this.drop(a[3]!)
+      return { stdout: '' }
+    }
+    if (cmd === '/bin/sh' && a[1]?.includes('XDG_CONFIG_HOME')) return { stdout: `${this.xdg}\n` }
+    if (cmd === '/bin/sh' && a[1]?.includes('merge-tree')) {
+      const out = this.merges.get(`${a[5]}-${a[6]}`)
+      const tree = 'a'.repeat(40)
+      // '!error' stands for git failing with exit 1 and no tree, as an object-format mismatch does.
+      if (out === '!error') return { exitCode: 1, stdout: '' }
+      return out === undefined ? { exitCode: 0, stdout: `${tree}\0` } : { exitCode: 1, stdout: `${tree}\0${out.split(',').map(n => `${n}\0`).join('')}\0CONFLICT\0` }
+    }
+    if (cmd === '/bin/sh' && a[1]?.includes('mkdir -p')) { this.mkdir(a[3]!); return { stdout: '' } }
+    if (cmd === '/bin/sh' && a[1]?.includes('rm -f')) {
+      for (const n of a.slice(4)) this.files.delete(`${a[3]}/${n}`)
+      return { stdout: '' }
+    }
+    if (cmd === 'pgrep') {
+      const [mode, pat] = a.includes('-x') ? ['x', a[a.indexOf('-x') + 1]!] : ['f', a[a.length - 1]!]
+      return { stdout: [...this.procs].filter(([, x]) => (mode === 'x' ? x.name === pat : x.args.includes(pat))).map(([p]) => p).join('\n') }
+    }
+    if (cmd === 'lsof') return { stdout: `${this.ports.get(Number(a[a.length - 1]!.slice(1))) ?? ''}\n` }
+    // `git var GIT_ATTR_GLOBAL` / `GIT_ATTR_SYSTEM`: the paths git 2.42 reports.
+    if (cmd === 'git' && a[2] === 'var') return { stdout: `${this.attrPaths.get(a[3]!) ?? (a[3] === 'GIT_ATTR_GLOBAL' ? '/home/u/.config/git/attributes' : '/etc/gitattributes')}\n` }
+    return { exitCode: 127, stdout: '' }
+  }
+}
+
+// A session of the machine: its Claude pid, and the events it sends as the adapter sends them.
+class Session {
+  readonly peers: Peers
+  constructor(readonly m: Machine, readonly pid: number, readonly sid: string) { this.peers = new Peers(m.world(pid)) }
+  check(ev: Partial<Event> & { cwd: string }) { return this.peers.check({ session_id: this.sid, phase: 'before', ...ev }) }
+  // A call with no steps the adapter could read: a writer call, as any unknown command is.
+  async touch(cwd: string) {
+    const v = await this.check({ tool: 'Bash', cwd })
+    if (v.decision !== 'stop') await this.check({ phase: 'after', tool: 'Bash', cwd })
+    return v
+  }
+  // The guard's `before`, as the adapter sends it, and its `after` once the engine let the call run.
+  before(cwd: string, ...steps: (string | Partial<Step>)[]) {
+    return this.check({ tool: 'Bash', cwd, steps: steps.map(s => (typeof s === 'string' ? step(s) : { ...step(''), ...s })) })
+  }
+  after(cwd: string, steps: (string | Partial<Step>)[], seen?: Record<string, string>, ok = true) {
+    return this.check({ phase: 'after', tool: 'Bash', cwd, steps: steps.map(s => (typeof s === 'string' ? step(s) : { ...step(''), ...s })), seen, ok })
+  }
+  async bash(cwd: string, ...steps: (string | Partial<Step>)[]) {
+    const v = await this.before(cwd, ...steps)
+    if (v.decision !== 'stop') await this.after(cwd, steps, v.seen)
+    return v
+  }
+  edited(cwd: string, path: string, tool = 'Edit') { return this.check({ phase: 'after', tool, cwd, path }) }
+  start(cwd: string, sid = this.sid) { return this.peers.check({ session_id: sid, phase: 'start', cwd }) }
+  report(cwd: string) { return this.peers.report(cwd) }
+}
+const step = (text: string, dir = '', op = ''): Step => ({ words: text === '' ? [] : text.split(' '), dir, op, writes: false })
+
+function machine() {
+  const m = new Machine()
+  m.mkdir(DIR)
+  let n = 0
+  const session = (sid = `s${++n}`, pid = m.spawn()) => new Session(m, pid, sid)
+  return { m, session }
+}
+
+// A Bash call as the adapter makes it: `before`, the command's effect on the machine, then `after` with
+// what `before` saw.
+async function call(s: Session, cwd: string, steps: (string | Partial<Step>)[], effect?: () => void, ok = true) {
+  const v = await s.before(cwd, ...steps)
+  if (v.decision !== 'stop') {
+    effect?.()
+    // The call ends within the millisecond its last write took.
+    s.m.advance(0.0002)
+    await s.after(cwd, steps, v.seen, ok)
+  }
+  return v
+}
+const at = (dir: string, text: string, op = ''): Partial<Step> => step(text, dir, op)
+const then = (text: string, op = '&&'): Partial<Step> => step(text, '', op)
+const writes = (text: string): Partial<Step> => ({ ...step(text), writes: true })
+
+// --- the adapter: the hooks module in front of the guard ----------------------------------------------------
+// The module reads and writes records with $.fs and runs `ps` and git with $.process.run; the test's hooks
+// stand for those, backed by the machine.
+let sessionId = 'e1'
+let peersDir: string | undefined = DIR
+const logged: string[] = []
+function engine(on: On, m: Machine, pid: number, effect: (command: string) => void = () => {}, broken = () => false,
+  task: (command: string) => string | undefined = () => undefined) {
+  const w = m.world(pid)
+  sessionId = 'e1'
+  peersDir = DIR
+  logged.length = 0
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  on('session.id', () => ({ value: sessionId }))
+  on('session.cwd', () => ({ value: '/w/r' }))
+  on('ui.log', (_, e) => { logged.push(e.text); return { value: undefined } })
+  on('env.get', (_, e) => ({ value: e.name === 'CC_TUNER_PEERS_DIR' ? peersDir : e.name === 'CC_TUNER_PEERS_CONFIG' ? USER : undefined }))
+  on('fs.read', async (_, e) => ({ value: await w.read(e.path) }))
+  on('fs.write', async (_, e) => { await w.write(e.path, e.text); return { value: undefined } })
+  on('fs.list', async (_, e) => ({ value: (await w.list(e.path ?? '.')).map(x => ({ ...x, kind: x.kind as 'file' | 'dir', isLink: false })) }))
+  on('fs.stat', async (_, e) => {
+    const st = await w.stat(e.path)
+    if (st === undefined) throw new Error(`ENOENT ${e.path}`)
+    return { value: { kind: st.kind as 'file' | 'dir', size: st.size ?? 0, mtimeMs: st.mtimeMs ?? 0, isLink: false, realPath: st.realPath } }
+  })
+  on('process.run', async (_, e) => {
+    if (broken()) throw new Error('injected process failure')
+    return { value: { stderr: '', isStdoutTruncated: false, isStderrTruncated: false, ...await w.run(e.argv) } }
+  })
+  const ran: string[] = []
+  on('tool.call', { tool: 'Bash' }, (_, e) => {
+    if (e.command === 'denied') return { deny: 'denied by the engine' }
+    ran.push(e.command)
+    effect(e.command)
+    return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: task(e.command) } }
+  })
+  on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: { filePath: '', content: '', numLines: 0, startLine: 1, totalLines: 0 } } }))
+  on('tool.call', { tool: 'TaskStop' }, (_, e) => { m.stopped.push(String(e.task_id)); return { result: { message: 'stopped', task_id: String(e.task_id), task_type: 'bash' } } })
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, (_, e) => { ran.push(e.tool); return { result: {} } })
+  const answer = (path: string) => (path.endsWith('.fail') ? { result: {}, isError: true as const } : { result: {} })
+  on('tool.call', { tool: 'Edit' }, (_, e) => answer(e.file_path))
+  on('tool.call', { tool: 'Write' }, (_, e) => answer(e.file_path))
+  on('tool.call', { tool: 'NotebookEdit' }, (_, e) => answer(e.notebook_path))
+  return ran
+}
+
+test('record-written: a Bash call writes the session record through $.fs, with no python', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const me = m.spawn()
+  engine(on, m, me)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(m.files.has(`${DIR}/e1.json`), 'record-written').toBe(true)
+  expect(m.rec('e1')).toMatchObject({ session_id: 'e1', pid: me, checkouts: { '/w/r': { expected: 'main' } } })
+  expect(m.ran.some(argv => argv.join(' ').includes('peers.sh') || argv[0] === 'python3')).toBe(false)
+})
+
+test('the module stops a switch next to a writer, and the command never runs', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  await session('peer').bash('/w/r', 'npm test')
+  const ran = engine(on, m, m.spawn())
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'git switch x' })
+  expect(deny).toContain('switching branches there changes its files')
+  expect(deny, 'guard-switch-names-a-worktree-first').toMatch(/git worktree add .* To go on/)
+  expect(deny).toContain('CC_TUNER_ACK=')
+  expect(ran).toEqual([])
+})
+
+test('the module moves the expectation only when HEAD changed during its own switch', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  engine(on, m, m.spawn(), command => { if (command.includes('switch -c x')) m.head('/w/r', 'x') })
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  await $.tool.call({ tool: 'Bash', command: 'git switch -c x && git commit -m m' })
+  expect(m.rec('e1').checkouts['/w/r']!.expected).toBe('x')
+})
+
+test('the module reads the operators: a commit after ; does not follow a switch that may not have run', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  m.head('/w/r', 'b')
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'false && git switch c; git commit --allow-empty -m wrong' })
+  expect(deny, 'guard-semicolon-commit-after-a-skipped-switch-is-stopped').toContain('would run on b')
+  expect(ran).toEqual(['git status'])
+})
+
+test('the module keeps substitution boundaries: a switch inside $( ) does not excuse a commit outside it', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  m.head('/w/r', 'b')
+  const bad = 'true && echo "$(git switch nonexistent 2>/dev/null)" && git commit --allow-empty -m wrong'
+  expect((await $.tool.call({ tool: 'Bash', command: bad })).deny, 'guard-switch-in-a-substitution-does-not-excuse-an-outer-commit').toContain('would run on b')
+  expect((await $.tool.call({ tool: 'Bash', command: 'echo `git switch c` && git commit --allow-empty -m wrong' })).deny, 'the same for a backquote').toContain('would run on b')
+  for (const command of ['git switch c && echo "$(date)" && git commit --allow-empty -m ok', 'echo "$(git switch c && git commit --allow-empty -m ok)"']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toBeUndefined()
+  }
+  expect(ran.length).toBe(3)
+})
+
+test('any tool call refreshes the session record, at most once a minute', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const pid = m.spawn()
+  engine(on, m, pid)
+  await new Session(m, pid, 'e1').touch('/w/r')
+  m.edit('e1', r => { r.seen = 1 })
+  await $.tool.call({ tool: 'Read', file_path: '/w/r/a.ts' })
+  const seen = m.rec('e1').seen
+  expect(seen, 'guard-heartbeat-refreshes-on-a-read').toBeGreaterThan(1)
+  m.edit('e1', r => { r.seen = 1 })
+  await $.tool.call({ tool: 'Read', file_path: '/w/r/a.ts' })
+  await $.tool.call({ tool: 'mcp__lab__ping' })
+  expect(m.rec('e1').seen, 'guard-heartbeat-waits-a-minute').toBe(1)
+})
+
+test('a session that keeps calling tools stays awake past 8 h, and one that does not goes idle', async () => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declareMachine(m, STACK)
+  const [reader, idle, asker] = [session('reader'), session('idle'), session('asker')]
+  for (const s of [reader, idle, asker]) await s.touch('/w/r')
+  for (let i = 0; i < 18; i++) {
+    m.advance(1800)
+    await reader.peers.alive()
+  }
+  const { reason } = await asker.bash('/w/r', 'stack down')
+  expect(reason, 'guard-heartbeat-keeps-a-reading-session-awake').toContain(`pid ${reader.pid}`)
+  expect(reason, 'the session with no call is idle and blocks nothing').not.toContain(`pid ${idle.pid}`)
+})
+
+test('a session outside any repository that starts a machine shared resource uses it: it has a record with no checkout, kept awake by its calls', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, STACK)
+  const [starter, plain, other] = [session('starter'), session('plain'), session('other')]
+  await plain.bash('/tmp/nowhere', 'ls')
+  expect(m.records(plain.pid), 'a bare session that runs nothing of the machine\'s leaves no record').toBe(0)
+  expect((await starter.bash('/tmp/nowhere', 'stack up')).decision).toBe('allow')
+  expect(m.rec('starter'), 'resource-bare-start-has-a-process-only-record').toMatchObject({ pid: starter.pid, session_id: 'starter', checkouts: {} })
+  await other.touch(r)
+  const stop = await other.bash(r, 'stack down')
+  expect(stop.decision, 'resource-bare-start-is-a-user').toBe('stop')
+  expect(stop.reason).toContain(`pid ${starter.pid}`)
+  for (let i = 0; i < 18; i++) {
+    m.advance(1800)
+    await starter.peers.alive()
+  }
+  expect((await other.bash(r, 'stack down')).reason, 'resource-bare-start-stays-a-user-while-it-calls-tools').toContain(`pid ${starter.pid}`)
+  m.advance(9 * 3600)
+  expect((await other.bash(r, 'stack down')).decision, 'and stops being one when it is idle').toBe('allow')
+})
+
+test('the Claude pid is read once per module load', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  engine(on, m, m.spawn())
+  for (const command of ['ls', 'git status', 'npm test']) await $.tool.call({ tool: 'Bash', command })
+  expect(m.ran.filter(argv => argv[0] === '/bin/sh' && argv[2] === 'echo $PPID').length).toBe(1)
+})
+
+test('an edit records its path only after it succeeded', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  engine(on, m, m.spawn())
+  await $.tool.call({ tool: 'Edit', file_path: '/w/r/a.ts', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Write', file_path: '/w/r/b.ts', content: 'b' })
+  await $.tool.call({ tool: 'NotebookEdit', notebook_path: '/w/r/c.ipynb', new_source: 'c' })
+  await $.tool.call({ tool: 'Write', file_path: '/w/r/d.fail', content: 'd' })
+  expect(m.rec('e1').checkouts['/w/r']!.paths).toEqual(['a.ts', 'b.ts', 'c.ipynb'])
+})
+
+test('a note rides after the result of a Bash call and of an edit, and the call runs', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  await session('peer').bash('/w/r', 'npm test')
+  const ran = engine(on, m, m.spawn())
+  const edit = await $.tool.call({ tool: 'Edit', file_path: '/w/r/a.ts', old_string: 'a', new_string: 'b' })
+  expect(edit.context?.join(' ')).toContain('also writes in /w/r')
+  const bash = await $.tool.call({ tool: 'Bash', command: 'git -c x=y log' })
+  expect(bash.deny).toBeUndefined()
+  expect((await $.tool.call({ tool: 'Bash', command: 'git --git-dir=x fetch' })).context?.join(' ')).toContain('could not read')
+  expect((await $.tool.call({ tool: 'Bash', command: 'git status' })).context).toBeUndefined()
+  expect(ran).toEqual(['git -c x=y log', 'git --git-dir=x fetch', 'git status'])
+})
+
+test('a destructive command given git configuration is refused through the adapter, whichever way the configuration is written', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  for (const command of ['git -c submodule.recurse=true reset --hard', 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=submodule.recurse GIT_CONFIG_VALUE_0=true git reset --hard',
+    "env GIT_CONFIG_PARAMETERS='submodule.recurse=true' git reset --hard", "GIT_CONFIG_COUNT=1 bash -c 'git reset --hard'", 'git --config-env=submodule.recurse=V reset --hard']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('sets git config for itself')
+  }
+  expect((await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny).toBeUndefined()
+  expect(ran).toEqual(['git reset --hard'])
+})
+
+test('an ack is recorded from the prefix and stripped before the command runs; only an assignment is one', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  m.dirty('/w/r', ' M f')
+  const ran = engine(on, m, m.spawn())
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(deny ?? '')![1]!
+  expect((await $.tool.call({ tool: 'Bash', command: `CC_TUNER_ACK=${key} git reset --hard` })).deny).toBeUndefined()
+  expect(typeof m.rec('e1').acks[key]).toBe('number')
+  expect(ran).toEqual(['git reset --hard'])
+  await $.tool.call({ tool: 'Bash', command: 'echo CC_TUNER_ACK=00000000 git reset --hard' })
+  await $.tool.call({ tool: 'Bash', command: 'FOO=1 CC_TUNER_ACK=11111111 ls' })
+  expect(Object.keys(m.rec('e1').acks).sort()).toEqual([key, '11111111'].sort())
+  expect(ran.slice(1)).toEqual(['echo CC_TUNER_ACK=00000000 git reset --hard', 'FOO=1 CC_TUNER_ACK=11111111 ls'])
+})
+
+test('a secret dump is refused before the guard, acked or not', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  for (const command of ['CC_TUNER_ACK=ab12cd34 env', 'cd app && env']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny).toContain("awk 'BEGIN { for (k in ENVIRON) print k }'")
+  }
+  expect(ran).toEqual([])
+  expect(m.ran).toEqual([])
+})
+
+test('a guard that fails never blocks the call', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn(), undefined, () => true)
+  m.files.delete('/w/r/.git/HEAD')
+  m.dirs.delete(DIR)
+  const first = await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(first.deny).toBeUndefined()
+  expect(ran).toEqual(['npm test'])
+  expect(first.context?.join(' '), 'guard-failure-is-said-once').toContain('the peers guard is inactive (')
+  expect(logged.some(l => l.includes('peers guard failed: ')), 'guard-failure-is-logged').toBe(true)
+  expect((await $.tool.call({ tool: 'Bash', command: 'npm test' })).context).toBeUndefined()
+})
+
+const prompt = async ($: { prompt: { submit(input: PromptSubmitInput): Promise<{ context?: readonly string[] }> } }, text = 'go') =>
+  ((await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })).context ?? []).join('\n')
+
+test('the start line reaches the model from the first prompt after a start, a clear and a resume, once each', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  await session('peer').touch('/w/r')
+  engine(on, m, m.spawn())
+  expect(await prompt($), 'startup').toContain('cc-tuner: live peers: main (r, pid')
+  expect(await prompt($), 'the second prompt of the session').toBe('')
+  await $.session.end({ sessionId: 'e1', resume: { id: 'e1' }, reason: 'clear' })
+  sessionId = 'e2'
+  expect(await prompt($), 'clear').toContain('cc-tuner: live peers: main (r, pid')
+  expect(await prompt($), 'the second prompt after the clear').toBe('')
+  sessionId = 'e3'
+  expect(await prompt($), 'resume').toContain('cc-tuner: live peers: main (r, pid')
+})
+
+test('the start line is silent without peers', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  engine(on, m, m.spawn())
+  expect(await prompt($)).toBe('')
+})
+
+test('peers_report, peers_claim and peers_release are tools the module answers', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  await session('peer').touch('/w/r')
+  m.put('/w/r/plan.md', '## Slice 1 — A\nOwned paths: lib/\n- [ ] a\n')
+  engine(on, m, m.spawn())
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_report' })).result).toContain('1 live peer')
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_report', path: '/w/r' })).result, 'report-takes-a-path').toContain('1 live peer')
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_report', path: '/elsewhere' })).result).toBe('cc-tuner: not in a git repository')
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_claim', plan: 'plan.md' })).result).toContain('1 live peer')
+  expect(m.rec('e1').claims['/w/r/plan.md']?.paths).toEqual(['lib/'])
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: chrome is not leased to this session.')
+})
+
+// --- records ---------------------------------------------------------------------------------------------
+test('record: written on first touch with the pid, start time, session and first branch', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const s1 = session('s1')
+  expect((await s1.touch(r1)).decision).toBe('allow')
+  expect(m.rec('s1')).toMatchObject({ pid: s1.pid, start: m.procs.get(s1.pid)!.start, session_id: 's1' })
+  expect(m.rec('s1').checkouts[r1]!.expected, 'record-expected-first-touch').toBe('main')
+  m.head(r1, 'other')
+  await s1.touch(r1)
+  expect(m.rec('s1').checkouts[r1]!.expected, 'record-expected-stays').toBe('main')
+})
+
+test('record: edited paths are recorded after a successful edit, under the target\'s checkout', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  const s1 = session('s1')
+  const paths = (top: string) => m.rec('s1').checkouts[top]?.paths
+  await s1.check({ tool: 'Edit', cwd: r1, path: `${r1}/src/a.txt` })
+  expect(paths(r1), 'record-edit-before-is-not-recorded').toEqual([])
+  await s1.edited(r1, `${r1}/src/a.txt`)
+  await s1.edited(r1, 'src/b.txt', 'Write')
+  expect(paths(r1)).toEqual(['src/a.txt', 'src/b.txt'])
+  await s1.check({ phase: 'after', tool: 'Edit', cwd: r1, path: `${r1}/src/c.txt`, ok: false })
+  await s1.check({ phase: 'after', tool: 'Bash', cwd: r1, path: `${r1}/src/d.txt` })
+  expect(paths(r1), 'record-failed-or-bash-call-adds-no-path').toEqual(['src/a.txt', 'src/b.txt'])
+  await s1.edited(r1, `${r2}/other.txt`)
+  expect(paths(r2), 'record-scope-is-the-target-not-the-cwd').toEqual(['other.txt'])
+  await s1.edited(r1, `${r1}/n.ipynb`, 'NotebookEdit')
+  expect(paths(r1)).toContain('n.ipynb')
+  expect(typeof m.rec('s1').checkouts[r1]!.writer, 'guard-edit-makes-a-writer').toBe('number')
+})
+
+test('record: parallel calls of one session lose no path and make one record', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const s2 = session('s2')
+  await Promise.all(Array.from({ length: 12 }, (_, i) => s2.edited(r1, `${r1}/p${i}.txt`)))
+  expect(m.rec('s2').checkouts[r1]!.paths.length).toBe(12)
+  expect(m.records(s2.pid)).toBe(1)
+})
+
+test('record: a dead pid is a tombstone, no longer a peer, its edits kept', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const [s3, me] = [session('s3'), session('me')]
+  await s3.edited(r1, `${r1}/src/a.txt`)
+  await me.touch(r1)
+  expect(await me.report(r1)).toContain(`pid ${s3.pid}`)
+  m.end(s3.pid)
+  expect(await me.report(r1)).not.toContain(`pid ${s3.pid}`)
+  expect(m.rec('s3').checkouts[r1]!.paths).toEqual(['src/a.txt'])
+})
+
+test('liveness-pid-reuse', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const [s4, me] = [session('s4'), session('me')]
+  await s4.touch(r1)
+  await me.touch(r1)
+  expect(await me.report(r1), 'liveness-control-matching-start-is-live').toContain(`pid ${s4.pid}`)
+  m.edit('s4', r => { r.start = 'Mon Jan  1 00:00:00 2001' })
+  expect(await me.report(r1), 'a record whose pid was reused reads as live').not.toContain(`pid ${s4.pid}`)
+})
+
+test('record: an in-process resume keeps the newer writer mark and the calls of the tombstone it adopts', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const a = session('a')
+  await a.touch(r)
+  m.advance(10)
+  const b = session('b')
+  await call(b, r, ['make gen'])
+  const [mark, made] = [m.rec('b').checkouts[r]!.writer, m.rec('b').calls![0]!]
+  m.end(b.pid)
+  await a.check({ phase: 'after', tool: 'Read', cwd: r, session_id: 'b' })
+  expect(m.rec('a').checkouts[r]!.writer, 'resume-merge-keeps-the-newer-writer-mark').toBe(mark)
+  expect(m.rec('a').calls, 'resume-merge-keeps-the-adopted-calls').toContainEqual(made)
+})
+
+test('record: a tombstone untouched for 24 h is removed, and kept before', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const [a, b, me] = [session('a'), session('b'), session('me')]
+  await a.touch(r1)
+  await b.touch(r1)
+  m.end(a.pid)
+  m.end(b.pid)
+  const now = Math.floor(m.clock / 1000)
+  m.edit('a', r => { r.seen = now - 25 * 3600 })
+  m.edit('b', r => { r.seen = now - 23 * 3600 })
+  await me.report(r1)
+  expect(m.files.has(`${DIR}/a.json`), 'record-tombstone-expires-after-24h').toBe(false)
+  expect(m.files.has(`${DIR}/b.json`), 'record-tombstone-kept-within-24h').toBe(true)
+})
+
+test('record: resume adopts the tombstone of its session id', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const old = session('s5')
+  await old.edited(r1, `${r1}/kept.txt`)
+  m.end(old.pid)
+  const resumed = session('s5')
+  await resumed.start(r1)
+  expect(m.rec('s5')).toMatchObject({ pid: resumed.pid, start: m.procs.get(resumed.pid)!.start })
+  expect(m.rec('s5').checkouts[r1]!.paths).toEqual(['kept.txt'])
+  expect(m.records(resumed.pid)).toBe(1)
+})
+
+test('record: a new session id in the same process (/clear) drops acks and claims, keeps the kept task, and follows the id', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const s6 = session('s6')
+  await s6.touch(r1)
+  m.edit('s6', r => { r.acks = { k: 1 }; r.claims = { 'plan.md': { repo: 'x', paths: ['a'] } }; r.kept = [{ id: 'b1', key: 'dev server' }] })
+  await s6.start(r1, 's6b')
+  expect(m.rec('s6')).toMatchObject({ acks: {}, claims: {}, kept: [{ id: 'b1', key: 'dev server' }], session_id: 's6b' })
+  expect(m.records(s6.pid)).toBe(1)
+})
+
+test('record: a malformed or half-written record is skipped with a note', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r1)
+  await me.touch(r1)
+  m.put(`${DIR}/bad.json`, '{not json')
+  m.put(`${DIR}/shape.json`, '[]')
+  m.put(`${DIR}/half.json`, m.files.get(`${DIR}/peer.json`)!.text.slice(0, 20))
+  const out = await me.report(r1)
+  for (const name of ['bad.json', 'shape.json', 'half.json']) expect(out).toContain(`note: skipped malformed record ${name}`)
+  expect(out, 'record-malformed-skips-only-itself').toContain(`pid ${peer.pid}`)
+})
+
+// A nested `claude -p` is a session like any other: its own pid and start, its own record, a peer of the process that started it.
+function nested() {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const outer = m.spawn(1, 'claude')
+  const inner = m.spawn(m.spawn(outer, 'bash'), 'claude')
+  const [o, n] = [new Session(m, outer, 'a'), new Session(m, inner, 'b')]
+  return { m, session, r1, outer, inner, o, n }
+}
+
+test('record: a nested claude -p keeps a record of its own and writes no other; nothing names an outer process', async () => {
+  const { m, r1, inner, o, n } = nested()
+  await o.edited(r1, `${r1}/o.txt`)
+  const before = m.files.get(`${DIR}/a.json`)!.text
+  await n.edited(r1, `${r1}/n.txt`)
+  await n.bash(r1, 'npm test')
+  expect(m.files.get(`${DIR}/a.json`)!.text, 'record-nested-never-writes-the-outer-record').toBe(before)
+  expect(m.rec('b'), 'record-nested-has-its-own-record').toMatchObject({ pid: inner, session_id: 'b', checkouts: { [r1]: { paths: ['n.txt'] } } })
+  expect(m.rec('b'), 'record-has-no-outer-field').not.toHaveProperty('outer')
+  expect(m.rec('a')).not.toHaveProperty('outer')
+})
+
+test('peers: a nested claude -p and the process that started it are peers of each other, and an edit of one is foreign to the other', async () => {
+  const { m, r1, outer, inner, o, n } = nested()
+  await o.edited(r1, `${r1}/o.txt`)
+  await n.edited(r1, `${r1}/n.txt`)
+  expect(await o.report(r1), 'peers-nested-is-a-peer-of-its-outer').toContain(`pid ${inner} `)
+  expect(await n.report(r1), 'peers-outer-is-a-peer-of-its-nested').toContain(`pid ${outer} `)
+  m.dirty(r1, ' M o.txt', ' M n.txt')
+  expect((await o.bash(r1, 'git reset --hard')).reason, 'peers-the-nested-edit-is-foreign-to-its-outer').toContain(`pid ${inner}`)
+  expect((await n.bash(r1, 'git reset --hard')).reason, 'peers-the-outer-edit-is-foreign-to-its-nested').toContain(`pid ${outer}`)
+  m.status.set(r1, [' M o.txt'])
+  expect((await o.bash(r1, 'git reset --hard')).decision, 'each stays free on its own files').toBe('allow')
+})
+
+test('peers: a process of a nested claude -p is a peer\'s, and a lease and a shared resource are each session\'s own', async () => {
+  const { m, r1, outer, inner, o, n } = nested()
+  await o.touch(r1)
+  await n.touch(r1)
+  const child = m.spawn(inner, 'sleep', 'sleep 9')
+  expect((await o.bash(r1, `kill ${child}`)).decision, 'kill-nested-child-stops-for-its-outer').toBe('stop')
+  declareMachine(m, CHROME, { key: 'stack', kind: 'shared', start: [], stop: ['stack down'] })
+  expect((await o.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
+  expect((await n.peers.lease(CLICK, r1, 'b')).reason, 'lease-nested-does-not-use-the-outers-lease').toContain(`leased to pid ${outer}`)
+  expect((await n.bash(r1, 'stack down')).reason, 'resource-the-outer-is-another-user').toContain(`pid ${outer}`)
+  expect(JSON.parse(m.cat(`${DIR}/${lockName('chrome')}/holder.json`)), 'the lease is the outer\'s own').toMatchObject({ pid: outer })
+})
+
+test('record: a session is the nearest claude process above its caller, never the outermost', async () => {
+  const { m } = machine()
+  const r1 = m.repo('/w/r1')
+  const outer = m.spawn(1, 'claude')
+  const mid = m.spawn(m.spawn(outer, 'bash'), 'claude')
+  const helper = m.spawn(mid, 'node')
+  await new Session(m, helper, 'h').touch(r1)
+  expect(m.rec('h').pid, 'pid-nearest-claude-ancestor').toBe(mid)
+  expect(m.records(outer)).toBe(0)
+})
+
+// --- report: peers by repository and by product, their claims, edits and conflicts ------------------------
+function products() {
+  const { m, session } = machine()
+  const [ra, rb, rc, rd] = ['/w/ra', '/w/rb', '/w/rc', '/w/rd'].map(r => m.repo(r)) as [string, string, string, string]
+  const wa = m.worktree(ra, '/w/wa', 'feat-a')
+  const wb = m.worktree(ra, '/w/wb', 'feat-b')
+  for (const [top, p] of [[ra, 'acme'], [wa, 'acme'], [wb, 'acme'], [rb, 'acme'], [rc, 'other']]) m.put(`${top}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: p }))
+  const [sr, sa, sw, sb, sc, sd] = ['sr', 'sa', 'sw', 'sb', 'sc', 'sd'].map(n => session(n)) as Session[] as [Session, Session, Session, Session, Session, Session]
+  return { m, session, ra, rb, rc, rd, wa, wb, sr, sa, sw, sb, sc, sd }
+}
+
+test('report: peers of the repository, its worktrees and its product; not others', async () => {
+  const { ra, rb, rc, rd, wa, wb, sr, sa, sw, sb, sc, sd } = products()
+  for (const [s, top] of [[sr, ra], [sa, wa], [sw, wb], [sb, rb], [sc, rc], [sd, rd]] as const) await s.touch(top)
+  const out = await sr.report(ra)
+  expect(out).toContain(`pid ${sa.pid}  feat-a  ${wa}`)
+  expect(out).toContain(`pid ${sw.pid}  feat-b  ${wb}`)
+  expect(out).toContain(`pid ${sb.pid}  main  ${rb}`)
+  for (const s of [sc, sd, sr]) expect(out).not.toContain(`pid ${s.pid} `)
+  expect(await sd.report(rd)).toContain('no live peers')
+  const back = await sb.report(rb)
+  expect(back, 'report-product-is-symmetric').toContain(`pid ${sr.pid}`)
+  expect(back, 'report-product-reaches-the-worktrees').toContain(`pid ${sa.pid}`)
+})
+
+test('product map: the machine file puts checkouts and worktrees under listed paths into one product; the repository file wins', async () => {
+  const { m, session } = machine()
+  const [x1, x2, z, y] = ['/w/x1', '/w/x2', '/w/z', '/w/y'].map(r => m.repo(r)) as [string, string, string, string]
+  const web = m.repo('/home/u/code/shop-web')
+  const wt = m.worktree(x1, '/elsewhere/wt', 'feat')
+  const near = m.repo('/w/x10')
+  m.put(USER, JSON.stringify({ products: { shop: ['/w/x1', '~/code/shop-web', '/w/x2'], solo: ['/w/y'] } }))
+  m.put(`${x2}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'other' }))
+  m.put(`${z}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'shop' }))
+  m.put(`${x1}/.claude/cc-tuner-resources.json`, JSON.stringify({ resources: [STACK] }))
+  const [s1, sw, sx2, sz, sy, sn, sweb] = ['s1', 'sw', 'sx2', 'sz', 'sy', 'sn', 'sweb'].map(n => session(n)) as Session[] as [Session, Session, Session, Session, Session, Session, Session]
+  for (const [s, top] of [[s1, x1], [sw, wt], [sx2, x2], [sz, z], [sy, y], [sn, near], [sweb, web]] as const) await s.touch(top)
+  const out = await s1.report(x1)
+  expect(out, 'product-map-expands-a-tilde').toContain(`pid ${sweb.pid} `)
+  expect(out, 'a repository file product joins the product by name').toContain(`pid ${sz.pid} `)
+  for (const s of [sx2, sy, sn]) expect(out, 'product-map-repository-file-wins; a prefix is not a path').not.toContain(`pid ${s.pid} `)
+  const back = await sweb.report(web)
+  expect(back, 'product-map-is-symmetric').toContain(`pid ${s1.pid} `)
+  expect(back, 'product-map-a-worktree-belongs-through-its-main-worktree').toContain(`pid ${sw.pid} `)
+  expect((await s1.bash(x1, 'stack down')).decision, 'product-map-consumers-of-a-shared-resource').toBe('stop')
+  expect((await sweb.start(web)).line, 'product-map-start-line').toContain('live peers:')
+  expect((await sy.start(y)).line).toBe('')
+})
+
+test('report: claims, edited paths, and merge-tree conflicts of same-repository branches only, cached per SHA pair', async () => {
+  const { m, ra, rb, wa, wb, sr, sa, sw, sb } = products()
+  for (const [s, top] of [[sr, ra], [sa, wa], [sw, wb], [sb, rb]] as const) await s.touch(top)
+  m.edit('sa', r => { r.claims = { 'plan.md': { repo: r.checkouts[wa]!.repo, paths: ['docs/', 'lib/x.ts'] } } })
+  await sa.edited(wa, `${wa}/lib/x.ts`)
+  m.merges.set(`sha-${ra}-sha-${wa}`, 'f.txt')
+  m.shas.set(rb, `sha-${ra}`)
+  const out = await sr.report(ra)
+  expect(out).toContain('claims: docs/, lib/x.ts')
+  expect(out).toContain('edited: lib/x.ts')
+  expect(out).toContain('conflicts with HEAD: f.txt')
+  expect(out.split('\n').filter(l => l.includes('conflicts with HEAD')).length).toBe(1)
+  expect(m.ran.filter(a => a[2]?.includes('merge-tree')).map(a => a[7])).toEqual([`sha-${wa}`, `sha-${wb}`])
+  expect(m.files.has(`${DIR}/merge/v3/sha-${ra}-sha-${wa}`), 'report-caches-per-sha-pair').toBe(true)
+  m.put(`${DIR}/merge/v3/sha-${ra}-sha-${wa}`, '["cached.txt"]')
+  expect(await sr.report(ra)).toContain('conflicts with HEAD: cached.txt')
+})
+
+test('claim publishes the open Owned paths and prints their overlap', async () => {
+  const { m, ra, wa, sr, sa } = products()
+  await sr.touch(ra)
+  await sa.touch(wa)
+  await sa.edited(wa, `${wa}/lib/x.ts`)
+  const plan = (first: string, second: string) => ['**Spec:** s.md', '', '## Slice 1 — Old', 'Owned paths: src/old/', `- [${first}] a`, '',
+    '## Slice 2 — New', 'Blocked by: 1', 'Owned paths: lib/, docs/y.md', `- [${second}] b`].join('\n')
+  m.put(`${ra}/docs/task-plans/p.md`, plan('x', ' '))
+  const out = await sr.peers.claim(ra, 'sr', 'docs/task-plans/p.md')
+  expect(m.rec('sr').claims[`${ra}/docs/task-plans/p.md`]?.paths).toEqual(['lib/', 'docs/y.md'])
+  expect(out).toContain('overlap with your claims: lib/ ~ lib/x.ts')
+  expect(out).toContain(`pid ${sa.pid}`)
+  expect(out).not.toContain('src/old')
+  expect(out.split('\n').filter(l => l.includes('overlap with your claims')).length).toBe(1)
+  m.put(`${ra}/docs/task-plans/p.md`, plan('x', 'x'))
+  await sr.peers.claim(ra, 'sr', 'docs/task-plans/p.md')
+  expect(m.rec('sr').claims).toEqual({})
+  expect(await sr.peers.claim(ra, 'sr', 'docs/task-plans/missing.md')).toBe('cc-tuner: cannot read docs/task-plans/missing.md')
+  expect(ownedOpen('## Slice 1 — A\nOwned paths: a/, b\n- [X] t\n## Slice 2 — B\nOwned paths: c\n')).toEqual(['c'])
+})
+
+// --- the start line ----------------------------------------------------------------------------------------
+test('start: the line appears only with live peers or a kept task', async () => {
+  const { m, session } = machine()
+  const rs = m.repo('/w/rs')
+  const [p1, p2] = [session('t1'), session('t2')]
+  expect((await p1.start(rs)).line).toBe('')
+  const { line } = await p2.start(rs)
+  expect(line).toBe(`cc-tuner: live peers: main (rs, pid ${p1.pid}). Details: peers_report.`)
+  expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
+  expect((await p2.start(rs, 't2c')).line).toContain('live peers: main')
+  m.edit('t2', r => { r.kept = [{ id: 'b1', key: 'dev server' }] })
+  m.end(p1.pid)
+  const kept = (await p2.start(rs, 't2c')).line!
+  expect(kept).toContain('kept at /clear: dev server (b1)')
+  expect(kept).not.toContain('live peers')
+  m.edit('t2', r => { r.kept = [] })
+  expect((await p2.start(rs, 't2c')).line).toBe('')
+})
+
+test('start: the line reaches the product, and skips an unrelated one', async () => {
+  const { ra, rb, rc, sr, sb, sc } = products()
+  await sr.touch(ra)
+  expect((await sb.start(rb)).line).toContain('live peers:')
+  expect((await sc.start(rc)).line).toBe('')
+})
+
+// --- the guard learns from commands: writers, and the branch a session expects ------------------------------
+const writerOf = (m: Machine, sid: string, top: string) => m.rec(sid).checkouts[top]?.writer ?? null
+
+test('guard: a known read-only form is no writer; any other form, a redirection or an unknown command is', async () => {
+  const { m, session } = machine()
+  const rg = m.repo('/w/rg')
+  const g = session('g1')
+  await g.bash(rg, 'git status')
+  for (const form of ['git status', 'git log --oneline', 'git diff', 'git show HEAD', 'ls -la', 'cat x', 'grep -r a .', 'rg a', 'find . -name x']) {
+    m.edit('g1', r => { r.checkouts[rg]!.writer = null })
+    await g.bash(rg, form)
+    expect(writerOf(m, 'g1', rg), form).toBeNull()
+  }
+  for (const steps of [['npm test'], ['git commit -m m'], ['find . -delete'], ['find . -exec rm {} ;'], ['rg --pre cmd a'], ['git diff --output=f'],
+    ['git'], ['git --git-dir=x log'], ['sed -i s/a/b/ f'], [writes('cat x')], ['git status', then('npm test')]] as (string | Partial<Step>)[][]) {
+    m.edit('g1', r => { r.checkouts[rg]!.writer = null })
+    await g.bash(rg, ...steps)
+    expect(typeof writerOf(m, 'g1', rg), JSON.stringify(steps)).toBe('number')
+  }
+  m.edit('g1', r => { r.checkouts[rg]!.writer = null })
+  await g.check({ tool: 'Bash', cwd: rg, steps: [] })
+  expect(writerOf(m, 'g1', rg), 'guard-no-command-step-is-no-writer').toBeNull()
+})
+
+test('guard: a step\'s directory decides its checkout', async () => {
+  const { m, session } = machine()
+  const [rg, rx, ry] = [m.repo('/w/rg'), m.repo('/w/rx'), m.repo('/w/ry')]
+  const g = session('g1')
+  await g.bash(rg, 'git status')
+  await g.bash(rg, at(rx, 'npm test'))
+  expect(typeof writerOf(m, 'g1', rx)).toBe('number')
+  expect(writerOf(m, 'g1', rg)).toBeNull()
+  await g.bash(rg, at(`${rg}/sub/../`, 'npm test'))
+  expect(typeof writerOf(m, 'g1', rg)).toBe('number')
+  await g.bash(rg, at(ry, 'ls'))
+  expect(m.rec('g1').checkouts[ry], 'guard-read-only-step-that-is-not-git-does-not-touch-it').toBeUndefined()
+  await g.bash(rg, at(ry, 'git status'))
+  expect(m.rec('g1').checkouts[ry], 'guard-read-only-git-step-elsewhere-records-it-with-no-writer').toMatchObject({ writer: null, expected: 'main' })
+})
+
+test('guard: the expected branch moves only when HEAD changed during this session\'s own switch', async () => {
+  const { m, session } = machine()
+  const [re, rw] = [m.repo('/w/re'), m.repo('/w/rw')]
+  const g = session('g2')
+  const expected = (top = re) => m.rec('g2').checkouts[top]!.expected
+  const state = (want: string, head: string) => { m.head(re, head); m.edit('g2', r => { r.checkouts[re]!.expected = want }) }
+  await call(g, re, ['git status'])
+  expect(expected()).toBe('main')
+  state('a', 'a')
+  await call(g, re, ['git switch -c x', then('git commit -m m')], () => m.head(re, 'x'))
+  expect(expected(), 'guard-switch-and-commit-moves-the-expectation').toBe('x')
+  state('a', 'a')
+  await call(g, re, ['git switch -c y', then('false')], () => m.head(re, 'y'))
+  expect(expected(), 'guard-switch-then-failing-step-moves-the-expectation').toBe('y')
+  state('a', 'a')
+  await call(g, re, ['git add f', then('git commit -m m')], () => m.head(re, 'b'))
+  expect(expected(), 'guard-head-changed-without-a-switch-step-keeps-it').toBe('a')
+  const plain = await g.bash(re, 'git add f')
+  expect(plain.decision).toBe('allow')
+  expect(Object.keys(plain.seen ?? {}).filter(k => k.startsWith('/')), 'guard-no-switch-step-takes-no-snapshot').toEqual([])
+  state('a', 'b')
+  await call(g, re, ['git switch nosuch'])
+  expect(expected(), 'guard-drifted-failed-switch-keeps-it').toBe('a')
+  await call(g, re, ['git switch nosuch', then('true', ';')])
+  expect(expected(), 'guard-drifted-failed-switch-then-true-keeps-it').toBe('a')
+  await call(g, re, ['false', then('git switch c')])
+  expect(expected(), 'guard-drifted-skipped-switch-keeps-it').toBe('a')
+  await call(g, re, ['git switch c'], () => m.head(re, 'c'))
+  expect(expected(), 'guard-drifted-successful-switch-moves-it').toBe('c')
+  state('a', 'b')
+  await call(g, re, ['git checkout --detach'], () => m.head(re, undefined))
+  expect(expected(), 'guard-detaching-moves-it-to-the-detached-head').toBe('')
+  state('a', 'a')
+  await call(g, re, [at(rw, 'git switch other')], () => m.head(rw, 'other'))
+  expect(expected(rw), 'guard-switch-elsewhere-moves-that-checkout').toBe('other')
+  expect(expected(), 'guard-switch-elsewhere-leaves-the-cwd-checkout').toBe('a')
+  state('a', 'b')
+  await call(g, re, ['git switch b'])
+  expect(expected(), 'guard-a-switch-to-the-branch-head-holds-adopts-it').toBe('b')
+  state('a', 'b')
+  await call(g, re, ['git switch b'], undefined, false)
+  expect(expected(), 'a call the engine denied adopts nothing').toBe('a')
+  for (const [command, to] of [['gh pr checkout 5', 'pr5'], ['gh pr merge 5', 'main2'], ['git branch -m renamed', 'renamed'], ['git checkout -b nb', 'nb']] as const) {
+    state('a', 'a')
+    await call(g, re, [command], () => m.head(re, to))
+    expect(expected(), `guard-switch-like-step-moves-it: ${command}`).toBe(to)
+  }
+  state('a', 'a')
+  await g.after(re, ['git switch a'])
+  expect(expected(), 'guard-after-without-before-still-reconciles: a no-op').toBe('a')
+  m.head(re, 'c')
+  await g.after(re, ['git switch c'])
+  expect(expected(), 'guard-after-without-before-still-reconciles: the named branch').toBe('c')
+})
+
+// --- the guard stops what would destroy a peer's checkout, files, branch or process ------------------------------
+// A repository where a live peer is a writer and this session has been.
+function world() {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const [peer, me] = [session('peer'), session('me')]
+  const ready = (async () => { await peer.touch(r); await me.bash(r, 'git status') })()
+  const decide = async (cwd: string, ...steps: (string | Partial<Step>)[]) => me.bash(cwd, ...steps)
+  const acked = (cwd: string, ack: string, ...steps: string[]) => me.check({ tool: 'Bash', cwd, steps: steps.map(s => step(s)), acks: [ack] })
+  const other = (n = 0) => m.repo(`/w/other${n}`)
+  return { m, session, r, peer, me, ready, decide, acked, other }
+}
+const now = (m: Machine) => Math.floor(m.clock / 1000)
+
+const changeIn = (m: Machine, top: string, ...files: string[]) => {
+  for (const f of files) { m.put(`${top}/${f}`, 'x'); m.dirty(top, `${f.startsWith('gen/') ? '??' : ' M'} ${f}`) }
+}
+
+test('guard: alone in a checkout, a session owns what changed during its own Bash calls; what changed before it came or between its calls stays protected', async () => {
+  const { m, session } = machine()
+  const [r, u] = [m.repo('/w/solo'), m.repo('/w/user')]
+  changeIn(m, u, 'before.txt')
+  const me = session('me')
+  await me.bash(r, 'git status')
+  await me.bash(u, 'git status')
+  m.advance(5)
+  await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt', 'gen/out.ts'))
+  await call(me, u, ['prettier --write .'], () => changeIn(m, u, 'a.txt', 'gen/out.ts'))
+  m.advance(5)
+  for (const c of ['git add -A', 'git add .', 'git commit -qam x', 'git restore .', 'git stash -u', 'git clean -fd', 'git reset --hard']) {
+    expect((await me.bash(r, c)).decision, `own-bash-change: ${c}`).not.toBe('stop')
+  }
+  for (const c of ['git restore a.txt', 'git clean -fd gen', 'git add gen']) expect((await me.bash(u, c)).decision, `own-path-next-to-the-users: ${c}`).not.toBe('stop')
+  for (const c of ['git add -A', 'git reset --hard', 'git restore .', 'git stash']) {
+    const v = await me.bash(u, c)
+    expect(v.decision, `changed-before-the-session: ${c}`).toBe('stop')
+    expect(v.reason).toContain('before.txt')
+    expect(v.reason).not.toContain('a.txt')
+  }
+  m.advance(30)
+  await call(me, r, ['touch late'])
+  m.advance(0.5)
+  changeIn(m, r, 'user.txt')
+  m.advance(30)
+  const between = await me.bash(r, 'git reset --hard')
+  expect(between.decision, 'changed-half-a-second-after-its-call-is-not-its-own').toBe('stop')
+  expect(between.reason).toContain('user.txt')
+  expect(between.reason).not.toContain('a.txt')
+  m.advance(5)
+  await call(me, r, ['touch more'], () => changeIn(m, r, 'kept.txt'))
+  m.advance(5)
+  expect((await me.bash(r, 'git restore kept.txt')).decision, 'its-own-file').not.toBe('stop')
+  m.advance(1)
+  m.replace(`${r}/kept.txt`, 'restored with cp -p')
+  m.advance(5)
+  expect((await me.bash(r, 'git restore kept.txt')).decision, 'a-copy-that-kept-the-old-mtime-between-its-calls-is-not-its-own').toBe('stop')
+  expect((await me.bash(r, 'eval git log')).decision, 'no-peer-means-no-could-not-read-note').toBe('allow')
+})
+
+test('guard: once another session writes in the checkout, the session owns only the paths it edited, for good', async () => {
+  for (const [label, act] of [
+    ['a-separate-call-after-ours', async (m: Machine, p: Session, r: string) => { await call(p, r, ['make gen'], () => changeIn(m, r, 'b.txt')) }],
+    ['an-edit', async (m: Machine, p: Session, r: string) => { await p.check({ tool: 'Edit', cwd: r, path: `${r}/b.txt` }); changeIn(m, r, 'b.txt'); await p.edited(r, `${r}/b.txt`) }],
+    ['a-call-still-running', async (m: Machine, p: Session, r: string) => { await p.before(r, 'make gen'); m.advance(16 * 60); changeIn(m, r, 'b.txt') }],
+  ] as const) {
+    const { m, session } = machine()
+    const r = m.repo('/w/r')
+    const me = session('me')
+    await me.bash(r, 'git status')
+    m.advance(5)
+    await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt'))
+    m.advance(5)
+    expect((await me.bash(r, 'git restore a.txt')).decision, `${label}: alone it is its own`).not.toBe('stop')
+    const peer = session('peer')
+    m.advance(5)
+    await act(m, peer, r)
+    await call(me, r, ['cp -p b.txt c.txt'], () => changeIn(m, r, 'c.txt'))
+    for (const f of ['a.txt', 'b.txt', 'c.txt']) expect((await me.bash(r, `git restore ${f}`)).decision, `${label}: ${f} has no single author`).toBe('stop')
+    m.end(peer.pid)
+    m.advance(25 * 3600)
+    await me.bash(r, 'git status')
+    expect((await me.bash(r, 'git restore a.txt')).decision, `${label}: still after the tombstone is swept`).toBe('stop')
+  }
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const peer = session('peer')
+  await call(peer, r, ['make gen &'])
+  m.advance(60)
+  const me = session('me')
+  await me.bash(r, 'git status')
+  await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt', 'gen/out.ts'))
+  expect((await me.bash(r, 'git clean -fd')).decision, 'a-live-session-that-wrote-before-it-came-may-still-be-writing').toBe('stop')
+  // The first touch of a checkout inside the very call that writes there, next to a live writer.
+  const o = m.repo('/w/other')
+  await call(peer, o, ['make gen &'])
+  m.advance(60)
+  // It writes during this session's call and exits before the call ends, more than the minute liveness is kept.
+  await call(me, '/w/r', [at(o, 'npm test')], () => { changeIn(m, o, 'out.txt'); m.end(peer.pid); m.advance(60) })
+  m.advance(120)
+  expect((await me.bash(o, 'git reset --hard')).decision, 'a-first-touch-next-to-a-live-writer-is-mixed').toBe('stop')
+})
+
+test('guard: a writer mark is the time the call is let through, not the time its check began', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const peer = session('peer')
+  m.onRun = argv => { if (argv.includes('status')) { m.advance(5); m.onRun = undefined } }
+  await call(peer, r, ['make gen'])
+  expect(m.rec('peer').checkouts[r]!.writer, 'writer-mark-taken-after-a-slow-first-touch').toBe(now(m))
+})
+
+test('guard: writer marks are stamped after every awaited read of the call, right before the record is published', async () => {
+  const { m, session } = machine()
+  const [r, q] = [m.repo('/w/r'), m.repo('/w/q')]
+  const peer = session('peer')
+  await peer.bash(r, 'git status')
+  await peer.bash(q, 'git status')
+  m.afterRead.set(`${q}/.git/HEAD`, async () => { m.advance(5) })
+  await peer.before(r, 'make gen', at(q, 'git switch x', '&&'))
+  expect(m.rec('peer').checkouts[r]!.writer, 'writer-mark-taken-after-the-branch-read-of-a-later-step').toBe(now(m))
+})
+
+test('guard: a sweep keeps the tombstone a live session still needs, and a resumed session infers nothing from before', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const me = session('me')
+  await me.bash(r, 'git status')
+  m.advance(5)
+  await call(me, r, ['prettier --write .'], () => changeIn(m, r, 'a.txt'))
+  m.advance(5)
+  const peer = session('peer')
+  await call(peer, r, ['cp -p a.txt.bak a.txt'], () => m.replace(`${r}/a.txt`, 'theirs'))
+  m.end(peer.pid)
+  m.advance(25 * 3600)
+  await session('third').report(r)
+  expect(m.files.has(`${DIR}/peer.json`), 'sweep-keeps-a-tombstone-a-live-unmixed-checkout-needs').toBe(true)
+  expect((await me.bash(r, 'git restore a.txt')).decision, 'the-peers-later-write-is-not-its-own').toBe('stop')
+  expect(m.rec('me').checkouts[r]!.mixed, 'its-next-event-marks-the-checkout').toBe(true)
+  const { m: m2, session: s2 } = machine()
+  const r2 = m2.repo('/w/r')
+  const before = s2('sid-x')
+  await before.bash(r2, 'git status')
+  m2.advance(5)
+  await call(before, r2, ['prettier --write .'], () => changeIn(m2, r2, 'a.txt'))
+  m2.end(before.pid)
+  const after = s2('sid-x')
+  expect((await after.bash(r2, 'git restore a.txt')).decision, 'a-resumed-session-infers-nothing-from-before').toBe('stop')
+})
+
+test('guard: a switch next to a writer stops with a short reason; idle, cwd-only or dead peers do not', async () => {
+  const { m, r, peer, me, ready, decide, other } = world()
+  await ready
+  for (const c of ['git switch x', 'git switch -c y', 'git checkout x', 'git checkout -b y', 'git switch --detach']) expect((await decide(r, c)).decision, c).toBe('stop')
+  const { reason } = await decide(r, 'git switch x')
+  for (const part of [`pid ${peer.pid}`, 'main', r, 'rerun it prefixed CC_TUNER_ACK=', 'Your call, not the user']) expect(reason).toContain(part)
+  expect(reason!.length).toBeLessThan(300)
+  expect((await decide(r, at(other(), 'git switch x'))).decision, 'guard-switch-elsewhere-is-allowed').toBe('allow')
+  expect((await decide(r, 'git status', then('git switch x'))).decision).toBe('stop')
+  expect((await decide(other(1), at(r, 'git switch x'))).decision, 'behind git -C').toBe('stop')
+  expect((await decide(r, at(`${r}/sub/..`, 'git switch x'))).decision, 'behind cd').toBe('stop')
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) - 3 * 3600 })
+  const idle = await decide(r, 'git switch x')
+  expect(idle.decision, 'guard-switch-after-2h-idle-is-a-note').toBe('note')
+  expect(idle.reason).toContain(`pid ${peer.pid}`)
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) - 3600 })
+  expect((await decide(r, 'git switch x')).decision, 'guard-switch-after-1h-idle-still-stops').toBe('stop')
+  m.edit('peer', x => { x.checkouts[r]!.writer = null })
+  expect((await decide(r, 'git switch x')).decision, 'guard-switch-next-to-a-cwd-is-a-note').toBe('note')
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) })
+  m.end(peer.pid)
+  expect((await decide(r, 'git switch x')).decision, 'guard-switch-with-a-dead-peer-is-allowed').toBe('allow')
+  void me
+})
+
+test('guard: gh pr checkout is a switch: it stops next to a writer, and --force stops for a foreign file', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  for (const c of ['gh pr checkout 5', 'gh pr checkout 5 --force', 'gh pr checkout -f 5', 'gh pr checkout --branch pr5 5']) {
+    expect((await decide(r, c)).decision, `gh-pr-checkout-next-to-a-writer: ${c}`).toBe('stop')
+  }
+  expect((await decide(r, 'gh pr checkout 5')).reason).toContain('switching branches there changes its files')
+  expect((await decide(r, 'gh pr list')).decision).toBe('allow')
+  m.end(peer.pid)
+  expect((await decide(r, 'gh pr checkout 5')).decision, 'a lone session may').toBe('allow')
+  m.dirty(r, ' M f.txt', '?? new.txt')
+  for (const c of ['gh pr checkout 5 --force', 'gh pr checkout -f 5']) {
+    const v = await decide(r, c)
+    expect(v.decision, `gh-pr-checkout-force-discards: ${c}`).toBe('stop')
+    expect(v.reason).toContain('f.txt')
+  }
+  expect((await decide(r, 'gh pr checkout 5')).decision, 'without --force nothing is discarded').toBe('allow')
+  await me.edited(r, `${r}/f.txt`)
+  expect((await decide(r, 'gh pr checkout 5 --force')).decision, 'own files').toBe('allow')
+})
+
+test('guard: a commit after gh pr checkout joined by && is on the branch it moved to', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.head(r, 'b')
+  expect((await decide(r, 'gh pr checkout 5', then('git commit --allow-empty -m m'))).decision, 'excused-by-the-checkout').toBe('allow')
+  expect((await decide(r, 'gh pr checkout 5', then('git commit --allow-empty -m m', ';'))).decision).toBe('stop')
+})
+
+test('guard: a stopped call marks no writer; an allowed writer call does', async () => {
+  const { m, r, ready, decide } = world()
+  await ready
+  expect((await decide(r, 'git switch x')).decision).toBe('stop')
+  expect(writerOf(m, 'me', r)).toBeNull()
+  expect((await decide(r, 'git branch y')).decision).toBe('allow')
+  expect(typeof writerOf(m, 'me', r)).toBe('number')
+})
+
+const FOREIGN = ['git reset --hard', 'git reset --hard HEAD~1', 'git stash', 'git stash push', 'git stash -u', 'git restore .flow-seed',
+  'git restore .', 'git checkout -- .flow-seed', 'git checkout .', 'git clean -fd', 'git commit -a -m m', 'git commit -am m',
+  'git add -A', 'git add --all', 'git add .', 'git add -u', 'git add sub']
+
+test('guard: discarding or committing a foreign file stops, with no peer needed; neighbours pass', async () => {
+  const { m, r, peer, me, ready, decide, other } = world()
+  await ready
+  m.mkdir(`${r}/sub`)
+  m.dirty(r, ' M .flow-seed', '?? u.txt', '?? sub/n.txt')
+  m.end(peer.pid)
+  for (const c of FOREIGN) expect((await decide(r, c)).decision, c).toBe('stop')
+  const { reason } = await decide(r, 'git reset --hard')
+  expect(reason).toContain('.flow-seed')
+  expect(reason).toContain('unknown owner')
+  expect((await decide(other(), at(r, 'git reset --hard'))).decision, 'behind git -C').toBe('stop')
+  expect((await decide(r, at('../x', 'git status'), step('echo', '', '-'), then('git reset --hard', ';'))).decision, 'behind wrappers').toBe('stop')
+  expect((await decide(r, 'git status', then('git reset --hard'))).decision, 'in a compound').toBe('stop')
+  for (const c of ['git clean -n', 'git clean -nd', 'git stash list', 'git status', 'git restore g.txt', 'git checkout -- g.txt', 'git add g.txt', 'git add sub/s.txt', 'git stash show']) {
+    expect((await decide(r, c)).decision, c).toBe('allow')
+  }
+  expect((await decide(other(1), 'git reset --hard')).decision, 'a clean checkout').toBe('allow')
+  m.status.set(r, ['M  .flow-seed', '?? u.txt', '?? sub/n.txt'])
+  expect((await decide(r, 'git commit -m m')).decision, 'guard-foreign-staged-commit-stops').toBe('stop')
+  expect((await decide(r, 'git commit --amend --no-edit')).decision, 'guard-foreign-staged-amend-stops').toBe('stop')
+  m.status.set(r, [' M .flow-seed', '?? u.txt', '?? sub/n.txt'])
+  expect((await decide(r, 'git add .flow-seed', then('git commit -m m'))).decision, 'guard-add-f-then-commit-stops-for-a-foreign-f').toBe('stop')
+  expect((await decide(r, 'git add .flow-seed')).decision, 'guard-add-alone-of-a-named-file-allows').toBe('allow')
+  for (const f of ['.flow-seed', 'u.txt', 'sub/n.txt']) await me.edited(r, `${r}/${f}`)
+  for (const c of FOREIGN) expect((await decide(r, c)).decision, `own: ${c}`).toBe('allow')
+  m.status.set(r, ['M  .flow-seed', '?? u.txt', '?? sub/n.txt'])
+  expect((await decide(r, 'git commit -m m')).decision, 'guard-own-staged-commit-allows').toBe('allow')
+  expect((await decide(r, 'git add .flow-seed', then('git commit -m m'))).decision).toBe('allow')
+  m.dirty(r, ' M g.txt')
+  expect((await decide(r, 'git restore g.txt')).decision, 'guard-restore-of-a-dirty-file-nobody-edited-stops').toBe('stop')
+})
+
+test('guard: a pathspec the guard cannot read as a literal path (magic, a glob) reaches every foreign file', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M foreign.txt', '?? loose.txt')
+  m.end(peer.pid)
+  expect((await decide(r, 'git clean -fd :(top)loose.txt')).reason, 'pathspec-clean-names-the-untracked-file').toContain('loose.txt')
+  for (const c of ['git restore -- :(top)foreign.txt', 'git restore :!x', 'git restore *.txt', 'git restore dir/**', 'git restore a[0-9].txt', 'git restore f?reign.txt',
+    'git commit -m mine -- :(top)foreign.txt', 'git commit -m mine -- *.txt', 'git checkout -- :(top)foreign.txt']) {
+    const v = await decide(r, c)
+    expect(v.decision, `pathspec-${c}`).toBe('stop')
+    expect(v.reason, `pathspec-names-${c}`).toContain('foreign.txt')
+  }
+  for (const c of ['git restore g.txt', 'git commit -m mine -- g.txt', 'git restore sub/g.txt']) expect((await decide(r, c)).decision, `literal-${c}`).toBe('allow')
+  await me.edited(r, `${r}/foreign.txt`)
+  for (const c of ['git restore -- :(top)foreign.txt', 'git commit -m mine -- *.txt']) expect((await decide(r, c)).decision, `own-${c}`).toBe('allow')
+})
+
+test('guard: a destructive command that recurses into submodules stops, since their changes are not inspected', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  for (const c of ['git reset --hard --recurse-submodules', 'git reset --hard --recurse-submodules HEAD~1', 'git restore --recurse-submodules g.txt', 'git restore --recurse-submodules .',
+    'git checkout -f --recurse-submodules x', 'git switch -f --recurse-submodules x', 'git switch --discard-changes --recurse-submodules x', 'git checkout --recurse-submodules -- g.txt']) {
+    const v = await decide(r, c)
+    expect(v.decision, `submodules-${c}`).toBe('stop')
+    expect(v.reason, `submodules-say-so-${c}`).toContain('which the guard does not inspect')
+    expect(v.reason, `submodules-offer-the-ack-${c}`).toContain('CC_TUNER_ACK=')
+  }
+  for (const c of ['git reset --hard', 'git reset --soft --recurse-submodules', 'git restore g.txt', 'git reset --hard --no-recurse-submodules', 'git checkout -- g.txt']) {
+    expect((await decide(r, c)).decision, `plain-${c}`).toBe('allow')
+  }
+  for (const c of ['git reset --hard --recurse-submodules=on', 'git reset --hard --recurse-submodules=yes', 'git reset --hard --recurse-submodules=true',
+    'git reset --hard --no-recurse-submodules --recurse-submodules=1']) expect((await decide(r, c)).decision, `attached-on-${c}`).toBe('stop')
+  for (const c of ['git reset --hard --recurse-submodules=no', 'git reset --hard --recurse-submodules=off', 'git reset --hard --recurse-submodules=false',
+    'git reset --hard --recurse-submodules=on --no-recurse-submodules']) expect((await decide(r, c)).decision, `attached-off-${c}`).toBe('allow')
+  m.configs.set(`${r}|submodule.recurse`, 'true')
+  for (const c of ['git reset --hard', 'git restore g.txt', 'git checkout -f x']) expect((await decide(r, c)).decision, `config-${c}`).toBe('stop')
+  for (const c of ['git reset --hard --no-recurse-submodules', 'git restore --no-recurse-submodules g.txt']) expect((await decide(r, c)).decision, `config-off-${c}`).toBe('allow')
+  expect((await decide(r, 'git status')).decision, 'config-a-read-passes').toBe('allow')
+})
+
+test('guard: a destructive command given git configuration of its own stops, since what it reaches is not inspected', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const given = (text: string, ...config: string[]) => ({ ...step(text), config })
+  const destructive = ['git reset --hard', 'git reset --hard HEAD~1', 'git restore g.txt', 'git checkout -f x', 'git switch -f x', 'git checkout -- g.txt', 'git clean -fd', 'git stash',
+    'gh pr checkout 5 --force']
+  for (const config of [['submodule.recurse=true'], ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=submodule.recurse', 'GIT_CONFIG_VALUE_0=true'], ['GIT_CONFIG_PARAMETERS=x'], ['core.quotepath=off']]) {
+    for (const c of destructive) {
+      const v = await decide(r, given(c, ...config))
+      expect(v.decision, `config-${c}-${config[0]}`).toBe('stop')
+      expect(v.reason, `config-says-so-${c}`).toContain('sets git config for itself')
+      expect(v.reason, `config-names-the-setting-${c}`).toContain(config[0]!.split('=')[0]!)
+      expect(v.reason, `config-offers-the-ack-${c}`).toContain('CC_TUNER_ACK=')
+    }
+  }
+  const v = await decide(r, given('git reset --hard', 'GIT_CONFIG_VALUE_0=secret-value'))
+  expect(v.reason, 'config-prints-no-value').not.toContain('secret-value')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
+  expect((await me.check({ tool: 'Bash', cwd: r, steps: [given('git reset --hard', 'GIT_CONFIG_VALUE_0=secret-value')], acks: [key] })).decision, 'config-the-ack-is-the-way-on').toBe('allow')
+  for (const c of ['git status', 'git log', 'git commit -m m', 'git add g.txt', 'git reset --soft HEAD~1', 'git switch x', 'git push origin x']) {
+    expect((await decide(r, given(c, 'submodule.recurse=true'))).decision, `config-not-destructive-${c}`).toBe('allow')
+  }
+  for (const c of destructive) expect((await decide(r, c)).decision, `config-none-${c}`).toBe('allow')
+})
+
+const INERT = ['core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false', '--literal-pathspecs']
+const isolatedStatus = (a: readonly string[]) => a[0] === '/bin/sh' && a[2]?.includes('--work-tree="$w"') === true
+
+test('inspection: status runs in a git directory of its own with no config, hook or include; other reads are inert in the checkout', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.put(`${r}/.git/info/attributes`, 'f filter=evil')
+  m.ran.length = 0
+  m.reads.length = 0
+  expect((await decide(r, 'git reset --hard')).reason).toContain('would discard f')
+  const status = m.ran.find(isolatedStatus)!
+  expect(status, 'status-runs-isolated').toBeDefined()
+  for (const part of ['GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1', 'init -q --bare --template=', '--object-format="$f"', 'objects/info/alternates',
+    'GIT_INDEX_FILE="$g/index"', '--git-dir="$d" --work-tree="$w"', 'unset GIT_DIR', 'for x in exclude attributes']) expect(status[2], `isolated-${part}`).toContain(part)
+  expect(status.slice(4, 8), 'isolated-gets-the-common-dir-git-dir-and-checkout').toEqual([DIR, `${r}/.git`, `${r}/.git`, r])
+  for (const x of INERT.filter(x => !x.startsWith('core.attributesFile'))) expect(status, `isolated-${x}`).toContain(x)
+  expect(status[2], 'isolated-reads-the-copied-user-and-system-attributes').toContain('core.attributesFile="$d/attrs"')
+  expect(status, 'isolated-not-the-null-attributes-file').not.toContain('core.attributesFile=/dev/null')
+  expect(m.reads.includes(`${r}/.git/info/attributes`), 'info-attributes-is-never-read-by-the-guard').toBe(false)
+  // Discovering the user's and system's attribute files asks git as it reads them, so that call alone lacks the null file.
+  const discovery = (a: readonly string[]) => a.includes('var') || a.includes('core.attributesFile')
+  for (const argv of m.ran.filter(a => a[0] === 'git')) for (const x of INERT) if (!(discovery(argv) && x.startsWith('core.attributesFile'))) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
+  expect(m.ran.some(a => a.some(x => x.startsWith('--attr-source'))), 'no-attr-source-needed').toBe(false)
+  const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' }
+  for (const [argv, env] of m.calls.filter(([a]) => (a[0] === 'git' && !discovery(a)) || isolatedStatus(a))) expect(env, `inert-git-env-${argv.slice(-2).join(' ')}`).toEqual(GIT_ENV)
+  for (const [, env] of m.calls.filter(([a]) => a[0] === 'git' && discovery(a))) expect(env, 'discovery-runs-no-transport').toMatchObject({ GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
+  const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
+  await new Session(m, peer2, 'p2').touch(wt)
+  m.shas.set(wt, 'sha-other')
+  m.ran.length = 0
+  await me.report(r)
+  const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
+  for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
+  expect(merge[2], 'inert-merge-tree-runs-in-a-bare-repository-of-its-own').toContain('init -q --bare')
+  expect(merge[2], 'inert-merge-tree-takes-the-object-format').toContain('--object-format=')
+  expect(merge[2], 'inert-merge-tree-reads-no-user-or-system-config').toContain('GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1')
+  expect(merge[2], 'inert-merge-tree-names-come-raw').toContain('--name-only -z')
+  expect(merge, 'inert-merge-tree-not-in-the-checkout').not.toContain('-C')
+})
+
+test('inspection: the isolated status takes the core settings that shape it, and nothing else', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.core.set(r, ['core.autocrlf\ninput', 'core.excludesfile\n~/ignore', 'core.hookspath\n/evil', 'core.fsmonitor\n/evil', 'core.ignorecase\ntrue'])
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  const pairs = (a => a.filter((x, i) => a[i - 1] === '-c'))(m.ran.find(isolatedStatus)!)
+  for (const x of ['core.autocrlf=input', 'core.excludesfile=/home/u/ignore', 'core.ignorecase=true']) expect(pairs, `core-copied-${x}`).toContain(x)
+  expect(pairs.some(x => x.startsWith('core.hookspath') || x === 'core.fsmonitor=/evil'), 'core-nothing-that-runs-anything').toBe(false)
+})
+
+test('inspection: core settings and attribute files are read again for every status, however recent the last one', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const s = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'same')
+  m.core.set(r, ['core.excludesfile\n/old-ignore'])
+  m.configs.set(`${r}|core.attributesFile`, '/old-attributes')
+  await s.bash(r, 'git status')
+  m.core.set(r, ['core.excludesfile\n/new-ignore'])
+  m.configs.set(`${r}|core.attributesFile`, '/new-attributes')
+  m.ran.length = 0
+  await s.bash(r, 'git reset --hard')
+  const status = m.ran.find(isolatedStatus)!
+  expect(status, 'excludes-file-read-again').toContain('core.excludesfile=/new-ignore')
+  expect(status[8], 'attributes-file-read-again').toBe('/new-attributes')
+})
+
+test('inspection: a branch that moves while status is read leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.onRun = argv => { if (isolatedStatus(argv)) { m.head(r, 'side'); m.onRun = undefined } }
+  expect((await decide(r, 'git reset --hard')).reason, 'branch-moved-during-status-is-unread').toContain('could not read git status')
+})
+
+test('inspection: a branch round trip while core settings are read leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  await fresh.bash(r, 'git status')
+  m.advance(61)
+  m.onRun = argv => { if (argv.includes('--get-regexp')) { m.head(r, 'side'); m.head(r, 'main'); m.onRun = undefined } }
+  expect((await fresh.bash(r, 'git reset --hard')).reason, 'round-trip-is-unread').toContain('could not read git status')
+})
+
+test('inspection: in a reftable repository HEAD is read through git, so a switch during status leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.put(`${r}/.git/HEAD`, 'ref: refs/heads/.invalid\n')
+  m.symbolic.set(r, 'refs/heads/main')
+  m.put(`${r}/.git/reftable/tables.list`, 'x')
+  m.onRun = argv => { if (isolatedStatus(argv)) { m.symbolic.set(r, 'refs/heads/side'); m.put(`${r}/.git/reftable/tables.list`, 'y'); m.onRun = undefined } }
+  expect((await decide(r, 'git reset --hard')).reason, 'reftable-switch-is-unread').toContain('could not read git status')
+})
+
+test('inspection: a linked worktree on reftable is watched through its own table list', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const wt = m.worktree(r, '/w/wt', 'wt-main')
+  const gd = `${r}/.git/worktrees/wt`
+  m.put(`${gd}/HEAD`, 'ref: refs/heads/.invalid\n')
+  m.symbolic.set(wt, 'refs/heads/wt-main')
+  m.put(`${gd}/reftable/tables.list`, 'x')
+  m.dirty(wt, ' M f')
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  await fresh.bash(wt, 'git status')
+  m.advance(61)
+  m.onRun = argv => { if (argv.includes('--get-regexp')) { m.put(`${gd}/reftable/tables.list`, 'side'); m.put(`${gd}/reftable/tables.list`, 'back'); m.onRun = undefined } }
+  expect((await fresh.bash(wt, 'git reset --hard')).reason, 'worktree-reftable-round-trip-is-unread').toContain('could not read git status')
+})
+
+test('inspection: attribute files come from git var as git resolves them; a failure or a cut-off answer leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const fresh = () => new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), `s${m.clock}`)
+  m.configs.set(`${r}|core.attributesFile`, '.git/custom attributes ')
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  const status = m.ran.find(isolatedStatus)!
+  expect(status[8], 'a-relative-path-is-the-checkouts-and-a-trailing-space-stays').toBe(`${r}/.git/custom attributes `)
+  expect(status[2], 'copied-files-are-kept-apart-by-a-newline').toContain('{ cat "$x" && echo; }')
+  m.configs.set(`${r}|core.attributesFile`, 'link/../attributes')
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![8], 'the-written-path-is-joined-literally').toBe(`${r}/link/../attributes`)
+  m.configs.delete(`${r}|core.attributesFile`)
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![8], 'unset-means-the-xdg-default').toBe('/home/u/.config/git/attributes')
+  m.xdg = 'relative-xdg/git/attributes'
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![8], 'a-relative-default-is-the-checkouts').toBe(`${r}/relative-xdg/git/attributes`)
+  const xdgScript = m.ran.find(x => x[0] === '/bin/sh' && x[2]?.includes('XDG_CONFIG_HOME'))![2]!
+  expect(xdgScript, 'the-default-is-printed-byte-for-byte').toContain("printf '%s")
+  expect(xdgScript, 'not-through-echo').not.toContain('echo ')
+  m.xdg = '/home/u/.config/git/attributes'
+  m.failing.set('git var', 128)
+  const v = await fresh().bash(r, 'git reset --hard')
+  expect(v.reason, 'a-failed-git-var-is-unread').toContain('could not read git status')
+  expect(v.reason, 'and-names-the-git-it-needs').toContain('git 2.42 or newer')
+  m.failing.delete('git var')
+  m.truncate.add('git var')
+  expect((await fresh().bash(r, 'git reset --hard')).reason, 'a-cut-off-git-var-is-unread').toContain('could not read git status')
+})
+
+test('inspection: config that cannot be read leaves status unread, and it is not run', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.failing.set('git config', 2)
+  m.ran.length = 0
+  expect((await decide(r, 'git reset --hard --no-recurse-submodules')).reason, 'config-unreadable-is-unread').toContain('could not read git status')
+  expect(m.ran.some(isolatedStatus), 'config-unreadable-runs-no-status').toBe(false)
+})
+
+test('inspection: output the engine cut off is no answer: status, a tree and merge-tree read as unread, and nothing incomplete is cached', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.truncate.add('git status')
+  expect((await decide(r, 'git reset --hard')).reason, 'truncated-status-is-unread').toContain('could not read git status')
+  m.truncate.delete('git status')
+  m.status.set(r, ['?? u.txt'])
+  m.trees.set(`${r}|src`, ['u.txt'])
+  m.truncate.add('git ls-tree')
+  expect((await decide(r, 'git reset --hard src')).reason, 'truncated-tree-is-unread').toContain('could not read git status')
+  m.truncate.delete('git ls-tree')
+  const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
+  await new Session(m, peer2, 'p2').touch(wt)
+  m.shas.set(wt, 'sha-other')
+  m.truncate.add('merge-tree')
+  expect(await me.report(r), 'truncated-merge-tree-is-not-computed').toContain('conflicts with HEAD: not computed')
+  m.truncate.delete('merge-tree')
+  m.merges.set(`sha-${r}-sha-other`, 'f.txt')
+  expect(await me.report(r), 'a-cut-off-merge-tree-was-not-cached').toContain('conflicts with HEAD: f.txt')
+})
+
+test('inspection: a process list cut off still finds the session, so the guard keeps protecting', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M f')
+  m.truncate.add('ps -A')
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  m.status.set(r, [' M f'])
+  const v = await fresh.bash(r, 'git reset --hard')
+  expect(v.decision, 'truncated-ps-still-protects').toBe('stop')
+  expect(v.reason).toContain('would discard f')
+})
+
+test('inspection: a merge-tree that failed with exit 1 and no tree is no result, and is not cached', async () => {
+  const { m, r, peer, me, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
+  await new Session(m, peer2, 'p2').touch(wt)
+  m.shas.set(wt, 'sha-other')
+  m.merges.set(`sha-${r}-sha-other`, '!error')
+  expect(await me.report(r), 'merge-tree-error-is-not-computed').toContain('conflicts with HEAD: not computed')
+  expect([...m.files.keys()].some(f => f.includes('/merge/')), 'merge-tree-error-is-not-cached').toBe(false)
+})
+
+test('inspection: a process list that cannot be read stops a destructive step with an ack, and lets the rest run', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M f')
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  const v = await fresh.bash(r, 'git reset --hard')
+  expect(v.decision, 'unread-processes-stop-a-destructive-step').toBe('stop')
+  expect(v.reason).toContain('could not read the process list')
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'the-ack-passes-it').toBe('allow')
+  expect((await fresh.bash(r, 'npm test')).decision, 'a-step-that-destroys-nothing-runs').toBe('allow')
+  expect(await fresh.peers.report(r), 'report-says-so').toContain('could not read the process list')
+})
+
+test('inspection: recursion config that cannot be read is treated as recursion', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.failing.set('git config', 2)
+  const v = await decide(r, 'git reset --hard')
+  expect(v.reason, 'unknown-recursion-stops').toContain('reaches the submodules')
+  expect((await decide(r, 'git reset --hard --no-recurse-submodules')).reason, 'an-explicit-no-recursion-is-not-a-recursion-stop').not.toContain('reaches the submodules')
+})
+
+test('inspection: a process list that cannot be read stops a kill and a shared stop, not a probe; a bad parent pid is unread too', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  declare(m, r, STACK)
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  expect((await fresh.bash(r, 'kill -TERM 4242')).decision, 'unread-processes-stop-a-kill').toBe('stop')
+  expect((await fresh.bash(r, 'stack down')).decision, 'unread-processes-stop-a-shared-stop').toBe('stop')
+  expect((await fresh.bash(r, 'kill -0 4242')).decision, 'a-probe-runs').toBe('allow')
+  const o = m.repo('/w/other')
+  declare(m, o, STACK)
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'acme', resources: [] }))
+  expect((await fresh.bash(r, at(o, 'stack down'))).decision, 'unread-processes-stop-a-shared-stop-in-another-checkout').toBe('stop')
+  m.put(USER, JSON.stringify({ guard: false, resources: [] }))
+  expect((await fresh.bash(r, 'git reset --hard')).decision, 'guard-false-is-honoured-when-ps-is-unread').toBe('allow')
+  m.files.delete(USER)
+  m.put(`${o}/.claude/cc-tuner-resources.json`, JSON.stringify({ guard: false, resources: [] }))
+  expect((await fresh.bash(o, at(r, 'git reset --hard'))).decision, 'an-opt-out-of-the-cwd-does-not-cover-another-checkout').toBe('stop')
+  expect((await fresh.bash(r, at(o, 'git reset --hard'))).decision, 'the-target-checkout-opt-out-is-honoured').toBe('allow')
+  m.failing.delete('ps -A')
+  m.failing.delete('ps')
+  m.dirty(r, ' M f')
+  m.failing.set('/bin/sh', 1)
+  const other = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'other')
+  expect((await other.bash(r, 'git reset --hard')).reason, 'a-failed-parent-pid-read-is-unread').toContain('could not read the process list')
+})
+
+test('inspection: a git too old for the guard is never run unchecked; the guard says so and treats the tree as unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.failing.set('git status', 129)
+  const { decision, reason } = await decide(r, 'git reset --hard')
+  expect(decision).toBe('stop')
+  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.42 or newer is needed to inspect safely')
+  expect(reason, 'inert-old-git-is-unread').toContain('could not read git status')
+})
+
+test('guard: reset --hard, checkout -f and switch -f stop for an untracked foreign file the destination tree holds', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, '?? u.txt', '?? sub/v.txt')
+  m.trees.set(`${r}|HEAD`, ['h.txt'])
+  m.trees.set(`${r}|feat`, ['h.txt', 'u.txt'])
+  m.trees.set(`${r}|plain`, ['h.txt'])
+  for (const c of ['git reset --hard feat', 'git checkout -f feat', 'git switch -f feat', 'git switch --discard-changes feat', 'git checkout -f -b nb feat', 'git switch -f -c nb feat']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+  expect((await decide(r, 'git reset --hard feat')).reason, 'guard-untracked-collision-is-named').toContain('u.txt')
+  for (const c of ['git reset --hard', 'git reset --hard plain', 'git checkout -f plain', 'git switch -f -c nb plain', 'git checkout -f']) expect((await decide(r, c)).decision, c).toBe('allow')
+  m.trees.set(`${r}|HEAD`, ['h.txt', 'u.txt'])
+  expect((await decide(r, 'git reset --hard')).decision, 'a plain reset collides with HEAD').toBe('stop')
+  m.failing.set('git ls-tree', 128)
+  expect((await decide(r, 'git reset --hard feat')).reason, 'an unreadable tree is not an empty one').toContain('could not read')
+  m.failing.delete('git ls-tree')
+  await me.edited(r, `${r}/u.txt`)
+  for (const c of ['git reset --hard feat', 'git checkout -f feat']) expect((await decide(r, c)).decision, `own file: ${c}`).toBe('allow')
+})
+
+test('guard: an untracked foreign file collides with the destination tree as a file against a directory, in both directions', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.trees.set(`${r}|HEAD`, ['h.txt'])
+  m.trees.set(`${r}|dirs`, ['h.txt', 'f/deep/g.txt'])
+  m.trees.set(`${r}|files`, ['h.txt', 'f', 'u'])
+  m.dirty(r, '?? f')
+  expect((await decide(r, 'git reset --hard dirs')).reason, 'collision-an-untracked-file-where-the-destination-has-a-directory').toContain('would discard f in')
+  m.status.set(r, ['?? f/foreign'])
+  expect((await decide(r, 'git reset --hard files')).reason, 'collision-an-untracked-file-under-a-destination-file').toContain('would discard f/foreign in')
+  expect((await decide(r, 'git checkout -f files')).decision).toBe('stop')
+  m.status.set(r, ['?? fx', '?? g/foreign', '?? f2/a'])
+  for (const c of ['git reset --hard dirs', 'git reset --hard files']) expect((await decide(r, c)).decision, `no collision: ${c}`).toBe('allow')
+})
+
+test('guard: git commit protects what it will commit: its paths, or the staged files; -i both', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.status.set(r, ['M  foreign.txt', ' M own.txt', ' M other.txt'])
+  await me.edited(r, `${r}/own.txt`)
+  for (const c of ['git commit --only own.txt -m mine', 'git commit own.txt -m mine', 'git commit -o own.txt -m mine', 'git commit -m mine own.txt',
+    'git commit -m mine -- own.txt', 'git commit -mmine own.txt', 'git commit --message=mine own.txt', 'git commit -F msg.txt own.txt']) {
+    expect((await decide(r, c)).decision, c).toBe('allow')
+  }
+  for (const c of ['git commit -m mine', 'git commit -m own.txt', 'git commit -i own.txt -m m', 'git commit --include own.txt -m m', 'git commit other.txt -m m',
+    'git commit -a -m m', 'git commit -am m', 'git commit --amend --no-edit']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+  expect((await decide(r, 'git commit other.txt -m m')).reason, 'guard-commit-of-a-path-names-the-foreign-path').toContain('other.txt')
+  expect((await decide(r, 'git commit -m m')).reason, 'guard-plain-commit-names-the-staged-file').toContain('foreign.txt')
+  m.status.set(r, [' M own.txt', ' M other.txt'])
+  expect((await decide(r, 'git commit -m m')).decision, 'a plain commit takes only the staged files').toBe('allow')
+})
+
+test('guard: a git command given --pathspec-from-file has a scope nobody read, so it reaches every foreign file', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.status.set(r, ['M  foreign.txt', ' M own.txt', ' M other.txt'])
+  await me.edited(r, `${r}/own.txt`)
+  m.put(`${r}/own-list`, 'own.txt\n')
+  const verbs = ['restore', 'commit -m m', 'checkout', 'stash push', 'add']
+  for (const verb of verbs) {
+    const [sub, ...rest] = verb.split(' ')
+    for (const flag of ['--pathspec-from-file=own-list', '--pathspec-from-file own-list', '--pathspec-from-file=own-list --pathspec-file-nul', '--pathspec-file-nul --pathspec-from-file own-list', '--pathspec-from-file=-']) {
+      const c = `git ${sub} ${flag} ${rest.join(' ')}`.trim()
+      const v = await decide(r, c)
+      expect(v.decision, `pathspec-file-is-an-unread-scope: ${c}`).toBe('stop')
+      expect(v.reason, `pathspec-file-names-the-foreign-file: ${c}`).toContain('foreign.txt')
+    }
+  }
+  expect((await decide(r, 'git commit own.txt -m m')).decision, 'a commit of literal own paths is allowed').toBe('allow')
+  expect((await decide(r, 'git restore own.txt')).decision, 'a restore of a literal own path is allowed').toBe('allow')
+  expect((await decide(r, 'git commit -m m --pathspec-from-file=nowhere')).reason, 'a file that does not exist is as unread as one that does').toContain('foreign.txt')
+  expect(m.reads.filter(x => x.endsWith('own-list')), 'the guard never reads a pathspec file').toEqual([])
+})
+
+test('guard: git commit --only with no paths and --amend commits none of the staged files', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.status.set(r, ['M  foreign.txt', ' M other.txt'])
+  for (const c of ['git commit --only --amend --no-edit', 'git commit -o --amend --no-edit', 'git commit --amend -o -m reworded', 'git commit --amend --only -m reworded']) {
+    expect((await decide(r, c)).decision, c).toBe('allow')
+  }
+  for (const c of ['git commit --amend --no-edit', 'git commit --only other.txt --amend --no-edit', 'git commit -o --amend -a --no-edit', 'git commit --only -m m']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+})
+
+test('guard: a foreign stop names the peer that edited the file; a dead peer\'s files stay protected', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M .flow-seed')
+  await peer.edited(r, `${r}/.flow-seed`)
+  const live = await decide(r, 'git reset --hard')
+  expect(live.decision).toBe('stop')
+  expect(live.reason).toContain(`pid ${peer.pid} on main`)
+  m.end(peer.pid)
+  const dead = await decide(r, 'git reset --hard')
+  expect(dead.decision).toBe('stop')
+  expect(dead.reason).toContain(`pid ${peer.pid}, exited`)
+})
+
+test('guard: stash drop and clear stop while a peer works in the repository, past its 2 h window too', async () => {
+  const { m, r, peer, ready, decide, other } = world()
+  await ready
+  for (const c of ['git stash drop', 'git stash clear', 'git stash drop stash@{1}']) expect((await decide(r, c)).decision, c).toBe('stop')
+  expect((await decide(other(), at(r, 'git stash drop'))).decision).toBe('stop')
+  expect((await decide(r, 'git stash list')).decision).toBe('allow')
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) - 3 * 3600 })
+  expect((await decide(r, 'git stash drop')).decision).toBe('stop')
+  m.end(peer.pid)
+  expect((await decide(r, 'git stash drop')).decision).toBe('allow')
+})
+
+test('guard: commit, push and PR run on the branch this session expects, whoever switched it', async () => {
+  const { m, r, peer, ready, decide, other } = world()
+  await ready
+  m.end(peer.pid)
+  for (const c of ['git commit -m m', 'git push origin main', 'gh pr create --fill', 'gh pr merge 5', 'gh pr merge --squash']) expect((await decide(r, c)).decision, c).toBe('allow')
+  m.head(r, 'x')
+  for (const c of ['git commit -m m', 'git push origin x', 'gh pr create --fill', 'gh pr merge 5', 'gh pr merge --squash']) expect((await decide(r, c)).decision, c).toBe('stop')
+  const { reason } = await decide(r, 'git commit -m m')
+  expect(reason).toContain('on x')
+  expect(reason).toContain('this session started on main')
+  expect((await decide(other(), at(r, 'git commit -m m'))).decision).toBe('stop')
+  expect((await decide(r, 'git status')).decision).toBe('allow')
+  expect((await decide(r, 'git switch main', then('git commit -m m'))).decision).toBe('allow')
+  m.head(r, 'main')
+  expect((await decide(r, 'git switch -c z', then('git commit -m m'))).decision).toBe('allow')
+  m.head(r, undefined)
+  expect((await decide(r, 'git commit -m m')).decision, 'guard-detached-head-commit-stops-too').toBe('stop')
+})
+
+test('guard: a planned switch excuses a later commit only when it runs only if the switch succeeded', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.head(r, 'b')
+  const commit = (op: string) => then('git commit --allow-empty -m wrong', op)
+  expect((await decide(r, 'false', then('git switch c'), commit(';'))).decision, 'guard-skipped-switch-does-not-excuse-a-commit-after-semicolon').toBe('stop')
+  expect((await decide(r, 'false', then('git switch c'), commit('&&'))).decision, 'guard-and-commit-after-a-skipped-switch-never-runs-unexcused').toBe('allow')
+  expect((await decide(r, 'git switch c', commit(';'))).decision, 'guard-commit-after-a-semicolon-is-checked').toBe('stop')
+  expect((await decide(r, 'git switch c', commit('||'))).decision).toBe('stop')
+  expect((await decide(r, 'git switch c', commit('|'))).decision).toBe('stop')
+  expect((await decide(r, 'git switch c', commit('&&'))).decision, 'guard-and-commit-after-a-switch-is-excused').toBe('allow')
+  expect((await decide(r, 'git switch c', then('npm test'), commit('&&'))).decision, 'an unbroken chain of && reaches the commit').toBe('allow')
+  expect((await decide(r, 'git switch c', then('npm test'), commit(';'))).decision, 'a chain broken by ; does not').toBe('stop')
+  expect((await decide(r, 'git switch c', then('npm test', ';'), commit('&&'))).decision, 'a chain broken before the commit does not').toBe('stop')
+  const { reason } = await decide(r, 'git switch c', commit(';'))
+  expect(reason, 'the reason suggests &&').toContain('&&')
+})
+
+test('guard: a first read-only git call in another checkout records it, so a later commit there is checked against the branch it saw', async () => {
+  const { m, r, peer, ready, decide, other } = world()
+  await ready
+  m.end(peer.pid)
+  const o = other()
+  await decide(r, at(o, 'git status'))
+  expect(m.rec('me').checkouts[o], 'guard-read-only-git-records-the-checkout-without-a-writer').toMatchObject({ expected: 'main', writer: null })
+  m.head(o, 'b')
+  expect((await decide(r, at(o, 'git commit --allow-empty -m m'))).decision, 'guard-commit-after-a-read-only-first-touch-sees-the-drift').toBe('stop')
+  const lone = other(1)
+  await decide(r, at(lone, 'ls'))
+  expect(m.rec('me').checkouts[lone], 'a command that is not git records nothing').toBeUndefined()
+})
+
+test('guard: deleting a peer\'s expected branch stops', async () => {
+  const { m, r, peer, ready, decide, other } = world()
+  await ready
+  m.edit('peer', x => { x.checkouts[r]!.expected = 'feat-p' })
+  for (const c of ['git branch -D feat-p', 'git branch -d feat-p', 'git branch --delete feat-p spare', 'git push origin --delete feat-p',
+    'git push origin :feat-p', 'gh pr merge --squash --delete-branch feat-p']) expect((await decide(r, c)).decision, c).toBe('stop')
+  const behind = await decide(other(), at(r, 'git branch -D feat-p'))
+  expect(behind.decision).toBe('stop')
+  expect(behind.reason).toContain(`pid ${peer.pid}`)
+  for (const c of ['git branch -D spare', 'git push origin --delete spare', 'gh pr merge --squash feat-p', 'git branch --list']) expect((await decide(r, c)).decision, c).toBe('allow')
+  expect((await decide(r, 'gh pr merge 7 --delete-branch')).decision).toBe('note')
+  m.end(peer.pid)
+  expect((await decide(r, 'git branch -D feat-p')).decision).toBe('allow')
+})
+
+test('guard: removing a worktree that is a peer\'s cwd, or holds foreign files, stops', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  const wt = m.worktree(r, '/w/t/wt', 'wt')
+  await peer.touch(wt)
+  for (const c of [`git worktree remove ${wt}`, `git worktree remove --force ${wt}`, `rm -rf ${wt}`, `rm -r ${wt}`, `rm -fr ${wt}/`, 'rm -rf /w/t']) {
+    expect((await decide(r, c)).decision, c).toBe('stop')
+  }
+  const wrapped = await decide(r, at('/w/t', 'rm -rf wt'))
+  expect(wrapped.decision).toBe('stop')
+  expect(wrapped.reason).toContain(`pid ${peer.pid}`)
+  expect((await decide(r, `rm -rf ${r}/build`)).decision).toBe('allow')
+  expect((await decide(r, `rm ${wt}/x`)).decision).toBe('allow')
+  const wt2 = m.worktree(r, '/w/t/wt2', 'wt2')
+  expect((await decide(r, `git worktree remove ${wt2}`)).decision).toBe('allow')
+  m.dirty(wt2, '?? foreign.txt')
+  expect((await decide(r, `git worktree remove --force ${wt2}`)).decision).toBe('stop')
+  const rm = await decide(r, `rm -rf ${wt2}`)
+  expect(rm.decision).toBe('stop')
+  expect(rm.reason).toContain('foreign.txt')
+  await me.edited(wt2, `${wt2}/foreign.txt`, 'Write')
+  expect((await decide(r, `git worktree remove --force ${wt2}`)).decision).toBe('allow')
+  m.end(peer.pid)
+  expect((await decide(r, `git worktree remove ${wt}`)).decision).toBe('allow')
+})
+
+test('guard: a recursive removal of a parent inspects every known checkout under it, whoever the record belongs to', async () => {
+  const { m, session, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const known = (top: string, owner: Session) => { m.repo(top); return owner.touch(top) }
+  // A checkout only a tombstone knows, with a file nobody here edited.
+  const ghost = session('ghost')
+  await known('/p/t/r', ghost)
+  m.end(ghost.pid)
+  m.dirty('/p/t/r', '?? foreign.txt')
+  for (const c of ['rm -rf /p/t', 'rm -r /p/t/', 'rm -rf /p']) {
+    const v = await decide(r, c)
+    expect(v.decision, `remove-parent-tombstone-${c}`).toBe('stop')
+    expect(v.reason, `remove-parent-names-the-file-${c}`).toContain('foreign.txt in /p/t/r')
+  }
+  expect((await decide(r, 'rm -rf /p/t/r')).decision, 'remove-the-root-itself-still-stops').toBe('stop')
+  m.status.set('/p/t/r', [])
+  expect((await decide(r, 'rm -rf /p/t')).decision, 'remove-parent-of-a-clean-tombstone-checkout').toBe('allow')
+  // This session's own checkout: its own edits go, a foreign file does not.
+  await known('/p/o/r', me)
+  m.dirty('/p/o/r', '?? mine.txt')
+  await me.edited('/p/o/r', '/p/o/r/mine.txt', 'Write')
+  expect((await decide(r, 'rm -rf /p/o')).decision, 'remove-parent-of-own-edits').toBe('allow')
+  // Another session wrote there after this one came and has exited: what it left is not this session's.
+  const co = session('co')
+  await co.touch('/p/o/r')
+  m.end(co.pid)
+  m.dirty('/p/o/r', '?? foreign.txt')
+  expect((await decide(r, 'rm -rf /p/o')).reason, 'remove-parent-of-own-and-foreign').toContain('foreign.txt in /p/o/r')
+  // The checkout holding the session's cwd.
+  m.repo('/p/c/r')
+  m.dirty('/p/c/r', '?? foreign.txt')
+  expect((await decide('/p/c/r', 'rm -rf /p/c')).decision, 'remove-parent-of-the-cwd-checkout').toBe('stop')
+  // A live session of any repository under the parent works there.
+  const live = session('live')
+  await known('/p/l/r', live)
+  const v = await decide(r, 'rm -rf /p/l')
+  expect(v.decision, 'remove-parent-of-a-live-peer-checkout').toBe('stop')
+  expect(v.reason).toContain(`pid ${live.pid}`)
+  // A directory with no checkout a record or the cwd names is not read.
+  m.repo('/p/u/r')
+  m.dirty('/p/u/r', '?? foreign.txt')
+  expect((await decide(r, 'rm -rf /p/u')).decision, 'remove-parent-of-an-unknown-checkout').toBe('allow')
+})
+
+test('record: /clear drops acks on any event, also when its start came outside every repository', async () => {
+  const { m, session, peer, me, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const ghost = session('ghost')
+  m.repo('/p/c/r')
+  await ghost.touch('/p/c/r')
+  m.end(ghost.pid)
+  m.dirty('/p/c/r', '?? foreign.txt')
+  m.mkdir('/nowhere')
+  const first = await me.bash('/nowhere', 'rm -rf /p/c/r')
+  expect(first.decision).toBe('stop')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(first.reason ?? '')![1]!
+  expect((await me.check({ cwd: '/nowhere', tool: 'Bash', acks: [key], steps: [step('rm -rf /p/c/r')] })).decision, 'clear-the-ack-passes-before').toBe('allow')
+  const cleared = new Session(m, me.pid, 'after-clear')
+  await cleared.start('/nowhere')
+  expect((await cleared.bash('/nowhere', 'rm -rf /p/c/r')).decision, 'clear-outside-a-repository-drops-the-ack').toBe('stop')
+})
+
+test('guard: a recursive removal of a known checkout is decided whatever the cwd is, a directory that is no repository included', async () => {
+  const { m, session, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const ghost = session('ghost')
+  m.repo('/p/n/r')
+  await ghost.touch('/p/n/r')
+  m.end(ghost.pid)
+  m.dirty('/p/n/r', '?? foreign.txt')
+  m.mkdir('/nowhere')
+  const v = await decide('/nowhere', 'rm -rf /p/n/r')
+  expect(v.decision, 'remove-from-a-non-repository-cwd').toBe('stop')
+  expect(v.reason).toContain('foreign.txt in /p/n/r')
+  expect((await decide('/nowhere', 'rm -rf /p/n')).decision, 'remove-a-parent-from-a-non-repository-cwd').toBe('stop')
+  expect((await decide('/p/n', 'rm -rf r')).decision, 'remove-a-relative-operand-from-a-non-repository-cwd').toBe('stop')
+  expect((await decide('/nowhere', 'rm -rf /tmp/scratch')).decision, 'remove-an-unknown-path-from-a-non-repository-cwd').toBe('allow')
+  m.status.set('/p/n/r', [])
+  expect((await decide('/nowhere', 'rm -rf /p/n/r')).decision, 'remove-a-clean-checkout-from-a-non-repository-cwd').toBe('allow')
+  void me
+})
+
+test('guard: kill of a process that descends from a peer stops; its own or an unrelated one does not', async () => {
+  const { m, session, other } = machine() as ReturnType<typeof machine> & { other?: never }
+  void other
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  const pc = m.spawn(p, 'sleep', 'sleep 3737')
+  const me = m.spawn()
+  const mc = m.spawn(me, 'sleep', 'sleep 3838')
+  const un = m.spawn()
+  const [peer, mine] = [session('peer', p), session('me', me)]
+  await peer.touch(r)
+  await mine.touch(r)
+  const decide = async (cwd: string, ...steps: (string | Partial<Step>)[]) => (await mine.bash(cwd, ...steps)).decision
+  expect(await decide(r, `kill ${pc}`)).toBe('stop')
+  expect((await mine.bash(r, `kill ${pc}`)).reason).toContain(`pid ${p}`)
+  expect(await decide(r, `kill -9 ${pc}`)).toBe('stop')
+  expect(await decide(r, `kill ${p}`)).toBe('stop')
+  expect(await decide(m.repo('/w/x'), at(r, `kill ${pc}`))).toBe('stop')
+  expect(await decide(r, `kill ${mc}`)).toBe('allow')
+  expect(await decide(r, `kill ${un}`)).toBe('allow')
+  expect(await decide(r, 'pkill -f 3737')).toBe('stop')
+  expect(await decide(r, 'pkill -9 -f 3737')).toBe('stop')
+  expect(await decide(r, 'pkill -f 3838')).toBe('allow')
+  expect(await decide(r, 'pkill -f 3939')).toBe('allow')
+  m.spawn(p, 'peersleep')
+  m.spawn(me, 'mysleep')
+  expect(await decide(r, 'killall peersleep')).toBe('stop')
+  expect(await decide(r, 'killall mysleep')).toBe('allow')
+  m.ports.set(4000, pc)
+  expect(await decide(r, 'lsof -ti :4000', 'kill')).toBe('stop')
+  expect(await decide(r, 'lsof -ti :4000', then('kill', '|'))).toBe('stop')
+  expect(await decide(r, 'lsof -ti :1', 'kill')).toBe('allow')
+  expect(await decide(r, 'kill $PID')).toBe('note')
+  m.end(p)
+  expect(await decide(r, `kill ${pc}`)).toBe('allow')
+})
+
+test('guard: signal 0 is a liveness probe and stops nothing, in any spelling kill accepts', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  const pc = m.spawn(p, 'sleep', 'sleep 3737')
+  const me = m.spawn()
+  const [peer, mine] = [session('peer', p), session('me', me)]
+  await peer.touch(r)
+  await mine.touch(r)
+  const decide = async (...steps: (string | Partial<Step>)[]) => (await mine.bash(r, ...steps)).decision
+  for (const probe of [`kill -0 ${pc}`, `kill -00 ${pc}`, `kill -s 0 ${pc}`, `kill -n 0 ${pc}`, `kill --signal 0 ${pc}`, `kill -0 -- ${pc}`, `kill -0 ${p} ${pc}`, `pkill -0 -f 3737`, `kill -0 $PID`]) {
+    expect(await decide(probe), probe).toBe('allow')
+  }
+  m.ports.set(4000, pc)
+  expect(await decide('lsof -ti :4000', 'kill -0'), 'lsof | kill -0').toBe('allow')
+  for (const stops of [`kill -9 ${pc}`, `kill -s 9 ${pc}`, `kill -s KILL ${pc}`, `kill -n 15 ${pc}`, `kill -10 ${pc}`, `kill -0 -9 ${pc}`, `kill -s 0 -s 9 ${pc}`, `kill --signal 9 ${pc}`]) {
+    expect(await decide(stops), stops).toBe('stop')
+  }
+})
+
+test('guard: an edit next to a writer or of a claimed path is a note, said once an hour', async () => {
+  const { m, r, peer, me, ready, other } = world()
+  await ready
+  const edit = (path: string) => me.check({ tool: 'Edit', cwd: r, path })
+  const first = await edit(`${r}/a.txt`)
+  expect(first.decision).toBe('note')
+  expect(first.reason).toContain(`pid ${peer.pid}`)
+  expect((await edit(`${r}/b.txt`)).decision, 'guard-edit-note-once-an-hour').toBe('allow')
+  m.edit('me', x => { x.acks = Object.fromEntries(Object.keys(x.acks).map(k => [k, 1])) })
+  expect((await edit(`${r}/b.txt`)).decision, 'guard-edit-note-again-after-the-hour').toBe('note')
+  m.edit('peer', x => { x.claims = { 'plan.md': { repo: x.checkouts[r]!.repo, paths: ['lib/'] } }; x.checkouts[r]!.writer = null })
+  const claimed = await edit(`${r}/lib/x.ts`)
+  expect(claimed.decision).toBe('note')
+  expect(claimed.reason).toContain('lib/')
+  expect((await edit(`${r}/src/x.ts`)).decision).toBe('allow')
+  expect((await me.check({ tool: 'Edit', cwd: r, path: `${other()}/a.txt` })).decision, 'guard-edit-in-another-repository-allows').toBe('allow')
+  m.end(peer.pid)
+  expect((await edit(`${r}/lib/y.ts`)).decision, 'guard-edit-with-a-dead-peer-allows').toBe('allow')
+})
+
+test('guard: an edit of a dirty or untracked file this session did not edit is a note, once per path per hour', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const [peer, me] = [session('peer'), session('me')]
+  m.dirty(r, ' M a.txt', '?? u.txt', ' M p.txt', ' M own.txt')
+  await me.bash(r, 'git status')
+  await peer.edited(r, `${r}/p.txt`)
+  m.edit('peer', x => { x.checkouts[r]!.writer = null })
+  await me.edited(r, `${r}/own.txt`)
+  const edit = (path: string, tool = 'Edit') => me.check({ tool, cwd: r, path: `${r}/${path}` })
+  const first = await edit('a.txt')
+  expect(first.decision, 'guard-edit-of-a-dirty-file-nobody-here-edited-is-a-note').toBe('note')
+  expect(first.reason).toContain('a.txt')
+  expect(first.reason).toContain('unknown owner')
+  expect((await edit('a.txt')).decision, 'guard-dirty-file-note-once-an-hour').toBe('allow')
+  expect((await edit('u.txt', 'Write')).decision, 'guard-untracked-file-is-foreign-too').toBe('note')
+  expect((await edit('n.ipynb', 'NotebookEdit')).decision, 'guard-clean-or-new-file-allows').toBe('allow')
+  expect((await edit('p.txt')).reason, 'guard-dirty-file-names-the-peer-that-edited-it').toContain(`pid ${peer.pid}`)
+  m.ran.length = 0
+  expect((await edit('own.txt')).decision, 'guard-own-edited-file-allows').toBe('allow')
+  expect(m.ran, 'guard-own-edited-file-runs-no-git').toEqual([])
+  m.advance(3601)
+  expect((await edit('a.txt')).decision, 'guard-dirty-file-note-again-after-the-hour').toBe('note')
+  m.failing.set('git status', 128)
+  expect((await edit('u.txt', 'Write')).decision, 'guard-unreadable-status-adds-no-note').toBe('allow')
+})
+
+test('guard: "guard": false in the repository file or the machine file turns the guard off there; records and the report stay', async () => {
+  const { m, session } = machine()
+  const [r, q] = [m.repo('/w/r'), m.repo('/w/q')]
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  await peer.touch(q)
+  m.dirty(r, ' M f.txt')
+  m.dirty(q, ' M f.txt')
+  await me.bash(q, 'git status')
+  const calls = async (top: string) => [(await me.bash(top, 'git switch x')).decision, (await me.bash(top, 'git reset --hard')).decision,
+    (await me.bash(top, 'git stash drop')).decision, (await me.check({ tool: 'Edit', cwd: top, path: `${top}/f.txt` })).decision]
+  expect(await calls(r), 'the guard is on by default').toEqual(['stop', 'stop', 'stop', 'note'])
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ guard: false }))
+  m.edit('me', x => { x.acks = {} })
+  expect(await calls(r), 'guard-off-in-the-repository-file').toEqual(['allow', 'allow', 'allow', 'allow'])
+  expect(m.rec('me').checkouts[r], 'guard-off-keeps-the-record').toMatchObject({ expected: 'main' })
+  expect(typeof writerOf(m, 'me', r), 'guard-off-still-marks-the-writer').toBe('number')
+  expect(await me.report(r), 'guard-off-keeps-the-report').toContain(`pid ${peer.pid}`)
+  expect((await me.bash(q, 'git switch x')).decision, 'guard-off-is-per-repository').toBe('stop')
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ guard: true }))
+  expect((await me.bash(r, 'git switch x')).decision, 'only false turns it off').toBe('stop')
+  m.put(USER, JSON.stringify({ guard: false }))
+  expect(await calls(q), 'guard-off-in-the-machine-file').toEqual(['allow', 'allow', 'allow', 'allow'])
+  m.put(USER, JSON.stringify({ resources: [CHROME] }))
+  expect((await me.bash(q, 'git switch x')).decision, 'the machine file back on').toBe('stop')
+})
+
+test('guard: off, a lease and a TaskStop of a shared task stop nothing either', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  declareMachine(m, CHROME)
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  await peer.peers.lease(CLICK, '/w/r', 'peer')
+  engine(on, m, m.spawn(), undefined, undefined, command => (command === 'stack up' ? 'b1' : undefined))
+  await $.tool.call({ tool: 'Bash', command: 'stack up', run_in_background: true })
+  expect((await $.tool.call({ tool: CLICK })).deny).toContain('leased')
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b1' })).deny).toContain('also uses')
+  m.put(USER, JSON.stringify({ guard: false, resources: [CHROME] }))
+  expect((await $.tool.call({ tool: CLICK })).deny, 'guard-off-lease').toBeUndefined()
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b1' })).deny, 'guard-off-taskstop').toBeUndefined()
+})
+
+test('guard: a peer idle for 8 h blocks nothing that depends only on its liveness; its files and its report stay', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const wt = m.worktree(r, '/w/t/wt', 'wt')
+  declare(m, r, STACK)
+  declareMachine(m, { key: 'ports', kind: 'shared', stop: ['ports down'] })
+  const p = m.spawn()
+  const pc = m.spawn(p, 'sleep', 'sleep 3737')
+  const [peer, me] = [session('peer', p), session('me')]
+  await peer.touch(r)
+  await peer.touch(wt)
+  await me.bash(r, 'git status')
+  m.dirty(r, ' M f.txt')
+  await peer.edited(r, `${r}/f.txt`)
+  m.edit('peer', x => { x.checkouts[r]!.expected = 'feat-p' })
+  await me.peers.started([step('stack up')], r, 'me', 'b1')
+  const idle = (seconds: number) => m.edit('peer', x => { x.seen = now(m) - seconds })
+  const decisions = async () => [...await Promise.all(['git stash drop', 'git branch -D feat-p', `git worktree remove ${wt}`, `kill ${pc}`, 'stack down', 'ports down']
+    .map(async c => (await me.bash(r, c)).decision)), (await me.peers.taskStop('b1')) === undefined ? 'allow' : 'stop']
+  idle(8 * 3600 - 60)
+  expect(await decisions(), 'a peer called 7 h 59 min ago still blocks').toEqual(Array(7).fill('stop'))
+  idle(8 * 3600)
+  expect(await decisions(), 'guard-idle-peer-blocks-nothing-that-needs-only-its-liveness').toEqual(Array(7).fill('allow'))
+  const lost = await me.bash(r, 'git reset --hard')
+  expect(lost.decision, 'guard-idle-peer-files-stay-protected').toBe('stop')
+  expect(lost.reason).toContain(`pid ${p} on feat-p`)
+  expect(await me.report(r), 'the report still lists it').toContain(`pid ${p}`)
+  m.edit('peer', x => { x.checkouts[r]!.writer = now(m) - 3600 })
+  expect((await me.bash(r, 'git switch x')).decision, 'the writer window of the switch stop is its own').toBe('stop')
+  await peer.touch(r)
+  expect(await decisions(), 'a call wakes it').toEqual(Array(7).fill('stop'))
+})
+
+test('guard: a git command with an option first is a note', async () => {
+  const { r, ready, decide } = world()
+  await ready
+  expect((await decide(r, 'git --git-dir=x reset --hard')).decision).toBe('note')
+})
+
+test('ack: the printed key passes that action on that target for 30 min, and nothing else', async () => {
+  const { m, r, me, ready, decide, acked, other } = world()
+  await ready
+  const r2 = other()
+  m.dirty(r, ' M .flow-seed', '?? u.txt')
+  m.dirty(r2, ' M .flow-seed')
+  await me.touch(r2)
+  const k = /CC_TUNER_ACK=([0-9a-f]+)/.exec((await decide(r, 'git reset --hard')).reason!)![1]!
+  expect(k).toHaveLength(8)
+  expect((await acked(r, k, 'git reset --hard')).decision).toBe('allow')
+  expect(typeof m.rec('me').acks[k]).toBe('number')
+  expect((await decide(r, 'git reset --hard')).decision, 'holds without the prefix').toBe('allow')
+  expect((await decide(r, 'git clean -fd')).decision, 'another action').toBe('stop')
+  expect((await decide(r2, 'git reset --hard')).decision, 'another target').toBe('stop')
+  expect((await decide(other(1), at(r2, 'git reset --hard'))).decision, 'another checkout by git -C').toBe('stop')
+  expect((await decide(other(1), at(r, 'git reset --hard'))).decision, 'the same action by git -C').toBe('allow')
+  expect((await acked(r2, 'deadbeef', 'git reset --hard')).decision).toBe('stop')
+  m.edit('me', x => { x.acks[k] = now(m) - 31 * 60 })
+  expect((await decide(r, 'git reset --hard')).decision, 'guard-ack-expires-after-30-min').toBe('stop')
+  expect((await acked(r, k, 'git reset --hard')).decision, 'guard-ack-prefix-renews-it').toBe('allow')
+  m.edit('me', x => { x.acks = {} })
+  expect((await acked(r, '00000000', 'git reset --hard')).decision).toBe('stop')
+  await me.start(r, 'me2')
+  expect(m.rec('me').acks).toEqual({})
+})
+
+test('a decision spawns only the processes it needs: ps once a minute, git status before losing files', async () => {
+  const { m, r, ready, decide } = world()
+  await ready
+  m.ran.length = 0
+  for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
+  const label = (a: readonly string[]) => (isolatedStatus(a) ? 'isolated status' : a[0] === '/bin/sh' ? 'xdg' : a.includes('--get-regexp') ? 'core' : a.includes('var') ? 'system attributes' : a.includes('--get') ? 'user attributes' : a.join(' '))
+  expect(m.ran.map(label), 'settings are read fresh right before the status they shape').toEqual(['core', 'user attributes', 'xdg', 'system attributes', 'isolated status'])
+  m.advance(61)
+  await decide(r, 'npm test')
+  expect(m.ran.slice(5).map(a => a[0]), 'its own start time is read once').toEqual([])
+  await decide(r, 'git switch x')
+  expect(m.ran.slice(5).map(a => a[0]), 'a peer\'s start time is read again after a minute').toEqual(['ps'])
+})
+
+// --- resources: a shared one is not stopped under a live peer, an exclusive one is used by one session at a time ----
+const STACK = { key: 'stack', kind: 'shared', start: ['stack up'], stop: ['stack down', 'docker compose down'] }
+const CHROME = { key: 'chrome', kind: 'exclusive', tools: ['mcp__chrome-devtools__*'] }
+const CLICK = 'mcp__chrome-devtools__click'
+const declare = (m: Machine, top: string, ...resources: object[]) => m.put(`${top}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'acme', resources }))
+const declareMachine = (m: Machine, ...resources: object[]) => m.put(USER, JSON.stringify({ resources }))
+
+test('resource: a shared stop command stops while a product session is live, and runs when none is', async () => {
+  const { m, ra, rb, rc, rd, sr, sb, sc, sd } = products()
+  declare(m, ra, STACK)
+  for (const [s, top] of [[sr, ra], [sb, rb], [sc, rc], [sd, rd]] as const) await s.touch(top)
+  for (const c of ['stack down', 'docker compose down -v']) expect((await sr.bash(ra, c)).decision, c).toBe('stop')
+  const { reason } = await sr.bash(ra, 'stack down')
+  for (const part of ['stack', `pid ${sb.pid}`, 'rerun it prefixed CC_TUNER_ACK=']) expect(reason).toContain(part)
+  expect((await sr.bash(rc, at(ra, 'stack down'))).decision, 'behind git -C or cd').toBe('stop')
+  expect((await sr.bash(ra, 'bash', at(ra, 'stack down'))).decision, 'behind a wrapper').toBe('stop')
+  for (const c of ['stack up', 'stack status', 'docker compose up']) expect((await sr.bash(ra, c)).decision, c).toBe('allow')
+  expect((await sd.bash(rd, 'stack down')).decision, 'resource-a-repository-without-the-file-adds-no-rules').toBe('allow')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(reason!)![1]!
+  expect((await sr.check({ tool: 'Bash', cwd: ra, steps: [step('stack down')], acks: [key] })).decision, 'resource-shared-stop-takes-an-ack').toBe('allow')
+  m.edit('sr', r => { r.acks = {} })
+  m.end(sb.pid)
+  expect((await sr.bash(ra, 'stack down')).decision, 'the peer of the product has gone').toBe('allow')
+})
+
+test('resource: a machine resource applies in a repository without the file, and counts every live session', async () => {
+  const { m, session } = machine()
+  const [rx, ry] = [m.repo('/w/rx'), m.repo('/w/ry')]
+  declareMachine(m, { key: 'ports', kind: 'shared', stop: ['pnpm stack:down'] })
+  const [sx, sy] = [session('sx'), session('sy')]
+  await sx.touch(rx)
+  await sy.touch(ry)
+  const { decision, reason } = await sx.bash(rx, 'pnpm stack:down')
+  expect(decision).toBe('stop')
+  expect(reason).toContain(`pid ${sy.pid}`)
+  m.end(sy.pid)
+  expect((await sx.bash(rx, 'pnpm stack:down')).decision).toBe('allow')
+})
+
+test('resource: a machine shared stop applies from a directory that is no repository', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  m.mkdir('/w/none')
+  declareMachine(m, STACK)
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  const { decision, reason } = await me.bash('/w/none', 'stack down')
+  expect(decision, 'resource-machine-stop-outside-a-repository').toBe('stop')
+  expect(reason).toContain(`pid ${peer.pid}`)
+  expect((await me.bash('/w/none', 'npm test')).decision, 'a command that stops nothing is no stop').toBe('allow')
+  m.end(peer.pid)
+  expect((await me.bash('/w/none', 'stack down')).decision, 'no live session, no stop').toBe('allow')
+})
+
+test('resource: two simultaneous first users get one lease, across products', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [a, b] = await Promise.all([sr.peers.lease(CLICK, ra, 'sr'), sc.peers.lease(CLICK, rc, 'sc')])
+  expect([a.decision, b.decision].sort(), 'resource-two-first-users-get-one-lease').toEqual(['note', 'stop'])
+  const [holder, loser] = a.decision === 'note' ? [sr, b] : [sc, a]
+  expect(JSON.parse(m.files.get(`${DIR}/${lockName('chrome')}/holder.json`)!.text)).toMatchObject({ key: 'chrome', pid: holder.pid, start: m.procs.get(holder.pid)!.start })
+  expect(loser.reason).toContain(`pid ${holder.pid}`)
+})
+
+test('resource: a machine lease applies to sessions outside any repository', async () => {
+  const { m, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [a, b] = [await sr.peers.lease(CLICK, '/w', 'sr'), await sc.peers.lease(CLICK, '/tmp', 'sc')]
+  expect([a.decision, b.decision], 'resource-lease-outside-a-repository').toEqual(['note', 'stop'])
+})
+
+test('resource: the lease is the holder\'s until its release, 10 min of silence or its death; no ack passes it', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const use = (s: Session, top: string, tool = CLICK) => s.peers.lease(tool, top, s.sid)
+  const taken = await use(sr, ra)
+  expect(taken.decision).toBe('note')
+  expect(taken.reason).toContain('peers_release')
+  expect((await use(sr, ra)).decision, 'the holder goes on').toBe('allow')
+  expect((await use(sc, rc, 'mcp__other__x')).decision, 'a tool no resource names').toBe('allow')
+  const denied = await use(sc, rc)
+  expect(denied.decision).toBe('stop')
+  for (const part of [`pid ${sr.pid}`, 'chrome', 'SendMessage']) expect(denied.reason).toContain(part)
+  expect(denied.reason, 'a lease offers no ack').not.toContain('CC_TUNER_ACK')
+  expect(await sc.peers.release('chrome'), 'resource-non-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  m.advance(599)
+  expect((await use(sc, rc)).decision, 'resource-lease-held-within-10-min').toBe('stop')
+  expect((await use(sr, ra)).decision).toBe('allow')
+  m.advance(661)
+  expect((await use(sc, rc)).decision, 'resource-lease-moves-after-10-min-of-silence').toBe('note')
+  expect(await sr.peers.release('chrome'), 'resource-former-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect((await use(sr, ra)).decision, 'the former holder is a non-holder now').toBe('stop')
+  expect(await sc.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+  expect((await use(sr, ra)).decision, 'resource-lease-moves-on-release').toBe('note')
+  m.end(sr.pid)
+  expect((await use(sc, rc)).decision, 'resource-lease-moves-on-death').toBe('note')
+})
+
+test('resource: a renewal or a release that lost the race to a takeover changes nothing, and a renewal comes once a minute', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  const use = (s: Session, top: string) => s.peers.lease(CLICK, top, s.sid)
+  const renewals = () => m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s') && !a[2].includes('if mkdir')).length
+  const last = () => (JSON.parse(m.cat(`${lock}/holder.json`)) as { last: number }).last
+  await use(sr, ra)
+  const first = last()
+  m.ran.length = 0
+  m.advance(30)
+  await use(sr, ra)
+  expect(renewals(), 'resource-renewal-waits-a-minute').toBe(0)
+  m.advance(40)
+  await use(sr, ra)
+  expect(renewals(), 'resource-renewal-runs-in-the-lock').toBe(1)
+  expect(last()).toBeGreaterThan(first)
+  m.dirs.add(take)
+  m.advance(61)
+  const kept = last()
+  const busy = await use(sr, ra)
+  expect(busy.decision, 'a renewal that finds the lock busy is not an allow').toBe('stop')
+  expect(last()).toBe(kept)
+  m.dirs.delete(take)
+  m.advance(661)
+  m.afterRead.set(`${lock}/holder.json`, async () => { await use(sc, rc) })
+  const late = await use(sr, ra)
+  expect(late.decision, 'resource-renewal-after-a-takeover-stops').toBe('stop')
+  expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid, 'resource-renewal-keeps-the-new-holder').toBe(sc.pid)
+  m.advance(661)
+  m.afterRead.set(`${lock}/holder.json`, async () => { await use(sr, ra) })
+  expect(await sc.peers.release('chrome'), 'resource-release-after-a-takeover-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid).toBe(sr.pid)
+  m.dirs.add(take)
+  expect(await sr.peers.release('chrome'), 'resource-release-while-the-lock-is-busy-waits').toContain('try again shortly')
+  expect(m.dirs.has(lock)).toBe(true)
+  m.dirs.delete(take)
+  expect(await sr.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+})
+
+test('resource: a renewal that finds the lock busy asks again and then reads the holder: a takeover that finished in between stops it', async () => {
+  const { m, ra, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  await sr.peers.lease(CLICK, ra, 'sr')
+  m.advance(661)
+  m.dirs.add(take)
+  m.busy = () => {
+    m.busy = undefined
+    m.dirs.delete(take)
+    m.put(`${lock}/holder.json`, JSON.stringify({ v: 1, key: 'chrome', pid: sc.pid, start: m.procs.get(sc.pid)!.start, session: 'sc', last: Math.floor(m.clock / 1000) }))
+  }
+  const late = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(late.decision, 'resource-busy-renewal-during-a-takeover-stops').toBe('stop')
+  expect(late.reason).toContain(`leased to pid ${sc.pid}`)
+})
+
+test('resource: a renewal that stays busy stops with no ack, so a takeover that then completes never has two users', async () => {
+  const { m, ra, rc, sr, sc } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  await sr.peers.lease(CLICK, ra, 'sr')
+  m.advance(661)
+  m.dirs.add(take)
+  m.ran.length = 0
+  const busy = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(busy.decision, 'resource-busy-renewal-stops').toBe('stop')
+  expect(busy.reason).toContain('taken or renewed')
+  expect(busy.reason).toContain('try again')
+  expect(busy.reason, 'a busy renewal offers no ack').not.toContain('CC_TUNER_ACK')
+  expect(m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s')).length, 'resource-busy-renewal-asks-three-times').toBe(3)
+  m.dirs.delete(take)
+  m.put(`${lock}/holder.json`, JSON.stringify({ v: 1, key: 'chrome', pid: sc.pid, start: m.procs.get(sc.pid)!.start, session: 'sc', last: Math.floor(m.clock / 1000) }))
+  const after = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(after.decision, 'resource-renewal-after-the-takeover-stops').toBe('stop')
+  expect(after.reason).toContain(`leased to pid ${sc.pid}`)
+  expect((await sc.peers.lease(CLICK, rc, 'sc')).decision).toBe('allow')
+})
+
+test('resource: a renewal that lost a race and re-reads its own lock allows only while the mutex is free', async () => {
+  const { m, ra, sr } = products()
+  declareMachine(m, CHROME)
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  await sr.peers.lease(CLICK, ra, 'sr')
+  m.advance(661)
+  const text = () => m.cat(`${lock}/holder.json`)
+  const rewrite = () => m.put(`${lock}/holder.json`, text().replace(/"last":\d+/, '"last":1'))
+  m.busy = undefined
+  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite() })
+  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-reread-own-lock-with-a-free-mutex-allows').toBe('allow')
+  m.advance(661)
+  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite(); m.dirs.add(take) })
+  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-reread-own-lock-with-a-busy-mutex-stops').toBe('stop')
+})
+
+test('resource: a repository resource is leased too, and a lock with no holder file yet is not up for grabs', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declare(m, r, { key: 'db', kind: 'exclusive', tools: ['mcp__db__*'] })
+  const [s1, s2] = [session('s1'), session('s2')]
+  m.dirs.add(`${DIR}/${lockName('db', 'acme')}`)
+  m.dirTimes.set(`${DIR}/${lockName('db', 'acme')}`, m.clock)
+  expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock just made, its holder not written yet').toBe('stop')
+  m.advance(661)
+  expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock nobody ever wrote to').toBe('note')
+  expect((await s2.peers.lease('mcp__chrome-devtools__click', r, 's2')).decision, 'another repository\'s resource does not apply').toBe('allow')
+})
+
+test('resource: a call denied one resource gives back the ones it took for itself, and keeps those it held before', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  expect((await b.peers.lease('mirror', r, 'b')).decision, 'denied-for-device').toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'denied-call-left-screen-free').toBe('note')
+  expect((await b.peers.lease('mirror', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'a-lease-held-before-the-denied-call-stays').toBe('allow')
+})
+
+test('resource: a repository resource is one per product, a machine one per machine', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/apples'), m.repo('/w/bananas')]
+  m.put(`${r1}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'apples', resources: [{ key: 'local-device', kind: 'exclusive', tools: ['use-local'] }] }))
+  m.put(`${r2}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'bananas', resources: [{ key: 'local-device', kind: 'exclusive', tools: ['use-local'] }] }))
+  declareMachine(m, CHROME)
+  const [a, c] = [session('a'), session('c')]
+  expect((await a.peers.lease('use-local', r1, 'a')).decision).toBe('note')
+  expect((await c.peers.lease('use-local', r2, 'c')).decision, 'independent-products-do-not-contend').toBe('note')
+  expect((await a.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
+  expect((await c.peers.lease(CLICK, r2, 'c')).decision, 'a-machine-resource-has-one-holder').toBe('stop')
+  expect(await a.peers.release('local-device'), 'release-finds-the-product-lock').toBe('cc-tuner: released local-device.')
+  expect(await c.peers.release('local-device')).toBe('cc-tuner: released local-device.')
+})
+
+test('resource: a lease lasts ten minutes from its holder\'s last use, though use is written once a minute', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const [holder, other] = [session('h'), session('o')]
+  expect((await holder.peers.lease(CLICK, r, 'h')).decision).toBe('note')
+  m.advance(59)
+  expect((await holder.peers.lease(CLICK, r, 'h')).decision).toBe('allow')
+  m.advance(541)
+  expect((await other.peers.lease(CLICK, r, 'o')).decision, 'lease-holds-600-s-after-the-last-use').toBe('stop')
+  m.advance(61)
+  expect((await other.peers.lease(CLICK, r, 'o')).decision, 'lease-moves-after-ten-idle-minutes').toBe('note')
+})
+
+test('report: a peer on a detached HEAD shows as detached, and a path names the repository to report on', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  m.mkdir('/w')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  m.head(r, undefined)
+  expect(await me.peers.report(r), 'report-shows-a-detached-peer').toContain(`pid ${peer.pid}  (detached)  ${r}`)
+  expect(await me.peers.report('/w'), 'a-workspace-root-is-no-repository').toBe('cc-tuner: not in a git repository')
+})
+
+test('claim: plans of the same relative path in two repositories are two claims, closed one at a time', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/one'), m.repo('/w/two')]
+  const me = session('me')
+  const plan = (owned: string, done = false) => `## Slice 1 — A\nOwned paths: ${owned}\n- [${done ? 'x' : ' '}] a\n`
+  m.put(`${r1}/docs/plan.md`, plan('src/one/'))
+  m.put(`${r2}/docs/plan.md`, plan('src/two/'))
+  await me.peers.claim(r1, 'me', 'docs/plan.md')
+  await me.peers.claim(r2, 'me', 'docs/plan.md')
+  expect(Object.values(m.rec('me').claims).flatMap(c => c.paths).sort(), 'claims-of-both-repositories').toEqual(['src/one/', 'src/two/'])
+  m.put(`${r1}/docs/plan.md`, plan('src/one/', true))
+  await me.peers.claim(r1, 'me', 'docs/plan.md')
+  expect(Object.values(m.rec('me').claims).flatMap(c => c.paths), 'closing-one-keeps-the-other').toEqual(['src/two/'])
+})
+
+test('resource: a give-back that fails keeps the stop, and is tried again by the next call', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.includes('] && rm -rf "$d" || exit 1')) throw new Error('release failed') }
+  expect((await b.peers.lease('mirror', r, 'b')).decision, 'give-back-failure-keeps-the-stop').toBe('stop')
+  m.onRun = undefined
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'screen-still-held-until-retried').toBe('stop')
+  expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'the-next-call-gave-it-back').toBe('note')
+})
+
+test('resource: lock names cannot collide across scopes, and a release frees every holding of its key', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/shop')
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'shop', resources: [{ key: 'db', kind: 'exclusive', tools: ['repo-db'] }, { key: 'x', kind: 'exclusive', tools: ['both'] }] }))
+  declareMachine(m, { key: 'shop.db', kind: 'exclusive', tools: ['machine-db'] }, { key: 'x', kind: 'exclusive', tools: ['both'] })
+  const [a, b] = [session('a'), session('b')]
+  expect((await a.peers.lease('machine-db', r, 'a')).decision).toBe('note')
+  expect((await b.peers.lease('repo-db', r, 'b')).decision, 'machine-shop.db-and-product-shop-db-are-two-locks').toBe('note')
+  expect(await b.peers.release('db')).toBe('cc-tuner: released db.')
+  expect((await b.peers.lease('machine-db', r, 'b')).decision, 'releasing-db-left-shop.db-held').toBe('stop')
+  expect((await a.peers.lease('both', r, 'a')).decision).toBe('note')
+  expect(await a.peers.release('x')).toBe('cc-tuner: released x.')
+  expect((await b.peers.lease('both', r, 'b')).decision, 'release-freed-both-holdings-of-x').toBe('note')
+})
+
+test('resource: a lock a later call uses again is no longer owed back', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.includes('] && rm -rf "$d" || exit 1')) throw new Error('release failed') }
+  expect((await b.peers.lease('mirror', r, 'b')).decision).toBe('stop')
+  expect((await b.peers.lease('capture', r, 'b')).decision, 'b-uses-screen-it-still-holds').toBe('allow')
+  m.onRun = undefined
+  expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'a-lock-in-use-was-not-given-back').toBe('stop')
+})
+
+test('resource: a give-back still owed survives a later call that is denied again', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.includes('] && rm -rf "$d" || exit 1')) throw new Error('release failed') }
+  expect((await b.peers.lease('mirror', r, 'b')).decision).toBe('stop')
+  expect((await b.peers.lease('mirror', r, 'b')).decision, 'denied-again').toBe('stop')
+  m.onRun = undefined
+  expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'the-owed-give-back-happened').toBe('note')
+})
+
+test('resource: product names that differ only beyond one byte do not share a lock', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/one'), m.repo('/w/two')]
+  m.put(`${r1}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: '\u00e9a', resources: [{ key: 'db', kind: 'exclusive', tools: ['use-db'] }] }))
+  m.put(`${r2}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: '\u0e9a', resources: [{ key: 'db', kind: 'exclusive', tools: ['use-db'] }] }))
+  const [a, c] = [session('a'), session('c')]
+  expect((await a.peers.lease('use-db', r1, 'a')).decision).toBe('note')
+  expect((await c.peers.lease('use-db', r2, 'c')).decision, 'unicode-products-are-two-locks').toBe('note')
+})
+
+test('resource: a holder file with a trailing newline still lets a dead holder\'s lease move', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const [s1, s2] = [session('s1'), session('s2')]
+  await s1.peers.lease(CLICK, r, 's1')
+  m.put(`${DIR}/${lockName('chrome')}/holder.json`, `${m.files.get(`${DIR}/${lockName('chrome')}/holder.json`)!.text}\n`)
+  m.end(s1.pid)
+  expect((await s2.peers.lease(CLICK, r, 's2')).decision).toBe('note')
+  expect(await s2.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+})
+
+test('resource: the module denies an MCP tool leased to another session, and answers peers_release', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const peer = session('peer')
+  await peer.peers.lease(CLICK, '/w/r', 'peer')
+  const ran = engine(on, m, m.spawn())
+  const { deny } = await $.tool.call({ tool: CLICK })
+  expect(deny).toContain(`chrome is leased to pid ${peer.pid}`)
+  expect((await $.tool.call({ tool: 'mcp__chrome-devtools__list' })).deny).toContain('leased')
+  expect(ran).toEqual([])
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: chrome is not leased to this session.')
+  expect(await peer.peers.release('chrome')).toBe('cc-tuner: released chrome.')
+  const ok = await $.tool.call({ tool: CLICK })
+  expect(ok.deny).toBeUndefined()
+  expect(ok.context?.join(' ')).toContain('peers_release')
+  expect(ran).toEqual([CLICK])
+  expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: released chrome.')
+})
+
+test('resource: TaskStop of a shared task is denied with no ack while a product session is live', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  engine(on, m, m.spawn(), undefined, undefined, command => command.split(' ')[0] === 'stack' ? command.split(' ')[2] : command.startsWith('sleep') ? 'b9' : undefined)
+  await $.tool.call({ tool: 'Bash', command: 'stack up one', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'stack up two', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'one' })).deny, 'resource-taskstop-runs-when-none-is-live').toBeUndefined()
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  const { deny } = await $.tool.call({ tool: 'TaskStop', task_id: 'two' })
+  for (const part of ['two', 'stack', `pid ${peer.pid}`, 'SendMessage']) expect(deny).toContain(part)
+  expect(deny, 'resource-taskstop-offers-no-ack').not.toContain('CC_TUNER_ACK')
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b9' })).deny, 'a task that ran no shared start').toBeUndefined()
+  expect(m.stopped).toEqual(['one', 'b9'])
+})
+
+test('resource: /clear keeps a shared task running, and the next start line names it', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  engine(on, m, m.spawn(), undefined, undefined, command => (command === 'stack up' ? 'b1' : command === 'npm run dev' ? 'b2' : undefined))
+  await $.tool.call({ tool: 'Bash', command: 'stack up', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true })
+  await $.session.end({ sessionId: 'e1', resume: { id: 'e1' }, reason: 'clear' })
+  expect(m.stopped, 'resource-clear-stops-only-what-is-not-shared').toEqual(['b2'])
+  expect(m.rec('e1').kept, 'resource-kept-task-is-in-the-record').toEqual([{ id: 'b1', key: 'stack', top: '/w/r' }])
+  sessionId = 'e2'
+  expect(await prompt($), 'resource-clear-start-line-names-the-task').toContain('kept at /clear: stack (b1)')
+})
+
+// --- the guard runs nothing the model chose, and reads git inertly -------------------------------------------------
+test('guard: only the fixed lsof and pgrep are run for a kill; a path to one is not', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  const [peer, mine] = [session('peer', p), session('me')]
+  await peer.touch(r)
+  await mine.touch(r)
+  for (const first of ['./x/pgrep -f 3737', 'node_modules/.bin/lsof -ti :4000', '/tmp/pgrep -f a']) {
+    m.ran.length = 0
+    const v = await mine.bash(r, first, then('kill', '|'))
+    expect(v.decision, first).toBe('note')
+    expect(m.ran.filter(a => a[0]!.includes('/') && a[0] !== '/bin/sh'), `guard-runs-no-path-from-the-command: ${first}`).toEqual([])
+  }
+  m.ran.length = 0
+  await mine.bash(r, 'pgrep -f 3737', then('kill', '|'))
+  expect(m.ran.map(a => a[0]), 'the fixed name still runs').toContain('pgrep')
+})
+
+test('guard: a pgrep that failed to run is not an empty answer', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const p = m.spawn()
+  m.spawn(p, 'sleep', 'sleep 3737')
+  const [peer, mine] = [session('peer', p), session('me')]
+  await peer.touch(r)
+  await mine.touch(r)
+  expect((await mine.bash(r, 'pkill -f 3737')).decision).toBe('stop')
+  m.failing.set('pgrep', 2)
+  expect((await mine.bash(r, 'pkill -e -f 3737')).decision, 'guard-pgrep-usage-error-notes').toBe('note')
+  m.failing.set('pgrep', 1)
+  expect((await mine.bash(r, 'pkill -f 3939')).decision, 'no match is exit 1: nothing to stop').toBe('allow')
+})
+
+test('guard: every git call runs with the config that could run a command off', async () => {
+  const { m, session } = machine()
+  const [r, other] = [m.repo('/w/r'), m.repo('/w/o')]
+  const [peer, mine] = [session('peer'), session('me')]
+  m.dirty(r, ' M f')
+  await peer.touch(r)
+  await mine.touch(r)
+  await mine.bash(r, 'git reset --hard')
+  await mine.touch(other)
+  m.shas.set(other, 'sha-other')
+  await mine.report(r)
+  const git = m.ran.filter(a => a[0] === 'git' || a.some(x => x.includes('merge-tree')))
+  expect(git.length).toBeGreaterThan(1)
+  for (const argv of git) expect(argv.join(' '), 'guard-git-runs-with-fsmonitor-off').toMatch(/core\.fsmonitor=false.*core\.untrackedCache=false/)
+})
+
+test('an ack is a printed key, as a prefix or on any step, and nothing a quoted value holds', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  m.dirty('/w/r', ' M f')
+  const ran = engine(on, m, m.spawn())
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(deny ?? '')![1]!
+  const odd = 'CC_TUNER_ACK="k rm -rf ~ #" echo hi'
+  await $.tool.call({ tool: 'Bash', command: odd })
+  expect(ran, 'guard-ack-prefix-is-only-the-key-format').toEqual([odd])
+  expect(Object.keys(m.rec('e1').acks)).toEqual([])
+  expect((await $.tool.call({ tool: 'Bash', command: `true && CC_TUNER_ACK=${key} git reset --hard` })).deny, 'guard-ack-on-a-later-step').toBeUndefined()
+  expect(typeof m.rec('e1').acks[key]).toBe('number')
+})
+
+// --- scope comes from the target, also outside a repository --------------------------------------------------------
+test('guard: a step that targets a repository is decided there, from a cwd that is none', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  m.mkdir('/w')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.bash(r1, 'npm test')
+  await me.touch(r1)
+  for (const c of ['git switch x', 'git branch -m y']) expect((await me.bash('/w', at(r1, c))).decision, `guard-outside-a-repository: ${c}`).toBe(c === 'git switch x' ? 'stop' : 'allow')
+  expect(m.rec('me').checkouts[r1], 'the checkout it acted on is recorded').toBeDefined()
+  m.dirty(r1, ' M f')
+  expect((await me.bash('/w', at(r1, 'git reset --hard'))).decision).toBe('stop')
+  expect((await me.bash('/w', 'git reset --hard')).decision, 'no checkout at all').toBe('allow')
+  const fresh = session('fresh')
+  expect((await fresh.bash('/w', at(r1, 'git reset --hard'))).decision, 'a session that has no record yet').toBe('stop')
+})
+
+test('claim and report read the repository from the plan, not the session cwd', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  m.mkdir('/w')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r1)
+  m.put(`${r1}/docs/p.md`, '## Slice 1 — A\nOwned paths: lib/\n- [ ] a\n')
+  const out = await me.peers.claim('/w', 'me', 'r1/docs/p.md')
+  expect(out, 'claim-from-a-workspace-root').toContain(`pid ${peer.pid}`)
+  expect(m.rec('me').claims[`${r1}/docs/p.md`]).toMatchObject({ paths: ['lib/'] })
+  expect(await me.peers.claim(r2, 'me', '../r1/docs/p.md'), 'claim-of-another-repository-plan').toContain(`pid ${peer.pid}`)
+  expect(await me.peers.claim('/w', 'me', 'r1/docs/none.md')).toBe('cc-tuner: cannot read r1/docs/none.md')
+})
+
+test('guard: a destructive step in a directory the guard could not resolve stops: it cannot tell which checkout it runs in', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r)
+  await me.touch(r)
+  m.dirty(r, ' M f')
+  const blind = await me.bash(r, at(UNKNOWN, 'git reset --hard'))
+  expect(blind.decision, 'guard-unknown-directory-stops-a-destructive-step').toBe('stop')
+  expect(blind.reason).toContain('cannot tell which checkout')
+  expect(blind.reason).toContain('CC_TUNER_ACK=')
+  for (const c of ['git clean -fd', 'git checkout -- f', 'git restore f', 'git stash', 'git switch x', 'git commit -m m', 'git add .', 'git branch -D x', 'git push origin :x', 'git worktree remove w',
+    'gh pr checkout 5', 'rm -rf build', 'rm -r ../w']) {
+    expect((await me.bash(r, at(UNKNOWN, c))).decision, `guard-unknown-directory-stops: ${c}`).toBe('stop')
+  }
+  for (const c of ['git status', 'git log', 'git diff', 'git stash list', 'git branch', 'git push origin main', 'git reset', 'git clean -n', 'rm build/x', 'npm test', 'kill 1']) {
+    expect((await me.bash(r, at(UNKNOWN, c))).decision === 'stop', `a step that decides nothing needs no directory: ${c}`).toBe(false)
+  }
+  expect((await me.bash('/nowhere', at(UNKNOWN, 'git reset --hard'))).decision, 'guard-unknown-directory-stops-outside-a-repository-too').toBe('stop')
+  const key = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(blind.reason!)![1]!
+  const acked = await me.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard', UNKNOWN)], acks: [key] })
+  expect(acked.decision, 'the ack lets that command through').not.toBe('stop')
+  expect((await me.bash(r, at(UNKNOWN, 'git clean -fd'))).decision, 'the ack is for that command alone').toBe('stop')
+})
+
+test('guard: an absolute operand of a removal is read whatever directory an earlier cd left, a relative one is not', async () => {
+  const { m, session, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  const ghost = session('ghost')
+  m.repo('/p/k/r')
+  await ghost.touch('/p/k/r')
+  m.end(ghost.pid)
+  m.dirty('/p/k/r', '?? foreign.txt')
+  const abs = await decide(r, at(UNKNOWN, 'rm -rf /p/k/r'))
+  expect(abs.decision).toBe('stop')
+  expect(abs.reason, 'the checkout is named, not the unknown directory').toContain('foreign.txt in /p/k/r')
+  m.status.set('/p/k/r', [])
+  expect((await decide(r, at(UNKNOWN, 'rm -rf /p/k/r /tmp/x'))).decision, 'absolute operands of a clean checkout are known').toBe('allow')
+  expect((await decide(r, at(UNKNOWN, 'rm -rf /p/k/r build'))).decision, 'a relative operand is not').toBe('stop')
+})
+
+test('a cd that may have failed leaves a destructive step stopped through the adapter, a chain with && does not', async ($, on) => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const peer = session('peer')
+  await peer.touch(r)
+  m.dirty(r, ' M foreign.txt')
+  const ran = engine(on, m, m.spawn())
+  for (const command of ['cd /nonexistent/path; git reset --hard', 'cd /nonexistent/path || git reset --hard', 'cd /nonexistent/path\ngit reset --hard', 'cd /nonexistent/path && git status; git reset --hard']) {
+    const { deny } = await $.tool.call({ tool: 'Bash', command })
+    expect(deny, command).toContain('cannot tell which checkout')
+  }
+  expect(ran, 'none of them ran').toEqual([])
+  expect((await $.tool.call({ tool: 'Bash', command: 'cd /w/r && git reset --hard' })).deny, 'a cd the reset depends on is read').toContain('foreign.txt')
+})
+
+test('guard: a wrapper that starts another command it cannot unwrap is a note when that command is git, gh or kill', async () => {
+  const { r, ready, decide } = world()
+  await ready
+  for (const c of ['sudo git reset --hard', 'eval git reset --hard', 'eval git switch x', 'sudo kill 1', 'bash run.sh git push', 'watch gh pr merge']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-opaque-wrapper: ${c}`).toBe('note')
+    expect(v.reason).toContain('could not read')
+  }
+  for (const c of ['sudo ls', 'echo git reset --hard', 'grep git README', 'bash deploy-git.sh', 'bash run.sh']) expect((await decide(r, c)).decision, c).toBe('allow')
+})
+
+// --- records are robust and versioned ------------------------------------------------------------------------------
+test('record: a record of the wrong shape or version is skipped and noted once an hour, never a crash', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  expect(m.rec('peer').v, 'record-is-versioned').toBe(1)
+  m.dirty(r, ' M f')
+  m.edit('me', x => { x.checkouts[r]!.found = ['f'] })
+  m.edit('peer', x => { delete (x.checkouts[r] as Partial<Rec['checkouts'][string]>).paths })
+  const first = await decide(r, 'git status')
+  expect(first.decision).toBe('note')
+  expect(first.reason).toContain('skipped malformed peer record peer.json')
+  expect((await decide(r, 'git status')).decision, 'said once an hour').toBe('allow')
+  expect((await decide(r, 'git reset --hard')).reason, 'record-malformed-shape-is-not-a-peer').toContain('unknown owner')
+  m.edit('peer', x => { x.checkouts[r] = { repo: 'x' } as unknown as Rec['checkouts'][string] })
+  m.edit('me', x => { x.acks = {} })
+  expect((await decide(r, 'git status')).reason).toContain('peer.json')
+  for (const [field, value] of [['v', 2], ['seen', 'now'], ['acks', []], ['kept', {}], ['claims', { p: { repo: 1, paths: [] } }]] as const) {
+    m.put(`${DIR}/x.json`, JSON.stringify({ ...m.rec('me'), [field]: value }))
+    expect((await me.report(r)), `${field}=${JSON.stringify(value)}`).toContain('skipped malformed record x.json')
+  }
+  void peer
+})
+
+test('record: a record caught half written is read again once', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const [peer, me] = [session('peer'), session('me')]
+  await peer.touch(r1)
+  m.halfOnce.add(`${DIR}/peer.json`)
+  const out = await me.report(r1)
+  expect(out, 'record-half-written-read-again').toContain(`pid ${peer.pid}`)
+  expect(out).not.toContain('skipped')
+})
+
+test('guard: a git status that did not run is not a clean tree', async () => {
+  const { m, r, me, ready, decide, acked } = world()
+  await ready
+  m.failing.set('git status', 1)
+  for (const c of ['git reset --hard', 'git clean -fd', 'git commit -m m', 'git add -A']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-unreadable-status-stops: ${c}`).toBe('stop')
+    expect(v.reason).toContain('could not read git status')
+  }
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, 'git reset --hard')).reason!)![1]!
+  expect((await acked(r, k, 'git reset --hard')).decision, 'an ack goes on').toBe('allow')
+  m.failing.delete('git status')
+  expect((await decide(r, 'git reset --hard')).decision, 'a clean tree').toBe('allow')
+  void me
+})
+
+test('guard: git status lists every untracked file, and does not pair renames', async () => {
+  const { m, r, ready, decide } = world()
+  await ready
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  const argv = m.ran.find(a => a.includes('status'))!
+  expect(argv, 'guard-status-lists-untracked-files').toContain('--untracked-files=all')
+  expect(argv).toContain('--no-renames')
+})
+
+test('resource: a fresh machine has the record directory made before the first lease, with mode 700 once per load', async () => {
+  const m = new Machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, CHROME)
+  const s = new Session(m, m.spawn(), 's1')
+  expect((await s.peers.lease(CLICK, r, 's1')).decision, 'lease-on-a-fresh-machine').toBe('note')
+  await s.touch(r)
+  await s.touch(r)
+  expect(m.ran.filter(a => a[2]?.includes('umask 077')).length, 'record-dir-made-private-once').toBe(1)
+})
+
+test('record: ps reads in UTC and the C locale; the sweep removes old object directories', async () => {
+  const { m, r, ready, decide } = world()
+  await ready
+  expect(m.envs.ps).toEqual({ LC_ALL: 'C', TZ: 'UTC' })
+  m.advance(3601)
+  await decide(r, 'git status')
+  expect(m.ran.some(a => a[2]?.includes('.objects.') && a[2].includes('-mmin +60')), 'record-sweep-removes-old-object-dirs').toBe(true)
+})
+
+test('the module needs a place for records: no HOME and no CC_TUNER_PEERS_DIR leaves no record and says so', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  const ran = engine(on, m, m.spawn())
+  peersDir = undefined
+  const { context } = await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(ran).toEqual(['npm test'])
+  expect(context?.join(' '), 'record-no-home-no-records').toContain('the peers guard is inactive')
+  expect([...m.files.keys()].filter(p => p.endsWith('.json'))).toEqual([])
+})
+
+// --- session identity across nested, resume and reload ----------------------------------------------------------
+test('record: a nested claude -p neither resets the outer record nor takes its session id', async () => {
+  const { m } = machine()
+  const r1 = m.repo('/w/r1')
+  const outer = m.spawn(1, 'claude')
+  const inner = m.spawn(m.spawn(outer, 'bash'), 'claude')
+  m.put(`${r1}/plan.md`, '## Slice 1 — A\nOwned paths: lib/\n- [ ] a\n')
+  const [o, n] = [new Session(m, outer, 'a'), new Session(m, inner, 'b')]
+  await o.peers.claim(r1, 'a', 'plan.md')
+  await o.check({ cwd: r1, tool: 'Bash', steps: [step('git status')], acks: ['deadbeef'] })
+  await n.start(r1)
+  expect(m.rec('a'), 'record-nested-start-keeps-the-outer-record').toMatchObject({ session_id: 'a', claims: { [`${r1}/plan.md`]: { paths: ['lib/'] } } })
+  expect(typeof m.rec('a').acks.deadbeef).toBe('number')
+  expect(m.records(outer)).toBe(1)
+})
+
+test('record: an in-process resume of an earlier session takes over that tombstone', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const old = session('x')
+  await old.edited(r1, `${r1}/kept.txt`)
+  m.edit('x', r => { r.claims = { 'plan.md': { repo: r.checkouts[r1]!.repo, paths: ['lib/'] } }; r.checkouts[r1]!.expected = 'feat' })
+  m.end(old.pid)
+  const me = session('me')
+  await me.edited(r1, `${r1}/mine.txt`)
+  await me.start(r1, 'x')
+  expect(m.rec('me'), 'record-resume-in-process-merges-the-tombstone').toMatchObject({
+    session_id: 'x', claims: { 'plan.md': { paths: ['lib/'] } }, checkouts: { [r1]: { expected: 'feat', paths: ['kept.txt', 'mine.txt'] } },
+  })
+  expect(m.files.has(`${DIR}/x.json`), 'the tombstone is gone').toBe(false)
+})
+
+test('resource: a shared task is in the record, so a reload of the module still holds it; stopping it, or a new process, clears it', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  declare(m, '/w/r', STACK)
+  engine(on, m, m.spawn(), undefined, undefined, command => (command.startsWith('stack') ? command.split(' ')[2] : undefined))
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  m.edit('e1', r => { r.kept = [{ id: 'two', key: 'stack', top: '/w/r' }, { id: 'one', key: 'stack', top: '/w/r' }] })
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'one' })).deny, 'no other session uses it').toBeUndefined()
+  expect(m.rec('e1').kept.map(k => k.id), 'resource-stopped-task-leaves-the-record').toEqual(['two'])
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  expect((await $.tool.call({ tool: 'TaskStop', task_id: 'two' })).deny, 'resource-kept-task-denied-from-the-record').toContain('task two runs stack')
+  expect((await prompt($)), 'the start line names what is left').toContain('kept at /clear: stack (two)')
+})
+
+test('record: a new process that adopts a tombstone does not inherit its kept tasks', async () => {
+  const { m, session } = machine()
+  const r1 = m.repo('/w/r1')
+  const old = session('s9')
+  await old.touch(r1)
+  m.edit('s9', r => { r.kept = [{ id: 'b1', key: 'stack' }] })
+  m.end(old.pid)
+  const resumed = session('s9')
+  expect((await resumed.start(r1)).line).toBe('')
+  expect(m.rec('s9').kept, 'resource-adoption-empties-kept').toEqual([])
+})
+
+// --- the writer mark waits for the engine ------------------------------------------------------------------------
+test('guard: a writer is marked when its call is allowed or noted, so a long call counts while it runs; a stopped one marks none', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const [peer, s] = [session('peer'), session('s')]
+  await s.before(r, 'git status')
+  expect(writerOf(m, 's', r), 'a read-only call marks none').toBeNull()
+  await s.before(r, 'npm test')
+  expect(typeof writerOf(m, 's', r), 'guard-writer-marked-before-the-call-runs').toBe('number')
+  m.edit('s', x => { x.checkouts[r]!.writer = null })
+  await s.after(r, ['npm test'])
+  expect(writerOf(m, 's', r), 'guard-after-marks-no-writer').toBeNull()
+  await s.check({ tool: 'Edit', cwd: r, path: `${r}/a.txt` })
+  expect(typeof writerOf(m, 's', r), 'guard-edit-before-marks-the-writer').toBe('number')
+  m.edit('s', x => { x.checkouts[r]!.writer = null })
+  await peer.touch(r)
+  expect((await s.before(r, 'git switch x')).decision).toBe('stop')
+  expect(writerOf(m, 's', r), 'guard-stopped-call-marks-no-writer').toBeNull()
+  expect((await s.check({ tool: 'Edit', cwd: r, path: `${r}/b.txt` })).decision).toBe('note')
+  expect(typeof writerOf(m, 's', r), 'guard-noted-call-marks-the-writer').toBe('number')
+})
+
+test('the module marks the writer before the call runs, and a call the guard stops marks none', async ($, on) => {
+  const { m, session } = machine()
+  m.repo('/w/r')
+  let during: number | null | undefined
+  engine(on, m, m.spawn(), command => { if (command === 'npm test') during = m.files.has(`${DIR}/e1.json`) ? writerOf(m, 'e1', '/w/r') : undefined })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(typeof during, 'guard-writer-marked-while-the-call-runs').toBe('number')
+  m.edit('e1', x => { x.checkouts['/w/r']!.writer = null })
+  const peer = session('peer')
+  await peer.touch('/w/r')
+  expect((await $.tool.call({ tool: 'Bash', command: 'git switch x' })).deny).toContain('works in /w/r')
+  expect(writerOf(m, 'e1', '/w/r'), 'guard-stopped-call-marks-no-writer').toBeNull()
+})
+
+// --- guard semantics: what stops, and what the reason says ------------------------------------------------------
+test('ack: the key names the files, so a file that appears later stops again', async () => {
+  const { m, r, ready, decide, acked } = world()
+  await ready
+  m.dirty(r, ' M a.txt')
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, 'git reset --hard')).reason!)![1]!
+  expect((await acked(r, k, 'git reset --hard')).decision).toBe('allow')
+  expect((await decide(r, 'git reset --hard')).decision).toBe('allow')
+  m.dirty(r, ' M b.txt')
+  const again = await decide(r, 'git reset --hard')
+  expect(again.decision, 'guard-ack-key-includes-the-files').toBe('stop')
+  expect(again.reason).not.toContain(`ACK=${k}`)
+  const wt = m.worktree(r, '/w/t/wt', 'wt')
+  m.dirty(wt, '?? one.txt')
+  const rm = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, `rm -rf ${wt}`)).reason!)![1]!
+  m.dirty(wt, '?? two.txt')
+  expect((await decide(r, `rm -rf ${wt}`)).reason, 'a removal asks again for a new file').not.toContain(`ACK=${rm}`)
+})
+
+test('guard: checkout of a path that is no ref is a discard, and a forced switch discards tracked changes', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.put(`${r}/src/a.ts`, 'a')
+  m.refs.add('feature')
+  m.dirty(r, ' M src/a.ts')
+  const path = await decide(r, 'git checkout src/a.ts')
+  expect(path.decision, 'guard-checkout-of-a-path-without-dashes').toBe('stop')
+  expect(path.reason).toContain('would overwrite src/a.ts')
+  for (const c of ['git checkout feature', 'git checkout -b src/a.ts', 'git switch feature', 'git switch -c fresh', 'git checkout nosuchbranch']) expect((await decide(r, c)).decision, c).toBe('allow')
+  for (const c of ['git switch -f feature', 'git switch --force feature', 'git switch --discard-changes feature', 'git checkout -f feature', 'git checkout --force feature']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-forced-switch-discards: ${c}`).toBe('stop')
+    expect(v.reason).toContain('src/a.ts')
+  }
+  await me.edited(r, `${r}/src/a.ts`)
+  for (const c of ['git checkout src/a.ts', 'git switch -f feature', 'git checkout -f feature']) expect((await decide(r, c)).decision, `own: ${c}`).toBe('allow')
+})
+
+test('guard: a rebase in progress is not drift', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.head(r, undefined)
+  expect((await decide(r, 'git commit -m m')).decision).toBe('stop')
+  m.mkdir(`${r}/.git/rebase-merge`)
+  expect((await decide(r, 'git commit -m m')).decision, 'guard-rebase-in-progress-skips-drift').toBe('allow')
+  m.drop(`${r}/.git/rebase-merge`)
+  m.mkdir(`${r}/.git/rebase-apply`)
+  expect((await decide(r, 'git push origin main')).decision).toBe('allow')
+})
+
+test('guard: the reasons name the safe way first, and the choice is the agent\'s only where a peer owns the files', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M mine.txt')
+  const unknown = (await decide(r, 'git reset --hard')).reason!
+  expect(unknown, 'guard-unknown-owner-may-be-the-users').toContain("user's own edits")
+  expect(unknown).toContain('own paths')
+  expect(unknown).not.toContain('Your call, not the user')
+  await peer.edited(r, `${r}/mine.txt`)
+  const owned = (await decide(r, 'git reset --hard')).reason!
+  expect(owned).toContain(`pid ${peer.pid} on main`)
+  expect(owned).toContain('Your call, not the user')
+  m.end(peer.pid)
+  m.head(r, 'x')
+  const drift = (await decide(r, 'git commit -m m')).reason!
+  expect(drift, 'guard-drift-names-the-way-back').toContain('git switch main')
+  expect(drift.indexOf('git switch main')).toBeLessThan(drift.indexOf('CC_TUNER_ACK='))
+})
+
+test('record: a reftable HEAD is read through git', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  m.put(`${r}/.git/HEAD`, 'ref: refs/heads/.invalid\n')
+  m.symbolic.set(r, 'real')
+  await session('s').touch(r)
+  expect(m.rec('s').checkouts[r]!.expected, 'record-reftable-head').toBe('real')
+})
+
+// --- second review on 3b0bbc9 ------------------------------------------------------------------------------
+test('inspection: status runs from the top of the checkout, whatever directory the engine runs in', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![2], 'status-cds-to-the-work-tree').toContain('cd "$w" &&')
+})
+
+test('inspection: system attributes that git was told to skip leave the status readable', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.failing.set('git var', 1)
+  m.ran.length = 0
+  const v = await decide(r, 'git reset --hard')
+  expect(v.reason ?? '', 'no-system-attributes-is-read').not.toContain('could not read git status')
+  expect(v.reason ?? '', 'no-system-attributes-is-no-old-git').not.toContain('git 2.42')
+  expect(m.ran.find(isolatedStatus)![9], 'no-system-file-is-copied').toBe('')
+})
+
+test('resource: a holder that cannot be read gives back what the call took', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.startsWith('d="$1"; if mkdir')) { m.failing.set('ps', 2); m.onRun = undefined } }
+  await b.peers.pid()
+  m.advance(61)
+  expect((await b.peers.lease('mirror', r, 'b')).reason, 'unread-holder-stops').toContain('could not read the process list')
+  m.failing.delete('ps')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'screen-was-given-back').toBe('note')
+})
+
+test('resource: the holder releases its lease after the checkout stops declaring it', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  for (const r of [r1, r2]) declare(m, r, CHROME)
+  const [a, b] = [session('a'), session('b')]
+  expect((await a.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
+  m.files.delete(`${r1}/.claude/cc-tuner-resources.json`)
+  expect(await a.peers.release('chrome'), 'released-without-the-declaration').toBe('cc-tuner: released chrome.')
+  expect((await b.peers.lease(CLICK, r2, 'b')).decision, 'the-product-lease-is-free').toBe('note')
+})
+
+test('resource: a lock is named by a short lowercase digest of its scope and key', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  const key = 'локальный-тестовый-браузер-для-выставления-счетов-и-отчетности'
+  for (const [r, product] of [[r1, 'Shop'], [r2, 'shop']] as const) m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product, resources: [{ key, kind: 'exclusive', tools: ['t'] }] }))
+  const [a, b] = [session('a'), session('b')]
+  expect((await a.peers.lease('t', r1, 'a')).decision).toBe('note')
+  expect((await b.peers.lease('t', r2, 'b')).decision, 'Shop-and-shop-are-two-products').toBe('note')
+  const names = [...m.dirs].filter(d => d.startsWith(`${DIR}/lease.`)).map(d => d.slice(DIR.length + 1))
+  expect(names.length).toBe(2)
+  for (const n of names) expect(n, 'case-free-and-bounded').toMatch(/^lease\.[0-9a-f]{16}$/)
+})
+
+test('guard: TaskStop of a task no session keeps runs when ps cannot be read, and so does one in a checkout with the guard off', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declare(m, r, STACK)
+  const [me, peer] = [session('me'), session('peer')]
+  await peer.touch(r)
+  await me.peers.started([step('stack up')], r, 'me', 'b1')
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(), 'fresh')
+  expect(await fresh.peers.taskStop('ordinary'), 'an-ordinary-task-stops').toBeUndefined()
+  expect(await fresh.peers.taskStop('b1'), 'a-kept-task-is-unread').toContain('could not read the process list')
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'acme', guard: false, resources: [STACK] }))
+  expect(await fresh.peers.taskStop('b1'), 'guard-off-where-it-runs').toBeUndefined()
+})
+
+test('inspection: the ack for an unread process list covers that command in that directory only', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M f')
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  const key = async (c: string) => /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await fresh.bash(r, c)).reason!)![1]!
+  const k = await key('git reset --hard')
+  expect(await key('git clean -fdx'), 'another-command-another-key').not.toBe(k)
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git clean -fdx')], acks: [k] })).decision, 'one-ack-does-not-pass-another-command').toBe('stop')
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'it-passes-its-own').toBe('allow')
+  const recursing = { ...step('git reset --hard'), config: ['submodule.recurse=true'] }
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [recursing], acks: [k] })).decision, 'its-own-config-is-part-of-the-command').toBe('stop')
+})
+
+test('guard: the ack for a git step pointed elsewhere covers that placement only', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  const placed = (to: string) => ({ ...step('git reset --hard'), dir: UNKNOWN, place: [`--git-dir=${to}/.git`, `--work-tree=${to}`] })
+  const v = await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/b')] })
+  expect(v.decision, 'unknown-placement-stops').toBe('stop')
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/c')], acks: [k] })).decision, 'another-placement-needs-its-own-ack').toBe('stop')
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/b')], acks: [k] })).decision, 'its-own-passes').toBe('allow')
+})

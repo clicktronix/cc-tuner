@@ -1,5 +1,7 @@
 import type { AgentSpawnInput, AgentStatus, On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
+import { UNKNOWN } from './peers'
+import { steps } from './register'
 
 const END = { sessionId: 's1', resume: { id: 's1' } }
 
@@ -209,4 +211,141 @@ test('the status line clears once no tracked subagent runs', async ($, on) => {
 
   await $.agent.spawn(spawn('slice one'))
   expect(lines).toEqual([undefined])
+})
+
+interface Step { words: string[]; dir: string; op: string; writes: boolean }
+
+// One step as the test reads it: "<dir> <op> <words>", `>` after a step that writes a file.
+const show = (s: Step) => `${s.dir || '.'} ${s.op || '-'} ${s.words.join(' ')}${s.writes ? ' >' : ''}`
+
+const COMMANDS = [
+  ['npm test', ['. - npm test']],
+  ['FOO=1 npm test', ['. - npm test']],
+  ['bash "/p/scripts/heavy.sh" --weight 2 --label x -- npm test', ['. - npm test']],
+  ['heavy.sh -- git -C ../x switch y', ['../x - git switch y']],
+  ["bash -c 'cd x && git switch y'", ['x && git switch y']],
+  ['env FOO=1 git status', ['. - git status']],
+  ['env -i -u HOME git status', ['. - git status']],
+  ['env -C d git status', ['d - git status']],
+  ['echo a | xargs -n 1 git rm', ['. - echo a', '. | git rm']],
+  ['git -C ../x status', ['../x - git status']],
+  ['git -C a -C b --no-pager log', ['a/b - git log']],
+  ['git -c core.pager=cat log', ['. - git log']],
+  ['cd x && git reset --hard', ['x && git reset --hard']],
+  ['cd a; cd b; git log', [`${UNKNOWN} ; git log`]],
+  ['cd a && cd b && git log', ['a/b && git log']],
+  ['cd /abs && git log', ['/abs && git log']],
+  ['cd x | git log', ['. | git log']],
+  ['(cd a; git status); git log', [`${UNKNOWN} ; git status`, '. ; git log']],
+  ['(cd a && git status); git log', ['a && git status', '. ; git log']],
+  ['{ cd a && git status; }; git log', ['a && git status', `${UNKNOWN} ; git log`]],
+  ['echo "$(cd ../x && git status)"; git reset --hard', ['../x && git status', '. - echo ', '. ; git reset --hard']],
+  ['echo `cd x; git status`', [`${UNKNOWN} ; git status`, '. - echo ']],
+  ['echo `cd x && git status`', ['x && git status', '. - echo ']],
+  ['git switch -c x && git commit -m m', ['. - git switch -c x', '. && git commit -m m']],
+  ['git add f && git commit -m m', ['. - git add f', '. && git commit -m m']],
+  ['kill $(lsof -ti :3000)', ['. - lsof -ti :3000', '. - kill ']],
+  ['lsof -ti :3000 | xargs kill -9', ['. - lsof -ti :3000', '. | kill -9']],
+  ['git -C ../wt worktree remove .', ['../wt - git worktree remove .']],
+  ['git -C ../wt reset --hard', ['../wt - git reset --hard']],
+  ['cd x && rm -rf y', ['x && rm -rf y']],
+  ["bash -c 'cd ../wt && git stash drop'", ['../wt && git stash drop']],
+  ['heavy.sh -- git switch x', ['. - git switch x']],
+  ["bash -c 'git reset --hard'", ['. - git reset --hard']],
+  ['env FOO=1 git stash', ['. - git stash']],
+  ["bash -c 'cd ../wt && rm -rf x'", ['../wt && rm -rf x']],
+  ['heavy.sh -- git -C ../wt branch -D x', ['../wt - git branch -D x']],
+  ['echo 1 | xargs -n 1 kill -9', ['. - echo 1', '. | kill -9']],
+  ['git -C ../wt push origin --delete x', ['../wt - git push origin --delete x']],
+  ['CC_TUNER_ACK=ab12cd34 heavy.sh -- git clean -fd', ['. - git clean -fd']],
+  ['false || git switch c; true', ['. - false', '. || git switch c', '. ; true']],
+  ['false && git switch c; git commit -m m', ['. - false', '. && git switch c', '. ; git commit -m m']],
+  ["a && bash -c 'b; c'", ['. - a', '. && b', '. ; c']],
+  ['cat x > f', ['. - cat x >']],
+  ['cat x >> f', ['. - cat x >']],
+  ['cat x &> f', ['. - cat x >']],
+  ['cat x 2>&1 > /dev/null', ['. - cat x']],
+  ['cat x 2>/dev/null', ['. - cat x']],
+  ["bash -c 'cat x' > f", ['. - cat x >']],
+  ['timeout 5 git reset --hard', ['. - git reset --hard']],
+  ['timeout -s KILL 5 git -C ../x reset --hard', ['../x - git reset --hard']],
+  ['nohup git stash drop', ['. - git stash drop']],
+  ['nice -n 5 git reset --hard', ['. - git reset --hard']],
+  ['nice git clean -fd', ['. - git clean -fd']],
+  ['time -p git reset --hard', ['. - git reset --hard']],
+  ['time git reset --hard', ['. - git reset --hard']],
+] as const
+
+test('the guard reads each command as steps that keep their directory and operator', () => {
+  for (const [command, expected] of COMMANDS) expect(steps(command).map(show), command).toEqual(expected as unknown as string[])
+})
+
+test('a step keeps the git configuration given to its command as data: -c and --config-env pairs, GIT_CONFIG* assignments', () => {
+  const config = (command: string) => steps(command).at(-1)?.config
+  expect(config('git -c submodule.recurse=true reset --hard')).toEqual(['submodule.recurse=true'])
+  expect(config('git -c a=b --no-pager -c c=d -C x reset --hard')).toEqual(['a=b', 'c=d'])
+  expect(config('git --config-env=a=VAR reset --hard')).toEqual(['a=VAR'])
+  expect(config('git --config-env a=VAR reset --hard')).toEqual(['a=VAR'])
+  expect(config('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k GIT_CONFIG_VALUE_0=v git reset --hard')).toEqual(['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=k', 'GIT_CONFIG_VALUE_0=v'])
+  expect(config("env GIT_CONFIG_PARAMETERS='x' git reset --hard")).toEqual(['GIT_CONFIG_PARAMETERS=x'])
+  expect(config('GIT_CONFIG_COUNT=1 timeout 5 git reset --hard')).toEqual(['GIT_CONFIG_COUNT=1'])
+  expect(config("GIT_CONFIG_COUNT=1 bash -c 'git -c a=b reset --hard'")).toEqual(['GIT_CONFIG_COUNT=1', 'a=b'])
+  expect(config('GIT_CONFIG_GLOBAL=/x git reset --hard')).toEqual(['GIT_CONFIG_GLOBAL=/x'])
+  for (const command of ['git reset --hard', 'FOO=1 git reset --hard', 'env FOO=1 git reset --hard', 'git -C x reset --hard']) expect(config(command), command).toBeUndefined()
+})
+
+test('a step whose git is pointed at another repository runs in a directory nobody can tell', () => {
+  for (const command of ['git --git-dir=/o/.git reset --hard', 'git --git-dir /o/.git reset --hard', 'git --work-tree=/o reset --hard', 'git --work-tree /o reset --hard',
+    'GIT_DIR=/o/.git git reset --hard', 'GIT_WORK_TREE=/o git reset --hard', 'env GIT_DIR=/o/.git git reset --hard', "GIT_DIR=/o/.git bash -c 'git reset --hard'"]) {
+    expect(steps(command).at(-1), command).toMatchObject({ words: ['git', 'reset', '--hard'], dir: UNKNOWN })
+  }
+  expect(steps('FOO=1 git reset --hard').at(-1)!.dir, 'another-assignment-keeps-the-directory').not.toBe(UNKNOWN)
+  expect(steps('GIT_INDEX_FILE=/tmp/i git reset --hard').at(-1)!.dir, 'an-alternate-index-is-elsewhere-too').toBe(UNKNOWN)
+  expect(steps("GIT_DIR=/b/.git GIT_WORK_TREE=/b bash -c 'cd /a && git reset --hard'").at(-1)!.dir, 'a-nested-cd-keeps-the-placement').toBe(UNKNOWN)
+  expect(steps('git --git-dir /b/.git --work-tree=/b reset --hard').at(-1)!.place, 'the-placement-stays-as-data').toEqual(['--git-dir=/b/.git', '--work-tree=/b'])
+  expect(steps("GIT_DIR=/b/.git bash -c 'git --work-tree=/b reset --hard'").at(-1)!.place, 'an-outer-placement-is-inherited').toEqual(['GIT_DIR=/b/.git', '--work-tree=/b'])
+})
+
+test('a step names the substitution it runs in, so a chain does not cross a $( ) or a backquote', () => {
+  const scopes = (command: string) => steps(command).map(s => s.scope)
+  const [a, b, c] = scopes('git switch x && echo "$(git status)" && git commit -m m')
+  expect([a === c, b !== a], 'scope-a-substitution-is-a-scope-of-its-own').toEqual([true, true])
+  const [d, e, f] = scopes('git switch x && echo `git status` && git commit -m m')
+  expect([d === f, e !== d], 'scope-a-backquote-is-a-scope-of-its-own').toEqual([true, true])
+  const [g, h] = scopes('echo "$(git switch x && git commit -m m)"')
+  expect(g, 'scope-steps-of-one-substitution-share-it').toBe(h)
+  const [i, j] = scopes('echo "$(git status)" "$(git log)"')
+  expect(i, 'scope-two-substitutions-are-two-scopes').not.toBe(j)
+  const [k, l] = scopes("git switch x && bash -c 'git commit -m m'")
+  expect(k, 'scope-bash-c-keeps-the-chain').toBe(l)
+})
+
+test('a cd the guard cannot resolve leaves the later steps in a directory it does not know', () => {
+  for (const command of ['cd "$X" && git reset --hard', 'cd ~/x && git reset --hard', 'cd - && git reset --hard', 'cd && git reset --hard',
+    'cd x && cd "$Y/z" && git reset --hard', 'cd "$(pwd)" && git reset --hard', 'cd "$X"; cd y; git reset --hard']) {
+    expect(steps(command).at(-1)?.dir, command).toBe(UNKNOWN)
+  }
+  expect(steps('(cd "$X"; git log); git reset --hard').map(s => s.dir), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
+})
+
+test('a cd the steps after it do not wait on leaves their directory unresolved: it may have failed', () => {
+  for (const command of ['cd x; git reset --hard', 'cd /nonexistent; git reset --hard', 'cd x || git reset --hard', 'cd x\ngit reset --hard',
+    'cd x && git status; git reset --hard', 'cd x && git status || git reset --hard', 'cd x && git status\ngit reset --hard',
+    'cd a && cd b; git reset --hard', 'cd a; cd /abs; git reset --hard', 'cd x; echo ok && git reset --hard', 'cd x && git status | cat; git reset --hard']) {
+    expect(steps(command).at(-1)?.dir, command).toBe(UNKNOWN)
+  }
+})
+
+test('a cd whose steps are joined to it with && keeps its directory, and one in its own subshell or pipeline moves nothing', () => {
+  const dirs = (command: string) => steps(command).map(s => s.dir)
+  expect(dirs('cd x && git reset --hard')).toEqual(['x'])
+  expect(dirs('cd x && cd y && git status && git reset --hard')).toEqual(['x/y', 'x/y'])
+  expect(dirs('cd a; cd /abs && git reset --hard'), 'an absolute cd that the chain depends on is certain').toEqual(['/abs'])
+  expect(dirs('cd x && (git status; git reset --hard)'), 'a group after a cd runs only if it succeeded').toEqual(['x', 'x'])
+  expect(dirs('(cd x; git status); git reset --hard'), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
+  expect(dirs('(cd x && git status); git reset --hard')).toEqual(['x', ''])
+  expect(dirs('echo "$(cd x; git status)"; git reset --hard')).toEqual([UNKNOWN, '', ''])
+  expect(dirs('cd x | git reset --hard'), 'a pipeline stage moves nothing').toEqual([''])
+  expect(dirs('cd x & git reset --hard')).toEqual([''])
+  expect(dirs('git switch y && git reset --hard'), 'no cd, no change').toEqual(['', ''])
 })

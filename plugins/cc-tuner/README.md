@@ -46,7 +46,8 @@ it preserves other content.
 
 Previews, dedicated MCP servers and test containers run as Bash background tasks, which Claude Code
 stops when the session exits. A `/clear` does not stop them, so the plugin's hooks module
-(`hooks/register.ts`, a Claude Code mod) stops the ones Bash started in the cleared conversation.
+(`hooks/register.ts`, a Claude Code mod) stops the ones Bash started in the cleared conversation, except a task the guard keeps (see
+[Sessions of one product](#sessions-of-one-product)).
 The same module refuses a Bash command that would print secret values into the transcript —
 `env`, `printenv`, `set`, `export`, `declare` or `typeset` with nothing to run or name, or
 `cat`/`head`/`tail`/`less`/`more`/`bat` of a `.env` file — wherever the shell would run it (after
@@ -131,7 +132,7 @@ needs a PR comment recording the local result for the same commit. No mode lets 
 A pull request with neither a plan nor a named review is refused, drafts are refused until marked ready,
 and `--unmanaged` merges only an ordinary pull request outside a run.
 
-cc-tuner registers no global raw-command interceptor, so a raw CLI call, the merge button on
+cc-tuner's hooks see only the agent's own tool calls, so a raw CLI call, the merge button on
 github.com, `git push` and the REST API can all bypass `merge.sh`. It is workflow discipline, not a
 local security boundary.
 
@@ -149,6 +150,66 @@ records, but the agent performs its steps, so no script refuses on its behalf.
 Where issues live comes from `docs/agents/issue-tracker.md`, which `/setup-matt-pocock-skills` writes; the
 spec's `tracker:` is `gh`, `glab`, `local` (markdown files under `.scratch/`), `other` or `none`. `/spec`
 asks once when the file is absent. Boards stay GitHub-only.
+
+### Sessions of one product
+
+The hooks module keeps a record per live Claude session in `~/.cache/cc-tuner/sessions`. Sessions in one
+repository, or in repositories with the same `product` key, see each other. Before each tool call a guard
+allows, notes or stops. A stop names who and what would be lost, then the safe way (act on your own paths,
+take a worktree, wait), then the ack; lease and `TaskStop` stops have none.
+
+- **Stops:** a branch switch where another session writes; discarding or committing files that are not this
+  session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push or PR from a
+  branch other than the one this session last switched to; deleting a peer's branch or worktree; stopping a shared
+  resource, or the task that started it, while another session of the product is live; an exclusive resource
+  leased to another session; `kill` of a peer's process.
+- **Notes** (the action runs): an edit where another session writes or of a path a peer claimed; a branch
+  switch where a peer's cwd is.
+
+A session's own files are the ones it edited and, where no other session writes, the ones its Bash calls
+changed. Files changed before it came or between its calls (by the user or a background tool) stay protected,
+and so does a deleted path: after `git mv` or `git rm` the commit needs the ack once. A session with no peers
+gets no notes about peers.
+
+When the safe way does not fit, rerun the command prefixed `CC_TUNER_ACK=<key>` from the reason. The ack covers that
+action for 30 minutes; the prefix is stripped before the command runs. For a lease or `TaskStop` stop, wait or
+`SendMessage` the holder.
+
+Tools, `mcp__cc-tuner__peers_*`:
+
+- `peers_report [path]`: live peers of the repository at `path` (the cwd by default) with branch, claims, edited
+  paths and, in the same repository, merge conflicts of HEAD with their branch. `/spec` calls it before the
+  approval.
+- `peers_claim <plan>`: publishes the plan's open Owned paths as a claim and reports overlaps. `/run` calls it
+  before the first slice, after each tick and before integration.
+- `peers_release <key>`: gives up every lease of `key` this session holds, declared on this branch or not. A lease
+  also ends when its holder exits or has not used it for 10 minutes (up to 11: use is written once a minute).
+
+Resources are declared, never detected. The repository's go in `.claude/cc-tuner-resources.json`:
+
+```json
+{"product": "shop", "resources": [{"key": "stack", "kind": "shared", "start": ["pnpm stack:up"], "stop": ["pnpm stack:down"]}]}
+```
+
+The machine's go in `~/.config/cc-tuner/resources.json` and apply across products:
+
+```json
+{"resources": [{"key": "chrome", "kind": "exclusive", "tools": ["mcp__chrome-devtools__*"]}]}
+```
+
+A `shared` resource stays up while another session of the product is live; an `exclusive` one is leased to
+its first user, one lease per product for a repository's resource and per machine for the machine's. Setup writes these files only when asked. The user file can also map repositories to
+products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`. `"guard": false` in either file
+turns the guard off there.
+
+`/clear` keeps a task that started a shared resource; stopping it, as `/run`'s cleanup does, is refused only while
+another session of the product is live, and the task ends with its Claude process.
+
+The guard needs git 2.42 or newer: with an older git, or in a repository with replacement refs (`git replace`), it
+cannot read a checkout, so a destructive step stops with an ack.
+
+Known limits: liveness is cached for a minute; a session idle for 8 h stays in reports but blocks nothing that
+needs only its being live, and its uncommitted files stay protected.
 
 ### Companions
 

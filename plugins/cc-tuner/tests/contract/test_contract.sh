@@ -772,4 +772,16 @@ else
   echo "PASS heavy-no-default-one-wording"
 fi
 
+# Session coordination (#73): the module owns the mechanism (hooks/peers.ts and its tests). Pinned here only
+# what a machine consumes: the tool names skills call and allow, the ack prefix, the two file paths, the marker.
+need "spec-calls-and-allows-peers-report"   'mcp__cc-tuner__peers_report' "$SPEC"
+need "run-calls-and-allows-peers-claim"     'mcp__cc-tuner__peers_claim' "$RUN"
+need "task-flow-releases-leases"            'mcp__cc-tuner__peers_release' "$TASK_FLOW"
+need "setup-names-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$SETUP"
+need "setup-names-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$SETUP"
+need "readme-documents-the-ack"             'CC_TUNER_ACK=<key>' "$README_PLUGIN"
+need "readme-documents-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$README_PLUGIN"
+need "readme-documents-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$README_PLUGIN"
+need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.23.0' "$RULE_TEMPLATE"
+
 exit "$fails"
