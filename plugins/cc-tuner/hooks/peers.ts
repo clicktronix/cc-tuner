@@ -1153,13 +1153,13 @@ export class Peers {
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
-    // Its ack covers this call's guarded steps, each in its directory.
+    // Its ack covers this call's guarded steps, each with its directory and the git configuration it gives itself.
     const guarded: string[] = []
     if (ev.phase === 'before') {
       for (const p of plan) {
         const w = p.st.words ?? []
         if (await this.off((p.at ?? here)?.[0])) continue
-        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w].join('\0'))
+        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w, '', ...p.st.config ?? []].join('\0'))
       }
     }
     const k = crc32(['processes', ...guarded].join('\n'))

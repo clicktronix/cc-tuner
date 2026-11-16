@@ -58,7 +58,8 @@ never asks the user; for files of unknown owner the reason says they may be the 
 - **Guard.** It runs before every tool call and returns `allow`, `note` or `stop`.
   - **How it reads commands.**
     - It unwraps `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`, `cd x &&` and `$(...)`, and
-      each scope keeps its own directory.
+      each scope keeps its own directory. A git step pointed elsewhere (`--git-dir`, `--work-tree`,
+      `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`) runs in a directory nobody can tell, so a destructive one stops.
     - It checks a compound command step by step. `switch -c x && commit` moves the expected branch
       first. In `add f && commit`, `f` is staged for the following commit.
     - A git, gh or kill command it cannot parse gets a note.

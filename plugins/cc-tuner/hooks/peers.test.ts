@@ -473,9 +473,9 @@ test('a note rides after the result of a Bash call and of an edit, and the call 
   expect(edit.context?.join(' ')).toContain('also writes in /w/r')
   const bash = await $.tool.call({ tool: 'Bash', command: 'git -c x=y log' })
   expect(bash.deny).toBeUndefined()
-  expect((await $.tool.call({ tool: 'Bash', command: 'git --git-dir=x status' })).context?.join(' ')).toContain('could not read')
+  expect((await $.tool.call({ tool: 'Bash', command: 'git --git-dir=x fetch' })).context?.join(' ')).toContain('could not read')
   expect((await $.tool.call({ tool: 'Bash', command: 'git status' })).context).toBeUndefined()
-  expect(ran).toEqual(['git -c x=y log', 'git --git-dir=x status', 'git status'])
+  expect(ran).toEqual(['git -c x=y log', 'git --git-dir=x fetch', 'git status'])
 })
 
 test('a destructive command given git configuration is refused through the adapter, whichever way the configuration is written', async ($, on) => {
@@ -3025,4 +3025,6 @@ test('inspection: the ack for an unread process list covers that command in that
   expect(await key('git clean -fdx'), 'another-command-another-key').not.toBe(k)
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git clean -fdx')], acks: [k] })).decision, 'one-ack-does-not-pass-another-command').toBe('stop')
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'it-passes-its-own').toBe('allow')
+  const recursing = { ...step('git reset --hard'), config: ['submodule.recurse=true'] }
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [recursing], acks: [k] })).decision, 'its-own-config-is-part-of-the-command').toBe('stop')
 })

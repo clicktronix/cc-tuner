@@ -294,6 +294,14 @@ test('a step keeps the git configuration given to its command as data: -c and --
   for (const command of ['git reset --hard', 'FOO=1 git reset --hard', 'env FOO=1 git reset --hard', 'git -C x reset --hard']) expect(config(command), command).toBeUndefined()
 })
 
+test('a step whose git is pointed at another repository runs in a directory nobody can tell', () => {
+  for (const command of ['git --git-dir=/o/.git reset --hard', 'git --git-dir /o/.git reset --hard', 'git --work-tree=/o reset --hard', 'git --work-tree /o reset --hard',
+    'GIT_DIR=/o/.git git reset --hard', 'GIT_WORK_TREE=/o git reset --hard', 'env GIT_DIR=/o/.git git reset --hard', "GIT_DIR=/o/.git bash -c 'git reset --hard'"]) {
+    expect(steps(command).at(-1), command).toMatchObject({ words: ['git', 'reset', '--hard'], dir: UNKNOWN })
+  }
+  expect(steps('FOO=1 git reset --hard').at(-1)!.dir, 'another-assignment-keeps-the-directory').not.toBe(UNKNOWN)
+})
+
 test('a step names the substitution it runs in, so a chain does not cross a $( ) or a backquote', () => {
   const scopes = (command: string) => steps(command).map(s => s.scope)
   const [a, b, c] = scopes('git switch x && echo "$(git status)" && git commit -m m')
