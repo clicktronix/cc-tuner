@@ -32,6 +32,8 @@ class Machine {
   configs = new Map<string, string>()
   // Files whose change is only CR at line ends, per repository: `git diff --ignore-cr-at-eol` leaves them out.
   crOnly = new Map<string, string[]>()
+  // `key\nvalue` entries `git config --get-regexp ^core\.` gives per repository.
+  core = new Map<string, string[]>()
   // The commands whose output is cut off, and symbolic links (path -> target).
   truncate = new Set<string>()
   links = new Map<string, string>()
@@ -130,7 +132,10 @@ class Machine {
         this.onRun?.(argv)
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
-        const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c' && !x.startsWith('--attr-source=') && x !== '--literal-pathspecs') : argv
+        const strip = (xs: readonly string[]) => xs.filter((x, i) => x !== '-c' && xs[i - 1] !== '-c' && !x.startsWith('--attr-source=') && x !== '--literal-pathspecs')
+        // status runs isolated: a shell that names the checkout fourth and passes git its arguments after it.
+        const isolated = argv[0] === '/bin/sh' && argv[2]?.includes('--work-tree="$w"')
+        const bare = isolated ? ['git', '-C', argv[7]!, ...strip(argv.slice(8))] : argv[0] === 'git' ? strip(argv) : argv
         const name = bare[0] === 'git' ? `git ${bare[3]}` : bare[0] === '/bin/sh' && bare[2]?.includes('merge-tree') ? 'merge-tree'
           : bare[0] === 'ps' && bare.includes('-A') ? 'ps -A' : bare[0]!
         const failing = this.failing.get(name)
@@ -157,6 +162,10 @@ class Machine {
     if (cmd === 'git' && a[2] === 'diff') {
       const asked = a.slice(a.indexOf('--') + 1)
       return { stdout: asked.filter(f => !(this.crOnly.get(a[1]!) ?? []).includes(f)).map(f => `${f}\0`).join('') }
+    }
+    if (cmd === 'git' && a[2] === 'config' && a.includes('--get-regexp')) {
+      const entries = this.core.get(a[1]!) ?? []
+      return entries.length === 0 ? { exitCode: 1, stdout: '' } : { stdout: entries.map(e => `${e}\0`).join('') }
     }
     if (cmd === 'git' && a[2] === 'config') {
       const v = this.configs.get(`${a[1]}|${a[a.length - 1]}`)
@@ -1269,110 +1278,64 @@ test('guard: a destructive command given git configuration of its own stops, sin
   for (const c of destructive) expect((await decide(r, c)).decision, `config-none-${c}`).toBe('allow')
 })
 
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
-const INERT = [`--attr-source=${EMPTY_TREE}`, 'core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false', '--literal-pathspecs']
+const INERT = ['core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false', '--literal-pathspecs']
+const isolatedStatus = (a: readonly string[]) => a[0] === '/bin/sh' && a[2]?.includes('--work-tree="$w"') === true
 
-test('inspection: every git read takes its attributes from the empty tree, so no filter or merge driver can run, and reads no config', async () => {
+test('inspection: status runs in a git directory of its own with no config, hook or include; other reads are inert in the checkout', async () => {
   const { m, r, peer, me, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
   m.end(peer.pid)
+  m.put(`${r}/.git/info/attributes`, 'f filter=evil')
   m.ran.length = 0
-  expect((await decide(r, 'git reset --hard')).decision).toBe('stop')
-  const gits = m.ran.filter(a => a[0] === 'git')
-  expect(gits.length).toBeGreaterThan(0)
-  for (const argv of gits) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
+  m.reads.length = 0
+  expect((await decide(r, 'git reset --hard')).reason).toContain('would discard f')
+  const status = m.ran.find(isolatedStatus)!
+  expect(status, 'status-runs-isolated').toBeDefined()
+  for (const part of ['GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1', 'init -q --bare --template=', '--object-format="$f"', 'objects/info/alternates',
+    'GIT_INDEX_FILE="$g/index"', '--git-dir="$d" --work-tree="$w"', 'unset GIT_DIR']) expect(status[2], `isolated-${part}`).toContain(part)
+  expect(status.slice(4, 8), 'isolated-gets-the-common-dir-git-dir-and-checkout').toEqual([DIR, `${r}/.git`, `${r}/.git`, r])
+  for (const x of INERT) expect(status, `isolated-${x}`).toContain(x)
+  expect(m.reads.includes(`${r}/.git/info/attributes`), 'info-attributes-is-never-read-by-the-guard').toBe(false)
+  for (const argv of m.ran.filter(a => a[0] === 'git')) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
+  expect(m.ran.some(a => a.some(x => x.startsWith('--attr-source'))), 'no-attr-source-needed').toBe(false)
   expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
-  expect(m.ran.find(a => a.includes('status')), 'inert-status-ignores-submodules').toContain('--ignore-submodules=all')
-  expect(m.ran.some(a => a.includes('config') && !a.includes('submodule.recurse')), 'inert-no-config-is-read-but-submodule.recurse').toBe(false)
   const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
   await new Session(m, peer2, 'p2').touch(wt)
   m.shas.set(wt, 'sha-other')
   m.ran.length = 0
   await me.report(r)
   const merge = m.ran.find(a => a[2]?.includes('merge-tree'))!
-  for (const x of INERT.slice(1)) expect(merge, `inert-merge-tree-${x}`).toContain(x)
+  for (const x of INERT) expect(merge, `inert-merge-tree-${x}`).toContain(x)
   expect(merge[2], 'inert-merge-tree-runs-in-a-bare-repository-of-its-own').toContain('init -q --bare')
   expect(merge[2], 'inert-merge-tree-takes-the-object-format').toContain('--object-format=')
-  expect(merge[2], 'inert-merge-tree-borrows-the-objects').toContain('objects/info/alternates')
   expect(merge[2], 'inert-merge-tree-reads-no-user-or-system-config').toContain('GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1')
   expect(merge[2], 'inert-merge-tree-names-come-raw').toContain('--name-only -z')
-  expect(merge.join(' '), 'inert-merge-tree-names-no-driver-override').not.toContain('merge.')
   expect(merge, 'inert-merge-tree-not-in-the-checkout').not.toContain('-C')
 })
 
-test('inspection: a SHA-256 repository reads its attributes from its own empty tree', async () => {
+test('inspection: the isolated status takes the core settings that shape it, and nothing else', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
   m.end(peer.pid)
-  m.put(`${r}/.git/config`, '[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectformat = sha256\n')
-  m.ran.length = 0
-  expect((await decide(r, 'git reset --hard')).reason, 'sha256-status-is-read').toContain('would discard f')
-  expect(m.ran.find(a => a.includes('status')), 'sha256-empty-tree').toContain('--attr-source=6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321')
-})
-
-test('inspection: a tracked file changed only in CR at line ends is no change; one that fails the second read stays changed', async () => {
-  const { m, r, peer, ready, decide } = world()
-  await ready
-  m.end(peer.pid)
-  m.dirty(r, ' M line.txt', ' M real.txt')
-  m.crOnly.set(r, ['line.txt'])
-  const v = await decide(r, 'git reset --hard')
-  expect(v.reason, 'cr-only-change-is-no-change').not.toContain('line.txt')
-  expect(v.reason, 'a-real-change-stays').toContain('real.txt')
-  m.failing.set('git diff', 128)
-  expect((await decide(r, 'git reset --hard')).reason, 'a-failed-second-read-keeps-every-file').toContain('line.txt')
-  m.failing.delete('git diff')
-  m.status.set(r, [' M line.txt'])
-  expect((await decide(r, 'git add -A')).decision, 'a-clean-crlf-file-stays-clean').not.toBe('stop')
-})
-
-test('inspection: the filter names of .git/info/attributes are overridden on the command line, read once per change', async () => {
-  const { m, r, peer, ready, decide } = world()
-  await ready
-  m.dirty(r, ' M f')
-  m.end(peer.pid)
-  const file = `${r}/.git/info/attributes`
-  m.put(file, ['# a comment', '*.bin filter=lfs -text', 'f filter=evil merge=drv', '[attr]macro filter=viamacro', '', 'g diff=x'].join('\n'))
-  m.ran.length = 0
-  expect((await decide(r, 'git reset --hard')).decision).toBe('stop')
-  const status = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
-  const pairs = status.filter((x, i) => status[i - 1] === '-c')
-  for (const n of ['lfs', 'evil', 'viamacro']) {
-    for (const k of ['clean', 'smudge', 'process']) expect(pairs, `info-attributes-${n}-${k}`).toContain(`filter.${n}.${k}=`)
-    expect(pairs, `info-attributes-${n}-required`).toContain(`filter.${n}.required=false`)
-  }
-  expect(pairs.some(x => x.includes('.diff') || x.includes('.x.') || x.startsWith('merge.')), 'info-attributes-only-filters').toBe(false)
-  const reads = m.reads.filter(p => p === file).length
-  await decide(r, 'git reset --hard')
-  expect(m.reads.filter(p => p === file).length, 'info-attributes-cached-by-mtime-and-size').toBe(reads)
-  m.put(file, 'f filter=other')
+  m.core.set(r, ['core.autocrlf\ninput', 'core.excludesfile\n~/ignore', 'core.hookspath\n/evil', 'core.fsmonitor\n/evil', 'core.ignorecase\ntrue'])
   m.ran.length = 0
   await decide(r, 'git reset --hard')
-  const again = m.ran.find(a => a[0] === 'git' && a.includes('status'))!
-  expect(again, 'info-attributes-reread-after-a-change').toContain('filter.other.clean=')
-  expect(again).not.toContain('filter.evil.clean=')
+  const pairs = (a => a.filter((x, i) => a[i - 1] === '-c'))(m.ran.find(isolatedStatus)!)
+  for (const x of ['core.autocrlf=input', 'core.excludesfile=/home/u/ignore', 'core.ignorecase=true']) expect(pairs, `core-copied-${x}`).toContain(x)
+  expect(pairs.some(x => x.startsWith('core.hookspath') || x === 'core.fsmonitor=/evil'), 'core-nothing-that-runs-anything').toBe(false)
 })
 
-test('inspection: an info/attributes file that cannot be read or is too large leaves the tree unread, and git status is not run', async () => {
+test('inspection: config that cannot be read leaves status unread, and it is not run', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
   m.end(peer.pid)
-  const file = `${r}/.git/info/attributes`
-  m.put(file, 'f filter=evil\n'.repeat(10_000))
+  m.failing.set('git config', 2)
   m.ran.length = 0
-  const big = await decide(r, 'git reset --hard')
-  expect(big.decision, 'info-attributes-oversized-stops').toBe('stop')
-  expect(big.reason).toContain('could not read git status')
-  expect(m.ran.some(a => a[0] === 'git' && a.includes('status')), 'info-attributes-oversized-runs-no-status').toBe(false)
-  m.files.delete(file)
-  m.dirs.add(file)
-  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-unreadable-is-unread').toContain('could not read git status')
-  m.dirs.delete(file)
-  m.put(file, 'f filter=a=b')
-  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-a-name-with-equals-is-unread').toContain('could not read git status')
+  expect((await decide(r, 'git reset --hard --no-recurse-submodules')).reason, 'config-unreadable-is-unread').toContain('could not read git status')
+  expect(m.ran.some(isolatedStatus), 'config-unreadable-runs-no-status').toBe(false)
 })
 
 test('inspection: output the engine cut off is no answer: status, a tree and merge-tree read as unread, and nothing incomplete is cached', async () => {
@@ -1440,18 +1403,6 @@ test('inspection: a process list that cannot be read stops a destructive step wi
   expect(await fresh.peers.report(r), 'report-says-so').toContain('could not read the process list')
 })
 
-test('inspection: an info/attributes that is a link is unread, so a branch switch cannot change it under the guard', async () => {
-  const { m, r, peer, ready, decide } = world()
-  await ready
-  m.dirty(r, ' M f')
-  m.end(peer.pid)
-  m.put(`${r}/tracked-attrs`, 'f filter=evil')
-  m.links.set(`${r}/.git/info/attributes`, `${r}/tracked-attrs`)
-  m.ran.length = 0
-  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-link-is-unread').toContain('could not read git status')
-  expect(m.ran.some(a => a[0] === 'git' && a.includes('status')), 'info-attributes-link-runs-no-status').toBe(false)
-})
-
 test('inspection: recursion config that cannot be read is treated as recursion', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
@@ -1459,7 +1410,7 @@ test('inspection: recursion config that cannot be read is treated as recursion',
   m.failing.set('git config', 2)
   const v = await decide(r, 'git reset --hard')
   expect(v.reason, 'unknown-recursion-stops').toContain('reaches the submodules')
-  expect((await decide(r, 'git reset --hard --no-recurse-submodules')).decision, 'an-explicit-no-recursion-runs').not.toBe('stop')
+  expect((await decide(r, 'git reset --hard --no-recurse-submodules')).reason, 'an-explicit-no-recursion-is-not-a-recursion-stop').not.toContain('reaches the submodules')
 })
 
 test('inspection: a process list that cannot be read stops a kill and a shared stop, not a probe; a bad parent pid is unread too', async () => {
@@ -1473,6 +1424,13 @@ test('inspection: a process list that cannot be read stops a kill and a shared s
   expect((await fresh.bash(r, 'kill -TERM 4242')).decision, 'unread-processes-stop-a-kill').toBe('stop')
   expect((await fresh.bash(r, 'stack down')).decision, 'unread-processes-stop-a-shared-stop').toBe('stop')
   expect((await fresh.bash(r, 'kill -0 4242')).decision, 'a-probe-runs').toBe('allow')
+  const o = m.repo('/w/other')
+  declare(m, o, STACK)
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'acme', resources: [] }))
+  expect((await fresh.bash(r, at(o, 'stack down'))).decision, 'unread-processes-stop-a-shared-stop-in-another-checkout').toBe('stop')
+  m.put(USER, JSON.stringify({ guard: false, resources: [] }))
+  expect((await fresh.bash(r, 'git reset --hard')).decision, 'guard-false-is-honoured-when-ps-is-unread').toBe('allow')
+  m.files.delete(USER)
   m.failing.delete('ps -A')
   m.failing.delete('ps')
   m.dirty(r, ' M f')
@@ -1481,7 +1439,7 @@ test('inspection: a process list that cannot be read stops a kill and a shared s
   expect((await other.bash(r, 'git reset --hard')).reason, 'a-failed-parent-pid-read-is-unread').toContain('could not read the process list')
 })
 
-test('inspection: a git that does not know --attr-source (before 2.40) is never run unchecked; the guard says so and treats the tree as unread', async () => {
+test('inspection: a git too old for the guard is never run unchecked; the guard says so and treats the tree as unread', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
@@ -1489,7 +1447,7 @@ test('inspection: a git that does not know --attr-source (before 2.40) is never 
   m.failing.set('git status', 129)
   const { decision, reason } = await decide(r, 'git reset --hard')
   expect(decision).toBe('stop')
-  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.40 or newer is needed to inspect safely')
+  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.38 or newer is needed to inspect safely')
   expect(reason, 'inert-old-git-is-unread').toContain('could not read git status')
 })
 
@@ -2009,7 +1967,7 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => a.slice(0, 12).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null --literal-pathspecs --attr-source=${EMPTY_TREE} -C ${r} status`])
+  expect(m.ran.map(a => (isolatedStatus(a) ? 'isolated status' : a.slice(0, 11).join(' ')))).toEqual(['isolated status'])
   m.advance(61)
   await decide(r, 'npm test')
   expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])

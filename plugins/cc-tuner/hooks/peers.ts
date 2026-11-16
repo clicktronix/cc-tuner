@@ -133,6 +133,20 @@ const ISOLATED_MERGE = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FIL
   'f=$(git "$@" --git-dir="$o" rev-parse --show-object-format) || f=sha1; ' +
   'git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
   'git "$@" --git-dir="$d" merge-tree --write-tree --name-only -z "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc'
+// status of a checkout from a bare repository of its own: the objects borrowed through alternates, HEAD pinned to the
+// checkout's commit, its index read (never written: GIT_OPTIONAL_LOCKS=0), info/exclude copied, and no config but the core
+// settings the caller passes. No filter driver, hook or include exists there. `$1` is the record directory, `$2` the common
+// directory, `$3` the checkout's git directory, `$4` the checkout; the rest goes to git.
+const ISOLATED_STATUS = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS ' +
+  'GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; ' +
+  'r="$1"; o="$2"; g="$3"; w="$4"; shift 4; ' +
+  'rp() { f="$1"; h="${2:-}"; }; rp $(git --git-dir="$g" rev-parse --show-object-format HEAD 2>/dev/null); [ -n "$f" ] || exit 2; case "$h" in *[!0-9a-f]*) h= ;; esac; ' +
+  'd=$(mktemp -d "$r/.objects.XXXXXX") || exit 2; ' +
+  '{ git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
+  '{ [ -z "$h" ] || echo "$h" > "$d/HEAD"; } && { [ ! -f "$o/info/exclude" ] || { mkdir -p "$d/info" && cat "$o/info/exclude" > "$d/info/exclude"; }; } && ' +
+  'GIT_INDEX_FILE="$g/index" git --git-dir="$d" --work-tree="$w" "$@"; }; rc=$?; rm -rf "$d"; exit $rc'
+// The core settings that shape what status reports, copied into the isolated directory; none of them runs anything.
+const CORE = /^core\.(ignorecase|precomposeunicode|filemode|symlinks|autocrlf|eol|safecrlf|excludesfile|quotepath|trustctime|checkstat)$/
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
@@ -144,16 +158,12 @@ const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
-// Inspection is inert. A clean, smudge or process filter runs only for a file whose attributes name it, so every read takes
-// its attributes from the empty tree of the repository's object format (the repository's, the user's and the system's
-// files are never read): no config, however it is included and whatever branch it is evaluated on, can make one run. The one
-// command a config can start by itself is core.fsmonitor. `.git/info/attributes` is a local file git reads regardless, so the
-// filter names it carries are overridden on the command line: `silenced` reads that one file. Without attributes git cannot
-// normalise line endings, so a tracked file it calls changed is asked again with CR at line ends ignored: see `status`.
-// A merge driver is the one thing config can select without attributes (`merge.default`, a driver named `text`), so
-// merge-tree never runs in the repository: see ISOLATED_MERGE.
-const EMPTY_TREE = { sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904', sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321' }
-const ATTRIBUTES_MAX = 64 * 1024
+// Inspection is inert. A clean, smudge or process filter runs only when config defines the driver an attribute names, and
+// the repository's config (an include, a conditional include, a branch switch away) is not under the guard's control, so
+// `status` runs in a git directory of its own that has no such config: see ISOLATED_STATUS. They read the real
+// attributes there, so line endings are git's. The one command a config can start by itself in other reads is
+// core.fsmonitor. A merge driver is the one thing config can select without attributes (`merge.default`, a driver named
+// `text`), so merge-tree never runs in the repository: see ISOLATED_MERGE.
 // No transport either: a partial clone fetches missing objects on demand through its remote, and a remote can be a
 // program (`ext::`, a remote helper). GIT_ALLOW_PROTOCOL naming no real protocol forbids every one over any config, and
 // GIT_NO_LAZY_FETCH (git 2.44) stops the fetch itself; a missing object then fails the read, which is unread.
@@ -605,7 +615,7 @@ export class Peers {
     return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
-  // Whether an inspection met a git too old for `--attr-source` (2.40): said once by the stop that follows.
+  // Whether an inspection met a git too old for it (merge-tree --write-tree needs 2.38): said once by the stop that follows.
   tooOld = false
 
   // Every command runs through here: output the engine cut off is no answer.
@@ -614,45 +624,36 @@ export class Peers {
     return r.isStdoutTruncated ? { ...r, exitCode: TRUNCATED } : r
   }
 
-  // The `-c` overrides that silence every filter `$common/info/attributes` names: [] for a repository with none, undefined
-  // for a file that cannot be read or is past 64 KiB. Read again only when its mtime or size changed.
-  private attributes = new Map<string, { key: string; args: string[] | undefined }>()
-  private async silenced(common: string): Promise<string[] | undefined> {
-    const file = `${common}/info/attributes`
-    const st = await this.w.stat(file)
-    if (st === undefined) return []
-    // A link can point into the worktree, where a branch switch changes it between this read and git's: unread.
-    if (st.kind !== 'file' || norm(st.realPath ?? file) !== `${norm(await this.real(common))}/info/attributes`) return undefined
-    const key = `${st.mtimeMs}:${st.size}`
-    const hit = this.attributes.get(file)
-    if (hit !== undefined && hit.key === key && (st.mtimeMs ?? 0) > 0) return hit.args
-    let args: string[] | undefined
-    const text = st.kind === 'file' && (st.size ?? ATTRIBUTES_MAX + 1) <= ATTRIBUTES_MAX ? await this.w.read(file).catch(() => undefined) : undefined
-    if (text !== undefined && text.length <= ATTRIBUTES_MAX) {
-      const filters = [...new Set([...text.matchAll(/(?:^|\s)filter=(\S+)/g)].map(m => m[1]!))]
-      // A name with `=` cannot be written as a `-c` key, so that file is unread too.
-      if (!filters.some(n => n.includes('='))) {
-        args = filters.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]).flatMap(x => ['-c', x])
-      }
+  // The core settings of the checkout as `-c` pairs (the user's included, a leading ~ of a path expanded), undefined when
+  // config could not be read. Kept a minute: none of them runs anything, so a stale one only shapes the report.
+  private cores = new Map<string, { at: number; args: string[] }>()
+  private async core(top: string): Promise<string[] | undefined> {
+    const hit = this.cores.get(top)
+    if (hit !== undefined && this.now() - hit.at < PS_TTL) return hit.args
+    const r = await this.run(['git', ...INERT, '-C', top, 'config', '-z', '--get-regexp', '^core\\.'], { env: GIT_ENV }).catch(() => undefined)
+    if (r === undefined || (r.exitCode !== 0 && r.exitCode !== 1)) return undefined
+    const home = await this.w.home()
+    const out: string[] = []
+    for (const e of r.stdout.split('\0').filter(Boolean)) {
+      const nl = e.indexOf('\n')
+      const [k, v] = nl < 0 ? [e, 'true'] : [e.slice(0, nl), e.slice(nl + 1)]
+      if (!CORE.test(k)) continue
+      out.push('-c', `${k}=${k === 'core.excludesfile' && v.startsWith('~/') && home ? `${home}${v.slice(1)}` : v}`)
     }
-    this.attributes.set(file, { key, args })
-    return args
+    this.cores.set(top, { at: this.now(), args: out })
+    return out
   }
 
-  // The empty tree in the repository's object format, read from its config file (`extensions.objectformat`).
-  private async empty(common: string): Promise<string> {
-    const config = await this.w.read(`${common}/config`).catch(() => '')
-    return /^\s*objectformat\s*=\s*sha256\s*$/im.test(config) ? EMPTY_TREE.sha256 : EMPTY_TREE.sha1
-  }
-
-  // Every read: attributes from the empty tree, info/attributes filters silenced; a file that cannot be read leaves
-  // `status` unread like one git did not answer for.
+  // status runs isolated (see ISOLATED_STATUS); every other read runs in the checkout, where none can start a filter.
   private async read(top: string, ...args: string[]) {
-    const common = (await this.where(top))?.[1]
-    const named = common === undefined ? [] : await this.silenced(common)
-    if (named === undefined && args[0] === 'status') return { exitCode: 1, stdout: '' }
-    const tree = common === undefined ? EMPTY_TREE.sha1 : await this.empty(common)
-    const r = await this.run(['git', ...INERT, `--attr-source=${tree}`, ...(named ?? []), '-C', top, ...args], { env: GIT_ENV })
+    let r: { exitCode: number; stdout: string }
+    if (args[0] === 'status') {
+      const [common, gd, core] = [(await this.where(top))?.[1], await this.gitdir(top), await this.core(top)]
+      if (common === undefined || gd === undefined || core === undefined) return { exitCode: 1, stdout: '' }
+      r = await this.run(['/bin/sh', '-c', ISOLATED_STATUS, 'sh', await this.dir(), common, gd, top, ...INERT, ...core, ...args], { env: GIT_ENV })
+    } else {
+      r = await this.run(['git', ...INERT, '-C', top, ...args], { env: GIT_ENV })
+    }
     if (r.exitCode === USAGE) this.tooOld = true
     return r
   }
@@ -1084,7 +1085,8 @@ export class Peers {
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
     const k = crc32(`processes|${ev.cwd}`)
-    const guarded = ev.phase === 'before' && (plan.some(p => destroys(p.st.words ?? []) || kills(p.st.words ?? [])) || await this.stopsShared(plan.map(p => p.st.words ?? []), here?.[0]))
+    const guarded = ev.phase === 'before' && !await this.off(here?.[0])
+      && (plan.some(p => destroys(p.st.words ?? []) || kills(p.st.words ?? [])) || await this.stopsShared(plan, here?.[0]))
     const unread: Verdict & { line?: string } = guarded && !(ev.acks ?? []).includes(k)
       ? { decision: 'stop', reason: `cc-tuner: could not read the process list, so peers and this session are unknown. To go on, rerun it prefixed CC_TUNER_ACK=${k}.` }
       : { decision: 'allow', line: '' }
@@ -1150,9 +1152,13 @@ export class Peers {
     }, unread))
   }
 
-  // Whether a step stops a shared resource the cwd's or the machine's file declares.
-  private async stopsShared(steps: string[][], top: string | undefined): Promise<boolean> {
-    return (await this.rules(top)).some(([r]) => r.kind === 'shared' && r.stop.some(p => steps.some(w => prefixed(w, p))))
+  // Whether a step stops a shared resource its own checkout's file, or the machine's, declares.
+  private async stopsShared(plan: { st: Partial<Step>; at: Where | undefined }[], here: string | undefined): Promise<boolean> {
+    for (const { st, at } of plan) {
+      const w = st.words ?? []
+      if ((await this.rules(at?.[0] ?? here)).some(([r]) => r.kind === 'shared' && r.stop.some(p => prefixed(w, p)))) return true
+    }
+    return false
   }
 
   private async finds(plan: { st: Partial<Step>; blind: boolean }[]): Promise<boolean> {
@@ -1201,16 +1207,6 @@ export class Peers {
     if (r === undefined || r.exitCode !== 0) return undefined
     let found: [string, string, string][] = []
     for (const e of r.stdout.split('\0')) if (e.length > 3) found.push([e[0]!, e[1]!, e.slice(3)])
-    // A tracked file that differs from the index only in CR at line ends is git's eol conversion, which needs the
-    // attributes left unread: it is asked again with those CRs ignored. An answer that fails keeps every file changed.
-    const worktree = found.filter(([x, y]) => x !== '?' && y === 'M').map(([, , f]) => f)
-    if (worktree.length > 0) {
-      const d = await this.read(top, 'diff', '--name-only', '-z', '--ignore-cr-at-eol', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', '--', ...worktree).catch(() => undefined)
-      if (d !== undefined && d.exitCode === 0) {
-        const real = new Set(d.stdout.split('\0').filter(Boolean))
-        found = found.filter(([x, y, f]) => !(x === ' ' && y === 'M' && !real.has(f)))
-      }
-    }
     for (const p of staged) found = [...found.filter(e => e[2] !== p), ['A', ' ', p]]
     return found
   }
@@ -1511,7 +1507,7 @@ class Guard {
   }
 
   private unread(action: string, top: string, label: string) {
-    if (this.p.tooOld) this.note('git 2.40 or newer is needed to inspect safely.')
+    if (this.p.tooOld) this.note('git 2.38 or newer is needed to inspect safely.')
     this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
   }
 
