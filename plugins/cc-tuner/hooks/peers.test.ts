@@ -38,6 +38,8 @@ class Machine {
   core = new Map<string, string[]>()
   // What `git var` reports for an attribute file, by variable.
   attrPaths = new Map<string, string>()
+  // The default user attribute file the shell builds from XDG_CONFIG_HOME or HOME.
+  xdg = '/home/u/.config/git/attributes'
   // The commands whose output is cut off, and symbolic links (path -> target).
   truncate = new Set<string>()
   links = new Map<string, string>()
@@ -208,7 +210,7 @@ class Machine {
       this.drop(a[3]!)
       return { stdout: '' }
     }
-    if (cmd === '/bin/sh' && a[1]?.includes('XDG_CONFIG_HOME')) return { stdout: '/home/u/.config/git/attributes\n' }
+    if (cmd === '/bin/sh' && a[1]?.includes('XDG_CONFIG_HOME')) return { stdout: `${this.xdg}\n` }
     if (cmd === '/bin/sh' && a[1]?.includes('merge-tree')) {
       const out = this.merges.get(`${a[5]}-${a[6]}`)
       const tree = 'a'.repeat(40)
@@ -1411,6 +1413,14 @@ test('inspection: attribute files come from git var as git resolves them; a fail
   m.ran.length = 0
   await fresh().bash(r, 'git reset --hard')
   expect(m.ran.find(isolatedStatus)![8], 'unset-means-the-xdg-default').toBe('/home/u/.config/git/attributes')
+  m.xdg = 'relative-xdg/git/attributes'
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![8], 'a-relative-default-is-the-checkouts').toBe(`${r}/relative-xdg/git/attributes`)
+  const xdgScript = m.ran.find(x => x[0] === '/bin/sh' && x[2]?.includes('XDG_CONFIG_HOME'))![2]!
+  expect(xdgScript, 'the-default-is-printed-byte-for-byte').toContain("printf '%s")
+  expect(xdgScript, 'not-through-echo').not.toContain('echo ')
+  m.xdg = '/home/u/.config/git/attributes'
   m.failing.set('git var', 128)
   const v = await fresh().bash(r, 'git reset --hard')
   expect(v.reason, 'a-failed-git-var-is-unread').toContain('could not read git status')

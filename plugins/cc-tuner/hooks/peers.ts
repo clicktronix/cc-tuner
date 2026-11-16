@@ -33,8 +33,8 @@ import type { EngineInterface } from 'claude-code'
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files (and, limited to one path, before the first edit of it in an
-// hour), and the reads `peers_report` and `kill` need. Every git read takes its attributes from the empty tree and ignores
-// submodules, so inspecting runs no filter or merge driver of the repository's, the user's or a submodule's.
+// hour), and the reads `peers_report` and `kill` need. `git status` and merge-tree run in a git directory of their own with no
+// config, so inspecting runs no filter or merge driver of the repository's, the user's or a submodule's; submodules are ignored.
 
 // A step's directory when a `cd` could not be read: the checkout it acts on is not known.
 export const UNKNOWN = '\0'
@@ -546,16 +546,16 @@ export class Peers {
     const line = (out: string) => out.replace(/\n$/, '')
     const set = await ask('config', '--type=path', '--get', 'core.attributesFile')
     if (set === undefined || (set.exitCode !== 0 && set.exitCode !== 1)) return undefined
-    let user: string
-    if (set.exitCode === 0) {
-      const path = line(set.stdout)
-      // Joined literally: `link/..` is resolved through the link when the file is read, as git does.
-      user = path === '' || path.startsWith('/') ? path : `${top}/${path}`
-    } else {
-      const d = await this.run(['/bin/sh', '-c', 'echo "${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes"']).catch(() => undefined)
+    let path: string
+    if (set.exitCode === 0) path = line(set.stdout)
+    else {
+      // printf, not echo: a backslash in the path is a byte of it.
+      const d = await this.run(['/bin/sh', '-c', `printf '%s\\n' "\${XDG_CONFIG_HOME:-\$HOME/.config}/git/attributes"`]).catch(() => undefined)
       if (d === undefined || d.exitCode !== 0) return undefined
-      user = line(d.stdout)
+      path = line(d.stdout)
     }
+    // Joined literally: git resolves a relative path in the checkout, and `link/..` through the link.
+    const user = path === '' || path.startsWith('/') ? path : `${top}/${path}`
     const system = await ask('var', 'GIT_ATTR_SYSTEM')
     if (system === undefined || system.exitCode !== 0) {
       if (system !== undefined && system.exitCode !== TRUNCATED) this.tooOld = true
