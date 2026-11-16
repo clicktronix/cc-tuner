@@ -225,6 +225,14 @@ equals "ident-plain-git-sees-the-change" " M f" "$(git -C "$RI" status --porcela
 one 'git reset --hard'
 e2e "$RI" go
 check  "ident-the-guard-reads-info-attributes-too" "would discard f in" "$(cat "$W/api.log")"
+# The user's attribute file counts too: a macro there (`[attr]noident -ident`) turns ident off for a file that names it.
+RM="$(repo)"; printf 'f ident noident\n' > "$RM/.gitattributes"; printf '$Id$\n' > "$RM/f"; ( cd "$RM" && git add . && git commit -q -m ident )
+printf '[attr]noident -ident\n' > "$W/user-attributes"; git -C "$RM" config core.attributesFile "$W/user-attributes"
+printf '$Id: foreign $\n' > "$RM/f"
+equals "user-attributes-plain-git-sees-the-change" " M f" "$(git -C "$RM" status --porcelain)"
+one 'git reset --hard'
+e2e "$RM" go
+check  "user-attributes-the-guard-reads-them-too" "would discard f in" "$(cat "$W/api.log")"
 RS2="$(flow_workdir)/sha256"; mkdir -p "$RS2"; RS2="$(cd "$RS2" && pwd -P)"
 git -C "$RS2" init -q --object-format=sha256 -b main; commit_file "$RS2" tracked.txt a
 printf 'b\n' > "$RS2/tracked.txt"

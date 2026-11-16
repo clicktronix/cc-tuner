@@ -47,10 +47,10 @@ class Machine {
 
   mkdir(p: string) { for (let d = p; d !== '/' && !this.dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') this.dirs.add(d) }
   // A write takes the clock's time, a fraction of a millisecond apart from the one before.
-  // A record's time is unique per write (the module caches by it); any other file's falls a tenth of a millisecond in,
-  // before the call that wrote it ends.
+  // A record's or a git file's time is unique per write (the module caches by it, and reads HEAD's as its generation); any
+  // other file's falls a tenth of a millisecond in, before the call that wrote it ends.
   put(p: string, text: string) { this.mkdir(p.slice(0, p.lastIndexOf('/')) || '/'); const t = this.at(p); this.files.set(p, { text, mtimeMs: t, ctimeMs: t }) }
-  private at(p: string) { return this.clock + (p.startsWith(`${DIR}/`) ? this.tick++ / 1000 : 0.1) }
+  private at(p: string) { return this.clock + (p.startsWith(`${DIR}/`) || p.includes('/.git/') ? this.tick++ / 1000 : 0.1) }
   // A copy that keeps the old modification time (`cp -p`): only the inode change time is now.
   replace(p: string, text: string) { const f = this.files.get(p)!; this.files.set(p, { text, mtimeMs: f.mtimeMs, ctimeMs: this.at(p) }) }
   advance(seconds: number) { this.clock += seconds * 1000 }
@@ -133,9 +133,9 @@ class Machine {
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
         const strip = (xs: readonly string[]) => xs.filter((x, i) => x !== '-c' && xs[i - 1] !== '-c' && !x.startsWith('--attr-source=') && x !== '--literal-pathspecs')
-        // status runs isolated: a shell that names the checkout fourth and passes git its arguments after it.
+        // status runs isolated: a shell that names the checkout fourth, two attribute files after it, then git's arguments.
         const isolated = argv[0] === '/bin/sh' && argv[2]?.includes('--work-tree="$w"')
-        const bare = isolated ? ['git', '-C', argv[7]!, ...strip(argv.slice(8))] : argv[0] === 'git' ? strip(argv) : argv
+        const bare = isolated ? ['git', '-C', argv[7]!, ...strip(argv.slice(10))] : argv[0] === 'git' ? strip(argv) : argv
         const name = bare[0] === 'git' ? `git ${bare[3]}` : bare[0] === '/bin/sh' && bare[2]?.includes('merge-tree') ? 'merge-tree'
           : bare[0] === 'ps' && bare.includes('-A') ? 'ps -A' : bare[0]!
         const failing = this.failing.get(name)
@@ -1295,7 +1295,9 @@ test('inspection: status runs in a git directory of its own with no config, hook
   for (const part of ['GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1', 'init -q --bare --template=', '--object-format="$f"', 'objects/info/alternates',
     'GIT_INDEX_FILE="$g/index"', '--git-dir="$d" --work-tree="$w"', 'unset GIT_DIR', 'for x in exclude attributes']) expect(status[2], `isolated-${part}`).toContain(part)
   expect(status.slice(4, 8), 'isolated-gets-the-common-dir-git-dir-and-checkout').toEqual([DIR, `${r}/.git`, `${r}/.git`, r])
-  for (const x of INERT) expect(status, `isolated-${x}`).toContain(x)
+  for (const x of INERT.filter(x => !x.startsWith('core.attributesFile'))) expect(status, `isolated-${x}`).toContain(x)
+  expect(status[2], 'isolated-reads-the-copied-user-and-system-attributes').toContain('core.attributesFile="$d/attrs"')
+  expect(status, 'isolated-not-the-null-attributes-file').not.toContain('core.attributesFile=/dev/null')
   expect(m.reads.includes(`${r}/.git/info/attributes`), 'info-attributes-is-never-read-by-the-guard').toBe(false)
   for (const argv of m.ran.filter(a => a[0] === 'git')) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
   expect(m.ran.some(a => a.some(x => x.startsWith('--attr-source'))), 'no-attr-source-needed').toBe(false)
@@ -1334,6 +1336,30 @@ test('inspection: a branch that moves while status is read leaves the tree unrea
   m.end(peer.pid)
   m.onRun = argv => { if (isolatedStatus(argv)) { m.head(r, 'side'); m.onRun = undefined } }
   expect((await decide(r, 'git reset --hard')).reason, 'branch-moved-during-status-is-unread').toContain('could not read git status')
+})
+
+test('inspection: a branch round trip while core settings are read leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  await fresh.bash(r, 'git status')
+  m.advance(61)
+  m.onRun = argv => { if (argv.includes('--get-regexp')) { m.head(r, 'side'); m.head(r, 'main'); m.onRun = undefined } }
+  expect((await fresh.bash(r, 'git reset --hard')).reason, 'round-trip-is-unread').toContain('could not read git status')
+})
+
+test('inspection: in a reftable repository HEAD is read through git, so a switch during status leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.put(`${r}/.git/HEAD`, 'ref: refs/heads/.invalid\n')
+  m.symbolic.set(r, 'refs/heads/main')
+  m.put(`${r}/.git/reftable/tables.list`, 'x')
+  m.onRun = argv => { if (isolatedStatus(argv)) { m.symbolic.set(r, 'refs/heads/side'); m.put(`${r}/.git/reftable/tables.list`, 'y'); m.onRun = undefined } }
+  expect((await decide(r, 'git reset --hard')).reason, 'reftable-switch-is-unread').toContain('could not read git status')
 })
 
 test('inspection: config that cannot be read leaves status unread, and it is not run', async () => {

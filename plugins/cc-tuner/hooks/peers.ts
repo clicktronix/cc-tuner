@@ -134,18 +134,20 @@ const ISOLATED_MERGE = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FIL
   'git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
   'git "$@" --git-dir="$d" merge-tree --write-tree --name-only -z "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc'
 // status of a checkout from a bare repository of its own: the objects borrowed through alternates, HEAD pinned to the
-// checkout's commit, its index read (never written: GIT_OPTIONAL_LOCKS=0), info/exclude and info/attributes copied (no driver
-// exists there for a filter they name), and no config but the core
+// checkout's commit, its index read (never written: GIT_OPTIONAL_LOCKS=0), info/exclude, info/attributes and the user's and
+// system's attribute files copied (no driver exists there for a filter they name), and no config but the core
 // settings the caller passes. No filter driver, hook or include exists there. `$1` is the record directory, `$2` the common
-// directory, `$3` the checkout's git directory, `$4` the checkout; the rest goes to git.
+// directory, `$3` the checkout's git directory, `$4` the checkout, `$5` and `$6` the global and system attribute files (or
+// empty); the rest goes to git.
 const ISOLATED_STATUS = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS ' +
   'GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; ' +
-  'r="$1"; o="$2"; g="$3"; w="$4"; shift 4; ' +
+  'r="$1"; o="$2"; g="$3"; w="$4"; ga="$5"; sa="$6"; shift 6; ' +
   'rp() { f="$1"; h="${2:-}"; }; rp $(git --git-dir="$g" rev-parse --show-object-format HEAD 2>/dev/null); [ -n "$f" ] || exit 2; case "$h" in *[!0-9a-f]*) h= ;; esac; ' +
   'd=$(mktemp -d "$r/.objects.XXXXXX") || exit 2; ' +
   '{ git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
   '{ [ -z "$h" ] || echo "$h" > "$d/HEAD"; } && mkdir -p "$d/info" && for x in exclude attributes; do [ ! -f "$o/info/$x" ] || cat "$o/info/$x" > "$d/info/$x" || exit 2; done && ' +
-  'GIT_INDEX_FILE="$g/index" git --git-dir="$d" --work-tree="$w" "$@"; }; rc=$?; rm -rf "$d"; exit $rc'
+  ': > "$d/attrs" && for x in "$sa" "$ga"; do [ -z "$x" ] || [ ! -f "$x" ] || cat "$x" >> "$d/attrs" || exit 2; done && ' +
+  'GIT_INDEX_FILE="$g/index" git --git-dir="$d" --work-tree="$w" -c core.attributesFile="$d/attrs" "$@"; }; rc=$?; rm -rf "$d"; exit $rc'
 // The core settings that shape what status reports, copied into the isolated directory; none of them runs anything.
 const CORE = /^core\.(ignorecase|precomposeunicode|filemode|symlinks|autocrlf|eol|safecrlf|excludesfile|quotepath|trustctime|checkstat)$/
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
@@ -519,10 +521,25 @@ export class Peers {
   }
 
   // The branch HEAD names, read from the file; a reftable repository keeps a placeholder there, so git is asked.
-  // What HEAD names, raw (a ref or a commit), '' when it cannot be read.
+  // What HEAD names and when it last changed, so a branch round trip reads as a change: the HEAD file's text and time, and
+  // in a reftable repository, whose HEAD file is a placeholder, the ref git resolves and the table list's time.
   private async head(top: string): Promise<string> {
     const gd = await this.gitdir(top)
-    return ((gd === undefined ? undefined : await this.w.read(`${gd}/HEAD`).catch(() => undefined)) ?? '').trim()
+    if (gd === undefined) return ''
+    const [raw, st] = [((await this.w.read(`${gd}/HEAD`).catch(() => undefined)) ?? '').trim(), await this.w.stat(`${gd}/HEAD`)]
+    if (raw !== 'ref: refs/heads/.invalid') return `${raw}\0${st?.mtimeMs ?? ''}`
+    const common = (await this.where(top))?.[1] ?? gd
+    const tables = await this.w.stat(`${common}/reftable/tables.list`)
+    return `${(await this.git(top, 'symbolic-ref', '-q', 'HEAD')) ?? (await this.git(top, 'rev-parse', '-q', '--verify', 'HEAD')) ?? ''}\0${tables?.mtimeMs ?? ''}`
+  }
+
+  // The user's and the system's attribute files git would read, as paths ('' for none): core.attributesFile or the XDG
+  // default, and `git var GIT_ATTR_SYSTEM` where git has it.
+  private async attributeFiles(top: string): Promise<[string, string]> {
+    const set = await this.git(top, 'config', '--type=path', '--get', 'core.attributesFile')
+    const xdg = (await this.w.home()) === undefined ? '' : `${(await this.w.home())!}/.config/git/attributes`
+    const system = (await this.git(top, 'var', 'GIT_ATTR_SYSTEM')) ?? ''
+    return [set ?? xdg, system]
   }
 
   // `fallback` stands for a HEAD that could not be read; a detached one is ''.
@@ -633,10 +650,10 @@ export class Peers {
 
   // The core settings of the checkout as `-c` pairs (the user's included, a leading ~ of a path expanded), undefined when
   // config could not be read. Kept a minute: none of them runs anything, so a stale one only shapes the report.
-  private cores = new Map<string, { at: number; args: string[] }>()
-  private async core(top: string, branch: string): Promise<string[] | undefined> {
+  private cores = new Map<string, { at: number; args: string[]; files: [string, string] }>()
+  private async core(top: string, branch: string): Promise<{ args: string[]; files: [string, string] } | undefined> {
     const hit = this.cores.get(`${top}\0${branch}`)
-    if (hit !== undefined && this.now() - hit.at < PS_TTL) return hit.args
+    if (hit !== undefined && this.now() - hit.at < PS_TTL) return hit
     const r = await this.run(['git', ...INERT, '-C', top, 'config', '-z', '--get-regexp', '^core\\.'], { env: GIT_ENV }).catch(() => undefined)
     if (r === undefined || (r.exitCode !== 0 && r.exitCode !== 1)) return undefined
     const home = await this.w.home()
@@ -647,21 +664,23 @@ export class Peers {
       if (!CORE.test(k)) continue
       out.push('-c', `${k}=${k === 'core.excludesfile' && v.startsWith('~/') && home ? `${home}${v.slice(1)}` : v}`)
     }
-    this.cores.set(`${top}\0${branch}`, { at: this.now(), args: out })
-    return out
+    const entry = { at: this.now(), args: out, files: await this.attributeFiles(top) }
+    this.cores.set(`${top}\0${branch}`, entry)
+    return entry
   }
 
   // status runs isolated (see ISOLATED_STATUS); every other read runs in the checkout, where none can start a filter.
   private async read(top: string, ...args: string[]) {
     let r: { exitCode: number; stdout: string }
     if (args[0] === 'status') {
-      // Core settings can depend on the branch (includeIf.onbranch): read for the branch HEAD names, and a branch that moved
-      // while they were read and used leaves the tree unread.
-      const branch = await this.head(top)
-      const [common, gd, core] = [(await this.where(top))?.[1], await this.gitdir(top), await this.core(top, branch)]
-      if (common === undefined || gd === undefined || core === undefined) return { exitCode: 1, stdout: '' }
-      r = await this.run(['/bin/sh', '-c', ISOLATED_STATUS, 'sh', await this.dir(), common, gd, top, ...INERT, ...core, ...args], { env: GIT_ENV })
-      if (r.exitCode === 0 && (await this.head(top)) !== branch) return { exitCode: 1, stdout: '' }
+      // Core settings can depend on the branch (includeIf.onbranch): they are read for the HEAD the checkout has, and a HEAD
+      // that changed at all (a round trip included) while they were read or used leaves the tree unread.
+      const head = await this.head(top)
+      const [common, gd, core] = [(await this.where(top))?.[1], await this.gitdir(top), await this.core(top, head)]
+      if (common === undefined || gd === undefined || core === undefined || (await this.head(top)) !== head) return { exitCode: 1, stdout: '' }
+      const inert = INERT.filter((x, i) => x !== 'core.attributesFile=/dev/null' && INERT[i + 1] !== 'core.attributesFile=/dev/null')
+      r = await this.run(['/bin/sh', '-c', ISOLATED_STATUS, 'sh', await this.dir(), common, gd, top, ...core.files, ...inert, ...core.args, ...args], { env: GIT_ENV })
+      if (r.exitCode === 0 && (await this.head(top)) !== head) return { exitCode: 1, stdout: '' }
     } else {
       r = await this.run(['git', ...INERT, '-C', top, ...args], { env: GIT_ENV })
     }
