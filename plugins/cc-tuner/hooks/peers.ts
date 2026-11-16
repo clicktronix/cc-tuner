@@ -146,7 +146,7 @@ const ISOLATED_STATUS = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FI
   'd=$(mktemp -d "$r/.objects.XXXXXX") || exit 2; ' +
   '{ git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
   '{ [ -z "$h" ] || echo "$h" > "$d/HEAD"; } && mkdir -p "$d/info" && for x in exclude attributes; do [ ! -f "$o/info/$x" ] || cat "$o/info/$x" > "$d/info/$x" || exit 2; done && ' +
-  ': > "$d/attrs" && for x in "$sa" "$ga"; do [ -z "$x" ] || [ ! -f "$x" ] || cat "$x" >> "$d/attrs" || exit 2; done && ' +
+  ': > "$d/attrs" && for x in "$sa" "$ga"; do [ -z "$x" ] || [ ! -f "$x" ] || { cat "$x" && echo; } >> "$d/attrs" || exit 2; done && ' +
   'GIT_INDEX_FILE="$g/index" git --git-dir="$d" --work-tree="$w" -c core.attributesFile="$d/attrs" "$@"; }; rc=$?; rm -rf "$d"; exit $rc'
 // The core settings that shape what status reports, copied into the isolated directory; none of them runs anything.
 const CORE = /^core\.(ignorecase|precomposeunicode|filemode|symlinks|autocrlf|eol|safecrlf|excludesfile|quotepath|trustctime|checkstat)$/
@@ -534,19 +534,23 @@ export class Peers {
     return `${(await this.git(top, 'symbolic-ref', '-q', 'HEAD')) ?? (await this.git(top, 'rev-parse', '-q', '--verify', 'HEAD')) ?? ''}\0${own?.mtimeMs ?? ''}\0${shared?.mtimeMs ?? ''}`
   }
 
-  // The user's and the system's attribute files git would read, as paths ('' for none), asked of git as it reads them
-  // (not under the guard's own core.attributesFile=/dev/null or GIT_ATTR_NOSYSTEM): `git var` (2.42), else
-  // core.attributesFile, else the XDG default.
-  private async attributeFiles(top: string): Promise<[string, string]> {
+  // The user's and the system's attribute files as git reads them, from `git var` (2.42) run without the guard's own
+  // core.attributesFile=/dev/null or GIT_ATTR_NOSYSTEM; a relative path is the checkout's, as git resolves it there.
+  // undefined when git cannot say, which leaves the tree unread: an older git, a failure, output cut off.
+  private async attributeFiles(top: string): Promise<[string, string] | undefined> {
     const env = { GIT_OPTIONAL_LOCKS: '0', GIT_ALLOW_PROTOCOL: GIT_ENV.GIT_ALLOW_PROTOCOL, GIT_NO_LAZY_FETCH: '1' }
-    const ask = async (...args: string[]) => {
-      const r = await this.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '--literal-pathspecs', '-C', top, ...args], { env }).catch(() => undefined)
-      return r?.exitCode === 0 ? r.stdout.trim() : undefined
+    const ask = async (name: string) => {
+      const r = await this.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '--literal-pathspecs', '-C', top, 'var', name], { env }).catch(() => undefined)
+      if (r === undefined || r.exitCode !== 0) {
+        if (r !== undefined && r.exitCode !== TRUNCATED) this.tooOld = true
+        return undefined
+      }
+      // Only git's line terminator goes: a file name may end in a space.
+      const path = r.stdout.replace(/\n$/, '')
+      return path === '' || path.startsWith('/') ? path : join(top, path)
     }
-    const home = await this.w.home()
-    const user = (await ask('var', 'GIT_ATTR_GLOBAL')) ?? (await ask('config', '--type=path', '--get', 'core.attributesFile'))
-      ?? (home === undefined ? '' : `${home}/.config/git/attributes`)
-    return [user, (await ask('var', 'GIT_ATTR_SYSTEM')) ?? '']
+    const [user, system] = [await ask('GIT_ATTR_GLOBAL'), await ask('GIT_ATTR_SYSTEM')]
+    return user === undefined || system === undefined ? undefined : [user, system]
   }
 
   // `fallback` stands for a HEAD that could not be read; a detached one is ''.
@@ -646,7 +650,7 @@ export class Peers {
     return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
-  // Whether an inspection met a git too old for it (merge-tree --write-tree needs 2.38): said once by the stop that follows.
+  // Whether an inspection met a git too old for it (`git var GIT_ATTR_GLOBAL` needs 2.42): said once by the stop that follows.
   tooOld = false
 
   // Every command runs through here: output the engine cut off is no answer.
@@ -671,7 +675,9 @@ export class Peers {
       if (!CORE.test(k)) continue
       out.push('-c', `${k}=${k === 'core.excludesfile' && v.startsWith('~/') && home ? `${home}${v.slice(1)}` : v}`)
     }
-    const entry = { at: this.now(), args: out, files: await this.attributeFiles(top) }
+    const files = await this.attributeFiles(top)
+    if (files === undefined) return undefined
+    const entry = { at: this.now(), args: out, files }
     this.cores.set(`${top}\0${branch}`, entry)
     return entry
   }
@@ -1550,7 +1556,7 @@ class Guard {
   }
 
   private unread(action: string, top: string, label: string) {
-    if (this.p.tooOld) this.note('git 2.38 or newer is needed to inspect safely.')
+    if (this.p.tooOld) this.note('git 2.42 or newer is needed to inspect safely.')
     this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
   }
 

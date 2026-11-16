@@ -130,7 +130,8 @@ never asks the user; for files of unknown owner the reason says they may be the 
 - **Git reads** by the guard are inert: `GIT_OPTIONAL_LOCKS=0`, `core.fsmonitor=false`, submodules ignored, literal
   pathspecs, no transport and no lazy fetch (`GIT_ALLOW_PROTOCOL` naming no protocol, `GIT_NO_LAZY_FETCH`). `status`
   runs in a bare git directory of its own (objects through alternates, HEAD pinned, the real index read, info/exclude
-  copied, only the core settings that shape status passed), so no repository config, include, hook or filter driver
+  and info/attributes copied, the user's and system's attribute files copied, only the core settings that shape status
+  passed), so no repository config, include, hook or filter driver
   exists there however the repository changes meanwhile; it reads the real attributes, so line endings are git's.
   merge-tree runs isolated the same way. Output the engine cut off, or a `ps` that fails, counts as no answer: a
   destructive step, a kill or a shared stop then stops with an ack.
@@ -265,7 +266,8 @@ test group in brackets.
 - **Full:** `bash tests/run.sh` (claude at `tests/flow/CLAUDE_CODE_VERSION`). The EVALUATED_SHA
   guard is handled as in #75.
 - **Static:** module validation and type check in `test_mod.sh`.
-- **Runtime:** macOS and Linux, git ≥ 2.38 (`merge-tree --write-tree`), no network.
+- **Runtime:** macOS and Linux, git ≥ 2.42 (`git var GIT_ATTR_GLOBAL`; an older git leaves every inspection unread, so a
+  destructive step stops with an ack), no network.
 - **Mutation:** make `live()` in `hooks/peers.ts` ignore the start time. `liveness-pid-reuse` must then
   FAIL with `a record whose pid was reused reads as live`.
 - **Known limit:** a peer's liveness is cached for a minute, so a peer that just exited can cause a

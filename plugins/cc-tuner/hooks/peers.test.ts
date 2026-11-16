@@ -36,6 +36,8 @@ class Machine {
   crOnly = new Map<string, string[]>()
   // `key\nvalue` entries `git config --get-regexp ^core\.` gives per repository.
   core = new Map<string, string[]>()
+  // What `git var` reports for an attribute file, by variable.
+  attrPaths = new Map<string, string>()
   // The commands whose output is cut off, and symbolic links (path -> target).
   truncate = new Set<string>()
   links = new Map<string, string>()
@@ -223,6 +225,8 @@ class Machine {
       return { stdout: [...this.procs].filter(([, x]) => (mode === 'x' ? x.name === pat : x.args.includes(pat))).map(([p]) => p).join('\n') }
     }
     if (cmd === 'lsof') return { stdout: `${this.ports.get(Number(a[a.length - 1]!.slice(1))) ?? ''}\n` }
+    // `git var GIT_ATTR_GLOBAL` / `GIT_ATTR_SYSTEM`: the paths git 2.42 reports.
+    if (cmd === 'git' && a[2] === 'var') return { stdout: `${this.attrPaths.get(a[3]!) ?? (a[3] === 'GIT_ATTR_GLOBAL' ? '/home/u/.config/git/attributes' : '/etc/gitattributes')}\n` }
     return { exitCode: 127, stdout: '' }
   }
 }
@@ -1386,6 +1390,28 @@ test('inspection: a linked worktree on reftable is watched through its own table
   expect((await fresh.bash(wt, 'git reset --hard')).reason, 'worktree-reftable-round-trip-is-unread').toContain('could not read git status')
 })
 
+test('inspection: attribute files come from git var as git resolves them; a failure or a cut-off answer leaves the tree unread', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  const fresh = () => new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), `s${m.clock}`)
+  m.attrPaths.set('GIT_ATTR_GLOBAL', '.git/custom attributes ')
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  const status = m.ran.find(isolatedStatus)!
+  expect(status[8], 'a-relative-path-is-the-checkouts-and-a-trailing-space-stays').toBe(`${r}/.git/custom attributes `)
+  expect(status[2], 'copied-files-are-kept-apart-by-a-newline').toContain('{ cat "$x" && echo; }')
+  m.attrPaths.clear()
+  m.failing.set('git var', 128)
+  const v = await fresh().bash(r, 'git reset --hard')
+  expect(v.reason, 'a-failed-git-var-is-unread').toContain('could not read git status')
+  expect(v.reason, 'and-names-the-git-it-needs').toContain('git 2.42 or newer')
+  m.failing.delete('git var')
+  m.truncate.add('git var')
+  expect((await fresh().bash(r, 'git reset --hard')).reason, 'a-cut-off-git-var-is-unread').toContain('could not read git status')
+})
+
 test('inspection: config that cannot be read leaves status unread, and it is not run', async () => {
   const { m, r, peer, ready, decide } = world()
   await ready
@@ -1509,7 +1535,7 @@ test('inspection: a git too old for the guard is never run unchecked; the guard 
   m.failing.set('git status', 129)
   const { decision, reason } = await decide(r, 'git reset --hard')
   expect(decision).toBe('stop')
-  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.38 or newer is needed to inspect safely')
+  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.42 or newer is needed to inspect safely')
   expect(reason, 'inert-old-git-is-unread').toContain('could not read git status')
 })
 
