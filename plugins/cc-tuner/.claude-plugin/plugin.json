@@ -2,7 +2,7 @@
   "name": "cc-tuner",
   "displayName": "CC Tuner",
   "description": "Set up Claude Code for a repository and take tasks from specification through implementation, verification, review and authorized delivery. Start with /cc-tuner:setup.",
-  "version": "0.22.1",
+  "version": "0.23.0",
   "author": {
     "name": "Clicktronix",
     "url": "https://github.com/clicktronix"
