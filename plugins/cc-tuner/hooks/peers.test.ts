@@ -32,8 +32,9 @@ class Machine {
   configs = new Map<string, string>()
   // Files whose change is only CR at line ends, per repository: `git diff --ignore-cr-at-eol` leaves them out.
   crOnly = new Map<string, string[]>()
-  // The commands whose output is cut off.
+  // The commands whose output is cut off, and symbolic links (path -> target).
   truncate = new Set<string>()
+  links = new Map<string, string>()
   afterRead = new Map<string, () => Promise<void>>()
   // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
   busy: (() => void) | undefined
@@ -104,7 +105,7 @@ class Machine {
       home: async () => '/home/u',
       read: async p => {
         this.reads.push(p)
-        const f = this.files.get(p)
+        const f = this.files.get(this.links.get(p) ?? p)
         if (f === undefined) throw new Error(`ENOENT ${p}`)
         const text = this.halfOnce.delete(p) ? f.text.slice(0, 20) : f.text
         const hook = this.afterRead.get(p)
@@ -120,6 +121,8 @@ class Machine {
         return [...files, ...dirs]
       },
       stat: async p => {
+        const link = this.links.get(p)
+        if (link !== undefined) { const t = this.files.get(link); return t === undefined ? undefined : { kind: 'file', realPath: link, mtimeMs: t.mtimeMs, size: t.text.length } }
         const f = this.files.get(p)
         return this.dirs.has(p) ? { kind: 'dir', realPath: p, mtimeMs: this.dirTimes.get(p) } : f === undefined ? undefined : { kind: 'file', realPath: p, mtimeMs: f.mtimeMs, size: f.text.length }
       },
@@ -127,7 +130,7 @@ class Machine {
         this.onRun?.(argv)
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
-        const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c' && !x.startsWith('--attr-source=')) : argv
+        const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c' && !x.startsWith('--attr-source=') && x !== '--literal-pathspecs') : argv
         const name = bare[0] === 'git' ? `git ${bare[3]}` : bare[0] === '/bin/sh' && bare[2]?.includes('merge-tree') ? 'merge-tree'
           : bare[0] === 'ps' && bare.includes('-A') ? 'ps -A' : bare[0]!
         const failing = this.failing.get(name)
@@ -1267,7 +1270,7 @@ test('guard: a destructive command given git configuration of its own stops, sin
 })
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
-const INERT = [`--attr-source=${EMPTY_TREE}`, 'core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false']
+const INERT = [`--attr-source=${EMPTY_TREE}`, 'core.attributesFile=/dev/null', 'core.fsmonitor=false', 'core.untrackedCache=false', '--literal-pathspecs']
 
 test('inspection: every git read takes its attributes from the empty tree, so no filter or merge driver can run, and reads no config', async () => {
   const { m, r, peer, me, ready, decide } = world()
@@ -1435,6 +1438,47 @@ test('inspection: a process list that cannot be read stops a destructive step wi
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'the-ack-passes-it').toBe('allow')
   expect((await fresh.bash(r, 'npm test')).decision, 'a-step-that-destroys-nothing-runs').toBe('allow')
   expect(await fresh.peers.report(r), 'report-says-so').toContain('could not read the process list')
+})
+
+test('inspection: an info/attributes that is a link is unread, so a branch switch cannot change it under the guard', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.put(`${r}/tracked-attrs`, 'f filter=evil')
+  m.links.set(`${r}/.git/info/attributes`, `${r}/tracked-attrs`)
+  m.ran.length = 0
+  expect((await decide(r, 'git reset --hard')).reason, 'info-attributes-link-is-unread').toContain('could not read git status')
+  expect(m.ran.some(a => a[0] === 'git' && a.includes('status')), 'info-attributes-link-runs-no-status').toBe(false)
+})
+
+test('inspection: recursion config that cannot be read is treated as recursion', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.end(peer.pid)
+  m.failing.set('git config', 2)
+  const v = await decide(r, 'git reset --hard')
+  expect(v.reason, 'unknown-recursion-stops').toContain('reaches the submodules')
+  expect((await decide(r, 'git reset --hard --no-recurse-submodules')).decision, 'an-explicit-no-recursion-runs').not.toBe('stop')
+})
+
+test('inspection: a process list that cannot be read stops a kill and a shared stop, not a probe; a bad parent pid is unread too', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  declare(m, r, STACK)
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  expect((await fresh.bash(r, 'kill -TERM 4242')).decision, 'unread-processes-stop-a-kill').toBe('stop')
+  expect((await fresh.bash(r, 'stack down')).decision, 'unread-processes-stop-a-shared-stop').toBe('stop')
+  expect((await fresh.bash(r, 'kill -0 4242')).decision, 'a-probe-runs').toBe('allow')
+  m.failing.delete('ps -A')
+  m.failing.delete('ps')
+  m.dirty(r, ' M f')
+  m.failing.set('/bin/sh', 1)
+  const other = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'other')
+  expect((await other.bash(r, 'git reset --hard')).reason, 'a-failed-parent-pid-read-is-unread').toContain('could not read the process list')
 })
 
 test('inspection: a git that does not know --attr-source (before 2.40) is never run unchecked; the guard says so and treats the tree as unread', async () => {
@@ -1965,7 +2009,7 @@ test('a decision spawns only the processes it needs: ps once a minute, git statu
   await ready
   m.ran.length = 0
   for (const c of ['ls', 'npm test', 'git switch x', 'git commit -m m']) await decide(r, c)
-  expect(m.ran.map(a => a.slice(0, 11).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null --attr-source=${EMPTY_TREE} -C ${r} status`])
+  expect(m.ran.map(a => a.slice(0, 12).join(' '))).toEqual([`git -c core.fsmonitor=false -c core.untrackedCache=false -c core.attributesFile=/dev/null --literal-pathspecs --attr-source=${EMPTY_TREE} -C ${r} status`])
   m.advance(61)
   await decide(r, 'npm test')
   expect(m.ran.slice(1).map(a => a[0]), 'its own start time is read once').toEqual([])
@@ -2287,6 +2331,20 @@ test('resource: a lock a later call uses again is no longer owed back', async ()
   m.onRun = undefined
   expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
   expect((await c.peers.lease('capture', r, 'c')).decision, 'a-lock-in-use-was-not-given-back').toBe('stop')
+})
+
+test('resource: a give-back still owed survives a later call that is denied again', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.includes('] && rm -rf "$d" || exit 1')) throw new Error('release failed') }
+  expect((await b.peers.lease('mirror', r, 'b')).decision).toBe('stop')
+  expect((await b.peers.lease('mirror', r, 'b')).decision, 'denied-again').toBe('stop')
+  m.onRun = undefined
+  expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'the-owed-give-back-happened').toBe('note')
 })
 
 test('resource: product names that differ only beyond one byte do not share a lock', async () => {

@@ -158,7 +158,8 @@ const ATTRIBUTES_MAX = 64 * 1024
 // program (`ext::`, a remote helper). GIT_ALLOW_PROTOCOL naming no real protocol forbids every one over any config, and
 // GIT_NO_LAZY_FETCH (git 2.44) stops the fetch itself; a missing object then fails the read, which is unread.
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' }
-const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null']
+// A path the guard passes is a name, never pathspec magic (`:(literal)f` is a file of that name).
+const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null', '--literal-pathspecs']
 // A command whose output the engine cut off answered nothing complete: it counts as failed.
 const TRUNCATED = 124
 const USAGE = 129
@@ -233,6 +234,12 @@ function switches(step: Partial<Step>): boolean {
 }
 // The steps a guard decision is about: a recursive removal, and what git or gh discards, overwrites, deletes, stashes,
 // commits, stages or moves a branch of.
+// A step that signals processes, not a probe: whose they are needs the process list.
+function kills(w: readonly string[]): boolean {
+  const name = basename(w[0] ?? '')
+  return (name === 'kill' || name === 'pkill' || name === 'killall') && !probes(name, w.slice(1))
+}
+
 function destroys(w: readonly string[]): boolean {
   const [name, sub, a] = [basename(w[0] ?? ''), w[1] ?? '', w.slice(2)]
   if (name === 'rm') return has(w.slice(1), '--recursive', 'rR')
@@ -446,7 +453,9 @@ export class Peers {
   // own session, so never the outermost). A caller with no `claude` above it (a stand-in) is itself.
   async pid(): Promise<number | undefined> {
     if (this.claude !== undefined) return this.claude
-    const given = Number((await this.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim())
+    const r = await this.run(['/bin/sh', '-c', 'echo $PPID']).catch(() => undefined)
+    const given = Number(r?.stdout.trim())
+    if (r === undefined || r.exitCode !== 0 || !/^\d+$/.test(r.stdout.trim()) || given <= 1) throw new Unread()
     const table = await this.table()
     if ((await this.parent(given, table)) === undefined) return undefined
     let found = given
@@ -518,9 +527,11 @@ export class Peers {
 
   // Whether `submodule.recurse` is on: the commands that take --recurse-submodules then recurse without it. The engine's
   // own git calls carry `-c submodule.recurse=false`, which is not the user's setting: the last value of another scope is.
-  async recurses(top: string): Promise<boolean> {
-    const out = await this.git(top, 'config', '--show-scope', '--type=bool', '--get-all', 'submodule.recurse')
-    return out?.split('\n').filter(l => !l.startsWith('command\t')).pop()?.endsWith('\ttrue') ?? false
+  // undefined when config could not be read: unknown recursion is treated as recursion.
+  async recurses(top: string): Promise<boolean | undefined> {
+    const r = await this.read(top, 'config', '--show-scope', '--type=bool', '--get-all', 'submodule.recurse').catch(() => undefined)
+    if (r === undefined || (r.exitCode !== 0 && r.exitCode !== 1)) return undefined
+    return r.stdout.trim().split('\n').filter(l => l !== '' && !l.startsWith('command\t')).pop()?.endsWith('\ttrue') ?? false
   }
 
   async rebasing(top: string): Promise<boolean> {
@@ -610,6 +621,8 @@ export class Peers {
     const file = `${common}/info/attributes`
     const st = await this.w.stat(file)
     if (st === undefined) return []
+    // A link can point into the worktree, where a branch switch changes it between this read and git's: unread.
+    if (st.kind !== 'file' || norm(st.realPath ?? file) !== `${norm(await this.real(common))}/info/attributes`) return undefined
     const key = `${st.mtimeMs}:${st.size}`
     const hit = this.attributes.get(file)
     if (hit !== undefined && hit.key === key && (st.mtimeMs ?? 0) > 0) return hit.args
@@ -957,7 +970,7 @@ export class Peers {
       if (me === undefined) return { decision: 'allow' }
       await this.retry(me)
       const notes: string[] = []
-      const taken: string[] = []
+      const [taken, used]: [string[], string[]] = [[], []]
       for (const [{ key }, machine] of hits) {
         const lock = await this.lock(key, machine ? undefined : at)
         const v = await this.hold(key, lock, me, sid)
@@ -968,9 +981,10 @@ export class Peers {
           return v
         }
         if (v.reason !== undefined) { notes.push(v.reason); taken.push(lock) }
-        // A lock this call holds now is in use: no give-back still owed may free it.
-        this.pending.delete(lock)
+        used.push(lock)
       }
+      // Every lock this call holds is in use now: no give-back still owed may free it.
+      for (const l of used) this.pending.delete(l)
       return notes.length > 0 ? { decision: 'note', reason: notes.join(' ') } : { decision: 'allow' }
     }, { decision: 'stop', reason: 'cc-tuner: could not read the process list, so who holds the resource is unknown; try again shortly.' }))
   }
@@ -1070,7 +1084,8 @@ export class Peers {
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
     const k = crc32(`processes|${ev.cwd}`)
-    const unread: Verdict & { line?: string } = ev.phase === 'before' && plan.some(p => destroys(p.st.words ?? [])) && !(ev.acks ?? []).includes(k)
+    const guarded = ev.phase === 'before' && (plan.some(p => destroys(p.st.words ?? []) || kills(p.st.words ?? [])) || await this.stopsShared(plan.map(p => p.st.words ?? []), here?.[0]))
+    const unread: Verdict & { line?: string } = guarded && !(ev.acks ?? []).includes(k)
       ? { decision: 'stop', reason: `cc-tuner: could not read the process list, so peers and this session are unknown. To go on, rerun it prefixed CC_TUNER_ACK=${k}.` }
       : { decision: 'allow', line: '' }
     return this.serial(() => this.known(async () => {
@@ -1133,6 +1148,11 @@ export class Peers {
       if (ev.phase === 'start' && here !== undefined) out.line = await this.startLine(recs, name, r, here)
       return out
     }, unread))
+  }
+
+  // Whether a step stops a shared resource the cwd's or the machine's file declares.
+  private async stopsShared(steps: string[][], top: string | undefined): Promise<boolean> {
+    return (await this.rules(top)).some(([r]) => r.kind === 'shared' && r.stop.some(p => steps.some(w => prefixed(w, p))))
   }
 
   private async finds(plan: { st: Partial<Step>; blind: boolean }[]): Promise<boolean> {
@@ -1516,7 +1536,7 @@ class Guard {
     // The last recursion flag wins; an attached value turns it off only when it is a false word.
     const last = flags(a).filter(x => /^--(no-)?recurse-submodules(=|$)/.test(x)).pop()
     const off = last !== undefined && (last.startsWith('--no-') || /=(no|off|false|0)$/i.test(last))
-    if (off || (last === undefined && !(await this.p.recurses(at[0])))) return
+    if (off || (last === undefined && (await this.p.recurses(at[0])) === false)) return
     this.stop(action, `${at[0]}|submodules`, `\`${label}\` reaches the submodules of ${at[0]}, which the guard does not inspect.`,
       'Add --no-recurse-submodules, or check them yourself.', false)
   }
