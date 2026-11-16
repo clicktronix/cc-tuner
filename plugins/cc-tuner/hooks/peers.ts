@@ -534,25 +534,36 @@ export class Peers {
     return `${(await this.git(top, 'symbolic-ref', '-q', 'HEAD')) ?? (await this.git(top, 'rev-parse', '-q', '--verify', 'HEAD')) ?? ''}\0${own?.mtimeMs ?? ''}\0${shared?.mtimeMs ?? ''}`
   }
 
-  // The user's and the system's attribute files as git reads them, from `git var` (2.42) run without the guard's own
-  // core.attributesFile=/dev/null or GIT_ATTR_NOSYSTEM; a relative path is the checkout's, as git resolves it there.
-  // undefined when git cannot say, which leaves the tree unread: an older git, a failure, output cut off.
+  // The user's and the system's attribute files as git reads them, asked without the guard's own
+  // core.attributesFile=/dev/null or GIT_ATTR_NOSYSTEM. The user's is core.attributesFile as written (git var would collapse
+  // `link/..` before the link is followed), else ${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes, built literally; a relative
+  // path is the checkout's. The system's comes from `git var GIT_ATTR_SYSTEM` (2.42). undefined when git cannot say, which
+  // leaves the tree unread: an older git, a failure, output cut off.
   private async attributeFiles(top: string): Promise<[string, string] | undefined> {
     const env = { GIT_OPTIONAL_LOCKS: '0', GIT_ALLOW_PROTOCOL: GIT_ENV.GIT_ALLOW_PROTOCOL, GIT_NO_LAZY_FETCH: '1' }
-    const ask = async (name: string) => {
-      const r = await this.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '--literal-pathspecs', '-C', top, 'var', name], { env }).catch(() => undefined)
-      if (r === undefined || r.exitCode !== 0) {
-        if (r !== undefined && r.exitCode !== TRUNCATED) this.tooOld = true
-        return undefined
-      }
-      // Only git's line terminator goes: a file name may end in a space.
-      const path = r.stdout.replace(/\n$/, '')
-      // Joined literally: `link/..` is git's to resolve through the link, not ours to collapse.
-      return path === '' || path.startsWith('/') ? path : `${top}/${path}`
+    const ask = (...args: string[]) => this.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '--literal-pathspecs', '-C', top, ...args], { env }).catch(() => undefined)
+    // Only the line terminator goes: a file name may end in a space.
+    const line = (out: string) => out.replace(/\n$/, '')
+    const set = await ask('config', '--type=path', '--get', 'core.attributesFile')
+    if (set === undefined || (set.exitCode !== 0 && set.exitCode !== 1)) return undefined
+    let user: string
+    if (set.exitCode === 0) {
+      const path = line(set.stdout)
+      // Joined literally: `link/..` is resolved through the link when the file is read, as git does.
+      user = path === '' || path.startsWith('/') ? path : `${top}/${path}`
+    } else {
+      const d = await this.run(['/bin/sh', '-c', 'echo "${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes"']).catch(() => undefined)
+      if (d === undefined || d.exitCode !== 0) return undefined
+      user = line(d.stdout)
     }
-    const [user, system] = [await ask('GIT_ATTR_GLOBAL'), await ask('GIT_ATTR_SYSTEM')]
-    return user === undefined || system === undefined ? undefined : [user, system]
+    const system = await ask('var', 'GIT_ATTR_SYSTEM')
+    if (system === undefined || system.exitCode !== 0) {
+      if (system !== undefined && system.exitCode !== TRUNCATED) this.tooOld = true
+      return undefined
+    }
+    return [user, line(system.stdout)]
   }
+
 
   // `fallback` stands for a HEAD that could not be read; a detached one is ''.
   async branch(top: string, fallback = ''): Promise<string> {

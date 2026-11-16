@@ -235,6 +235,15 @@ equals "user-attributes-plain-git-sees-the-change" " M f" "$(git -C "$RM" status
 one 'git reset --hard'
 e2e "$RM" go
 check  "user-attributes-the-guard-reads-them-too" "would discard f in" "$(cat "$W/api.log")"
+# The path is git's to resolve: config-link/.. walks back out of the link's target, not out of the checkout.
+RL="$(repo)"; printf 'f ident noident\n' > "$RL/.gitattributes"; printf '$Id: original $\n' > "$RL/f"; ( cd "$RL" && git add . && git commit -q -m ident )
+mkdir -p "$W/linked/inner"; printf '[attr]noident -ident\n' > "$W/linked/attributes"; ln -s "$W/linked/inner" "$RL/config-link"
+printf 'config-link\n' >> "$RL/.git/info/exclude"; git -C "$RL" config core.attributesFile 'config-link/../attributes'
+printf '$Id: foreignx $\n' > "$RL/f"
+equals "linked-attributes-plain-git-sees-the-change" " M f" "$(git -C "$RL" status --porcelain)"
+one 'git reset --hard'
+e2e "$RL" go
+check  "linked-attributes-the-guard-resolves-them-as-git-does" "would discard f in" "$(cat "$W/api.log")"
 RS2="$(flow_workdir)/sha256"; mkdir -p "$RS2"; RS2="$(cd "$RS2" && pwd -P)"
 git -C "$RS2" init -q --object-format=sha256 -b main; commit_file "$RS2" tracked.txt a
 printf 'b\n' > "$RS2/tracked.txt"

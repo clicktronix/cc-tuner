@@ -174,7 +174,7 @@ class Machine {
     }
     if (cmd === 'git' && a[2] === 'config') {
       const v = this.configs.get(`${a[1]}|${a[a.length - 1]}`)
-      return v === undefined ? { exitCode: 1, stdout: '' } : { stdout: `command\tfalse\nlocal\t${v}\n` }
+      return v === undefined ? { exitCode: 1, stdout: '' } : { stdout: a.includes('--show-scope') ? `command\tfalse\nlocal\t${v}\n` : `${v}\n` }
     }
     if (cmd === 'git' && a[2] === 'ls-tree') {
       return { stdout: (this.trees.get(`${a[1]}|${a[a.length - 1]}`) ?? []).map(f => `${f}\0`).join('') }
@@ -208,6 +208,7 @@ class Machine {
       this.drop(a[3]!)
       return { stdout: '' }
     }
+    if (cmd === '/bin/sh' && a[1]?.includes('XDG_CONFIG_HOME')) return { stdout: '/home/u/.config/git/attributes\n' }
     if (cmd === '/bin/sh' && a[1]?.includes('merge-tree')) {
       const out = this.merges.get(`${a[5]}-${a[6]}`)
       const tree = 'a'.repeat(40)
@@ -1396,17 +1397,20 @@ test('inspection: attribute files come from git var as git resolves them; a fail
   m.dirty(r, ' M f')
   m.end(peer.pid)
   const fresh = () => new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), `s${m.clock}`)
-  m.attrPaths.set('GIT_ATTR_GLOBAL', '.git/custom attributes ')
+  m.configs.set(`${r}|core.attributesFile`, '.git/custom attributes ')
   m.ran.length = 0
   await fresh().bash(r, 'git reset --hard')
   const status = m.ran.find(isolatedStatus)!
   expect(status[8], 'a-relative-path-is-the-checkouts-and-a-trailing-space-stays').toBe(`${r}/.git/custom attributes `)
   expect(status[2], 'copied-files-are-kept-apart-by-a-newline').toContain('{ cat "$x" && echo; }')
-  m.attrPaths.set('GIT_ATTR_GLOBAL', 'link/../attributes')
+  m.configs.set(`${r}|core.attributesFile`, 'link/../attributes')
   m.ran.length = 0
   await fresh().bash(r, 'git reset --hard')
-  expect(m.ran.find(isolatedStatus)![8], 'a-relative-path-is-joined-literally').toBe(`${r}/link/../attributes`)
-  m.attrPaths.clear()
+  expect(m.ran.find(isolatedStatus)![8], 'the-written-path-is-joined-literally').toBe(`${r}/link/../attributes`)
+  m.configs.delete(`${r}|core.attributesFile`)
+  m.ran.length = 0
+  await fresh().bash(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![8], 'unset-means-the-xdg-default').toBe('/home/u/.config/git/attributes')
   m.failing.set('git var', 128)
   const v = await fresh().bash(r, 'git reset --hard')
   expect(v.reason, 'a-failed-git-var-is-unread').toContain('could not read git status')
