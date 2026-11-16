@@ -156,7 +156,7 @@ asks once when the file is absent. Boards stay GitHub-only.
 The hooks module keeps a record per live Claude session in `~/.cache/cc-tuner/sessions`. Sessions in one
 repository, or in repositories with the same `product` key, see each other. Before each tool call a guard
 allows, notes or stops. A stop names who and what would be lost, then the safe way (act on your own paths,
-take a worktree, wait), then the ack.
+take a worktree, wait), then the ack; lease and `TaskStop` stops have none.
 
 - **Stops:** a branch switch where another session writes; discarding or committing files that are not this
   session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push or PR from a
@@ -172,8 +172,8 @@ and so does a deleted path: after `git mv` or `git rm` the commit needs the ack 
 gets no notes about peers.
 
 When the safe way does not fit, rerun the command prefixed `CC_TUNER_ACK=<key>` from the reason. The ack covers that
-action for 30 minutes; the prefix is stripped before the command runs. Lease and `TaskStop` stops have no
-ack: wait, or `SendMessage` the holder.
+action for 30 minutes; the prefix is stripped before the command runs. For a lease or `TaskStop` stop, wait or
+`SendMessage` the holder.
 
 Tools, `mcp__cc-tuner__peers_*`:
 
@@ -182,8 +182,8 @@ Tools, `mcp__cc-tuner__peers_*`:
   approval.
 - `peers_claim <plan>`: publishes the plan's open Owned paths as a claim and reports overlaps. `/run` calls it
   before the first slice, after each tick and before integration.
-- `peers_release <key>`: gives up an exclusive lease. A lease also ends when its holder exits or has not used it
-  for 10 minutes.
+- `peers_release <key>`: gives up every lease of `key` this session holds, declared on this branch or not. A lease
+  also ends when its holder exits or has not used it for 10 minutes (up to 11: use is written once a minute).
 
 Resources are declared, never detected. The repository's go in `.claude/cc-tuner-resources.json`:
 
@@ -205,7 +205,8 @@ turns the guard off there.
 `/clear` keeps a task that started a shared resource; stopping it, as `/run`'s cleanup does, is refused only while
 another session of the product is live, and the task ends with its Claude process.
 
-The guard needs git 2.42 or newer: with an older git it cannot read a checkout, so a destructive step stops with an ack.
+The guard needs git 2.42 or newer: with an older git, or in a repository with replacement refs (`git replace`), it
+cannot read a checkout, so a destructive step stops with an ack.
 
 Known limits: liveness is cached for a minute; a session idle for 8 h stays in reports but blocks nothing that
 needs only its being live, and its uncommitted files stay protected.

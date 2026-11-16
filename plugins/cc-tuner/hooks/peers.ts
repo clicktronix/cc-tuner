@@ -143,11 +143,13 @@ const ISOLATED_STATUS = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FI
   'GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; ' +
   'r="$1"; o="$2"; g="$3"; w="$4"; ga="$5"; sa="$6"; shift 6; ' +
   'rp() { f="$1"; h="${2:-}"; }; rp $(git --git-dir="$g" rev-parse --show-object-format HEAD 2>/dev/null); [ -n "$f" ] || exit 2; case "$h" in *[!0-9a-f]*) h= ;; esac; ' +
+  // A replacement ref swaps HEAD's tree for git, and the isolated directory has none: such a tree is left unread.
+  'x=$(git --git-dir="$o" for-each-ref --count=1 refs/replace/) && [ -z "$x" ] || exit 2; ' +
   'd=$(mktemp -d "$r/.objects.XXXXXX") || exit 2; ' +
   '{ git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
   '{ [ -z "$h" ] || echo "$h" > "$d/HEAD"; } && mkdir -p "$d/info" && for x in exclude attributes; do [ ! -f "$o/info/$x" ] || cat "$o/info/$x" > "$d/info/$x" || exit 2; done && ' +
   ': > "$d/attrs" && for x in "$sa" "$ga"; do [ -z "$x" ] || [ ! -f "$x" ] || { cat "$x" && echo; } >> "$d/attrs" || exit 2; done && ' +
-  'GIT_INDEX_FILE="$g/index" git --git-dir="$d" --work-tree="$w" -c core.attributesFile="$d/attrs" "$@"; }; rc=$?; rm -rf "$d"; exit $rc'
+  'cd "$w" && GIT_INDEX_FILE="$g/index" git --git-dir="$d" --work-tree="$w" -c core.attributesFile="$d/attrs" "$@"; }; rc=$?; rm -rf "$d"; exit $rc'
 // The core settings that shape what status reports, copied into the isolated directory; none of them runs anything.
 const CORE = /^core\.(ignorecase|precomposeunicode|filemode|symlinks|autocrlf|eol|safecrlf|excludesfile|quotepath|trustctime|checkstat)$/
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
@@ -309,6 +311,14 @@ function crc32(text: string): string {
   let c = 0xffffffff
   for (const b of new TextEncoder().encode(text)) c = CRC[(c ^ b) & 0xff]! ^ (c >>> 8)
   return ((c ^ 0xffffffff) >>> 0).toString(16).padStart(8, '0')
+}
+
+// A lock's file name: a 64-bit FNV-1a digest of its scope and key, so it is the same on a file system that folds case and
+// short enough for any.
+export function lockName(key: string, scope?: string): string {
+  let h = 0xcbf29ce484222325n
+  for (const b of new TextEncoder().encode(JSON.stringify(scope === undefined ? ['m', key] : ['r', scope, key]))) h = ((h ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn
+  return `lease.${h.toString(16).padStart(16, '0')}`
 }
 
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -537,8 +547,8 @@ export class Peers {
   // The user's and the system's attribute files as git reads them, asked without the guard's own
   // core.attributesFile=/dev/null or GIT_ATTR_NOSYSTEM. The user's is core.attributesFile as written (git var would collapse
   // `link/..` before the link is followed), else ${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes, built literally; a relative
-  // path is the checkout's. The system's comes from `git var GIT_ATTR_SYSTEM` (2.42). undefined when git cannot say, which
-  // leaves the tree unread: an older git, a failure, output cut off.
+  // path is the checkout's. The system's comes from `git var GIT_ATTR_SYSTEM` (2.42; exit 1 when GIT_ATTR_NOSYSTEM turns it
+  // off). undefined when git cannot say, which leaves the tree unread: an older git, a failure, output cut off.
   private async attributeFiles(top: string): Promise<[string, string] | undefined> {
     const env = { GIT_OPTIONAL_LOCKS: '0', GIT_ALLOW_PROTOCOL: GIT_ENV.GIT_ALLOW_PROTOCOL, GIT_NO_LAZY_FETCH: '1' }
     const ask = (...args: string[]) => this.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '--literal-pathspecs', '-C', top, ...args], { env }).catch(() => undefined)
@@ -557,6 +567,7 @@ export class Peers {
     // Joined literally: git resolves a relative path in the checkout, and `link/..` through the link.
     const user = path === '' || path.startsWith('/') ? path : `${top}/${path}`
     const system = await ask('var', 'GIT_ATTR_SYSTEM')
+    if (system?.exitCode === 1) return [user, '']
     if (system === undefined || system.exitCode !== 0) {
       if (system !== undefined && system.exitCode !== TRUNCATED) this.tooOld = true
       return undefined
@@ -961,8 +972,17 @@ export class Peers {
   async unkeep(id: string) { await this.update(undefined, r => { r.kept = r.kept.filter(k => k.id !== id) }) }
 
   // Why a task that started a shared resource must not be stopped now, or undefined when it may be.
+  // With ps unread, only a task some record keeps, where the guard is on, is held back.
   async taskStop(task: string): Promise<string | undefined> {
-    return this.known(() => this.taskStopOf(task), `${UNREAD_TOOL} Task ${task} keeps running.`)
+    try {
+      return await this.taskStopOf(task)
+    } catch (err) {
+      if (!(err instanceof Unread)) throw err
+      for (const r of (await this.load()).recs.values()) {
+        for (const k of r.kept) if (k.id === task && !(await this.off(k.top))) return `${UNREAD_TOOL} Task ${task} keeps running.`
+      }
+      return undefined
+    }
   }
 
   private async taskStopOf(task: string): Promise<string | undefined> {
@@ -992,13 +1012,9 @@ export class Peers {
     }
   }
 
-  // A machine resource's lock is one per machine; a repository's is one per product (or repository without one). Each
-  // part is escaped, dots included, so no machine key and no product with a key can name the same lock.
+  // A machine resource's lock is one per machine; a repository's is one per product (or repository without one).
   private async lock(key: string, at?: Where) {
-    // Fixed width per UTF-16 unit, so no two different names escape to the same one.
-    const enc = (x: string) => x.replace(/[^A-Za-z0-9_-]/g, c => `%${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
-    const name = at === undefined ? `m.${enc(key)}` : `r.${enc((await this.product(...at)) ?? `repo-${crc32(at[1])}`)}.${enc(key)}`
-    return `${await this.dir()}/lease.${name}`
+    return `${await this.dir()}/${lockName(key, at === undefined ? undefined : (await this.product(...at)) ?? `repo-${crc32(at[1])}`)}`
   }
 
   // Locks a denied call took and could not give back yet: every later lease or release call tries again.
@@ -1022,15 +1038,13 @@ export class Peers {
       await this.retry(me)
       const notes: string[] = []
       const [taken, used]: [string[], string[]] = [[], []]
+      // A call that does not run (a stop, or a holder it could not read) gives back what it took for itself; one that
+      // cannot go back now is retried later, and the stop stands either way.
+      const giveBack = async () => { for (const l of taken) if ((await this.free(l, me).catch(() => undefined)) === undefined) this.pending.add(l) }
       for (const [{ key }, machine] of hits) {
         const lock = await this.lock(key, machine ? undefined : at)
-        const v = await this.hold(key, lock, me, sid)
-        if (v.decision === 'stop') {
-          // The call does not run, so what it took for itself goes back; one that cannot go back now is retried later,
-          // and the stop stands either way.
-          for (const l of taken) if ((await this.free(l, me).catch(() => undefined)) === undefined) this.pending.add(l)
-          return v
-        }
+        const v = await this.hold(key, lock, me, sid).catch(async (err: unknown) => { await giveBack(); throw err })
+        if (v.decision === 'stop') { await giveBack(); return v }
         if (v.reason !== undefined) { notes.push(v.reason); taken.push(lock) }
         used.push(lock)
       }
@@ -1090,17 +1104,22 @@ export class Peers {
     return undefined
   }
 
-  // The lease of `key` as the cwd's resources scope it: the repository's (its product) first, then the machine's.
-  async release(key: string, cwd: string): Promise<string> {
+  // Every lease of `key` this session holds, found by its holder file: a branch or config that no longer declares the
+  // resource does not keep it.
+  async release(key: string): Promise<string> {
     const refused = `cc-tuner: ${key} is not leased to this session.`
-    const at = await this.where(cwd)
-    const rules = (await this.rules(at?.[0])).filter(([r]) => r.kind === 'exclusive' && r.key === key)
-    const locks = await Promise.all((rules.length > 0 ? rules : [[undefined, true] as const]).map(([, machine]) => this.lock(key, machine ? undefined : at)))
     return this.serial(async () => this.known(async () => {
       const me = await this.self()
       if (me === undefined) return refused
       await this.retry(me)
-      const done = await Promise.all([...new Set(locks)].map(lock => this.free(lock, me)))
+      const dir = await this.dir()
+      const locks: string[] = []
+      for (const e of await this.w.list(dir).catch(() => [])) {
+        if (!e.name.startsWith('lease.') || e.name.endsWith('.take')) continue
+        const h = holder(await this.held(`${dir}/${e.name}`))
+        if (h?.key === key && h.pid === me[0] && h.start === me[1]) locks.push(`${dir}/${e.name}`)
+      }
+      const done = await Promise.all(locks.map(lock => this.free(lock, me)))
       if (done.includes(undefined)) return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
       return done.includes(true) ? `cc-tuner: released ${key}.` : refused
     }, UNREAD_TOOL))
@@ -1134,16 +1153,17 @@ export class Peers {
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
     // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
-    const k = crc32(`processes|${ev.cwd}`)
-    let guarded = false
+    // Its ack covers this call's guarded steps, each in its directory.
+    const guarded: string[] = []
     if (ev.phase === 'before') {
       for (const p of plan) {
         const w = p.st.words ?? []
         if (await this.off((p.at ?? here)?.[0])) continue
-        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) { guarded = true; break }
+        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w].join('\0'))
       }
     }
-    const unread: Verdict & { line?: string } = guarded && !(ev.acks ?? []).includes(k)
+    const k = crc32(['processes', ...guarded].join('\n'))
+    const unread: Verdict & { line?: string } = guarded.length > 0 && !(ev.acks ?? []).includes(k)
       ? { decision: 'stop', reason: `cc-tuner: could not read the process list, so peers and this session are unknown. To go on, rerun it prefixed CC_TUNER_ACK=${k}.` }
       : { decision: 'allow', line: '' }
     return this.serial(() => this.known(async () => {

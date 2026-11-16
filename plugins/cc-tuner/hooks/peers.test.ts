@@ -1,6 +1,6 @@
 import type { On, PromptSubmitInput } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { Peers, UNKNOWN, ownedOpen, type Event, type Rec, type Step, type World } from './peers'
+import { Peers, UNKNOWN, lockName, ownedOpen, type Event, type Rec, type Step, type World } from './peers'
 
 // A machine in memory: files, git checkouts, a process table, and the answers of the few commands the guard
 // runs (`ps`, `git status`, `git rev-parse`, merge-tree, `pgrep`, `lsof`). Every session is a real Peers over
@@ -749,7 +749,7 @@ test('peers: a process of a nested claude -p is a peer\'s, and a lease and a sha
   expect((await o.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
   expect((await n.peers.lease(CLICK, r1, 'b')).reason, 'lease-nested-does-not-use-the-outers-lease').toContain(`leased to pid ${outer}`)
   expect((await n.bash(r1, 'stack down')).reason, 'resource-the-outer-is-another-user').toContain(`pid ${outer}`)
-  expect(JSON.parse(m.cat(`${DIR}/lease.m.chrome/holder.json`)), 'the lease is the outer\'s own').toMatchObject({ pid: outer })
+  expect(JSON.parse(m.cat(`${DIR}/${lockName('chrome')}/holder.json`)), 'the lease is the outer\'s own').toMatchObject({ pid: outer })
 })
 
 test('record: a session is the nearest claude process above its caller, never the outermost', async () => {
@@ -2160,7 +2160,7 @@ test('resource: two simultaneous first users get one lease, across products', as
   const [a, b] = await Promise.all([sr.peers.lease(CLICK, ra, 'sr'), sc.peers.lease(CLICK, rc, 'sc')])
   expect([a.decision, b.decision].sort(), 'resource-two-first-users-get-one-lease').toEqual(['note', 'stop'])
   const [holder, loser] = a.decision === 'note' ? [sr, b] : [sc, a]
-  expect(JSON.parse(m.files.get(`${DIR}/lease.m.chrome/holder.json`)!.text)).toMatchObject({ key: 'chrome', pid: holder.pid, start: m.procs.get(holder.pid)!.start })
+  expect(JSON.parse(m.files.get(`${DIR}/${lockName('chrome')}/holder.json`)!.text)).toMatchObject({ key: 'chrome', pid: holder.pid, start: m.procs.get(holder.pid)!.start })
   expect(loser.reason).toContain(`pid ${holder.pid}`)
 })
 
@@ -2184,15 +2184,15 @@ test('resource: the lease is the holder\'s until its release, 10 min of silence 
   expect(denied.decision).toBe('stop')
   for (const part of [`pid ${sr.pid}`, 'chrome', 'SendMessage']) expect(denied.reason).toContain(part)
   expect(denied.reason, 'a lease offers no ack').not.toContain('CC_TUNER_ACK')
-  expect(await sc.peers.release('chrome', '/'), 'resource-non-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect(await sc.peers.release('chrome'), 'resource-non-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
   m.advance(599)
   expect((await use(sc, rc)).decision, 'resource-lease-held-within-10-min').toBe('stop')
   expect((await use(sr, ra)).decision).toBe('allow')
   m.advance(661)
   expect((await use(sc, rc)).decision, 'resource-lease-moves-after-10-min-of-silence').toBe('note')
-  expect(await sr.peers.release('chrome', '/'), 'resource-former-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect(await sr.peers.release('chrome'), 'resource-former-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
   expect((await use(sr, ra)).decision, 'the former holder is a non-holder now').toBe('stop')
-  expect(await sc.peers.release('chrome', '/')).toBe('cc-tuner: released chrome.')
+  expect(await sc.peers.release('chrome')).toBe('cc-tuner: released chrome.')
   expect((await use(sr, ra)).decision, 'resource-lease-moves-on-release').toBe('note')
   m.end(sr.pid)
   expect((await use(sc, rc)).decision, 'resource-lease-moves-on-death').toBe('note')
@@ -2201,7 +2201,7 @@ test('resource: the lease is the holder\'s until its release, 10 min of silence 
 test('resource: a renewal or a release that lost the race to a takeover changes nothing, and a renewal comes once a minute', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
   const use = (s: Session, top: string) => s.peers.lease(CLICK, top, s.sid)
   const renewals = () => m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s') && !a[2].includes('if mkdir')).length
   const last = () => (JSON.parse(m.cat(`${lock}/holder.json`)) as { last: number }).last
@@ -2229,19 +2229,19 @@ test('resource: a renewal or a release that lost the race to a takeover changes 
   expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid, 'resource-renewal-keeps-the-new-holder').toBe(sc.pid)
   m.advance(661)
   m.afterRead.set(`${lock}/holder.json`, async () => { await use(sr, ra) })
-  expect(await sc.peers.release('chrome', '/'), 'resource-release-after-a-takeover-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
+  expect(await sc.peers.release('chrome'), 'resource-release-after-a-takeover-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
   expect((JSON.parse(m.cat(`${lock}/holder.json`)) as { pid: number }).pid).toBe(sr.pid)
   m.dirs.add(take)
-  expect(await sr.peers.release('chrome', '/'), 'resource-release-while-the-lock-is-busy-waits').toContain('try again shortly')
+  expect(await sr.peers.release('chrome'), 'resource-release-while-the-lock-is-busy-waits').toContain('try again shortly')
   expect(m.dirs.has(lock)).toBe(true)
   m.dirs.delete(take)
-  expect(await sr.peers.release('chrome', '/')).toBe('cc-tuner: released chrome.')
+  expect(await sr.peers.release('chrome')).toBe('cc-tuner: released chrome.')
 })
 
 test('resource: a renewal that finds the lock busy asks again and then reads the holder: a takeover that finished in between stops it', async () => {
   const { m, ra, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   m.dirs.add(take)
@@ -2258,7 +2258,7 @@ test('resource: a renewal that finds the lock busy asks again and then reads the
 test('resource: a renewal that stays busy stops with no ack, so a takeover that then completes never has two users', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   m.dirs.add(take)
@@ -2280,7 +2280,7 @@ test('resource: a renewal that stays busy stops with no ack, so a takeover that 
 test('resource: a renewal that lost a race and re-reads its own lock allows only while the mutex is free', async () => {
   const { m, ra, sr } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   const text = () => m.cat(`${lock}/holder.json`)
@@ -2298,8 +2298,8 @@ test('resource: a repository resource is leased too, and a lock with no holder f
   const r = m.repo('/w/r')
   declare(m, r, { key: 'db', kind: 'exclusive', tools: ['mcp__db__*'] })
   const [s1, s2] = [session('s1'), session('s2')]
-  m.dirs.add(`${DIR}/lease.r.acme.db`)
-  m.dirTimes.set(`${DIR}/lease.r.acme.db`, m.clock)
+  m.dirs.add(`${DIR}/${lockName('db', 'acme')}`)
+  m.dirTimes.set(`${DIR}/${lockName('db', 'acme')}`, m.clock)
   expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock just made, its holder not written yet').toBe('stop')
   m.advance(661)
   expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock nobody ever wrote to').toBe('note')
@@ -2329,8 +2329,8 @@ test('resource: a repository resource is one per product, a machine one per mach
   expect((await c.peers.lease('use-local', r2, 'c')).decision, 'independent-products-do-not-contend').toBe('note')
   expect((await a.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
   expect((await c.peers.lease(CLICK, r2, 'c')).decision, 'a-machine-resource-has-one-holder').toBe('stop')
-  expect(await a.peers.release('local-device', r1), 'release-finds-the-product-lock').toBe('cc-tuner: released local-device.')
-  expect(await c.peers.release('local-device', r2)).toBe('cc-tuner: released local-device.')
+  expect(await a.peers.release('local-device'), 'release-finds-the-product-lock').toBe('cc-tuner: released local-device.')
+  expect(await c.peers.release('local-device')).toBe('cc-tuner: released local-device.')
 })
 
 test('resource: a lease lasts ten minutes from its holder\'s last use, though use is written once a minute', async () => {
@@ -2395,10 +2395,10 @@ test('resource: lock names cannot collide across scopes, and a release frees eve
   const [a, b] = [session('a'), session('b')]
   expect((await a.peers.lease('machine-db', r, 'a')).decision).toBe('note')
   expect((await b.peers.lease('repo-db', r, 'b')).decision, 'machine-shop.db-and-product-shop-db-are-two-locks').toBe('note')
-  expect(await b.peers.release('db', r)).toBe('cc-tuner: released db.')
+  expect(await b.peers.release('db')).toBe('cc-tuner: released db.')
   expect((await b.peers.lease('machine-db', r, 'b')).decision, 'releasing-db-left-shop.db-held').toBe('stop')
   expect((await a.peers.lease('both', r, 'a')).decision).toBe('note')
-  expect(await a.peers.release('x', r)).toBe('cc-tuner: released x.')
+  expect(await a.peers.release('x')).toBe('cc-tuner: released x.')
   expect((await b.peers.lease('both', r, 'b')).decision, 'release-freed-both-holdings-of-x').toBe('note')
 })
 
@@ -2446,10 +2446,10 @@ test('resource: a holder file with a trailing newline still lets a dead holder\'
   declareMachine(m, CHROME)
   const [s1, s2] = [session('s1'), session('s2')]
   await s1.peers.lease(CLICK, r, 's1')
-  m.put(`${DIR}/lease.m.chrome/holder.json`, `${m.files.get(`${DIR}/lease.m.chrome/holder.json`)!.text}\n`)
+  m.put(`${DIR}/${lockName('chrome')}/holder.json`, `${m.files.get(`${DIR}/${lockName('chrome')}/holder.json`)!.text}\n`)
   m.end(s1.pid)
   expect((await s2.peers.lease(CLICK, r, 's2')).decision).toBe('note')
-  expect(await s2.peers.release('chrome', '/')).toBe('cc-tuner: released chrome.')
+  expect(await s2.peers.release('chrome')).toBe('cc-tuner: released chrome.')
 })
 
 test('resource: the module denies an MCP tool leased to another session, and answers peers_release', async ($, on) => {
@@ -2464,7 +2464,7 @@ test('resource: the module denies an MCP tool leased to another session, and ans
   expect((await $.tool.call({ tool: 'mcp__chrome-devtools__list' })).deny).toContain('leased')
   expect(ran).toEqual([])
   expect((await $.tool.call({ tool: 'mcp__cc-tuner__peers_release', key: 'chrome' })).result).toBe('cc-tuner: chrome is not leased to this session.')
-  expect(await peer.peers.release('chrome', '/')).toBe('cc-tuner: released chrome.')
+  expect(await peer.peers.release('chrome')).toBe('cc-tuner: released chrome.')
   const ok = await $.tool.call({ tool: CLICK })
   expect(ok.deny).toBeUndefined()
   expect(ok.context?.join(' ')).toContain('peers_release')
@@ -2932,4 +2932,97 @@ test('record: a reftable HEAD is read through git', async () => {
   m.symbolic.set(r, 'real')
   await session('s').touch(r)
   expect(m.rec('s').checkouts[r]!.expected, 'record-reftable-head').toBe('real')
+})
+
+// --- second review on 3b0bbc9 ------------------------------------------------------------------------------
+test('inspection: status runs from the top of the checkout, whatever directory the engine runs in', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.ran.length = 0
+  await decide(r, 'git reset --hard')
+  expect(m.ran.find(isolatedStatus)![2], 'status-cds-to-the-work-tree').toContain('cd "$w" &&')
+})
+
+test('inspection: system attributes that git was told to skip leave the status readable', async () => {
+  const { m, r, peer, ready, decide } = world()
+  await ready
+  m.dirty(r, ' M f')
+  m.end(peer.pid)
+  m.failing.set('git var', 1)
+  m.ran.length = 0
+  const v = await decide(r, 'git reset --hard')
+  expect(v.reason ?? '', 'no-system-attributes-is-read').not.toContain('could not read git status')
+  expect(v.reason ?? '', 'no-system-attributes-is-no-old-git').not.toContain('git 2.42')
+  expect(m.ran.find(isolatedStatus)![9], 'no-system-file-is-copied').toBe('')
+})
+
+test('resource: a holder that cannot be read gives back what the call took', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.startsWith('d="$1"; if mkdir')) { m.failing.set('ps', 2); m.onRun = undefined } }
+  await b.peers.pid()
+  m.advance(61)
+  expect((await b.peers.lease('mirror', r, 'b')).reason, 'unread-holder-stops').toContain('could not read the process list')
+  m.failing.delete('ps')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'screen-was-given-back').toBe('note')
+})
+
+test('resource: the holder releases its lease after the checkout stops declaring it', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  for (const r of [r1, r2]) declare(m, r, CHROME)
+  const [a, b] = [session('a'), session('b')]
+  expect((await a.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
+  m.files.delete(`${r1}/.claude/cc-tuner-resources.json`)
+  expect(await a.peers.release('chrome'), 'released-without-the-declaration').toBe('cc-tuner: released chrome.')
+  expect((await b.peers.lease(CLICK, r2, 'b')).decision, 'the-product-lease-is-free').toBe('note')
+})
+
+test('resource: a lock is named by a short lowercase digest of its scope and key', async () => {
+  const { m, session } = machine()
+  const [r1, r2] = [m.repo('/w/r1'), m.repo('/w/r2')]
+  const key = 'локальный-тестовый-браузер-для-выставления-счетов-и-отчетности'
+  for (const [r, product] of [[r1, 'Shop'], [r2, 'shop']] as const) m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product, resources: [{ key, kind: 'exclusive', tools: ['t'] }] }))
+  const [a, b] = [session('a'), session('b')]
+  expect((await a.peers.lease('t', r1, 'a')).decision).toBe('note')
+  expect((await b.peers.lease('t', r2, 'b')).decision, 'Shop-and-shop-are-two-products').toBe('note')
+  const names = [...m.dirs].filter(d => d.startsWith(`${DIR}/lease.`)).map(d => d.slice(DIR.length + 1))
+  expect(names.length).toBe(2)
+  for (const n of names) expect(n, 'case-free-and-bounded').toMatch(/^lease\.[0-9a-f]{16}$/)
+})
+
+test('guard: TaskStop of a task no session keeps runs when ps cannot be read, and so does one in a checkout with the guard off', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declare(m, r, STACK)
+  const [me, peer] = [session('me'), session('peer')]
+  await peer.touch(r)
+  await me.peers.started([step('stack up')], r, 'me', 'b1')
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(), 'fresh')
+  expect(await fresh.peers.taskStop('ordinary'), 'an-ordinary-task-stops').toBeUndefined()
+  expect(await fresh.peers.taskStop('b1'), 'a-kept-task-is-unread').toContain('could not read the process list')
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'acme', guard: false, resources: [STACK] }))
+  expect(await fresh.peers.taskStop('b1'), 'guard-off-where-it-runs').toBeUndefined()
+})
+
+test('inspection: the ack for an unread process list covers that command in that directory only', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M f')
+  m.failing.set('ps -A', 2)
+  m.failing.set('ps', 2)
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  const key = async (c: string) => /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await fresh.bash(r, c)).reason!)![1]!
+  const k = await key('git reset --hard')
+  expect(await key('git clean -fdx'), 'another-command-another-key').not.toBe(k)
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git clean -fdx')], acks: [k] })).decision, 'one-ack-does-not-pass-another-command').toBe('stop')
+  expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'it-passes-its-own').toBe('allow')
 })

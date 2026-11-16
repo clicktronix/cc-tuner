@@ -244,6 +244,12 @@ equals "linked-attributes-plain-git-sees-the-change" " M f" "$(git -C "$RL" stat
 one 'git reset --hard'
 e2e "$RL" go
 check  "linked-attributes-the-guard-resolves-them-as-git-does" "would discard f in" "$(cat "$W/api.log")"
+# A replacement ref swaps HEAD's tree for git; the isolated status has none, so the guard leaves such a tree unread.
+RP="$(repo)"; commit_file "$RP" f a; H0=$(git -C "$RP" rev-parse HEAD); commit_file "$RP" f b; git -C "$RP" replace HEAD "$H0"
+equals "replace-plain-git-sees-the-staged-change" "M  f" "$(git -C "$RP" status --porcelain)"
+one 'git reset --hard'
+e2e "$RP" go
+check  "replace-the-guard-leaves-the-tree-unread" "could not read git status" "$(cat "$W/api.log")"
 RS2="$(flow_workdir)/sha256"; mkdir -p "$RS2"; RS2="$(cd "$RS2" && pwd -P)"
 git -C "$RS2" init -q --object-format=sha256 -b main; commit_file "$RS2" tracked.txt a
 printf 'b\n' > "$RS2/tracked.txt"
@@ -402,10 +408,11 @@ for line in sys.stdin:
     print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": r}), flush=True)
 PY
 jq -nc --arg p "$W/mcp.py" '{mcpServers: {lab: {command: "python3", args: [$p]}}}' > "$W/mcp.json"
-LOCK="$CC_TUNER_PEERS_DIR/lease.m.lab"
 lab() { e2e "$RR" --mcp-config "$W/mcp.json" --strict-mcp-config --session-id "$1" go; }
 script "$(jq -nc '{when: "", calls: [{name: "mcp__lab__ping", input: {}}]}')"
 lab 00000000-0000-4000-8000-0000000000f1
+LOCK=$(dirname "$(grep -l '"key":"lab"' "$CC_TUNER_PEERS_DIR"/lease.*/holder.json)")
+check  "resource-lease-lock-name-is-a-digest" "lease." "$(basename "$LOCK" | grep -E '^lease\.[0-9a-f]{16}$')"
 check  "resource-lease-tool-ran" "pong-from-lab" "$(cat "$W/api.log")"
 equals "resource-lease-first-user-takes-it-with-mkdir" "$(session_pid)" "$(jq -r .pid "$LOCK/holder.json")"
 peer; PL=$SP

@@ -102,8 +102,10 @@ never asks the user; for files of unknown owner the reason says they may be the 
     decision 2026-11-14).
   - Every live product session consumes a shared resource.
   - An exclusive resource is leased by its first user until the holder runs `peers_release <key>`
-    (checked under the same lock; anyone else's release is refused), 10 min after the holder's last
-    use, or the holder's death. A repository's resource has one lease per product (per repository
+    (checked under the same lock; anyone else's release is refused; found by its holder file, so a branch
+    that no longer declares the resource does not keep it), 10 min after the holder's last use (up to 11:
+    use is written once a minute), or the holder's death. A lock's name is a digest of its scope and key,
+    the same on a file system that folds case. A repository's resource has one lease per product (per repository
     without one), a machine's one per machine. A call denied one resource gives back the ones it
     took for itself.
   - A repository without the file adds no repository rules; machine resources still apply.
@@ -131,10 +133,12 @@ never asks the user; for files of unknown owner the reason says they may be the 
   pathspecs, no transport and no lazy fetch (`GIT_ALLOW_PROTOCOL` naming no protocol, `GIT_NO_LAZY_FETCH`). `status`
   runs in a bare git directory of its own (objects through alternates, HEAD pinned, the real index read, info/exclude
   and info/attributes copied, the user's and system's attribute files copied, only the core settings that shape status
-  passed), so no repository config, include, hook or filter driver
+  passed; a repository with replacement refs is left unread), so no repository config, include, hook or filter driver
   exists there however the repository changes meanwhile; it reads the real attributes, so line endings are git's.
   merge-tree runs isolated the same way. Output the engine cut off, or a `ps` that fails, counts as no answer: a
-  destructive step, a kill or a shared stop then stops with an ack.
+  destructive step, a kill or a shared stop then stops with an ack for that command in that directory, and a
+  `TaskStop` is held back only for a task some record keeps where the guard is on. `git var GIT_ATTR_SYSTEM`
+  exiting 1 (GIT_ATTR_NOSYSTEM) means no system attribute file.
 - **Tools** the module registers: `peers_report`, `peers_claim <plan>`, `peers_release <key>`. The guard
   itself is the `tool.call` handler.
 - **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its `tool.call`

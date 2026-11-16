@@ -441,7 +441,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {
     const [p, cwd] = [peersOf($), await $.session.cwd()]
-    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await p.release(String(e.key ?? ''), cwd) }
+    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await p.release(String(e.key ?? '')) }
     if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await p.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
     return { result: await p.report(typeof e.path === 'string' && e.path !== '' ? join(cwd, e.path) : cwd) }
   })
