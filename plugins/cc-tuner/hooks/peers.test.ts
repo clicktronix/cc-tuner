@@ -127,9 +127,12 @@ class Machine {
         this.ran.push([...argv])
         this.envs[argv[0]!] = init?.env
         const bare = argv[0] === 'git' ? argv.filter((x, i) => x !== '-c' && argv[i - 1] !== '-c' && !x.startsWith('--attr-source=')) : argv
-        const name = bare[0] === 'git' ? `git ${bare[3]}` : bare[0] === '/bin/sh' && bare[2]?.includes('merge-tree') ? 'merge-tree' : bare[0]!
+        const name = bare[0] === 'git' ? `git ${bare[3]}` : bare[0] === '/bin/sh' && bare[2]?.includes('merge-tree') ? 'merge-tree'
+          : bare[0] === 'ps' && bare.includes('-A') ? 'ps -A' : bare[0]!
         const failing = this.failing.get(name)
-        return { exitCode: 0, ...this.answer(pid, bare), ...(failing !== undefined && { exitCode: failing }), ...(this.truncate.has(name) && { isStdoutTruncated: true }) }
+        const out = { exitCode: 0, ...this.answer(pid, bare), ...(failing !== undefined && { exitCode: failing }) }
+        // Output cut off loses its end, as the engine's limit does.
+        return this.truncate.has(name) ? { ...out, stdout: out.stdout.slice(0, Math.floor(out.stdout.length / 2)), isStdoutTruncated: true } : out
       },
       // Whole milliseconds, as Date.now gives them; file times keep their fraction.
       now: () => Math.floor(this.clock),
@@ -189,7 +192,10 @@ class Machine {
     }
     if (cmd === '/bin/sh' && a[1]?.includes('merge-tree')) {
       const out = this.merges.get(`${a[5]}-${a[6]}`)
-      return out === undefined ? { exitCode: 0, stdout: 'tree\0' } : { exitCode: 1, stdout: `tree\0${out.split(',').map(n => `${n}\0`).join('')}\0CONFLICT\0` }
+      const tree = 'a'.repeat(40)
+      // '!error' stands for git failing with exit 1 and no tree, as an object-format mismatch does.
+      if (out === '!error') return { exitCode: 1, stdout: '' }
+      return out === undefined ? { exitCode: 0, stdout: `${tree}\0` } : { exitCode: 1, stdout: `${tree}\0${out.split(',').map(n => `${n}\0`).join('')}\0CONFLICT\0` }
     }
     if (cmd === '/bin/sh' && a[1]?.includes('mkdir -p')) { this.mkdir(a[3]!); return { stdout: '' } }
     if (cmd === '/bin/sh' && a[1]?.includes('rm -f')) {
@@ -285,7 +291,7 @@ function engine(on: On, m: Machine, pid: number, effect: (command: string) => vo
   })
   on('process.run', async (_, e) => {
     if (broken()) throw new Error('injected process failure')
-    return { value: { ...await w.run(e.argv), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { stderr: '', isStdoutTruncated: false, isStderrTruncated: false, ...await w.run(e.argv) } }
   })
   const ran: string[] = []
   on('tool.call', { tool: 'Bash' }, (_, e) => {
@@ -720,7 +726,7 @@ test('peers: a process of a nested claude -p is a peer\'s, and a lease and a sha
   expect((await o.peers.lease(CLICK, r1, 'a')).decision).toBe('note')
   expect((await n.peers.lease(CLICK, r1, 'b')).reason, 'lease-nested-does-not-use-the-outers-lease').toContain(`leased to pid ${outer}`)
   expect((await n.bash(r1, 'stack down')).reason, 'resource-the-outer-is-another-user').toContain(`pid ${outer}`)
-  expect(JSON.parse(m.cat(`${DIR}/lease.chrome/holder.json`)), 'the lease is the outer\'s own').toMatchObject({ pid: outer })
+  expect(JSON.parse(m.cat(`${DIR}/lease.m.chrome/holder.json`)), 'the lease is the outer\'s own').toMatchObject({ pid: outer })
 })
 
 test('record: a session is the nearest claude process above its caller, never the outermost', async () => {
@@ -796,8 +802,8 @@ test('report: claims, edited paths, and merge-tree conflicts of same-repository 
   expect(out).toContain('conflicts with HEAD: f.txt')
   expect(out.split('\n').filter(l => l.includes('conflicts with HEAD')).length).toBe(1)
   expect(m.ran.filter(a => a[2]?.includes('merge-tree')).map(a => a[7])).toEqual([`sha-${wa}`, `sha-${wb}`])
-  expect(m.files.has(`${DIR}/merge/v2/sha-${ra}-sha-${wa}`), 'report-caches-per-sha-pair').toBe(true)
-  m.put(`${DIR}/merge/v2/sha-${ra}-sha-${wa}`, '["cached.txt"]')
+  expect(m.files.has(`${DIR}/merge/v3/sha-${ra}-sha-${wa}`), 'report-caches-per-sha-pair').toBe(true)
+  m.put(`${DIR}/merge/v3/sha-${ra}-sha-${wa}`, '["cached.txt"]')
   expect(await sr.report(ra)).toContain('conflicts with HEAD: cached.txt')
 })
 
@@ -1272,7 +1278,7 @@ test('inspection: every git read is inert, and status reads the real attributes 
   expect(gits.length).toBeGreaterThan(0)
   for (const argv of gits) for (const x of INERT) expect(argv, `inert-git-${argv[argv.indexOf('-C') + 2]}-${x}`).toContain(x)
   expect(m.ran.some(a => a.some(x => x.startsWith('--attr-source'))), 'inert-real-attributes-so-eol-normalisation-holds').toBe(false)
-  expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
+  expect(m.envs.git, 'inert-git-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
   expect(m.ran.find(a => a.includes('status')), 'inert-status-ignores-submodules').toContain('--ignore-submodules=all')
   expect(m.ran.some(a => a.includes('config') && !a.includes('submodule.recurse') && !a.includes('--get-regexp')), 'inert-config-read-only-for-filters-and-submodule.recurse').toBe(false)
   const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
@@ -1288,7 +1294,7 @@ test('inspection: every git read is inert, and status reads the real attributes 
   expect(merge[2], 'inert-merge-tree-names-come-raw').toContain('--name-only -z')
   expect(merge.join(' '), 'inert-merge-tree-names-no-driver-override').not.toContain('merge.')
   expect(merge, 'inert-merge-tree-not-in-the-checkout').not.toContain('-C')
-  expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' })
+  expect(m.envs['/bin/sh'], 'inert-merge-tree-env').toEqual({ GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' })
 })
 
 test('inspection: status silences each filter driver config defines, and only filters', async () => {
@@ -1348,6 +1354,31 @@ test('inspection: output the engine cut off is no answer: status, a tree and mer
   m.truncate.delete('merge-tree')
   m.merges.set(`sha-${r}-sha-other`, 'f.txt')
   expect(await me.report(r), 'a-cut-off-merge-tree-was-not-cached').toContain('conflicts with HEAD: f.txt')
+})
+
+test('inspection: a process list cut off still finds the session, so the guard keeps protecting', async () => {
+  const { m, r, peer, ready } = world()
+  await ready
+  m.end(peer.pid)
+  m.dirty(r, ' M f')
+  m.truncate.add('ps -A')
+  const fresh = new Session(m, m.spawn(m.spawn(1, 'claude'), 'bash'), 'fresh')
+  m.status.set(r, [' M f'])
+  const v = await fresh.bash(r, 'git reset --hard')
+  expect(v.decision, 'truncated-ps-still-protects').toBe('stop')
+  expect(v.reason).toContain('would discard f')
+})
+
+test('inspection: a merge-tree that failed with exit 1 and no tree is no result, and is not cached', async () => {
+  const { m, r, peer, me, ready } = world()
+  await ready
+  m.end(peer.pid)
+  const peer2 = m.spawn(), wt = m.worktree(r, '/w/wt', 'feat')
+  await new Session(m, peer2, 'p2').touch(wt)
+  m.shas.set(wt, 'sha-other')
+  m.merges.set(`sha-${r}-sha-other`, '!error')
+  expect(await me.report(r), 'merge-tree-error-is-not-computed').toContain('conflicts with HEAD: not computed')
+  expect([...m.files.keys()].some(f => f.includes('/merge/')), 'merge-tree-error-is-not-cached').toBe(false)
 })
 
 test('inspection: a git too old for merge-tree --write-tree is never run unchecked; the guard says so and treats the tree as unread', async () => {
@@ -1946,7 +1977,7 @@ test('resource: two simultaneous first users get one lease, across products', as
   const [a, b] = await Promise.all([sr.peers.lease(CLICK, ra, 'sr'), sc.peers.lease(CLICK, rc, 'sc')])
   expect([a.decision, b.decision].sort(), 'resource-two-first-users-get-one-lease').toEqual(['note', 'stop'])
   const [holder, loser] = a.decision === 'note' ? [sr, b] : [sc, a]
-  expect(JSON.parse(m.files.get(`${DIR}/lease.chrome/holder.json`)!.text)).toMatchObject({ key: 'chrome', pid: holder.pid, start: m.procs.get(holder.pid)!.start })
+  expect(JSON.parse(m.files.get(`${DIR}/lease.m.chrome/holder.json`)!.text)).toMatchObject({ key: 'chrome', pid: holder.pid, start: m.procs.get(holder.pid)!.start })
   expect(loser.reason).toContain(`pid ${holder.pid}`)
 })
 
@@ -1987,7 +2018,7 @@ test('resource: the lease is the holder\'s until its release, 10 min of silence 
 test('resource: a renewal or a release that lost the race to a takeover changes nothing, and a renewal comes once a minute', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
   const use = (s: Session, top: string) => s.peers.lease(CLICK, top, s.sid)
   const renewals = () => m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s') && !a[2].includes('if mkdir')).length
   const last = () => (JSON.parse(m.cat(`${lock}/holder.json`)) as { last: number }).last
@@ -2027,7 +2058,7 @@ test('resource: a renewal or a release that lost the race to a takeover changes 
 test('resource: a renewal that finds the lock busy asks again and then reads the holder: a takeover that finished in between stops it', async () => {
   const { m, ra, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   m.dirs.add(take)
@@ -2044,7 +2075,7 @@ test('resource: a renewal that finds the lock busy asks again and then reads the
 test('resource: a renewal that stays busy stops with no ack, so a takeover that then completes never has two users', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   m.dirs.add(take)
@@ -2066,7 +2097,7 @@ test('resource: a renewal that stays busy stops with no ack, so a takeover that 
 test('resource: a renewal that lost a race and re-reads its own lock allows only while the mutex is free', async () => {
   const { m, ra, sr } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/lease.chrome`, `${DIR}/lease.chrome.take`]
+  const [lock, take] = [`${DIR}/lease.m.chrome`, `${DIR}/lease.m.chrome.take`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   const text = () => m.cat(`${lock}/holder.json`)
@@ -2084,8 +2115,8 @@ test('resource: a repository resource is leased too, and a lock with no holder f
   const r = m.repo('/w/r')
   declare(m, r, { key: 'db', kind: 'exclusive', tools: ['mcp__db__*'] })
   const [s1, s2] = [session('s1'), session('s2')]
-  m.dirs.add(`${DIR}/lease.acme.db`)
-  m.dirTimes.set(`${DIR}/lease.acme.db`, m.clock)
+  m.dirs.add(`${DIR}/lease.r.acme.db`)
+  m.dirTimes.set(`${DIR}/lease.r.acme.db`, m.clock)
   expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock just made, its holder not written yet').toBe('stop')
   m.advance(661)
   expect((await s1.peers.lease('mcp__db__query', r, 's1')).decision, 'a lock nobody ever wrote to').toBe('note')
@@ -2159,13 +2190,42 @@ test('claim: plans of the same relative path in two repositories are two claims,
   expect(Object.values(m.rec('me').claims).flatMap(c => c.paths), 'closing-one-keeps-the-other').toEqual(['src/two/'])
 })
 
+test('resource: a give-back that fails keeps the stop, and is tried again by the next call', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
+  const [a, b, c] = [session('a'), session('b'), session('c')]
+  expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
+  m.onRun = argv => { if (argv[2]?.includes('] && rm -rf "$d" || exit 1')) throw new Error('release failed') }
+  expect((await b.peers.lease('mirror', r, 'b')).decision, 'give-back-failure-keeps-the-stop').toBe('stop')
+  m.onRun = undefined
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'screen-still-held-until-retried').toBe('stop')
+  expect((await b.peers.lease('device', r, 'b')).decision).toBe('stop')
+  expect((await c.peers.lease('capture', r, 'c')).decision, 'the-next-call-gave-it-back').toBe('note')
+})
+
+test('resource: lock names cannot collide across scopes, and a release frees every holding of its key', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/shop')
+  m.put(`${r}/.claude/cc-tuner-resources.json`, JSON.stringify({ product: 'shop', resources: [{ key: 'db', kind: 'exclusive', tools: ['repo-db'] }, { key: 'x', kind: 'exclusive', tools: ['both'] }] }))
+  declareMachine(m, { key: 'shop.db', kind: 'exclusive', tools: ['machine-db'] }, { key: 'x', kind: 'exclusive', tools: ['both'] })
+  const [a, b] = [session('a'), session('b')]
+  expect((await a.peers.lease('machine-db', r, 'a')).decision).toBe('note')
+  expect((await b.peers.lease('repo-db', r, 'b')).decision, 'machine-shop.db-and-product-shop-db-are-two-locks').toBe('note')
+  expect(await b.peers.release('db', r)).toBe('cc-tuner: released db.')
+  expect((await b.peers.lease('machine-db', r, 'b')).decision, 'releasing-db-left-shop.db-held').toBe('stop')
+  expect((await a.peers.lease('both', r, 'a')).decision).toBe('note')
+  expect(await a.peers.release('x', r)).toBe('cc-tuner: released x.')
+  expect((await b.peers.lease('both', r, 'b')).decision, 'release-freed-both-holdings-of-x').toBe('note')
+})
+
 test('resource: a holder file with a trailing newline still lets a dead holder\'s lease move', async () => {
   const { m, session } = machine()
   const r = m.repo('/w/r')
   declareMachine(m, CHROME)
   const [s1, s2] = [session('s1'), session('s2')]
   await s1.peers.lease(CLICK, r, 's1')
-  m.put(`${DIR}/lease.chrome/holder.json`, `${m.files.get(`${DIR}/lease.chrome/holder.json`)!.text}\n`)
+  m.put(`${DIR}/lease.m.chrome/holder.json`, `${m.files.get(`${DIR}/lease.m.chrome/holder.json`)!.text}\n`)
   m.end(s1.pid)
   expect((await s2.peers.lease(CLICK, r, 's2')).decision).toBe('note')
   expect(await s2.peers.release('chrome', '/')).toBe('cc-tuner: released chrome.')

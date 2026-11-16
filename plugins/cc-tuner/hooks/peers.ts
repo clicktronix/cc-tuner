@@ -129,7 +129,8 @@ const SWEEP = 'cd "$1" || exit 0; shift; rm -f -- "$@"; find merge -type f -mmin
 const ISOLATED_MERGE = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS ' +
   'GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; ' +
   'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; m="$3"; n="$4"; shift 4; ' +
-  'git init -q --bare --template= "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
+  'f=$(git "$@" --git-dir="$o" rev-parse --show-object-format) || f=sha1; ' +
+  'git init -q --bare --template= --object-format="$f" "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
   'git "$@" --git-dir="$d" merge-tree --write-tree --name-only -z "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc'
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
@@ -147,7 +148,10 @@ const NULL_SIGNAL = /^0+$/
 // normalisation stay git's) with every filter driver config defines overridden on the command line, which beats every
 // config source, an included file too: see `silenced`. A merge driver is the one thing config can select without
 // attributes (`merge.default`, a driver named `text`), so merge-tree never runs in the repository: see ISOLATED_MERGE.
-const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' }
+// No transport either: a partial clone fetches missing objects on demand through its remote, and a remote can be a
+// program (`ext::`, a remote helper). GIT_ALLOW_PROTOCOL naming no real protocol forbids every one over any config, and
+// GIT_NO_LAZY_FETCH (git 2.44) stops the fetch itself; a missing object then fails the read, which is unread.
+const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'cc-tuner-none', GIT_NO_LAZY_FETCH: '1' }
 const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null']
 // A command whose output the engine cut off answered nothing complete: it counts as failed.
 const TRUNCATED = 124
@@ -372,18 +376,35 @@ export class Peers {
   }
 
   // --- processes ----------------------------------------------------------------------------------------
-  // pid -> (ppid, name) of every process; the start times it reads are kept like any other.
-  async table(): Promise<Map<number, { ppid: number; name: string }>> {
-    const out = (await this.run(['ps', '-A', '-o', 'pid=,ppid=,lstart=,comm='], { env: PS_ENV })).stdout
-    const table = new Map<number, { ppid: number; name: string }>()
-    const at = this.now()
-    for (const line of out.split('\n')) {
+  // `ps` rows as (pid, ppid, start, name), undefined when the engine cut the output off.
+  private async rows(argv: readonly string[]): Promise<[number, number, string, string][] | undefined> {
+    const r = await this.run(argv, { env: PS_ENV })
+    if (r.exitCode === TRUNCATED) return undefined
+    const out: [number, number, string, string][] = []
+    for (const line of r.stdout.split('\n')) {
       const m = LSTART.exec(line)
-      if (m === null) continue
-      table.set(Number(m[1]), { ppid: Number(m[2]), name: basename(m[4]!.trim()) })
-      this.ps.set(Number(m[1]), { start: m[3], at })
+      if (m !== null) out.push([Number(m[1]), Number(m[2]), m[3]!, basename(m[4]!.trim())])
     }
+    return out
+  }
+
+  // pid -> (ppid, name) of every process, or undefined when the list came back cut off; the start times it reads are
+  // kept like any other.
+  async table(): Promise<Map<number, { ppid: number; name: string }> | undefined> {
+    const rows = await this.rows(['ps', '-A', '-o', 'pid=,ppid=,lstart=,comm='])
+    if (rows === undefined) return undefined
+    const at = this.now()
+    const table = new Map<number, { ppid: number; name: string }>()
+    for (const [p, pp, start, name] of rows) { table.set(p, { ppid: pp, name }); this.ps.set(p, { start, at }) }
     return table
+  }
+
+  // One process's (ppid, name), asked of `ps` alone: what a walk up the tree uses when the full list was cut off.
+  async parent(pid: number, table?: Map<number, { ppid: number; name: string }>): Promise<{ ppid: number; name: string } | undefined> {
+    if (table !== undefined) return table.get(pid)
+    const row = (await this.rows(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', String(pid)]))?.find(([p]) => p === pid)
+    if (row !== undefined) this.ps.set(pid, { start: row[2], at: this.now() })
+    return row === undefined ? undefined : { ppid: row[1], name: row[3] }
   }
 
   // pid -> its start time, undefined once it is gone; read by `ps` at most once a minute per pid.
@@ -391,13 +412,13 @@ export class Peers {
     const at = this.now()
     const need = [...new Set(pids)].filter(p => { const e = this.ps.get(p); return e === undefined || (at - e.at >= PS_TTL && p !== this.claude) })
     if (need.length > 0) {
-      const out = (await this.run(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', need.join(',')], { env: PS_ENV })).stdout
-      const found = new Map<number, string>()
-      for (const line of out.split('\n')) {
-        const m = LSTART.exec(line)
-        if (m !== null) found.set(Number(m[1]), m[3]!)
+      // A list cut off is asked again one pid at a time; a pid whose own answer is cut off keeps what was known.
+      const ask = (ps: number[]) => this.rows(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', ps.join(',')])
+      const all = await ask(need)
+      for (const p of need) {
+        const rows = all ?? await ask([p])
+        if (rows !== undefined) this.ps.set(p, { start: rows.find(([q]) => q === p)?.[2], at })
       }
-      for (const p of need) this.ps.set(p, { start: found.get(p), at })
     }
     return new Map(pids.map(p => [p, this.ps.get(p)?.start]))
   }
@@ -413,12 +434,12 @@ export class Peers {
     if (this.claude !== undefined) return this.claude
     const given = Number((await this.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim())
     const table = await this.table()
-    if (!table.has(given)) return undefined
+    if ((await this.parent(given, table)) === undefined) return undefined
     let found = given
     const seen = new Set<number>()
-    for (let p = given; table.has(p) && !seen.has(p); p = table.get(p)!.ppid) {
+    for (let p = given, row = await this.parent(p, table); row !== undefined && !seen.has(p) && seen.size < 64; p = row.ppid, row = await this.parent(p, table)) {
       seen.add(p)
-      if (/^claude(\.exe)?$/.test(table.get(p)!.name)) { found = p; break }
+      if (/^claude(\.exe)?$/.test(row.name)) { found = p; break }
     }
     return (this.claude = found)
   }
@@ -702,7 +723,7 @@ export class Peers {
   // key of it names, `merge.default` included, can run), the user's and the system's config are not read, and the
   // result objects land in it alone. Cached per SHA pair.
   private async conflicts(common: string, mine: string, theirs: string): Promise<string[] | undefined> {
-    const cache = `${await this.dir()}/merge/v2/${mine}-${theirs}`
+    const cache = `${await this.dir()}/merge/v3/${mine}-${theirs}`
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
@@ -711,6 +732,8 @@ export class Peers {
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
     // NUL-separated: the tree, the conflicted names, an empty field, then messages. Names come raw, never quoted.
     const fields = r.stdout.split('\0')
+    // A result is a tree id first; anything else (an error that still exited 1) is no result, and is not cached.
+    if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(fields[0] ?? '')) return undefined
     const names = fields.slice(1, fields.indexOf('', 1) < 0 ? undefined : fields.indexOf('', 1))
     await this.w.write(cache, JSON.stringify(names))
     return names
@@ -847,10 +870,18 @@ export class Peers {
     return pid === undefined ? undefined : [pid, (await this.starts([pid])).get(pid) ?? '']
   }
 
-  // A machine resource's lock is one per machine; a repository's is one per product (or repository without one).
+  // A machine resource's lock is one per machine; a repository's is one per product (or repository without one). Each
+  // part is escaped, dots included, so no machine key and no product with a key can name the same lock.
   private async lock(key: string, at?: Where) {
-    const scope = at === undefined ? '' : `${(await this.product(...at)) ?? `repo-${crc32(at[1])}`}.`
-    return `${await this.dir()}/lease.${(scope + key).replace(/[^A-Za-z0-9_.-]/g, '_')}`
+    const enc = (x: string) => x.replace(/[^A-Za-z0-9_-]/g, c => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+    const name = at === undefined ? `m.${enc(key)}` : `r.${enc((await this.product(...at)) ?? `repo-${crc32(at[1])}`)}.${enc(key)}`
+    return `${await this.dir()}/lease.${name}`
+  }
+
+  // Locks a denied call took and could not give back yet: every later lease or release call tries again.
+  private pending = new Set<string>()
+  private async retry(me: [number, string]) {
+    for (const l of [...this.pending]) if ((await this.free(l, me).catch(() => undefined)) !== undefined) this.pending.delete(l)
   }
 
   // What a lock's holder file says, without a trailing newline: the shell compares it as `$(cat …)` does.
@@ -865,14 +896,16 @@ export class Peers {
     return this.serial(async () => {
       const me = await this.self()
       if (me === undefined) return { decision: 'allow' }
+      await this.retry(me)
       const notes: string[] = []
       const taken: string[] = []
       for (const [{ key }, machine] of hits) {
         const lock = await this.lock(key, machine ? undefined : at)
         const v = await this.hold(key, lock, me, sid)
         if (v.decision === 'stop') {
-          // The call does not run, so what it took for itself goes back.
-          for (const l of taken) await this.free(l, me)
+          // The call does not run, so what it took for itself goes back; one that cannot go back now is retried later,
+          // and the stop stands either way.
+          for (const l of taken) if ((await this.free(l, me).catch(() => undefined)) === undefined) this.pending.add(l)
           return v
         }
         if (v.reason !== undefined) { notes.push(v.reason); taken.push(lock) }
@@ -940,12 +973,10 @@ export class Peers {
     return this.serial(async () => {
       const me = await this.self()
       if (me === undefined) return refused
-      for (const lock of locks) {
-        const done = await this.free(lock, me)
-        if (done === undefined) return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
-        if (done) return `cc-tuner: released ${key}.`
-      }
-      return refused
+      await this.retry(me)
+      const done = await Promise.all([...new Set(locks)].map(lock => this.free(lock, me)))
+      if (done.includes(undefined)) return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
+      return done.includes(true) ? `cc-tuner: released ${key}.` : refused
     })
   }
 
@@ -1494,8 +1525,8 @@ class Guard {
     if (pids === undefined) return this.note(`could not tell which process \`${label}\` stops; peers_report shows each peer's pid.`)
     const table = await this.p.table()
     for (const pid of pids) {
-      let [p, hops] = [pid, 0]
-      while (table.has(p) && p > 1 && p !== this.pid && !peers.has(p) && hops < 64) [p, hops] = [table.get(p)!.ppid, hops + 1]
+      let [p, hops, row] = [pid, 0, await this.p.parent(pid, table)]
+      while (row !== undefined && p > 1 && p !== this.pid && !peers.has(p) && hops < 64) [p, hops, row] = [row.ppid, hops + 1, await this.p.parent(row.ppid, table)]
       if (peers.has(p)) this.stop('kill', String(pid), `\`${label}\` would stop process ${pid}, which belongs to ${who(...peers.get(p)!)}.`)
     }
   }

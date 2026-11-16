@@ -217,6 +217,20 @@ script "$(jq -nc --arg w "$W" '{when: "", calls: [{name: "Bash", input: {command
 e2e "$RE" go
 equals "crlf-a-rewrite-with-the-same-bytes-is-no-change" "yes" "$([ -e "$W/crlf.ran" ] && echo yes || echo no)"
 
+# A partial clone fetches a missing tree through its remote on demand, and the remote can be a program: the guard's git runs
+# no transport. The remote only appends a marker; a plain `git status` is the control that it runs. A session there does not
+# finish (claude's own git status runs the remote too), so git is run with the guard's environment, which the module tests pin.
+SRC="$(repo)"; git -C "$SRC" config uploadpack.allowFilter true; MLZ="$W/lazy.marker"
+git clone -q --no-checkout --filter=tree:0 "file://$SRC" "$W/partial" 2>/dev/null; RL2="$(cd "$W/partial" && pwd -P)"
+git -C "$RL2" config remote.origin.url "ext::sh -c echo% by=\${GIT_ATTR_NOSYSTEM:-plain}% >>% $MLZ"
+git -C "$RL2" config protocol.ext.allow always
+git -C "$RL2" status >/dev/null 2>&1
+equals "lazy-fetch-control-a-plain-status-runs-the-remote" "yes" "$(grep -qs '^by=plain$' "$MLZ" && echo yes || echo no)"
+rm -f "$MLZ"
+GIT_ALLOW_PROTOCOL=cc-tuner-none GIT_NO_LAZY_FETCH=1 GIT_ATTR_NOSYSTEM=1 git -C "$RL2" status --porcelain >/dev/null 2>&1
+equals "lazy-fetch-the-guards-git-fails-the-read" "yes" "$([ $? -ne 0 ] && echo yes || echo no)"
+equals "lazy-fetch-the-guards-git-runs-no-remote" "no" "$([ -e "$MLZ" ] && echo yes || echo no)"
+
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
 commit_file "$RB" f.txt one; commit_file "$RB" пример.txt one
@@ -350,7 +364,7 @@ for line in sys.stdin:
     print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": r}), flush=True)
 PY
 jq -nc --arg p "$W/mcp.py" '{mcpServers: {lab: {command: "python3", args: [$p]}}}' > "$W/mcp.json"
-LOCK="$CC_TUNER_PEERS_DIR/lease.lab"
+LOCK="$CC_TUNER_PEERS_DIR/lease.m.lab"
 lab() { e2e "$RR" --mcp-config "$W/mcp.json" --strict-mcp-config --session-id "$1" go; }
 script "$(jq -nc '{when: "", calls: [{name: "mcp__lab__ping", input: {}}]}')"
 lab 00000000-0000-4000-8000-0000000000f1
