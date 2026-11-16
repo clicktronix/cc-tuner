@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { Peers, UNKNOWN, world, type Event, type Verdict } from './peers'
+import { Peers, UNKNOWN, join, world, type Event, type Verdict } from './peers'
 
 // Claude Code stops a session's background tasks when the process exits, but
 // a /clear ends the conversation and leaves them running under the next one.
@@ -415,7 +415,7 @@ async function withPeers<T>($: EngineInterface, f: (p: Peers) => Promise<T>): Pr
 }
 
 const TOOLS = [
-  { name: 'peers_report', description: 'Lists the live Claude sessions of this repository and product: branch, claims, edited paths, and merge conflicts with HEAD.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'peers_report', description: 'Lists the live Claude sessions of a repository and its product: branch, claims, edited paths, and merge conflicts with HEAD.', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'A directory in the repository; the cwd by default.' } } } },
   { name: 'peers_claim', description: 'Publishes the open Owned paths of a plan as this session\'s claim, then reports peers and their overlap with it.', inputSchema: { type: 'object', properties: { plan: { type: 'string', description: 'The plan file, relative to the cwd.' } }, required: ['plan'] } },
   { name: 'peers_release', description: 'Releases a resource lease this session holds.', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } },
 ]
@@ -441,9 +441,9 @@ export const register: Register = on => {
 
   on('tool.call', { tool: ['mcp__cc-tuner__peers_report', 'mcp__cc-tuner__peers_claim', 'mcp__cc-tuner__peers_release'] }, async ($, e) => {
     const [p, cwd] = [peersOf($), await $.session.cwd()]
-    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await p.release(String(e.key ?? '')) }
+    if (e.tool === 'mcp__cc-tuner__peers_release') return { result: await p.release(String(e.key ?? ''), cwd) }
     if (e.tool === 'mcp__cc-tuner__peers_claim') return { result: await p.claim(cwd, await $.session.id(), String(e.plan ?? '')) }
-    return { result: await p.report(cwd) }
+    return { result: await p.report(typeof e.path === 'string' && e.path !== '' ? join(cwd, e.path) : cwd) }
   })
 
   // Another MCP server's tool may belong to an exclusive resource: one session at a time uses it.

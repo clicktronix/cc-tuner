@@ -155,32 +155,35 @@ asks once when the file is absent. Boards stay GitHub-only.
 
 The hooks module keeps a record per live Claude session in `~/.cache/cc-tuner/sessions`. Sessions in one
 repository, or in repositories with the same `product` key, see each other. Before each tool call a guard
-allows, notes or stops. A stop names who and what would be lost and offers a way on; the agent decides.
+allows, notes or stops. A stop names who and what would be lost, then the safe way (act on your own paths,
+take a worktree, wait), then the ack.
 
 - **Stops:** a branch switch where another session writes; discarding or committing files that are not this
   session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push or PR from a
-  branch other than the one the session started on; deleting a peer's branch or worktree; stopping a shared
+  branch other than the one this session last switched to; deleting a peer's branch or worktree; stopping a shared
   resource, or the task that started it, while another session of the product is live; an exclusive resource
   leased to another session; `kill` of a peer's process.
 - **Notes** (the action runs): an edit where another session writes or of a path a peer claimed; a branch
   switch where a peer's cwd is.
 
 A session's own files are the ones it edited and, where no other session writes, the ones its Bash calls
-changed. Files changed before it came or between its calls (by the user or a background tool) stay protected.
-A session with no peers gets no notes about peers.
+changed. Files changed before it came or between its calls (by the user or a background tool) stay protected,
+and so does a deleted path: after `git mv` or `git rm` the commit needs the ack once. A session with no peers
+gets no notes about peers.
 
-To pass a Bash stop, rerun the command prefixed `CC_TUNER_ACK=<key>` from the reason. The ack covers that
+When the safe way does not fit, rerun the command prefixed `CC_TUNER_ACK=<key>` from the reason. The ack covers that
 action for 30 minutes; the prefix is stripped before the command runs. Lease and `TaskStop` stops have no
 ack: wait, or `SendMessage` the holder.
 
 Tools, `mcp__cc-tuner__peers_*`:
 
-- `peers_report`: live peers with branch, claims, edited paths and, in the same repository, merge conflicts
-  of HEAD with their branch. `/spec` calls it before the approval.
+- `peers_report [path]`: live peers of the repository at `path` (the cwd by default) with branch, claims, edited
+  paths and, in the same repository, merge conflicts of HEAD with their branch. `/spec` calls it before the
+  approval.
 - `peers_claim <plan>`: publishes the plan's open Owned paths as a claim and reports overlaps. `/run` calls it
   before the first slice, after each tick and before integration.
-- `peers_release <key>`: gives up an exclusive lease. A lease also ends after 10 idle minutes or when its
-  holder exits.
+- `peers_release <key>`: gives up an exclusive lease. A lease also ends when its holder exits or has not used it
+  for 10 minutes.
 
 Resources are declared, never detected. The repository's go in `.claude/cc-tuner-resources.json`:
 
@@ -195,13 +198,15 @@ The machine's go in `~/.config/cc-tuner/resources.json` and apply across product
 ```
 
 A `shared` resource stays up while another session of the product is live; an `exclusive` one is leased to
-its first user. Setup writes these files only when asked. The user file can also map repositories to
+its first user, one lease per product for a repository's resource and per machine for the machine's. Setup writes these files only when asked. The user file can also map repositories to
 products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`. `"guard": false` in either file
 turns the guard off there.
 
+`/clear` keeps a task that started a shared resource; stopping it, as `/run`'s cleanup does, is refused only while
+another session of the product is live, and the task ends with its Claude process.
+
 Known limits: liveness is cached for a minute; a session idle for 8 h stays in reports but blocks nothing that
-needs only its being live, and its uncommitted files stay protected; a kept task survives `/clear` and `/run`'s cleanup, not the exit of its
-Claude process.
+needs only its being live, and its uncommitted files stay protected.
 
 ### Companions
 

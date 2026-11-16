@@ -123,7 +123,20 @@ e2e() {
       --dangerously-skip-permissions "$@" < "${STDIN:-/dev/null}" > "$W/claude.out" 2>&1 ) & CP=$!; STARTED="$STARTED $CP"
   n=0; while kill -0 "$CP" 2>/dev/null && [ "$n" -lt 900 ] && [ ! -e "$W/fed" ]; do sleep 0.1; n=$((n + 1)); done
   kill -0 "$API" 2>/dev/null || stand_in_lost "exited during the session"
-  { kill "$CP" "$API"; wait "$API"; } 2>/dev/null; rm -f "$W/api.port"
+  # A session ends by itself with 0; one fed by $STDIN is stopped once the feeder is done; anything else fails the case.
+  local rc=0
+  if kill -0 "$CP" 2>/dev/null; then
+    [ -e "$W/fed" ] || { fail "harness: claude did not finish in 90 s: $(tail -n 3 "$W/claude.out" | tr '\n' '|')"; rc=1; }
+    kill "$CP" 2>/dev/null; wait "$CP" 2>/dev/null
+  else
+    wait "$CP"; local code=$?
+    [ "$code" = 0 ] || { fail "harness: claude exited $code: $(tail -n 3 "$W/claude.out" | tr '\n' '|')"; rc=1; }
+  fi
+  kill "$API" 2>/dev/null; wait "$API" 2>/dev/null
+  # Both are gone: the suite's cleanup never signals a pid the system may have reused.
+  STARTED="${STARTED% $CP}"; STARTED="${STARTED% $API}"
+  rm -f "$W/api.port"
+  return "$rc"
 }
 # Without the model stand-in every later session waits out its time unanswered, so the suite ends here.
 stand_in_lost() {
@@ -195,11 +208,20 @@ check  "alone-a-change-from-before-the-session-stops" "would stage a.txt in" "$(
 equals "alone-the-stop-leaves-out-the-sessions-own" "0" "$(said 'stage a.txt, own.txt')"
 equals "alone-the-stopped-add-staged-nothing" "" "$(git -C "$RS" diff --cached --name-only)"
 
+# --- git's own view: eol normalisation holds (a SHA-256 repository is the module tests': claude -p itself does not finish there)
+RE="$(repo)"; printf '*.txt text eol=crlf\n' > "$RE/.gitattributes"; printf 'hello\r\n' > "$RE/line.txt"
+( cd "$RE" && git add . && git commit -q -m crlf )
+cat "$RE/line.txt" > "$RE/line.tmp" && mv "$RE/line.tmp" "$RE/line.txt"; touch -t 203001010000 "$RE/line.txt"
+equals "crlf-plain-git-sees-a-clean-tree" "" "$(git -C "$RE" status --porcelain)"
+script "$(jq -nc --arg w "$W" '{when: "", calls: [{name: "Bash", input: {command: ("git add -A && touch " + $w + "/crlf.ran")}}]}')"
+e2e "$RE" go
+equals "crlf-a-rewrite-with-the-same-bytes-is-no-change" "yes" "$([ -e "$W/crlf.ran" ] && echo yes || echo no)"
+
 # --- next to peers: the start line, stops, the ack, a note, report and claim, and a tool from a subagent ---------
 RB="$(repo)"
-commit_file "$RB" f.txt one
-git -C "$RB" switch -q -c feat-o; commit_file "$RB" f.txt theirs
-git -C "$RB" switch -q main; commit_file "$RB" f.txt mine
+commit_file "$RB" f.txt one; commit_file "$RB" пример.txt one
+git -C "$RB" switch -q -c feat-o; commit_file "$RB" f.txt theirs; commit_file "$RB" пример.txt theirs
+git -C "$RB" switch -q main; commit_file "$RB" f.txt mine; commit_file "$RB" пример.txt mine
 mkdir -p "$RB/docs"; printf '%s\n' '## Slice 1 — A' 'Owned paths: lib/' '- [ ] a' > "$RB/docs/p.md"
 ( cd "$RB" && git add docs && git commit -q -m plan )
 git -C "$RB" worktree add -q "$W/wo" feat-o; WO="$(cd "$W/wo" && pwd -P)"
@@ -242,12 +264,13 @@ check  "report-lists-a-live-peer"              "pid $PB  z  $RB" "$LOG"
 check  "report-lists-the-worktree-peer"        "pid $PO  feat-o  $WO" "$LOG"
 check  "report-shows-edited-paths"             "edited: lib/x.ts" "$LOG"
 check  "report-conflict-names-the-file"        "conflicts with HEAD: f.txt" "$LOG"
+check  "report-conflict-names-come-raw"        "f.txt, пример.txt" "$(jq -r '.. | strings' "$W/api.log")"
 equals "liveness-pid-reuse-on-real-ps"         "0" "$(said "pid $PX  ")"
 equals "record-dead-pid-is-not-live"           "0" "$(said "pid $PD  ")"
 equals "report-object-store-unchanged"         "$BEFORE" "$(objects "$RB")"
 equals "report-leaves-no-temporary-objects"    "0" "$(ls -a "$CC_TUNER_PEERS_DIR" | grep -c '^\.objects\.')"
 check  "claim-prints-the-overlap"              "overlap with your claims: lib/ ~ lib/x.ts" "$LOG"
-equals "claim-publishes-open-owned-paths"      "lib/" "$(e2e_rec '.claims["docs/p.md"].paths | join(",")')"
+equals "claim-publishes-open-owned-paths"      "lib/" "$(e2e_rec ".claims[\"$RB/docs/p.md\"].paths | join(\",\")")"
 equals "tool-report-from-a-subagent" "true" "$(jq -s --arg p "pid $PB  z  $RB" 'map(select((.[0] | tostring | contains("SUBAGENT-REPORT")) and (tostring | contains($p)))) | length > 0' "$W/api.log")"
 
 # --- resume and /clear bring the start line too ------------------------------------------------------------------
@@ -496,8 +519,8 @@ diag_rm rmabs
 check  "remove-from-a-non-repository-cwd-stops" "would delete foreign.txt in $RX/r" "$(cat "$W/api.log")"
 equals "remove-from-a-non-repository-cwd-keeps-the-foreign-file" "precious" "$(cat "$RX/r/foreign.txt")"
 
-# `.git/info/attributes` is the one attribute file git reads even with --attr-source. The filter is defined in .git/config
-# and only creates a marker file; a plain `git status` is the control that it runs.
+# `.git/info/attributes` names a filter defined in .git/config, which only creates a marker file; a plain `git status` is the
+# control that it runs. The guard silences every driver config defines, an included file's too.
 RA="$(repo)"; MA="$W/info-attrs"; mkdir -p "$MA"
 commit_file "$RA" k one
 git -C "$RA" config filter.infomarker.clean "echo by=\${GIT_ATTR_NOSYSTEM:-plain} >> '$MA/clean'; cat"
@@ -511,10 +534,12 @@ e2e "$RA" go
 check  "info-attributes-the-guard-still-sees-the-changed-file" "would discard k" "$(cat "$W/api.log")"
 equals "info-attributes-the-guard-runs-no-clean-filter" "no" "$(grep -qs '^by=1$' "$MA/clean" && echo yes || echo no)"
 rm -f "$MA/clean"
-head -c 70000 /dev/zero | tr '\0' '#' >> "$RA/.git/info/attributes"
+git -C "$RA" config --unset filter.infomarker.clean
+printf '[filter "infomarker"]\n\tclean = echo by=${GIT_ATTR_NOSYSTEM:-plain} >> %s/clean; cat\n' "$MA" > "$W/included.gitconfig"
+git -C "$RA" config include.path "$W/included.gitconfig"
 e2e "$RA" go
-check  "info-attributes-an-oversized-file-is-unread" "could not read git status" "$(cat "$W/api.log")"
-equals "info-attributes-an-oversized-file-runs-no-filter" "no" "$(grep -qs '^by=1$' "$MA/clean" && echo yes || echo no)"
+check  "info-attributes-an-included-driver-is-silenced-too" "would discard k" "$(cat "$W/api.log")"
+equals "info-attributes-an-included-driver-runs-no-filter" "no" "$(grep -qs '^by=1$' "$MA/clean" && echo yes || echo no)"
 
 # --- an untracked file the destination tree holds is lost to reset --hard, checkout -f and switch -f -----------------
 # Each command runs in a session that did not write u.txt; the file is the user's, untracked, and a branch holds a file of that name.

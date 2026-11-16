@@ -102,28 +102,35 @@ never asks the user; for files of unknown owner the reason says they may be the 
     decision 2026-11-14).
   - Every live product session consumes a shared resource.
   - An exclusive resource is leased by its first user until the holder runs `peers_release <key>`
-    (checked under the same lock; anyone else's release is refused), 10 min of the holder's
-    silence, or the holder's death.
+    (checked under the same lock; anyone else's release is refused), 10 min after the holder's last
+    use, or the holder's death. A repository's resource has one lease per product (per repository
+    without one), a machine's one per machine. A call denied one resource gives back the ones it
+    took for itself.
   - A repository without the file adds no repository rules; machine resources still apply.
 - **Visibility.**
   - The module adds one line to the first prompt after startup, clear and resume (`prompt.submit`
     context), when peers are live or a task was kept at `/clear`. Not a `classic.SessionStart` hook:
     on Team/Enterprise and managed machines the built-in `sec-default` plugin passes `classic.*` events
     past user-installed modules.
-  - `peers_report` lists the product's peers with branch, claims and edited paths. For peers in
+  - `peers_report [path]` lists the peers of the repository at `path` (the cwd by default) and its
+    product with branch (a detached HEAD shown as such), claims and edited paths. For peers in
     the same repository, it adds the `git merge-tree` conflicts of HEAD against their branch, run
     in a temporary object directory so the repository's object store is untouched, and cached per
     SHA pair.
-  - `peers_claim <plan>` publishes the plan's open Owned paths, then prints `report` with their
-    overlap.
-  - `/spec` runs `report` before approval, and the agent compares it with the draft.
+  - `peers_claim <plan>` publishes the plan's open Owned paths under the plan's real path, so plans of
+    one relative path in two repositories are two claims, then prints `report` with their overlap.
+  - `/spec` runs `report` on the target repository before approval, and the agent compares it with
+    the draft.
   - `/run` runs `claim` before the first slice, after each tick, and before integration.
 - **cc-tuner's own texts.** The rule template and task-flow's post-merge cleanup take a worktree
   when the checkout has another writer, instead of switching or stashing in place. `/run`'s final
-  cleanup leaves a task the guard keeps. The README says the keep covers `/clear` and that cleanup,
-  not the exit of the Claude process, which stops its background tasks itself.
-- **Git reads** by the guard are inert: `GIT_OPTIONAL_LOCKS=0`, attributes from the empty tree (no filter or merge
-  driver can run, whatever the config), `core.fsmonitor=false`, submodules ignored.
+  cleanup leaves a task the guard keeps. `/clear` keeps a task that started a shared resource;
+  stopping it is refused only while another product session is live, and it ends with its Claude
+  process.
+- **Git reads** by the guard are inert: `GIT_OPTIONAL_LOCKS=0`, `core.fsmonitor=false`, submodules ignored;
+  `status` reads the real attributes (eol normalisation is git's) with every filter driver config defines
+  silenced on the command line; merge-tree runs in a bare repository of its own. Output the engine cut
+  off counts as no answer.
 - **Tools** the module registers: `peers_report`, `peers_claim <plan>`, `peers_release <key>`. The guard
   itself is the `tool.call` handler.
 - **Guard surface:** the `register.ts` module (Slice 1, `docs/spike-guard-surface.md`): its `tool.call`
@@ -215,9 +222,10 @@ test group in brackets.
     runs when none is;
   - `/clear` keeps the task and the next start line names it;
   - two simultaneous first users get one lease;
-  - an MCP tool leased by a session of another product is stopped;
+  - a machine resource's MCP tool leased by a session of another product is stopped, and a repository
+    resource of one key in two products does not contend;
   - a non-holder's `release` is refused, and so is a former holder's after reassignment;
-  - a lease moves on the holder's `release`, after 10 min of silence, and on death;
+  - a lease moves on the holder's `release`, 10 min after its last use, and on death;
   - machine resources apply in a repository without its file.
 
   (`resource-*`)
@@ -254,7 +262,7 @@ test group in brackets.
 - **Full:** `bash tests/run.sh` (claude at `tests/flow/CLAUDE_CODE_VERSION`). The EVALUATED_SHA
   guard is handled as in #75.
 - **Static:** module validation and type check in `test_mod.sh`.
-- **Runtime:** macOS and Linux, git ≥ 2.40 (inspection reads attributes from the empty tree, `--attr-source`), no network.
+- **Runtime:** macOS and Linux, git ≥ 2.38 (`merge-tree --write-tree`), no network.
 - **Mutation:** make `live()` in `hooks/peers.ts` ignore the start time. `liveness-pid-reuse` must then
   FAIL with `a record whose pid was reused reads as live`.
 - **Known limit:** a peer's liveness is cached for a minute, so a peer that just exited can cause a

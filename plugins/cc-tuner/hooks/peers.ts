@@ -70,7 +70,7 @@ export interface World {
   write: (path: string, text: string) => Promise<void>
   list: (dir: string) => Promise<readonly { name: string; kind: string; size: number; mtimeMs: number }[]>
   stat: (path: string) => Promise<{ kind: string; realPath?: string; mtimeMs?: number; size?: number } | undefined>
-  run: (argv: readonly string[], init?: { env?: Record<string, string> }) => Promise<{ exitCode: number; stdout: string }>
+  run: (argv: readonly string[], init?: { env?: Record<string, string> }) => Promise<{ exitCode: number; stdout: string; isStdoutTruncated?: boolean }>
   now: () => number
 }
 
@@ -107,8 +107,9 @@ const CTIMES = 'if stat -f %Fc / >/dev/null 2>&1; then for f; do stat -f %Fc -- 
 const CALL = '\u0000call'
 const IDLE = 8 * 3600
 const PS_TTL = 60
-const LEASE_IDLE = 10 * 60
 const LEASE_RENEW = 60
+// Use is written at most once a minute, so ten minutes from the last use is up to a minute more from the last write.
+const LEASE_IDLE = 10 * 60 + LEASE_RENEW
 const NONE: Config = { off: false, products: {}, resources: [] }
 // The lease scripts: each is one step in the shell, and each acts on a lock that exists only under LOCKED, the `.take`
 // directory made by an atomic `mkdir` (exit 2 while another caller holds it; one left by a crashed caller goes after a
@@ -129,7 +130,7 @@ const ISOLATED_MERGE = 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FIL
   'GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; ' +
   'd=$(mktemp -d "$1/.objects.XXXXXX") || exit 2; o="$2"; m="$3"; n="$4"; shift 4; ' +
   'git init -q --bare --template= "$d" && echo "$o/objects" > "$d/objects/info/alternates" && ' +
-  'git "$@" --git-dir="$d" merge-tree --write-tree --name-only "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc'
+  'git "$@" --git-dir="$d" merge-tree --write-tree --name-only -z "$m" "$n"; rc=$?; rm -rf "$d"; exit $rc'
 const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
@@ -141,17 +142,15 @@ const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
-// Inspection is inert. A clean, smudge or process filter runs only for a file whose attributes name it, so every read
-// takes its attributes from the empty tree (the repository's, the user's and the system's files are never read); the
-// one command a config can start by itself is core.fsmonitor. `--attr-source` needs git 2.40; an older git exits 129 on
-// it, which is never run around. `.git/info/attributes` is a local file git reads regardless, so the filter names it
-// carries are overridden on the command line (which beats every config source, an included file too): `silenced` reads
-// that one file. A merge driver is the one thing config can select without attributes (`merge.default`, a driver named
-// `text`), so merge-tree never runs in the repository: see ISOLATED_MERGE.
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+// Inspection is inert. The one command a config can start by itself is core.fsmonitor. A clean, smudge or process filter
+// runs only when config defines the driver an attribute names, so `status` reads the real attributes (eol and text
+// normalisation stay git's) with every filter driver config defines overridden on the command line, which beats every
+// config source, an included file too: see `silenced`. A merge driver is the one thing config can select without
+// attributes (`merge.default`, a driver named `text`), so merge-tree never runs in the repository: see ISOLATED_MERGE.
 const GIT_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_ATTR_NOSYSTEM: '1' }
-const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null', `--attr-source=${EMPTY_TREE}`]
-const ATTRIBUTES_MAX = 64 * 1024
+const INERT = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.attributesFile=/dev/null']
+// A command whose output the engine cut off answered nothing complete: it counts as failed.
+const TRUNCATED = 124
 const USAGE = 129
 const LSTART = /^\s*(\d+)\s+(\d+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+(.*)$/
 
@@ -164,7 +163,7 @@ export function norm(p: string): string {
   }
   return p.startsWith('/') ? `/${out.join('/')}` : out.join('/') || '.'
 }
-const join = (a: string, b: string) => norm(b.startsWith('/') ? b : `${a}/${b}`)
+export const join = (a: string, b: string) => norm(b.startsWith("/") ? b : `${a}/${b}`)
 const dirname = (p: string) => { const n = norm(p); const i = n.lastIndexOf('/'); return i <= 0 ? (n.startsWith('/') ? '/' : '.') : n.slice(0, i) }
 const basename = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 function relpath(p: string, base: string): string {
@@ -343,7 +342,7 @@ export class Peers {
   // The inode change time of each file in ms, read in one shell (a `stat` per file, so a missing one keeps the lines
   // aligned): unlike the modification time, no tool can set it back.
   async ctimes(files: readonly string[]): Promise<(number | undefined)[]> {
-    const r = await this.w.run(['/bin/sh', '-c', CTIMES, 'sh', ...files]).catch(() => undefined)
+    const r = await this.run(['/bin/sh', '-c', CTIMES, 'sh', ...files]).catch(() => undefined)
     const lines = r?.exitCode === 0 ? r.stdout.split('\n') : []
     return files.map((_, i) => { const t = Number(lines[i]); return lines[i] && Number.isFinite(t) ? t * 1000 : undefined })
   }
@@ -367,7 +366,7 @@ export class Peers {
     const dir = await this.w.dir()
     if (!this.made) {
       this.made = true
-      await this.w.run(['/bin/sh', '-c', 'umask 077; mkdir -p -- "$1"', 'sh', dir])
+      await this.run(['/bin/sh', '-c', 'umask 077; mkdir -p -- "$1"', 'sh', dir])
     }
     return dir
   }
@@ -375,7 +374,7 @@ export class Peers {
   // --- processes ----------------------------------------------------------------------------------------
   // pid -> (ppid, name) of every process; the start times it reads are kept like any other.
   async table(): Promise<Map<number, { ppid: number; name: string }>> {
-    const out = (await this.w.run(['ps', '-A', '-o', 'pid=,ppid=,lstart=,comm='], { env: PS_ENV })).stdout
+    const out = (await this.run(['ps', '-A', '-o', 'pid=,ppid=,lstart=,comm='], { env: PS_ENV })).stdout
     const table = new Map<number, { ppid: number; name: string }>()
     const at = this.now()
     for (const line of out.split('\n')) {
@@ -392,7 +391,7 @@ export class Peers {
     const at = this.now()
     const need = [...new Set(pids)].filter(p => { const e = this.ps.get(p); return e === undefined || (at - e.at >= PS_TTL && p !== this.claude) })
     if (need.length > 0) {
-      const out = (await this.w.run(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', need.join(',')], { env: PS_ENV })).stdout
+      const out = (await this.run(['ps', '-o', 'pid=,ppid=,lstart=,comm=', '-p', need.join(',')], { env: PS_ENV })).stdout
       const found = new Map<number, string>()
       for (const line of out.split('\n')) {
         const m = LSTART.exec(line)
@@ -412,7 +411,7 @@ export class Peers {
   // own session, so never the outermost). A caller with no `claude` above it (a stand-in) is itself.
   async pid(): Promise<number | undefined> {
     if (this.claude !== undefined) return this.claude
-    const given = Number((await this.w.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim())
+    const given = Number((await this.run(['/bin/sh', '-c', 'echo $PPID'])).stdout.trim())
     const table = await this.table()
     if (!table.has(given)) return undefined
     let found = given
@@ -465,11 +464,14 @@ export class Peers {
   }
 
   // The branch HEAD names, read from the file; a reftable repository keeps a placeholder there, so git is asked.
+  // `fallback` stands for a HEAD that could not be read; a detached one is ''.
   async branch(top: string, fallback = ''): Promise<string> {
     const gd = await this.gitdir(top)
-    const head = ((gd === undefined ? undefined : await this.w.read(`${gd}/HEAD`).catch(() => undefined)) ?? '').trim()
-    if (head === 'ref: refs/heads/.invalid') return (await this.git(top, 'symbolic-ref', '-q', '--short', 'HEAD')) ?? fallback
-    return head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : fallback
+    const raw = gd === undefined ? undefined : await this.w.read(`${gd}/HEAD`).catch(() => undefined)
+    if (raw === undefined) return fallback
+    const head = raw.trim()
+    if (head === 'ref: refs/heads/.invalid') return (await this.git(top, 'symbolic-ref', '-q', '--short', 'HEAD')) ?? ''
+    return head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : ''
   }
 
   // The files of a commit's tree, or undefined when git did not answer.
@@ -557,44 +559,30 @@ export class Peers {
     return [...repo.resources.map(r => [r, false] as [Resource, boolean]), ...machine.resources.map(r => [r, true] as [Resource, boolean])]
   }
 
-  // Whether an inspection met a git too old for `--attr-source`: said once by the stop that follows.
+  // Whether an inspection met a git too old for it (merge-tree --write-tree needs 2.38): said once by the stop that follows.
   tooOld = false
-  // The `-c` overrides that silence every filter `$common/info/attributes` names: [] for a repository
-  // with none, undefined for a file that cannot be read or is past 64 KiB. Read again only when its mtime or size changed.
-  private attributes = new Map<string, { key: string; args: string[] | undefined }>()
-  private async silenced(common: string): Promise<string[] | undefined> {
-    const file = `${common}/info/attributes`
-    const st = await this.w.stat(file)
-    if (st === undefined) return []
-    const key = `${st.mtimeMs}:${st.size}`
-    const hit = this.attributes.get(file)
-    if (hit !== undefined && hit.key === key && (st.mtimeMs ?? 0) > 0) return hit.args
-    let args: string[] | undefined
-    const text = st.kind === 'file' && (st.size ?? ATTRIBUTES_MAX + 1) <= ATTRIBUTES_MAX ? await this.w.read(file).catch(() => undefined) : undefined
-    if (text !== undefined && text.length <= ATTRIBUTES_MAX) {
-      const names = (attr: string) => [...new Set([...text.matchAll(new RegExp(`(?:^|\\s)${attr}=(\\S+)`, 'g'))].map(m => m[1]!))]
-      const filters = names('filter')
-      // A name with `=` cannot be written as a `-c` key, so that file is unread too.
-      if (!filters.some(n => n.includes('='))) {
-        args = filters.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]).flatMap(x => ['-c', x])
-      }
-    }
-    this.attributes.set(file, { key, args })
-    return args
+
+  // Every command runs through here: output the engine cut off is no answer.
+  private async run(argv: readonly string[], init?: { env?: Record<string, string> }) {
+    const r = await this.w.run(argv, init)
+    return r.isStdoutTruncated ? { ...r, exitCode: TRUNCATED } : r
   }
 
-  private async inert(top: string, common?: string): Promise<string[] | undefined> {
-    const dir = common ?? (await this.where(top))?.[1]
-    const named = dir === undefined ? [] : await this.silenced(dir)
-    return named === undefined ? undefined : [...INERT, ...named]
+  // The `-c` overrides that silence every filter driver config defines, so `status` can read the real attributes: [] for
+  // none, undefined when config could not be read or names a driver no `-c` key can spell.
+  private async silenced(top: string): Promise<string[] | undefined> {
+    const r = await this.run(['git', ...INERT, '-C', top, 'config', '-z', '--name-only', '--get-regexp', '^filter\\.'], { env: GIT_ENV }).catch(() => undefined)
+    if (r === undefined || (r.exitCode !== 0 && r.exitCode !== 1)) return undefined
+    const names = [...new Set(r.stdout.split('\0').filter(Boolean).map(k => k.slice('filter.'.length, k.lastIndexOf('.'))))]
+    if (names.some(n => n === '' || n.includes('='))) return undefined
+    return names.flatMap(n => [...['clean', 'smudge', 'process'].map(k => `filter.${n}.${k}=`), `filter.${n}.required=false`]).flatMap(x => ['-c', x])
   }
 
-  // Git is not run for `status` when the attributes file is unreadable: its clean filters could not be silenced, so
-  // the tree is unread like one git did not answer for.
+  // `status` runs only with every filter driver silenced; config that cannot be read leaves the tree unread.
   private async read(top: string, ...args: string[]) {
-    const inert = await this.inert(top)
-    if (inert === undefined && args[0] === 'status') return { exitCode: 1, stdout: '' }
-    const r = await this.w.run(['git', ...(inert ?? INERT), '-C', top, ...args], { env: GIT_ENV })
+    const named = args[0] === 'status' ? await this.silenced(top) : []
+    if (named === undefined) return { exitCode: 1, stdout: '' }
+    const r = await this.run(['git', ...INERT, ...named, '-C', top, ...args], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     return r
   }
@@ -650,7 +638,7 @@ export class Peers {
   // Removes records, and sweeps the directory's old merge results and object directories with them.
   private async forget(recs: Map<string, Rec>, names: string[]) {
     for (const n of names) recs.delete(n)
-    await this.w.run(['/bin/sh', '-c', SWEEP, 'sh', await this.dir(), ...names])
+    await this.run(['/bin/sh', '-c', SWEEP, 'sh', await this.dir(), ...names])
   }
 
   private mine(recs: Map<string, Rec>, pid: number, start: string | undefined): [string, Rec] | undefined {
@@ -714,14 +702,16 @@ export class Peers {
   // key of it names, `merge.default` included, can run), the user's and the system's config are not read, and the
   // result objects land in it alone. Cached per SHA pair.
   private async conflicts(common: string, mine: string, theirs: string): Promise<string[] | undefined> {
-    const cache = `${await this.dir()}/merge/v1/${mine}-${theirs}`
+    const cache = `${await this.dir()}/merge/v2/${mine}-${theirs}`
     try {
       return JSON.parse(await this.w.read(cache)) as string[]
     } catch { /* not cached yet */ }
-    const r = await this.w.run(['/bin/sh', '-c', ISOLATED_MERGE, 'sh', await this.dir(), common, mine, theirs, ...INERT], { env: GIT_ENV })
+    const r = await this.run(['/bin/sh', '-c', ISOLATED_MERGE, 'sh', await this.dir(), common, mine, theirs, ...INERT], { env: GIT_ENV })
     if (r.exitCode === USAGE) this.tooOld = true
     if (r.exitCode !== 0 && r.exitCode !== 1) return undefined
-    const names = r.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean)
+    // NUL-separated: the tree, the conflicted names, an empty field, then messages. Names come raw, never quoted.
+    const fields = r.stdout.split('\0')
+    const names = fields.slice(1, fields.indexOf('', 1) < 0 ? undefined : fields.indexOf('', 1))
     await this.w.write(cache, JSON.stringify(names))
     return names
   }
@@ -776,7 +766,8 @@ export class Peers {
     const text = await this.w.read(path).catch(() => undefined)
     if (text === undefined) return `cc-tuner: cannot read ${plan}`
     const paths = ownedOpen(text)
-    const key = relpath(await this.real(path), here[0])
+    // The plan's real path: two repositories' plans of one relative path are two claims.
+    const key = await this.real(path)
     const claimed = await this.serial(async () => {
       const { recs } = await this.load()
       const pid = await this.pid()
@@ -856,25 +847,35 @@ export class Peers {
     return pid === undefined ? undefined : [pid, (await this.starts([pid])).get(pid) ?? '']
   }
 
-  private async lock(key: string) { return `${await this.dir()}/lease.${key.replace(/[^A-Za-z0-9_.-]/g, '_')}` }
+  // A machine resource's lock is one per machine; a repository's is one per product (or repository without one).
+  private async lock(key: string, at?: Where) {
+    const scope = at === undefined ? '' : `${(await this.product(...at)) ?? `repo-${crc32(at[1])}`}.`
+    return `${await this.dir()}/lease.${(scope + key).replace(/[^A-Za-z0-9_.-]/g, '_')}`
+  }
 
   // What a lock's holder file says, without a trailing newline: the shell compares it as `$(cat …)` does.
   private async held(lock: string) { return (await this.w.read(`${lock}/holder.json`).catch(() => '')).replace(/\n+$/, '') }
 
   // The lease of every exclusive resource this tool belongs to: the first call takes it, the holder keeps it.
   async lease(tool: string, cwd: string, sid: string | null): Promise<Verdict> {
-    const top = (await this.where(cwd))?.[0]
-    if (await this.off(top)) return { decision: 'allow' }
-    const hits = (await this.rules(top)).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
+    const at = await this.where(cwd)
+    if (await this.off(at?.[0])) return { decision: 'allow' }
+    const hits = (await this.rules(at?.[0])).filter(([r]) => r.kind === 'exclusive' && r.tools.some(t => glob(t).test(tool)))
     if (hits.length === 0) return { decision: 'allow' }
     return this.serial(async () => {
       const me = await this.self()
       if (me === undefined) return { decision: 'allow' }
       const notes: string[] = []
-      for (const [{ key }] of hits) {
-        const v = await this.hold(key, me, sid)
-        if (v.decision === 'stop') return v
-        if (v.reason !== undefined) notes.push(v.reason)
+      const taken: string[] = []
+      for (const [{ key }, machine] of hits) {
+        const lock = await this.lock(key, machine ? undefined : at)
+        const v = await this.hold(key, lock, me, sid)
+        if (v.decision === 'stop') {
+          // The call does not run, so what it took for itself goes back.
+          for (const l of taken) await this.free(l, me)
+          return v
+        }
+        if (v.reason !== undefined) { notes.push(v.reason); taken.push(lock) }
       }
       return notes.length > 0 ? { decision: 'note', reason: notes.join(' ') } : { decision: 'allow' }
     })
@@ -884,9 +885,8 @@ export class Peers {
   // way that may still complete: the call stops (no ack) rather than allows, so the old and the new holder are never both
   // users. One that finds the lock changed re-reads it, and the lock's holder decides; a re-read that shows this session
   // still the holder allows only while the takeover mutex is free.
-  private async hold(key: string, me: [number, string], sid: string | null, renew = true): Promise<Verdict> {
+  private async hold(key: string, lock: string, me: [number, string], sid: string | null, renew = true): Promise<Verdict> {
     const [pid, start] = me
-    const lock = await this.lock(key)
     const [text, st] = [await this.held(lock), await this.w.stat(lock)]
     const [cur, now] = [holder(text), this.now()]
     const mine = JSON.stringify({ v: 1, key, pid, start, session: sid, last: now })
@@ -894,9 +894,9 @@ export class Peers {
       if (!renew) return (await this.w.stat(`${lock}.take`)) === undefined ? { decision: 'allow' } : this.taking(key)
       if (now - cur.last < LEASE_RENEW) return { decision: 'allow' }
       let rc = 2
-      for (let i = 0; i < 3 && rc === 2; i++) rc = (await this.w.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])).exitCode
+      for (let i = 0; i < 3 && rc === 2; i++) rc = (await this.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])).exitCode
       if (rc === 2) return this.taking(key)
-      return rc === 0 ? { decision: 'allow' } : this.hold(key, me, sid, false)
+      return rc === 0 ? { decision: 'allow' } : this.hold(key, lock, me, sid, false)
     }
     if (st !== undefined) {
       // A lock nobody wrote into yet is as old as its directory.
@@ -904,7 +904,7 @@ export class Peers {
       const gone = cur !== undefined && (await this.starts([cur.pid])).get(cur.pid) !== cur.start
       if (!gone && now - last < LEASE_IDLE) return this.leased(key, cur, now)
     }
-    const r = await this.w.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
+    const r = await this.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
     if (r.exitCode !== 0) return this.leased(key, holder(await this.held(lock)), now)
     return { decision: 'note', reason: `cc-tuner: you hold ${key}; release it with peers_release when you are done.` }
   }
@@ -918,19 +918,34 @@ export class Peers {
     return { decision: 'stop', reason: `cc-tuner: ${key} is leased to ${by}. Wait, or SendMessage that session if you can.` }
   }
 
-  // Frees the lease only for its holder, checked against the holder file the shell removes it under.
-  async release(key: string): Promise<string> {
+  // Frees the lease only for its holder, checked against the holder file the shell removes it under: true when freed,
+  // undefined when another session kept the lock busy.
+  private async free(lock: string, me: [number, string]): Promise<boolean | undefined> {
+    const text = await this.held(lock)
+    const cur = holder(text)
+    if (cur?.pid !== me[0] || cur.start !== me[1]) return false
+    for (let i = 0; i < 3; i++) {
+      const { exitCode } = await this.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])
+      if (exitCode !== 2) return exitCode === 0
+    }
+    return undefined
+  }
+
+  // The lease of `key` as the cwd's resources scope it: the repository's (its product) first, then the machine's.
+  async release(key: string, cwd: string): Promise<string> {
     const refused = `cc-tuner: ${key} is not leased to this session.`
+    const at = await this.where(cwd)
+    const rules = (await this.rules(at?.[0])).filter(([r]) => r.kind === 'exclusive' && r.key === key)
+    const locks = await Promise.all((rules.length > 0 ? rules : [[undefined, true] as const]).map(([, machine]) => this.lock(key, machine ? undefined : at)))
     return this.serial(async () => {
-      const [me, lock] = [await this.self(), await this.lock(key)]
-      const text = await this.held(lock)
-      const cur = holder(text)
-      if (me === undefined || cur?.pid !== me[0] || cur.start !== me[1]) return refused
-      for (let i = 0; i < 3; i++) {
-        const { exitCode } = await this.w.run(['/bin/sh', '-c', RELEASE, 'sh', lock, text])
-        if (exitCode !== 2) return exitCode === 0 ? `cc-tuner: released ${key}.` : refused
+      const me = await this.self()
+      if (me === undefined) return refused
+      for (const lock of locks) {
+        const done = await this.free(lock, me)
+        if (done === undefined) return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
+        if (done) return `cc-tuner: released ${key}.`
       }
-      return `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.`
+      return refused
     })
   }
 
@@ -1075,7 +1090,7 @@ export class Peers {
 
   async pidsOf(argv: readonly string[]): Promise<number[] | undefined> {
     try {
-      const r = await this.w.run(argv)
+      const r = await this.run(argv)
       return r.exitCode > 1 ? undefined : r.stdout.split(/\s+/).filter(x => /^\d+$/.test(x)).map(Number)
     } catch {
       return undefined
@@ -1369,7 +1384,7 @@ class Guard {
   }
 
   private unread(action: string, top: string, label: string) {
-    if (this.p.tooOld) this.note('git 2.40 or newer is needed to inspect safely.')
+    if (this.p.tooOld) this.note('git 2.38 or newer is needed to inspect safely.')
     this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
   }
 

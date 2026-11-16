@@ -218,8 +218,8 @@ For a wide mechanical change that cannot stay green slice by slice, use **expand
 contract**: introduce the new form beside the old, migrate consumers in independently checked batches,
 then remove the old form only after every batch.
 
-Before presenting, if `mcp__cc-tuner__peers_report` is listed, call it and name each peer whose claims, edits or
-merge conflicts touch the slices' Owned paths.
+Before presenting, if `mcp__cc-tuner__peers_report` is listed, call it with the target repository's path and
+name each peer whose claims, edits or merge conflicts touch the slices' Owned paths.
 
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
 and blockers, plus the card's Priority when a board is named and neither the issue nor
