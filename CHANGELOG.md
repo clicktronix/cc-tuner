@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.24.0](https://github.com/clicktronix/cc-tuner/compare/v0.23.0...v0.24.0) (2026-11-18)
+
+
+### Features
+
+* **run:** work in the checkout without commits or publication under --local-only ([df15656](https://github.com/clicktronix/cc-tuner/commit/df156562e0e19c635ffaa8e0b7b1131ed84db83f))
+
+
+### Bug Fixes
+
+* **hooks:** restore a --local-only plan at session start and name a working copy that differs from HEAD ([df15656](https://github.com/clicktronix/cc-tuner/commit/df156562e0e19c635ffaa8e0b7b1131ed84db83f))
+* **merge:** name the repository searched when the pull request is missing ([df15656](https://github.com/clicktronix/cc-tuner/commit/df156562e0e19c635ffaa8e0b7b1131ed84db83f))
+* respect delivery permissions and preserve review evidence ([#81](https://github.com/clicktronix/cc-tuner/issues/81)) ([df15656](https://github.com/clicktronix/cc-tuner/commit/df156562e0e19c635ffaa8e0b7b1131ed84db83f))
+
 ## [0.23.0](https://github.com/clicktronix/cc-tuner/compare/v0.22.1...v0.23.0) (2026-11-16)
 
 
