@@ -17,6 +17,8 @@ for name in CHECK_SET LIST_NAMES CHECK_KEY; do
   [ -n "$value" ] && pass "register.ts declares $name" || fail "register.ts declares $name"
 done
 
+equals "empty environment prints zero bytes" 0 "$(env -i | wc -c | tr -d ' ')"
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 printf 'PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSYNTHETIC_PRIVATE_KEY_BODY\n-----END PRIVATE KEY-----"\nNORMAL_KEY=synthetic-value\n' > "$work/.env"

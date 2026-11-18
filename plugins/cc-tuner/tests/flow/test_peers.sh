@@ -202,13 +202,25 @@ for pair in "git add -A|a.txt gen/out.ts " "git commit -qam fmt|fmt" "git restor
   equals "alone-the-first-call-changed-the-tree: $c" "yes" "$([ -e "$W/generated" ] && echo yes || echo no)"
   equals "alone-own-bash-change-runs: $c" "${pair#*|}" "$(effect "$c" "$RS")"
 done
+# Alone, a step that stages or commits a file changed before the session came runs, and names that file in a note; a step
+# that would lose it stops.
 RS="$(repo)"; commit_file "$RS" a.txt a
 printf 'user\n' >> "$RS/a.txt"
-script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "echo x > own.txt"}}, {name: "Bash", input: {command: "git add -A"}}]}')"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "echo x > own.txt"}}, {name: "Bash", input: {command: "git add -A"}},
+  {name: "Bash", input: {command: "git commit -qm both"}}]}')"
 e2e "$RS" go
-check  "alone-a-change-from-before-the-session-stops" "would stage a.txt in" "$(cat "$W/api.log")"
-equals "alone-the-stop-leaves-out-the-sessions-own" "0" "$(said 'stage a.txt, own.txt')"
-equals "alone-the-stopped-add-staged-nothing" "" "$(git -C "$RS" diff --cached --name-only)"
+check  "alone-staging-a-change-from-before-the-session-is-a-note" 'stages a.txt, which this session did not make' "$(cat "$W/api.log")"
+equals "alone-the-note-leaves-out-the-sessions-own" "0" "$(said 'stages a.txt, own.txt')"
+check  "alone-committing-it-is-a-note" 'commits a.txt, which this session did not make' "$(cat "$W/api.log")"
+equals "alone-the-noted-add-and-commit-ran" "both" "$(git -C "$RS" log -1 --format=%s)"
+equals "alone-a-note-asks-for-no-ack" "0" "$(said 'which this session did not make. To go on')"
+RS="$(repo)"; commit_file "$RS" a.txt a
+printf 'user\n' >> "$RS/a.txt"
+script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "echo x > own.txt"}}, {name: "Bash", input: {command: "git checkout -- ."}}]}')"
+e2e "$RS" go
+check  "alone-a-discard-of-a-change-from-before-the-session-stops" "would overwrite a.txt in" "$(cat "$W/api.log")"
+check  "alone-the-stop-says-when-the-ack-is-right" "If the task itself calls for it, rerun it prefixed CC_TUNER_ACK=" "$(cat "$W/api.log")"
+equals "alone-the-stopped-discard-kept-the-file" "user" "$(tail -1 "$RS/a.txt")"
 
 # --- git's own view: eol normalisation, info/attributes and a SHA-256 repository read as git reads them -------------------
 RE="$(repo)"; printf '*.txt text eol=crlf\n' > "$RE/.gitattributes"; printf 'hello\r\n' > "$RE/line.txt"
@@ -280,7 +292,8 @@ RB="$(repo)"
 commit_file "$RB" f.txt one; commit_file "$RB" пример.txt one
 git -C "$RB" switch -q -c feat-o; commit_file "$RB" f.txt theirs; commit_file "$RB" пример.txt theirs
 git -C "$RB" switch -q main; commit_file "$RB" f.txt mine; commit_file "$RB" пример.txt mine
-mkdir -p "$RB/docs"; printf '%s\n' '## Slice 1 — A' 'Owned paths: lib/' '- [ ] a' > "$RB/docs/p.md"
+mkdir -p "$RB/docs"
+cp "$FLOW_FIXTURES/plan-section-boundaries.md" "$RB/docs/p.md"
 ( cd "$RB" && git add docs && git commit -q -m plan )
 git -C "$RB" worktree add -q "$W/wo" feat-o; WO="$(cd "$W/wo" && pwd -P)"
 printf 'f\n' > "$RB/foreign.txt"
@@ -309,7 +322,7 @@ LOG="$(cat "$W/api.log")"
 check  "start-line-on-startup"                 "cc-tuner: live peers: main ($(basename "$RB"), pid $PB)" "$LOG"
 check  "start-line-names-the-tool"             "Details: peers_report." "$LOG"
 check  "guard-foreign-file-stops-on-real-git"  'would delete foreign.txt in' "$LOG"
-check  "guard-kill-of-a-peers-child-stops"     "would stop process $PBC, which belongs to pid $PB" "$LOG"
+check  "guard-kill-of-a-peers-child-stops"     "would stop process $PBC, started by the session pid $PB" "$LOG"
 check  "guard-kill-signal-0-is-a-probe-and-runs" "alive42" "$(cat "$W/api.log")"
 check  "guard-stop-reaches-the-model"          "rerun it prefixed CC_TUNER_ACK=$KEY" "$LOG"
 check  "guard-stop-says-the-choice-is-the-agents" "Your call, not the user" "$LOG"
@@ -328,7 +341,7 @@ equals "record-dead-pid-is-not-live"           "0" "$(said "pid $PD  ")"
 equals "report-object-store-unchanged"         "$BEFORE" "$(objects "$RB")"
 equals "report-leaves-no-temporary-objects"    "0" "$(ls -a "$CC_TUNER_PEERS_DIR" | grep -c '^\.objects\.')"
 check  "claim-prints-the-overlap"              "overlap with your claims: lib/ ~ lib/x.ts" "$LOG"
-equals "claim-publishes-open-owned-paths"      "lib/" "$(e2e_rec ".claims[\"$RB/docs/p.md\"].paths | join(\",\")")"
+equals "claim-publishes-open-owned-paths"      "lib/,docs/My File.md,docs/отчёт.md" "$(e2e_rec ".claims[\"$RB/docs/p.md\"].paths | join(\",\")")"
 equals "tool-report-from-a-subagent" "true" "$(jq -s --arg p "pid $PB  z  $RB" 'map(select((.[0] | tostring | contains("SUBAGENT-REPORT")) and (tostring | contains($p)))) | length > 0' "$W/api.log")"
 
 # --- resume and /clear bring the start line too ------------------------------------------------------------------
@@ -660,9 +673,9 @@ e2e "$RM" go
 check  "submodules-config-recursion-stops-on-real-git" "which the guard does not inspect" "$(cat "$W/api.log")"
 equals "submodules-config-recursion-keeps-the-edit" "precious" "$(cat "$RM/sm/x")"
 
-# A `cd` that may have failed does not move the steps after it: `cd /nonexistent; git reset --hard` runs in the cwd's checkout,
-# and a guard that took the `cd` for done would read a directory that is no checkout. The edit is nobody's here; the control
-# joins the same `cd` to the reset with `&&`, which is read.
+# A `cd` to a directory that is not there moves nothing: `cd /nonexistent; git reset --hard` runs in the cwd's checkout, and a
+# guard that took the `cd` for done would read a directory that is no checkout, so the reset stops as one in a directory nobody
+# can tell. The edit is nobody's here. A `cd` to a directory that exists is read, whatever joins it to the reset.
 RZ="$(repo)"; commit_file "$RZ" a one; printf 'precious\n' > "$RZ/a"
 script "$(jq -nc '{when: "", calls: [{name: "Bash", input: {command: "cd /nonexistent/path; git reset --hard"}}]}')"
 e2e "$RZ" go
@@ -673,11 +686,24 @@ script "$(jq -nc --arg c "cd $RZ && git reset --hard" '{when: "", calls: [{name:
 e2e "$RZ" go
 check  "cd-joined-with-and-is-read-on-real-git" "would discard a in" "$(cat "$W/api.log")"
 equals "cd-joined-with-and-keeps-the-foreign-edit" "precious" "$(cat "$RZ/a")"
+script "$(jq -nc --arg c "cd $RZ
+git reset --hard" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+e2e "$RZ" go
+check  "cd-on-its-own-line-is-read-on-real-git" "would discard a in" "$(cat "$W/api.log")"
+equals "cd-on-its-own-line-blames-no-failed-cd" "0" "$(said 'cannot tell which checkout')"
+equals "cd-on-its-own-line-keeps-the-foreign-edit" "precious" "$(cat "$RZ/a")"
+# Alone, a commit behind a `cd` the guard cannot read runs: nothing is lost by it.
+RV="$(repo)"; commit_file "$RV" a one
+script "$(jq -nc --arg c "D=$RV; cd \"\$D\" && git commit -q --allow-empty -m behind-a-variable" '{when: "", calls: [{name: "Bash", input: {command: $c}}]}')"
+e2e "$RV" go
+equals "cd-into-a-variable-lets-a-lone-commit-run-on-real-git" "behind-a-variable" "$(git -C "$RV" log -1 --format=%s)"
 
 # --- a commit with paths takes only those paths, so a foreign staged file does not stop it ----------------------------
+# A live peer is in the repository: without one a commit of a foreign file runs with a note.
 RC="$(repo)"
 commit_file "$RC" own one; commit_file "$RC" foreign one
 printf 'o2\n' > "$RC/own"; printf 'f2\n' > "$RC/foreign"; git -C "$RC" add foreign
+peer; fixture pc "$SP" "$RC" null
 script "$(jq -nc --arg o "$RC/own" '{when: "", calls: [
   {name: "Write", input: {file_path: $o, content: "mine\n"}},
   {name: "Bash", input: {command: "git commit --only own -m only-own"}},
@@ -693,6 +719,7 @@ check  "commit-plain-stops-for-the-foreign-staged"  "would commit foreign in" "$
 RF="$(repo)"
 commit_file "$RF" own one; commit_file "$RF" foreign one
 printf 'o2\n' > "$RF/own"; printf 'f2\n' > "$RF/foreign"; git -C "$RF" add foreign; printf 'f3\n' > "$RF/foreign"; printf 'foreign\n' > "$RF/paths.txt"
+peer; fixture pf "$SP" "$RF" null
 script "$(jq -nc --arg o "$RF/own" '{when: "", calls: [
   {name: "Write", input: {file_path: $o, content: "mine\n"}},
   {name: "Bash", input: {command: "git restore --pathspec-from-file=paths.txt"}},

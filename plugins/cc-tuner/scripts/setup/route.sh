@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The delivery-route key block: one owner of its text, its writer and its check.
 #
+#   route.sh preflight <expected-host> [repo-root]  Validate the delivery destination, route and CLI login.
+#     After the route status and a successful login, prints destination<TAB>remote<TAB>hostname<TAB>project.
 #   route.sh header
 #   route.sh canonical <gitlab|local>
 #   route.sh write <gitlab|local|other> <task-flow.local.md> [body-file]
@@ -55,7 +57,7 @@ LEGACY_RE='^<!-- Overrides and additions to [a-z-]*\.md live here; .*never touch
 LEGACY_NEXT='     Typical content: board name/number + cached field IDs, label taxonomy, merge-policy exceptions. -->'
 
 usage() {
-  printf 'usage: route.sh header\n       route.sh canonical <gitlab|local>\n       route.sh write <gitlab|local|other> <task-flow.local.md> [body-file]\n       route.sh check <github|gitlab|local|other> [repo-root]\n' >&2
+  printf 'usage: route.sh preflight <expected-host> [repo-root]\n       route.sh header\n       route.sh canonical <gitlab|local>\n       route.sh write <gitlab|local|other> <task-flow.local.md> [body-file]\n       route.sh check <github|gitlab|local|other> [repo-root]\n' >&2
   exit 2
 }
 fail() { printf 'route: %s\n' "$1" >&2; exit "${2:-1}"; }
@@ -228,7 +230,29 @@ cmd_write() {
   printf '%s\n' "$status"
 }
 
+# Keep preflight read-only. The caller decides which local work can proceed on failure.
+preflight() {
+  local expected="${1:-}" root="${2:-$PWD}" row host hostname remote project cli tab
+  [ -n "$expected" ] || usage
+  root="$(git -C "$root" rev-parse --show-toplevel)" || return 2
+  row="$(bash "$(dirname "$0")/host.sh" --delivery "$root")" || return $?
+  tab="$(printf '\t')"; host="${row%%$tab*}"
+  row="${row#*$tab}"; row="${row#*$tab}"
+  remote="${row%%$tab*}"; row="${row#*$tab}"
+  hostname="${row%%$tab*}"; project="${row#*$tab}"
+  if [ "$host" = ambiguous ]; then fail 'select the delivery remote with CC_TUNER_REMOTE' 15; fi
+  [ "$host" = "$expected" ] || fail "expected $expected; detected $host. Confirm the delivery destination." 15
+  (cmd_check "$host" "$root") || return $?
+  case "$host" in github) cli=gh ;; gitlab) cli=glab ;; *) cli="" ;; esac
+  if [ -n "$cli" ]; then
+    "$cli" auth status --hostname "$hostname" >/dev/null 2>&1 ||
+      fail "delivery needs $cli auth login --hostname $hostname" 16
+  fi
+  printf 'destination\t%s\t%s\t%s\n' "$remote" "$hostname" "$project"
+}
+
 case "${1:-}" in
+  preflight) shift; preflight "$@" ;;
   header)    [ "$#" -eq 1 ] || usage; header ;;
   canonical) shift; cmd_canonical "$@" ;;
   write)     shift; cmd_write "$@" ;;

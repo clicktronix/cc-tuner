@@ -1,4 +1,4 @@
-<!-- cc-tuner:task-flow v0.23.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.24.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
@@ -46,8 +46,7 @@ Breaking change: `!` after type/scope plus a `BREAKING CHANGE:` footer carrying 
 
 One commit = one logical change. A WIP chain during work is fine — squash-on-merge collapses it.
 
-**Attribution trailers:** if `task-flow.local.md` and the repository's own instructions are silent,
-ask once and record the answer in `task-flow.local.md`.
+**Attribution trailers:** follow `cc-tuner:task-flow` → Commit conventions.
 
 ## Pull requests
 

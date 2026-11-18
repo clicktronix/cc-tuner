@@ -1,27 +1,38 @@
 # cc-tuner
 
-A Claude Code plugin marketplace for **tuning Claude Code's own configuration** — skills that write and audit Claude Code's config files against the official docs, installed once instead of copied per project.
+A Claude Code plugin marketplace with one plugin, `cc-tuner`. It sets a repository up for agent work
+and carries a task from an approved spec through verification and authorized delivery. A project
+with manual commits or publication gets a local diff or commit and its verification evidence.
 
-Skills:
+Commands:
 
-- **`claude-md-writer`** — create, refactor, and audit `CLAUDE.md` / `.claude/rules/` memory files, every Claude Code memory fact checked against <https://code.claude.com/docs/en/memory>.
-- **`statusline`** — a usage-focused statusline (rate-limit 5h/7d windows, context %, git, model + effort, session duration), installed by the statusline node of `/cc-tuner:setup`, since plugins can't register a statusline on their own.
-- **`verify-feature`** — a stage of `/cc-tuner:run`, and usable alone. It reads the spec's acceptance criteria and the diff, finds what the repository already provides (commands, fixtures, runbooks, a browser tool, a database), picks the instrument each behaviour actually needs, runs it, and records what was observed.
-- **`task-flow`** — canonical branch/commit/PR/board/plan conventions: on-demand procedures in the skill, plus the task-flow node of `/cc-tuner:setup` that writes the always-on `.claude/rules/task-flow.md` into a repo from a versioned template, since plugins can't ship rules files either.
+- **`/cc-tuner:setup`** — check or configure the environment, companions, repository instructions,
+  delivery route, task tools, statusline and board.
+- **`/cc-tuner:spec`** — an approved spec and a sliced execution plan; `--groom` only records issue decisions.
+- **`/cc-tuner:run`** — implement, verify, review and deliver that plan.
+
+Skills the agent loads when they apply:
+
+- **`task-flow`** — branch, commit, PR, board and cleanup procedures; setup writes the always-on
+  `.claude/rules/task-flow.md` from a versioned template, since plugins can't ship rules files.
+- **`verify-feature`** — picks the instrument each acceptance criterion needs, runs it and records what was observed.
+- **`deep-review`** — read-only review lenses for large, cross-boundary or sensitive candidates.
+- **`agent-rules`** — loads the repository's applicable rules before a review or change.
+- **`claude-md-writer`** — creates, refactors and audits `CLAUDE.md` / `AGENTS.md` / `.claude/rules/`.
+- **`statusline`** — a usage statusline (rate-limit windows, context %, git, model, duration).
+
+The hooks run throughout a loaded Claude Code session, including outside `/run`. They coordinate
+peer edits and shared resources, catch common secret dumps into the transcript and clean up Bash
+background tasks on `/clear`. Scope, acknowledgements and limits are in the [plugin README](plugins/cc-tuner/README.md).
 
 Start with **`/cc-tuner:setup`**. It checks the environment, companions, repository instructions,
 the delivery route, task tools, optional statusline and board. `check` writes nothing; `install`
 applies additive repository changes and asks before rewrites or user-profile changes.
 
-- **`/cc-tuner:spec`** records an approved spec and execution plan. `--groom` only records issue decisions.
-- **`/cc-tuner:run [--auto] <spec>`** implements, verifies and reviews that plan. Merge requires `--auto`
-  or explicit authorization for that delivery.
-
 GitHub uses the checked `merge.sh`; GitLab and remote-less repositories use the plugin's delivery
 route; other hosts use the user's route. The tracker comes from `docs/agents/issue-tracker.md`.
 `/spec` and `/run` need **mattpocock-skills**; **cc-codex-triage** is optional. Setup offers the needed
 companions with per-plugin choices and installs accepted ones after one confirmation.
-See the [plugin README](plugins/cc-tuner/README.md).
 
 
 ## Why this exists

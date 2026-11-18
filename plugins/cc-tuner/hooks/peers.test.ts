@@ -24,6 +24,8 @@ class Machine {
   ran: string[][] = []
   reads: string[] = []
   refs = new Set<string>()
+  // What a ref resolves to, when a test tells two commits apart.
+  revs = new Map<string, string>()
   symbolic = new Map<string, string>()
   halfOnce = new Set<string>()
   envs: Record<string, Record<string, string> | undefined> = {}
@@ -181,7 +183,7 @@ class Machine {
     if (cmd === 'git' && a[2] === 'ls-tree') {
       return { stdout: (this.trees.get(`${a[1]}|${a[a.length - 1]}`) ?? []).map(f => `${f}\0`).join('') }
     }
-    if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: 'sha\n' } : { exitCode: 1, stdout: '' }
+    if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: `${this.revs.get(a[a.length - 1]!) ?? 'sha'}\n` } : { exitCode: 1, stdout: '' }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
     if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
     // The lease scripts, as the shell runs them: one atomic step each.
@@ -851,6 +853,24 @@ test('claim publishes the open Owned paths and prints their overlap', async () =
   expect(ownedOpen('## Slice 1 — A\nOwned paths: a/, b\n- [X] t\n## Slice 2 — B\nOwned paths: c\n')).toEqual(['c'])
 })
 
+test('a whole-repository claim overlaps an unusual path and is released when its slice finishes', async () => {
+  const { m, ra, wa, sr, sa } = products()
+  await sr.touch(ra)
+  await sa.touch(wa)
+  const path = ' a,b.md '
+  await sa.edited(wa, `${wa}/${path}`)
+  const plan = (box: string) => `## Slice 1 — Rename files\nOwned paths: .\n- [${box}] file renamed\n`
+  m.put(`${ra}/plan.md`, plan(' '))
+  const out = await sr.peers.claim(ra, 'sr', 'plan.md')
+  expect(m.rec('sr').claims[`${ra}/plan.md`]?.paths).toEqual(['.'])
+  expect(out).toContain(`overlap with your claims: . ~ ${path}`)
+  const edit = await sa.check({ tool: 'Edit', cwd: wa, path: `${wa}/unrelated/file.md` })
+  expect(edit.reason).toContain('claims . (')
+  m.put(`${ra}/plan.md`, plan('x'))
+  await sr.peers.claim(ra, 'sr', 'plan.md')
+  expect(m.rec('sr').claims).toEqual({})
+})
+
 // --- the start line ----------------------------------------------------------------------------------------
 test('start: the line appears only with live peers or a kept task', async () => {
   const { m, session } = machine()
@@ -1007,7 +1027,7 @@ test('guard: alone in a checkout, a session owns what changed during its own Bas
   for (const c of ['git restore a.txt', 'git clean -fd gen', 'git add gen']) expect((await me.bash(u, c)).decision, `own-path-next-to-the-users: ${c}`).not.toBe('stop')
   for (const c of ['git add -A', 'git reset --hard', 'git restore .', 'git stash']) {
     const v = await me.bash(u, c)
-    expect(v.decision, `changed-before-the-session: ${c}`).toBe('stop')
+    expect(v.decision, `changed-before-the-session: ${c}`).toBe(c === 'git add -A' ? 'note' : 'stop')
     expect(v.reason).toContain('before.txt')
     expect(v.reason).not.toContain('a.txt')
   }
@@ -1094,7 +1114,7 @@ test('guard: writer marks are stamped after every awaited read of the call, righ
   expect(m.rec('peer').checkouts[r]!.writer, 'writer-mark-taken-after-the-branch-read-of-a-later-step').toBe(now(m))
 })
 
-test('guard: a sweep keeps the tombstone a live session still needs, and a resumed session infers nothing from before', async () => {
+test('guard: a sweep keeps the tombstone a live session still needs; a resumed session owns what its calls made and make, not what changed while it was gone', async () => {
   const { m, session } = machine()
   const r = m.repo('/w/r')
   const me = session('me')
@@ -1111,14 +1131,36 @@ test('guard: a sweep keeps the tombstone a live session still needs, and a resum
   expect((await me.bash(r, 'git restore a.txt')).decision, 'the-peers-later-write-is-not-its-own').toBe('stop')
   expect(m.rec('me').checkouts[r]!.mixed, 'its-next-event-marks-the-checkout').toBe(true)
   const { m: m2, session: s2 } = machine()
-  const r2 = m2.repo('/w/r')
+  const [r2, r3] = [m2.repo('/w/r'), m2.repo('/w/other')]
   const before = s2('sid-x')
   await before.bash(r2, 'git status')
+  await before.bash(r3, 'git status')
   m2.advance(5)
   await call(before, r2, ['prettier --write .'], () => changeIn(m2, r2, 'a.txt'))
   m2.end(before.pid)
+  changeIn(m2, r2, 'gone.txt')
+  // Another session came, wrote in the second checkout and left while this one was gone.
+  const between = s2('between')
+  await call(between, r3, ['touch x'])
+  m2.end(between.pid)
+  m2.advance(5)
   const after = s2('sid-x')
-  expect((await after.bash(r2, 'git restore a.txt')).decision, 'a-resumed-session-infers-nothing-from-before').toBe('stop')
+  expect((await after.bash(r2, 'git restore a.txt')).decision, 'a-resumed-session-keeps-what-its-calls-made-before').not.toBe('stop')
+  expect((await after.bash(r2, 'git restore gone.txt')).decision, 'what-changed-while-it-was-gone-is-not-its-own').toBe('stop')
+  m2.advance(5)
+  await call(after, r2, ['prettier --write .'], () => changeIn(m2, r2, 'b.txt', 'gone.txt'))
+  m2.advance(5)
+  for (const c of ['git restore b.txt', 'git restore a.txt']) expect((await after.bash(r2, c)).decision, `a-resumed-session-owns-what-its-calls-change-from-then-on: ${c}`).not.toBe('stop')
+  expect((await after.bash(r2, 'git restore gone.txt')).decision, 'a-file-changed-while-it-was-gone-stays-foreign-though-its-call-touched-it').toBe('stop')
+  expect((await after.bash(r2, 'git add -A')).reason, 'resume-add-all-names-only-the-foreign-file').not.toContain('b.txt')
+  const co = m2.rec('sid-x').checkouts[r2]!
+  expect([co.mixed, co.away], 'resume-leaves-no-mark-that-stops-inference').toEqual([undefined, undefined])
+  expect(m2.rec('sid-x').checkouts[r3]!.away, 'a-checkout-not-looked-at-since-waits').toBe(true)
+  m2.advance(5)
+  await call(after, r3, ['prettier --write .'], () => changeIn(m2, r3, 'c.txt'))
+  m2.advance(5)
+  expect((await after.bash(r3, 'git restore c.txt')).decision, 'a-session-that-wrote-and-left-while-it-was-gone-does-not-mix-the-checkout').not.toBe('stop')
+  expect(m2.rec('sid-x').checkouts[r3]!.mixed).toBeUndefined()
 })
 
 test('guard: a switch next to a writer stops with a short reason; idle, cwd-only or dead peers do not', async () => {
@@ -1188,17 +1230,33 @@ test('guard: a stopped call marks no writer; an allowed writer call does', async
 const FOREIGN = ['git reset --hard', 'git reset --hard HEAD~1', 'git stash', 'git stash push', 'git stash -u', 'git restore .flow-seed',
   'git restore .', 'git checkout -- .flow-seed', 'git checkout .', 'git clean -fd', 'git commit -a -m m', 'git commit -am m',
   'git add -A', 'git add --all', 'git add .', 'git add -u', 'git add sub']
+// The ones that keep every file: with no live peer they run, and the files this session did not make are a note.
+const keeps = (c: string) => /^git (commit|add)\b/.test(c)
+const lone = (c: string) => (keeps(c) ? 'note' : 'stop')
 
-test('guard: discarding or committing a foreign file stops, with no peer needed; neighbours pass', async () => {
+test('guard: with a live peer, staging or committing a file this session did not make stops like discarding it', async () => {
+  const { m, r, me, ready, decide } = world()
+  await ready
+  m.mkdir(`${r}/sub`)
+  m.dirty(r, ' M .flow-seed', '?? u.txt', '?? sub/n.txt')
+  for (const c of FOREIGN) expect((await decide(r, c)).decision, `live-peer: ${c}`).toBe('stop')
+  for (const f of ['.flow-seed', 'u.txt', 'sub/n.txt']) await me.edited(r, `${r}/${f}`)
+  for (const c of FOREIGN.filter(keeps)) expect((await decide(r, c)).decision, `live-peer-own: ${c}`).toBe('allow')
+})
+
+test('guard: discarding a foreign file stops with no peer needed, staging or committing it is a note then; neighbours pass', async () => {
   const { m, r, peer, me, ready, decide, other } = world()
   await ready
   m.mkdir(`${r}/sub`)
   m.dirty(r, ' M .flow-seed', '?? u.txt', '?? sub/n.txt')
   m.end(peer.pid)
-  for (const c of FOREIGN) expect((await decide(r, c)).decision, c).toBe('stop')
+  for (const c of FOREIGN) expect((await decide(r, c)).decision, c).toBe(lone(c))
+  const taken = await decide(r, 'git add -A')
+  for (const part of ['`git add -A` stages', '.flow-seed', 'u.txt', 'which this session did not make']) expect(taken.reason, 'guard-lone-stage-names-the-files').toContain(part)
+  expect(taken.reason, 'a-note-asks-for-no-ack').not.toContain('CC_TUNER_ACK')
   const { reason } = await decide(r, 'git reset --hard')
   expect(reason).toContain('.flow-seed')
-  expect(reason).toContain('unknown owner')
+  expect(reason).toContain("no session's; they may be the user's work")
   expect((await decide(other(), at(r, 'git reset --hard'))).decision, 'behind git -C').toBe('stop')
   expect((await decide(r, at('../x', 'git status'), step('echo', '', '-'), then('git reset --hard', ';'))).decision, 'behind wrappers').toBe('stop')
   expect((await decide(r, 'git status', then('git reset --hard'))).decision, 'in a compound').toBe('stop')
@@ -1207,10 +1265,10 @@ test('guard: discarding or committing a foreign file stops, with no peer needed;
   }
   expect((await decide(other(1), 'git reset --hard')).decision, 'a clean checkout').toBe('allow')
   m.status.set(r, ['M  .flow-seed', '?? u.txt', '?? sub/n.txt'])
-  expect((await decide(r, 'git commit -m m')).decision, 'guard-foreign-staged-commit-stops').toBe('stop')
-  expect((await decide(r, 'git commit --amend --no-edit')).decision, 'guard-foreign-staged-amend-stops').toBe('stop')
+  expect((await decide(r, 'git commit -m m')).decision, 'guard-foreign-staged-commit-is-a-note-alone').toBe('note')
+  expect((await decide(r, 'git commit --amend --no-edit')).decision, 'guard-foreign-staged-amend-is-a-note-alone').toBe('note')
   m.status.set(r, [' M .flow-seed', '?? u.txt', '?? sub/n.txt'])
-  expect((await decide(r, 'git add .flow-seed', then('git commit -m m'))).decision, 'guard-add-f-then-commit-stops-for-a-foreign-f').toBe('stop')
+  expect((await decide(r, 'git add .flow-seed', then('git commit -m m'))).reason, 'guard-add-f-then-commit-names-a-foreign-f').toContain('commits .flow-seed')
   expect((await decide(r, 'git add .flow-seed')).decision, 'guard-add-alone-of-a-named-file-allows').toBe('allow')
   for (const f of ['.flow-seed', 'u.txt', 'sub/n.txt']) await me.edited(r, `${r}/${f}`)
   for (const c of FOREIGN) expect((await decide(r, c)).decision, `own: ${c}`).toBe('allow')
@@ -1230,7 +1288,7 @@ test('guard: a pathspec the guard cannot read as a literal path (magic, a glob) 
   for (const c of ['git restore -- :(top)foreign.txt', 'git restore :!x', 'git restore *.txt', 'git restore dir/**', 'git restore a[0-9].txt', 'git restore f?reign.txt',
     'git commit -m mine -- :(top)foreign.txt', 'git commit -m mine -- *.txt', 'git checkout -- :(top)foreign.txt']) {
     const v = await decide(r, c)
-    expect(v.decision, `pathspec-${c}`).toBe('stop')
+    expect(v.decision, `pathspec-${c}`).toBe(lone(c))
     expect(v.reason, `pathspec-names-${c}`).toContain('foreign.txt')
   }
   for (const c of ['git restore g.txt', 'git commit -m mine -- g.txt', 'git restore sub/g.txt']) expect((await decide(r, c)).decision, `literal-${c}`).toBe('allow')
@@ -1269,7 +1327,11 @@ test('guard: a destructive command given git configuration of its own stops, sin
   const given = (text: string, ...config: string[]) => ({ ...step(text), config })
   const destructive = ['git reset --hard', 'git reset --hard HEAD~1', 'git restore g.txt', 'git checkout -f x', 'git switch -f x', 'git checkout -- g.txt', 'git clean -fd', 'git stash',
     'gh pr checkout 5 --force']
-  for (const config of [['submodule.recurse=true'], ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=submodule.recurse', 'GIT_CONFIG_VALUE_0=true'], ['GIT_CONFIG_PARAMETERS=x'], ['core.quotepath=off']]) {
+  for (const config of [['advice.detachedHead=false'], ['core.quotepath=off'], ['user.name=bot', 'color.ui=never', 'commit.gpgsign=false']]) {
+    for (const c of destructive) expect((await decide(r, given(c, ...config))).decision, `config-that-reaches-nothing-${c}-${config[0]}`).toBe('allow')
+  }
+  expect((await decide(r, given('git reset --hard', 'advice.detachedHead=false', 'core.worktree=/x'))).reason, 'config-names-only-the-key-that-reaches').not.toContain('advice')
+  for (const config of [['submodule.recurse=true'], ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=submodule.recurse', 'GIT_CONFIG_VALUE_0=true'], ['GIT_CONFIG_PARAMETERS=x'], ['core.worktree=/x'], ['include.path=/x']]) {
     for (const c of destructive) {
       const v = await decide(r, given(c, ...config))
       expect(v.decision, `config-${c}-${config[0]}`).toBe('stop')
@@ -1522,6 +1584,26 @@ test('inspection: a process list that cannot be read stops a destructive step wi
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [step('git reset --hard')], acks: [k] })).decision, 'the-ack-passes-it').toBe('allow')
   expect((await fresh.bash(r, 'npm test')).decision, 'a-step-that-destroys-nothing-runs').toBe('allow')
   expect(await fresh.peers.report(r), 'report-says-so').toContain('could not read the process list')
+  // The ack is kept for 30 minutes like any other, though there is no record to keep it in.
+  expect((await fresh.bash(r, 'git reset --hard')).decision, 'unread-processes-ack-is-kept').toBe('allow')
+  expect((await fresh.bash(r, 'git clean -fd')).decision, 'unread-processes-ack-is-for-that-command').toBe('stop')
+  // A step that keeps every file runs, and the verdict says nothing was checked.
+  for (const c of ['git add -A', 'git add .', 'git commit -am m', 'git commit -m m', 'git push origin main', 'git switch x']) {
+    const kept = await fresh.bash(r, c)
+    expect(kept.decision, `unread-processes-let-it-run: ${c}`).toBe('allow')
+    expect(kept.inactive, `unread-processes-say-so: ${c}`).toBe('could not read the process list')
+  }
+  // The failed read is kept for a minute: the calls in between start no process.
+  const asked = () => m.ran.filter(a => a[0] === 'ps' || a[2] === 'echo $PPID').length
+  const before = asked()
+  for (const c of ['ls', 'npm test', 'git add -A']) await fresh.bash(r, c)
+  await fresh.peers.alive()
+  expect(asked(), 'unread-processes-are-not-asked-again-within-the-minute').toBe(before)
+  m.advance(61)
+  await fresh.bash(r, 'ls')
+  expect(asked(), 'unread-processes-are-asked-again-after-it').toBeGreaterThan(before)
+  m.advance(31 * 60)
+  expect((await fresh.bash(r, 'git reset --hard')).decision, 'unread-processes-ack-ends-after-30-min').toBe('stop')
 })
 
 test('inspection: recursion config that cannot be read is treated as recursion', async () => {
@@ -1564,15 +1646,26 @@ test('inspection: a process list that cannot be read stops a kill and a shared s
 })
 
 test('inspection: a git too old for the guard is never run unchecked; the guard says so and treats the tree as unread', async () => {
-  const { m, r, peer, ready, decide } = world()
+  const { m, r, peer, me, ready, decide } = world()
   await ready
   m.dirty(r, ' M f')
   m.end(peer.pid)
   m.failing.set('git status', 129)
   const { decision, reason } = await decide(r, 'git reset --hard')
   expect(decision).toBe('stop')
-  expect(reason, 'inert-old-git-says-so').toContain('cc-tuner: git 2.42 or newer is needed to inspect safely')
+  expect(reason, 'inert-old-git-says-so').toContain('the guard needs git 2.42 or newer')
   expect(reason, 'inert-old-git-is-unread').toContain('could not read git status')
+  expect(reason, 'a-discard-is-what-may-lose-files').toContain('may discard files this session did not make')
+  expect(reason!.match(/cc-tuner:/g), 'one-prefix-per-reason').toHaveLength(1)
+  for (const c of ['git commit -am m', 'git add -A', 'git add f', then('git commit -m m')] as const) {
+    const kept = await (typeof c === 'string' ? decide(r, c) : decide(r, 'git add f', c))
+    expect(kept.decision, `inert-old-git-lets-a-commit-run: ${typeof c === 'string' ? c : 'add then commit'}`).toBe('allow')
+    if (c !== 'git add f') expect(kept.inactive, 'inert-old-git-says-the-guard-is-inactive-there').toContain('git 2.42 or newer')
+  }
+  const runs = m.ran.length
+  await decide(r, 'git commit -am m')
+  await me.check({ tool: 'Edit', cwd: r, path: `${r}/new.txt` })
+  expect(m.ran.slice(runs).filter(a => a[0] !== 'ps').map(a => a.slice(0, 4).join(' ').slice(0, 60)), 'inert-old-git-is-not-asked-again').toEqual([])
 })
 
 test('guard: reset --hard, checkout -f and switch -f stop for an untracked foreign file the destination tree holds', async () => {
@@ -1625,7 +1718,7 @@ test('guard: git commit protects what it will commit: its paths, or the staged f
   }
   for (const c of ['git commit -m mine', 'git commit -m own.txt', 'git commit -i own.txt -m m', 'git commit --include own.txt -m m', 'git commit other.txt -m m',
     'git commit -a -m m', 'git commit -am m', 'git commit --amend --no-edit']) {
-    expect((await decide(r, c)).decision, c).toBe('stop')
+    expect((await decide(r, c)).decision, c).toBe('note')
   }
   expect((await decide(r, 'git commit other.txt -m m')).reason, 'guard-commit-of-a-path-names-the-foreign-path').toContain('other.txt')
   expect((await decide(r, 'git commit -m m')).reason, 'guard-plain-commit-names-the-staged-file').toContain('foreign.txt')
@@ -1646,7 +1739,7 @@ test('guard: a git command given --pathspec-from-file has a scope nobody read, s
     for (const flag of ['--pathspec-from-file=own-list', '--pathspec-from-file own-list', '--pathspec-from-file=own-list --pathspec-file-nul', '--pathspec-file-nul --pathspec-from-file own-list', '--pathspec-from-file=-']) {
       const c = `git ${sub} ${flag} ${rest.join(' ')}`.trim()
       const v = await decide(r, c)
-      expect(v.decision, `pathspec-file-is-an-unread-scope: ${c}`).toBe('stop')
+      expect(v.decision, `pathspec-file-is-an-unread-scope: ${c}`).toBe(lone(c))
       expect(v.reason, `pathspec-file-names-the-foreign-file: ${c}`).toContain('foreign.txt')
     }
   }
@@ -1665,7 +1758,7 @@ test('guard: git commit --only with no paths and --amend commits none of the sta
     expect((await decide(r, c)).decision, c).toBe('allow')
   }
   for (const c of ['git commit --amend --no-edit', 'git commit --only other.txt --amend --no-edit', 'git commit -o --amend -a --no-edit', 'git commit --only -m m']) {
-    expect((await decide(r, c)).decision, c).toBe('stop')
+    expect((await decide(r, c)).decision, c).toBe('note')
   }
 })
 
@@ -1696,7 +1789,7 @@ test('guard: stash drop and clear stop while a peer works in the repository, pas
 })
 
 test('guard: commit, push and PR run on the branch this session expects, whoever switched it', async () => {
-  const { m, r, peer, ready, decide, other } = world()
+  const { m, r, peer, ready, decide, acked, other } = world()
   await ready
   m.end(peer.pid)
   for (const c of ['git commit -m m', 'git push origin main', 'gh pr create --fill', 'gh pr merge 5', 'gh pr merge --squash']) expect((await decide(r, c)).decision, c).toBe('allow')
@@ -1704,14 +1797,27 @@ test('guard: commit, push and PR run on the branch this session expects, whoever
   for (const c of ['git commit -m m', 'git push origin x', 'gh pr create --fill', 'gh pr merge 5', 'gh pr merge --squash']) expect((await decide(r, c)).decision, c).toBe('stop')
   const { reason } = await decide(r, 'git commit -m m')
   expect(reason).toContain('on x')
-  expect(reason).toContain('this session started on main')
+  expect(reason).toContain('this session was last on main')
+  expect(reason, 'drift-never-sends-the-work-back-to-the-old-branch').not.toContain('git switch')
+  expect(reason, 'drift-says-when-the-ack-is-right').toContain('If the work belongs on x, rerun it prefixed CC_TUNER_ACK=')
+  const driftKey = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(reason!)![1]!
+  for (const c of ['git push origin x', 'gh pr create --fill']) expect((await decide(r, c)).reason, `drift-one-key-per-checkout: ${c}`).toContain(driftKey)
   expect((await decide(other(), at(r, 'git commit -m m'))).decision).toBe('stop')
   expect((await decide(r, 'git status')).decision).toBe('allow')
   expect((await decide(r, 'git switch main', then('git commit -m m'))).decision).toBe('allow')
   m.head(r, 'main')
   expect((await decide(r, 'git switch -c z', then('git commit -m m'))).decision).toBe('allow')
   m.head(r, undefined)
-  expect((await decide(r, 'git commit -m m')).decision, 'guard-detached-head-commit-stops-too').toBe('stop')
+  const detached = await decide(r, 'git commit -m m')
+  expect(detached.decision, 'guard-detached-head-commit-stops-too').toBe('stop')
+  // The ack says the work belongs where HEAD is: that becomes the branch this session expects, so it is asked once.
+  const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(detached.reason!)![1]!
+  expect((await acked(r, k, 'git commit -m m')).decision, 'drift-ack-goes-on').toBe('allow')
+  expect(m.rec('me').checkouts[r]!.expected, 'drift-ack-moves-the-expected-branch').toBe('')
+  m.advance(31 * 60)
+  for (const c of ['git commit -m m', 'git push origin HEAD', 'gh pr create --fill']) expect((await decide(r, c)).decision, `drift-is-asked-once: ${c}`).toBe('allow')
+  m.head(r, 'y')
+  expect((await decide(r, 'git commit -m m')).decision, 'drift-a-later-move-asks-again').toBe('stop')
 })
 
 test('guard: a planned switch excuses a later commit only when it runs only if the switch succeeded', async () => {
@@ -1730,7 +1836,7 @@ test('guard: a planned switch excuses a later commit only when it runs only if t
   expect((await decide(r, 'git switch c', then('npm test'), commit(';'))).decision, 'a chain broken by ; does not').toBe('stop')
   expect((await decide(r, 'git switch c', then('npm test', ';'), commit('&&'))).decision, 'a chain broken before the commit does not').toBe('stop')
   const { reason } = await decide(r, 'git switch c', commit(';'))
-  expect(reason, 'the reason suggests &&').toContain('&&')
+  expect(reason, 'the reason names the branch HEAD holds and the one this session was on').toContain('on b in /w/r; this session was last on main')
 })
 
 test('guard: a first read-only git call in another checkout records it, so a later commit there is checked against the branch it saw', async () => {
@@ -1963,7 +2069,7 @@ test('guard: an edit of a dirty or untracked file this session did not edit is a
   const first = await edit('a.txt')
   expect(first.decision, 'guard-edit-of-a-dirty-file-nobody-here-edited-is-a-note').toBe('note')
   expect(first.reason).toContain('a.txt')
-  expect(first.reason).toContain('unknown owner')
+  expect(first.reason).toContain("no session's; they may be the user's work")
   expect((await edit('a.txt')).decision, 'guard-dirty-file-note-once-an-hour').toBe('allow')
   expect((await edit('u.txt', 'Write')).decision, 'guard-untracked-file-is-foreign-too').toBe('note')
   expect((await edit('n.ipynb', 'NotebookEdit')).decision, 'guard-clean-or-new-file-allows').toBe('allow')
@@ -2182,7 +2288,8 @@ test('resource: the lease is the holder\'s until its release, 10 min of silence 
   expect((await use(sc, rc, 'mcp__other__x')).decision, 'a tool no resource names').toBe('allow')
   const denied = await use(sc, rc)
   expect(denied.decision).toBe('stop')
-  for (const part of [`pid ${sr.pid}`, 'chrome', 'SendMessage']) expect(denied.reason).toContain(part)
+  for (const part of [`pid ${sr.pid}`, 'chrome', 'Wait, or ask the user']) expect(denied.reason).toContain(part)
+  expect(denied.reason, 'no-channel-to-another-session-is-named').not.toContain('SendMessage')
   expect(denied.reason, 'a lease offers no ack').not.toContain('CC_TUNER_ACK')
   expect(await sc.peers.release('chrome'), 'resource-non-holder-release-is-refused').toBe('cc-tuner: chrome is not leased to this session.')
   m.advance(599)
@@ -2484,7 +2591,7 @@ test('resource: TaskStop of a shared task is denied with no ack while a product 
   const peer = session('peer')
   await peer.touch('/w/r')
   const { deny } = await $.tool.call({ tool: 'TaskStop', task_id: 'two' })
-  for (const part of ['two', 'stack', `pid ${peer.pid}`, 'SendMessage']) expect(deny).toContain(part)
+  for (const part of ['two', 'stack', `pid ${peer.pid}`, 'Wait, or ask the user']) expect(deny).toContain(part)
   expect(deny, 'resource-taskstop-offers-no-ack').not.toContain('CC_TUNER_ACK')
   expect((await $.tool.call({ tool: 'TaskStop', task_id: 'b9' })).deny, 'a task that ran no shared start').toBeUndefined()
   expect(m.stopped).toEqual(['one', 'b9'])
@@ -2642,7 +2749,7 @@ test('guard: an absolute operand of a removal is read whatever directory an earl
   expect((await decide(r, at(UNKNOWN, 'rm -rf /p/k/r build'))).decision, 'a relative operand is not').toBe('stop')
 })
 
-test('a cd that may have failed leaves a destructive step stopped through the adapter, a chain with && does not', async ($, on) => {
+test('a cd to a directory that is not there leaves a destructive step stopped through the adapter; one that exists is read, however it is joined', async ($, on) => {
   const { m, session } = machine()
   const r = m.repo('/w/r')
   const peer = session('peer')
@@ -2654,7 +2761,31 @@ test('a cd that may have failed leaves a destructive step stopped through the ad
     expect(deny, command).toContain('cannot tell which checkout')
   }
   expect(ran, 'none of them ran').toEqual([])
+  const missing = (await $.tool.call({ tool: 'Bash', command: 'cd /nonexistent/path; git reset --hard' })).deny
+  expect(missing, 'the reason is the real one').toContain('the directory of its `cd` (/nonexistent/path) does not exist')
+  expect(missing, 'no cd is said to have failed').not.toContain('may have failed')
   expect((await $.tool.call({ tool: 'Bash', command: 'cd /w/r && git reset --hard' })).deny, 'a cd the reset depends on is read').toContain('foreign.txt')
+  // A cd to a directory that exists moves the steps after it, whatever joins them: the reset is decided in that checkout.
+  for (const command of ['cd /w/r; git reset --hard', 'cd /w/r\ngit reset --hard', 'cd /w/r || exit 1\ngit reset --hard', 'cd "$PWD" && git reset --hard']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('foreign.txt')
+  }
+  const variable = (await $.tool.call({ tool: 'Bash', command: 'cd "$REPO" && git reset --hard' })).deny
+  expect(variable, 'a variable is named as the cause, in a chain of && too').toContain('its `cd` names a directory the guard cannot read')
+  expect(variable).not.toContain('may have failed')
+})
+
+test('alone, a commit after a cd on its own line or into a variable runs; only a step that loses work waits for a directory', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  m.mkdir('/w/r/pkg/app')
+  const ran = engine(on, m, m.spawn())
+  const runs = ['cd pkg/app\ngit add f.ts\ngit commit -m fix', 'cd pkg/app; git add f.ts', 'cd "$PWD/pkg/app" && git add f.ts', 'cd $(git rev-parse --show-toplevel) && git add pkg/app/f.ts',
+    'REPO=/w/r\ncd "$REPO" && git commit -m x', 'cd pkg/app && npm run build\nrm -rf dist', 'cd pkg/app || exit 1\ngit add f.ts', 'cd "$REPO" && git push origin main']
+  for (const command of runs) expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toBeUndefined()
+  expect(ran).toEqual(runs)
+  for (const command of ['cd "$REPO" && git reset --hard', 'cd $(mktemp -d) && rm -rf build', 'cd "$REPO"\ngit clean -fd']) {
+    expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('cannot tell which checkout')
+  }
 })
 
 test('guard: a wrapper that starts another command it cannot unwrap is a note when that command is git, gh or kill', async () => {
@@ -2680,7 +2811,7 @@ test('record: a record of the wrong shape or version is skipped and noted once a
   expect(first.decision).toBe('note')
   expect(first.reason).toContain('skipped malformed peer record peer.json')
   expect((await decide(r, 'git status')).decision, 'said once an hour').toBe('allow')
-  expect((await decide(r, 'git reset --hard')).reason, 'record-malformed-shape-is-not-a-peer').toContain('unknown owner')
+  expect((await decide(r, 'git reset --hard')).reason, 'record-malformed-shape-is-not-a-peer').toContain("no session's")
   m.edit('peer', x => { x.checkouts[r] = { repo: 'x' } as unknown as Rec['checkouts'][string] })
   m.edit('me', x => { x.acks = {} })
   expect((await decide(r, 'git status')).reason).toContain('peer.json')
@@ -2706,13 +2837,21 @@ test('guard: a git status that did not run is not a clean tree', async () => {
   const { m, r, me, ready, decide, acked } = world()
   await ready
   m.failing.set('git status', 1)
-  for (const c of ['git reset --hard', 'git clean -fd', 'git commit -m m', 'git add -A']) {
+  for (const c of ['git reset --hard', 'git clean -fd', 'git restore .', 'git stash']) {
     const v = await decide(r, c)
     expect(v.decision, `guard-unreadable-status-stops: ${c}`).toBe('stop')
     expect(v.reason).toContain('could not read git status')
+    expect(v.reason, 'no-old-git-is-blamed-without-evidence').not.toContain('2.42')
+  }
+  // A step that keeps every file runs: the guard says it is inactive there, and register.ts tells the agent once a session.
+  for (const c of ['git commit -m m', 'git add -A', 'git commit -am m']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-unreadable-status-lets-a-commit-run: ${c}`).toBe('allow')
+    expect(v.inactive, `guard-unreadable-status-is-said: ${c}`).toContain(`could not read git status in ${r}`)
   }
   const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec((await decide(r, 'git reset --hard')).reason!)![1]!
   expect((await acked(r, k, 'git reset --hard')).decision, 'an ack goes on').toBe('allow')
+  expect((await decide(r, 'git clean -fd')).decision, 'one-ack-per-unread-checkout-for-30-min').toBe('allow')
   m.failing.delete('git status')
   expect((await decide(r, 'git reset --hard')).decision, 'a clean tree').toBe('allow')
   void me
@@ -2911,8 +3050,9 @@ test('guard: the reasons name the safe way first, and the choice is the agent\'s
   await ready
   m.dirty(r, ' M mine.txt')
   const unknown = (await decide(r, 'git reset --hard')).reason!
-  expect(unknown, 'guard-unknown-owner-may-be-the-users').toContain("user's own edits")
-  expect(unknown).toContain('own paths')
+  expect(unknown, 'guard-unknown-owner-may-be-the-users').toContain("they may be the user's work")
+  expect(unknown).toContain('Name your own paths instead.')
+  expect(unknown, 'guard-unknown-owner-says-when-the-ack-is-right').toContain('If the task itself calls for it, rerun it prefixed CC_TUNER_ACK=')
   expect(unknown).not.toContain('Your call, not the user')
   await peer.edited(r, `${r}/mine.txt`)
   const owned = (await decide(r, 'git reset --hard')).reason!
@@ -2921,8 +3061,8 @@ test('guard: the reasons name the safe way first, and the choice is the agent\'s
   m.end(peer.pid)
   m.head(r, 'x')
   const drift = (await decide(r, 'git commit -m m')).reason!
-  expect(drift, 'guard-drift-names-the-way-back').toContain('git switch main')
-  expect(drift.indexOf('git switch main')).toBeLessThan(drift.indexOf('CC_TUNER_ACK='))
+  expect(drift, 'guard-drift-names-both-branches').toContain('would run on x in /w/r; this session was last on main')
+  expect(drift, 'guard-drift-offers-no-way-back-to-the-wrong-branch').not.toContain('git switch')
 })
 
 test('record: a reftable HEAD is read through git', async () => {
@@ -3040,4 +3180,212 @@ test('guard: the ack for a git step pointed elsewhere covers that placement only
   const k = /CC_TUNER_ACK=([0-9a-f]{8})/.exec(v.reason!)![1]!
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/c')], acks: [k] })).decision, 'another-placement-needs-its-own-ack').toBe('stop')
   expect((await fresh.check({ tool: 'Bash', cwd: r, steps: [placed('/b')], acks: [k] })).decision, 'its-own-passes').toBe('allow')
+})
+
+// --- what a lone session may do, and what a peer's work is protected from -----------------------------------------
+const ackOf = (reason: string | undefined) => /CC_TUNER_ACK=([0-9a-f]{8})/.exec(reason ?? '')![1]!
+
+test('guard: in a directory nobody can tell, only a step that loses work stops a lone session; next to a live peer every guarded step does', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  const me = session('me')
+  await me.touch(r)
+  for (const c of ['git add .', 'git add -A', 'git commit -m m', 'git commit -am m', 'git push origin main', 'git push origin :x', 'git switch x', 'git checkout x',
+    'git checkout -b x origin/x', 'gh pr checkout 5', 'git pull', 'git merge x']) {
+    expect((await me.bash(r, at(UNKNOWN, c))).decision, `lone-unknown-directory-runs: ${c}`).toBe('allow')
+  }
+  for (const c of ['git reset --hard', 'git clean -fd', 'git checkout -- f', 'git checkout -f x', 'git checkout HEAD f', 'git restore f', 'git stash', 'git stash drop',
+    'git branch -D x', 'git worktree remove w', 'rm -rf build', 'git switch --discard-changes x', 'gh pr checkout 5 --force']) {
+    const v = await me.bash(r, at(UNKNOWN, c))
+    expect(v.decision, `lone-unknown-directory-stops-what-loses-work: ${c}`).toBe('stop')
+    expect(v.reason, `unknown-directory-names-the-cause: ${c}`).toContain('its `cd` names a directory the guard cannot read (a variable or a substitution)')
+    expect(v.reason, `unknown-directory-blames-no-failed-cd: ${c}`).not.toContain('may have failed')
+  }
+  const peer = session('peer')
+  await peer.touch(r)
+  for (const c of ['git add .', 'git commit -m m', 'git switch x', 'git pull', 'git push origin :x']) {
+    expect((await me.bash(r, at(UNKNOWN, c))).decision, `unknown-directory-next-to-a-peer-stops: ${c}`).toBe('stop')
+  }
+})
+
+test('guard: a step after a cd it does not wait on is decided in that directory when it exists, and is in an unknown one when it does not', async () => {
+  const { m, session } = machine()
+  const r = m.repo('/w/r')
+  m.mkdir(`${r}/pkg`)
+  m.mkdir('/elsewhere')
+  const me = session('me')
+  await me.touch(r)
+  m.dirty(r, ' M user.txt')
+  const assumed = (dir: string, text: string): Partial<Step> => ({ ...step(text, dir, ';'), assumed: true })
+  const inside = await me.bash('/elsewhere', assumed(`${r}/pkg`, 'git reset --hard'))
+  expect(inside.decision, 'assumed-directory-that-exists-is-decided-there').toBe('stop')
+  expect(inside.reason).toContain('would discard user.txt in /w/r')
+  expect((await me.bash('/elsewhere', assumed(`${r}/pkg`, 'git add f.ts'))).decision).toBe('allow')
+  expect(m.rec('me').checkouts[r]!.writer, 'a step in an assumed directory marks its checkout written').not.toBeNull()
+  const missing = await me.bash(r, assumed('nowhere', 'git reset --hard'))
+  expect(missing.decision, 'assumed-directory-that-is-missing-is-unknown').toBe('stop')
+  expect(missing.reason).toContain('the directory of its `cd` (/w/r/nowhere) does not exist')
+  expect((await me.bash(r, assumed('nowhere', 'git commit -m m'))).decision, 'a commit there runs').toBe('allow')
+  expect((await me.bash(r, at('out', 'rm -rf tmp', '&&'))).decision, 'a cd the step waits on needs no directory yet (mkdir -p out && cd out && …)').toBe('allow')
+})
+
+test('the module says once a session that the guard is inactive where git is too old to read the checkout, and the commit runs', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  m.dirty('/w/r', ' M f')
+  const ran = engine(on, m, m.spawn())
+  m.failing.set('git status', 129)
+  const first = await $.tool.call({ tool: 'Bash', command: 'git commit -am work' })
+  expect(first.deny, 'old-git-lets-a-commit-run').toBeUndefined()
+  expect(first.context?.join(' '), 'old-git-is-said').toContain('cc-tuner: the peers guard is inactive (could not read git status in /w/r (the guard needs git 2.42 or newer))')
+  for (const command of ['git add -A', 'git add f && git commit -m again']) {
+    const next = await $.tool.call({ tool: 'Bash', command })
+    expect([next.deny, next.context], `said-once-a-session: ${command}`).toEqual([undefined, undefined])
+  }
+  const discard = (await $.tool.call({ tool: 'Bash', command: 'git checkout -- f' })).deny
+  expect(discard, 'old-git-still-stops-a-discard').toContain('may overwrite files this session did not make')
+  expect((await $.tool.call({ tool: 'Bash', command: `CC_TUNER_ACK=${ackOf(discard)} git checkout -- f` })).deny).toBeUndefined()
+  expect((await $.tool.call({ tool: 'Bash', command: 'git stash' })).deny, 'one-ack-per-unread-checkout').toBeUndefined()
+  expect(ran.length).toBe(5)
+})
+
+test('the module lets a commit run when the process list cannot be read, says so once, and keeps the ack of a discard', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  m.failing.set('ps', 2)
+  m.failing.set('ps -A', 2)
+  const ran = engine(on, m, m.spawn())
+  const first = await $.tool.call({ tool: 'Bash', command: 'git add -A && git commit -m work' })
+  expect(first.deny, 'unread-ps-lets-a-commit-run').toBeUndefined()
+  expect(first.context?.join(' '), 'unread-ps-is-said').toBe('cc-tuner: the peers guard is inactive (could not read the process list)')
+  expect((await $.tool.call({ tool: 'Bash', command: 'git push origin main' })).context, 'said-once-a-session').toBeUndefined()
+  const asked = m.ran.length
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await $.tool.call({ tool: 'Read', file_path: '/w/r/f' })
+  expect(m.ran.length, 'a-plain-call-starts-no-process-while-ps-is-unread').toBe(asked)
+  const stop = (await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny
+  expect(stop).toContain('could not read the process list')
+  expect((await $.tool.call({ tool: 'Bash', command: `CC_TUNER_ACK=${ackOf(stop)} git reset --hard` })).deny).toBeUndefined()
+  expect((await $.tool.call({ tool: 'Bash', command: 'git reset --hard' })).deny, 'unread-ps-ack-is-not-asked-again').toBeUndefined()
+  expect(logged.some(l => l.includes('peers guard failed')), 'an unread process list is no failure of the guard').toBe(false)
+  expect(ran.length).toBe(5)
+})
+
+test('a guard that failed is left alone for the calls that follow', async ($, on) => {
+  const { m } = machine()
+  m.repo('/w/r')
+  let asked = 0
+  const ran = engine(on, m, m.spawn(), undefined, () => { asked++; return true })
+  m.dirs.delete(DIR)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  const after = asked
+  expect(after).toBeGreaterThan(0)
+  for (const command of ['git add -A', 'git reset --hard']) expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toBeUndefined()
+  await $.tool.call({ tool: 'Read', file_path: '/w/r/f' })
+  await $.tool.call({ tool: 'Edit', file_path: '/w/r/f', old_string: 'a', new_string: 'b' })
+  expect(asked, 'guard-failure-is-not-repeated-on-every-call').toBe(after)
+  expect(ran).toEqual(['npm test', 'git add -A', 'git reset --hard'])
+})
+
+test('guard: next to a peer that writes in the checkout, a Bash overwrite or removal of a file it edited is a note, and removing a directory that holds one stops', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  m.mkdir(`${r}/src`)
+  for (const f of ['src/theirs.ts', 'src/gone.ts']) await peer.edited(r, `${r}/${f}`)
+  m.dirty(r, ' M src/theirs.ts', ' M src/gone.ts')
+  const writing = (...outputs: string[]): Partial<Step> => ({ ...step('echo x'), writes: true, outputs })
+  const over = await decide(r, writing('src/theirs.ts'))
+  expect(over.decision, 'guard-bash-overwrite-of-a-peers-file-is-a-note').toBe('note')
+  for (const part of ['src/theirs.ts has edits by', `pid ${peer.pid} on main`, '`echo x` overwrites it']) expect(over.reason).toContain(part)
+  expect((await decide(r, writing('src/theirs.ts'))).decision, 'said once an hour').toBe('allow')
+  const gone = await decide(r, 'rm src/gone.ts')
+  expect(gone.decision, 'guard-rm-of-a-peers-file-is-a-note').toBe('note')
+  expect(gone.reason).toContain('`rm src/gone.ts` removes it')
+  for (const s of [writing('src/mine.ts'), writing('/tmp/out.log'), 'rm src/other.ts']) expect((await decide(r, s)).decision, 'a file no peer edited').toBe('allow')
+  const dir = await decide(r, 'rm -rf src')
+  expect(dir.decision, 'guard-rm-r-of-a-directory-with-a-peers-file-stops').toBe('stop')
+  for (const part of ['would delete src/theirs.ts, src/gone.ts', `pid ${peer.pid} on main`, 'CC_TUNER_ACK=']) expect(dir.reason).toContain(part)
+  const runs = m.ran.length
+  expect((await decide(r, 'rm -rf build')).decision, 'a directory that holds none of them').toBe('allow')
+  expect(m.ran.length, 'and no git runs for it').toBe(runs)
+  m.status.set(r, [])
+  expect((await decide(r, 'rm -rf src')).decision, 'a file the peer has committed is not lost').toBe('allow')
+  void me
+})
+
+test('guard: a rebase, a merge, a pull and a reset that keeps local changes stop next to a writer like a branch switch; a forced push stops for the branch a peer is on', async () => {
+  const { m, r, peer, me, ready, decide, acked } = world()
+  await ready
+  for (const c of ['git rebase main', 'git rebase --continue', 'git merge feature', 'git pull', 'git pull --rebase origin main', 'git reset --keep HEAD~1', 'git reset --merge']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-rewrite-next-to-a-writer-stops: ${c}`).toBe('stop')
+    for (const part of [`pid ${peer.pid} on main works in ${r}`, `\`${c}\` there changes its files`, 'git worktree add']) expect(v.reason, c).toContain(part)
+  }
+  for (const c of ['git reset HEAD~1', 'git reset --soft HEAD~1', 'git fetch', 'git log']) expect((await decide(r, c)).decision, `no-rewrite: ${c}`).toBe('allow')
+  expect((await acked(r, ackOf((await decide(r, 'git pull')).reason), 'git pull')).decision).toBe('allow')
+  expect((await decide(r, 'git rebase main')).decision, 'one ack covers what moves the files of that checkout').toBe('allow')
+  for (const c of ['git push --force', 'git push -f origin main', 'git push --force-with-lease origin main', 'git push --force-with-lease=main:abc origin main', 'git push origin +main',
+    'git push -f origin HEAD', 'git push -f origin HEAD:refs/heads/main', 'git push --force --all', 'git push --mirror --force']) {
+    const v = await decide(r, c)
+    expect(v.decision, `guard-forced-push-of-a-peers-branch-stops: ${c}`).toBe('stop')
+    expect(v.reason, c).toContain(`would rewrite main, the branch pid ${peer.pid} on main works on in ${r}`)
+  }
+  for (const c of ['git push origin main', 'git push -u origin main', 'git push -f origin other', 'git push --force origin main:other']) {
+    expect((await decide(r, c)).decision, `no-forced-push-of-a-peers-branch: ${c}`).toBe('allow')
+  }
+  m.end(peer.pid)
+  for (const c of ['git pull --rebase', 'git push --force']) expect((await decide(r, c)).decision, `alone: ${c}`).toBe('allow')
+  void me
+})
+
+test('guard: dropping a stash entry this session\'s own call made is its own business; any other entry stops next to a peer', async () => {
+  const { m, r, me, ready, decide } = world()
+  await ready
+  for (const ref of ['refs/stash', 'stash@{0}']) { m.refs.add(ref); m.revs.set(ref, 'theirs') }
+  expect((await decide(r, 'git stash drop')).decision, 'an entry this session did not make').toBe('stop')
+  await call(me, r, ['git stash'], () => { for (const ref of ['refs/stash', 'stash@{0}']) m.revs.set(ref, 'mine'); m.refs.add('stash@{1}'); m.revs.set('stash@{1}', 'theirs') })
+  expect(m.rec('me').stashes, 'the entry its call made is recorded').toEqual(['mine'])
+  for (const c of ['git stash drop', 'git stash drop stash@{0}', 'git stash drop 0', 'git stash drop -q']) expect((await decide(r, c)).decision, `guard-own-stash-drop-runs: ${c}`).toBe('allow')
+  for (const c of ['git stash drop stash@{1}', 'git stash drop 1', 'git stash clear']) expect((await decide(r, c)).decision, `guard-other-stash-stops: ${c}`).toBe('stop')
+  await call(me, r, ['git stash'])
+  expect(m.rec('me').stashes, 'a stash that saved nothing made no entry').toEqual(['mine'])
+  m.revs.set('stash@{0}', 'newer')
+  expect((await decide(r, 'git stash drop')).decision, 'an entry made since by someone else').toBe('stop')
+})
+
+test('record: a tree with more changed files than a record holds is not listed, and nothing is inferred there', async () => {
+  const { m, session } = machine()
+  const [big, edge] = [m.repo('/w/big'), m.repo('/w/edge')]
+  m.dirty(big, ...Array.from({ length: 501 }, (_, i) => `?? out/f${i}.js`))
+  m.dirty(edge, ...Array.from({ length: 500 }, (_, i) => `?? out/f${i}.js`))
+  const me = session('me')
+  await me.bash(big, 'git status')
+  await me.bash(edge, 'git status')
+  const rec = m.rec('me')
+  expect([rec.checkouts[big]!.found, rec.checkouts[big]!.since], 'record-found-is-bounded').toEqual([undefined, undefined])
+  expect(rec.checkouts[edge]!.found?.length).toBe(500)
+  m.advance(5)
+  await call(me, big, ['prettier --write .'], () => changeIn(m, big, 'a.txt'))
+  await call(me, edge, ['prettier --write .'], () => changeIn(m, edge, 'a.txt'))
+  m.advance(5)
+  expect((await me.bash(big, 'git restore a.txt')).decision, 'nothing-is-inferred-past-the-bound').toBe('stop')
+  expect((await me.bash(edge, 'git restore a.txt')).decision).toBe('allow')
+})
+
+test('guard: a reason is one line under one prefix, names a peer session as one, and keeps the operand of a long command', async () => {
+  const { m, r, peer, me, ready, decide } = world()
+  await ready
+  const child = m.spawn(peer.pid, 'node')
+  expect((await decide(r, `kill ${peer.pid}`)).reason, 'guard-kill-of-a-session-says-so').toContain(`\`kill ${peer.pid}\` would stop the session pid ${peer.pid} on main.`)
+  expect((await decide(r, `kill ${child}`)).reason, 'guard-kill-of-its-process-names-both').toContain(`would stop process ${child}, started by the session pid ${peer.pid} on main.`)
+  m.put(`${DIR}/broken.json`, '{')
+  const wt = m.worktree(r, '/w/a-rather-long-directory-name/that-a-reason-must-not-cut/before-the-end/wt', 'wt')
+  await peer.touch(wt)
+  const long = await decide(r, `git worktree remove --force ${wt}`)
+  expect(long.decision).toBe('stop')
+  expect(long.reason!.match(/cc-tuner:/g), 'guard-one-prefix-per-reason').toHaveLength(1)
+  expect(long.reason, 'the note comes first').toContain('cc-tuner: skipped malformed peer record broken.json.')
+  expect(long.reason, 'guard-long-command-keeps-its-operand').toContain('before-the-end/wt`')
+  expect(long.reason).toContain(' … ')
+  void me
 })

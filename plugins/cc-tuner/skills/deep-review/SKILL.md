@@ -5,9 +5,8 @@ description: Reviews a clean, committed candidate exhaustively through independe
 
 # Deep Review
 
-Review one immutable candidate. This is advisory input to `/cc-tuner:run`; the companion review
-remains the authoritative merge gate. Find every material problem supported by evidence, without
-editing the candidate; never stop at an arbitrary count of findings.
+Review one immutable candidate. Return evidence and findings to `/run`. The spec's `review:`
+field names the owner of the final verdict.
 
 ## Inputs and packet
 
@@ -38,12 +37,12 @@ Any command failure leaves preparation incomplete: do not dispatch or reuse part
 records with comma-separated paths; renames list both endpoints. Shard thresholds are not token
 guarantees.
 
-The script checks the filtered packets' budgets and exact combined coverage. Git errors, unsupported
-filenames, oversized atomic changes, unsatisfied caps or changed coverage refuse with empty stdout.
-Do not treat refusal as single mode. Raise `--files`/`--lines` when context permits, or raise `--max`
-to the number of shards the candidate needs: preparing a partition dispatches nothing, and a total
-past the lens limit below goes to the user before any lens starts. Otherwise report incomplete
-coverage. Never silently skip a lockfile or
+The script checks the filtered packets' budgets and exact combined coverage. Git errors, a tab or
+newline in a filename (a comma too, when sharded), oversized atomic changes, unsatisfied caps or
+changed coverage refuse with empty stdout. Do not treat refusal as single mode. Raise
+`--files`/`--lines` when context permits, or raise `--max` to the number of shards the candidate
+needs: preparing a partition dispatches nothing, and a total past the lens limit below goes to the
+user before any lens starts. Otherwise report incomplete coverage. Never silently skip a lockfile or
 generated artifact. Binary contents and changed submodule revisions require inspection beyond the
 marker/gitlink.
 
@@ -60,11 +59,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-diff.sh" <base-sha> <candidate-sha> -
 Use one `cc-tuner:deep-review-lens` per applicable lens/packet. Its definition supplies `effort: high`
 and only Read, Grep and Glob: no shell, edits or Agent tool; there is no unrestricted fallback. Its
 model is `sonnet` by default. Dispatch Architecture, Security and Blind spots with `model: "opus"`,
-which overrides the definition: they reason about what the diff does not show, where Sonnet misses
-most. Each brief names literal base/candidate, spec, applicable rules, lens, the
-diff/list/toolchain files and the finding format. The lens reads changed code and relevant
-callers/tests/dependencies beyond its owned paths; commands needed to settle a finding go to the
-owner for a separate probe.
+at `effort: high`: they reason about what the diff does not show, where Sonnet misses
+most. Dispatch any other lens on Opus when its packet is one of the Opus cases in `/run`'s placement
+reference (performance by measurement, concurrency or data integrity, a cross-module invariant).
+Use high effort for every deep-review lens, including Opus overrides.
+
+Each brief names literal base/candidate, spec, applicable rules, lens, the diff/list/toolchain files
+and the finding format. The lens reads changed code and relevant callers/tests/dependencies beyond
+its owned paths; commands needed to settle a finding go to the orchestrator for a separate probe.
 
 Run these lenses independently:
 
@@ -91,14 +93,14 @@ exceeds it. A limit the user raised earlier in this conversation counts as that 
 Before dispatch, print one line and keep it in the review summary:
 
 ```text
-deep-review: <n> lenses (<k> opus, <m> sonnet) × effort <effort>, <concurrency> at a time; cost: <$ figure and its source | unknown>
+deep-review: <n> lenses (<k> opus, <m> sonnet) × effort high, <concurrency> at a time; cost: <$ figure and its source | unknown>
 ```
 
 A dollar figure comes only from a source you can name in this session: a price the user gave, or the
 measured usage of the same lens type and model. Everything else is `cost: unknown`.
 
 Dispatch independent readers together within available host slots; queue remaining jobs in bounded
-batches. They never cut their own shards or delegate. One owner aggregates all returns. A timeout,
+batches. They never cut their own shards or delegate. The orchestrator aggregates all returns. A timeout,
 tool failure, unread artifact or missing lens is incomplete coverage, never approval: redispatch that
 lens once; if it still cannot complete, or the host does not offer the lens type, the result is
 `INCOMPLETE` for the named lenses and paths (below).
@@ -106,24 +108,22 @@ lens once; if it still cannot complete, or the host does not offer the lens type
 ## Verdict
 
 Validate every candidate finding against live source at the candidate SHA and the agreed scope.
-Where a command decides a P0/P1 claim — a runtime version, a test that should fail, a query plan —
-run it yourself before the verdict; a lens could only name it.
-Apply the repository's task-flow scope contract: an older dependency defect matters when this task
+Where a command decides a P0/P1 claim (a runtime version, a test that should fail, a query plan),
+run it yourself before the verdict; a lens could only name it. Apply the repository's task-flow scope
+contract: an older dependency defect matters when this task
 exposes it or needs its fix for acceptance. Refute unsupported or independent improvements. Deduplicate
 by root cause and remediation, retaining distinct impacts and evidence across shards.
 
 For each finding report priority, full candidate SHA, path:line and concrete behavior, violated
 contract, impact, smallest systemic fix and verifying check. P0 is immediate security/data-loss/outage;
 P1 blocks required behavior or safe delivery; P2 is a material defect; P3 is non-blocking improvement
-with concrete future cost. Blind spots findings are P3 or questions for the owner, never blockers: a
-gap in what was asked for is a decision for the user, not a defect of the candidate; the owner
+with concrete future cost. Blind spots findings are P3 or questions for the orchestrator, never blockers: a
+gap in what was asked for is a decision for the user, not a defect of the candidate; the orchestrator
 carries them to the user with the summary.
 
 Return `REQUEST_CHANGES <candidate SHA>` for any validated P0–P2. Return `APPROVE <candidate SHA>`
 only with complete coverage and no blockers. Return `INCOMPLETE <candidate SHA>` naming the missing
-lenses/paths when coverage is partial and no blocker is validated; run carries them into the
-required review as a named residual.
-List P3 findings in the review summary on the PR; they do not move the candidate, and an issue is
+lenses/paths when coverage is partial and no blocker is validated; `/run` passes the gap to the verdict owner. List P3 findings in the review summary on the PR; they do not move the candidate, and an issue is
 filed only for independent future work. Do not create an additional approval loop: run owns fixes,
 evidence reuse and delivery. After any change this result is stale; only an explicit new
 exhaustive-review request restarts the whole advisory pass.

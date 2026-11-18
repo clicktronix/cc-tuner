@@ -9,10 +9,11 @@ import type { EngineInterface } from 'claude-code'
 // noted. A session is its Claude process, pid plus start time; a nested `claude -p` is a session of its own, a peer of the
 // process that started it. A record whose process is gone, or is another process now, is a tombstone: no
 // longer a peer, its edited paths still on disk. A tombstone untouched for 24 h is removed; a resumed
-// session with the same session_id adopts it, also in a running process (`/resume`). `/clear` drops acks and claims.
+// session with the same session_id adopts it, also in a running process (`/resume`): what changed in a checkout while
+// it was gone is not its own, what its calls change from then on is. `/clear` drops acks and claims.
 //
 //   {v: 1, session_id, pid, start, seen, claims: {<plan>: {repo, paths}}, acks: {<key>: <epoch>}, kept: [{id, key, top}],
-//    checkouts: {<toplevel>: {repo, expected, writer, paths}}}
+//    checkouts: {<toplevel>: {repo, expected, writer, paths}}, stashes: [<sha>]}
 //
 // kept are the shared-resource tasks this process started: /clear leaves them running, and so does a reload of the module.
 // repo is the git common directory, so worktrees of one repository share it. expected is the branch at
@@ -40,7 +41,12 @@ import type { EngineInterface } from 'claude-code'
 export const UNKNOWN = '\0'
 // op joins a step to the one before it: `&&`, `||`, `;` or `|`, empty for the first.
 // config: git configuration the step gives itself; place: what points its git at another repository or index.
-export interface Step { words: string[]; dir: string; op: string; writes: boolean; scope?: number; config?: string[]; place?: string[] }
+// assumed: `dir` holds only if a `cd` the step does not wait on succeeded; outputs: the files its redirections write,
+// named from the cwd.
+export interface Step {
+  words: string[]; dir: string; op: string; writes: boolean; scope?: number; config?: string[]; place?: string[]
+  assumed?: boolean; outputs?: string[]
+}
 export interface Event {
   session_id?: string; phase: 'before' | 'after' | 'start'; tool?: string; cwd: string
   path?: string; steps?: Step[]; seen?: Record<string, string>; acks?: string[]; ok?: boolean
@@ -48,17 +54,21 @@ export interface Event {
 export interface Resource { key: string; kind: 'shared' | 'exclusive'; start: string[]; stop: string[]; tools: string[] }
 interface Config { product?: string; off: boolean; products: Record<string, string[]>; resources: Resource[] }
 interface Holder { v: 1; key: string; pid: number; start: string; session: string | null; last: number }
-export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string> }
+// inactive: why nothing was checked (a process list or a checkout that could not be read); the call runs.
+export interface Verdict { decision: 'allow' | 'note' | 'stop'; reason?: string; seen?: Record<string, string>; inactive?: string }
 export interface Kept { id: string; key: string; top?: string }
 // `since` and `found`: when the session first touched the checkout and the files already changed then; absent in a
-// record from before them. `mixed`: another session has written there since, or a live one ever did.
-interface Checkout { repo: string; expected: string; writer: number | null; paths: string[]; since?: number; found?: string[]; mixed?: boolean }
+// record from before them, and where more files were changed than a record holds (FOUND_MAX). `mixed`: another session
+// has written there since, or a live one ever did. `away`: the session was gone (a resume) and has not looked since.
+interface Checkout { repo: string; expected: string; writer: number | null; paths: string[]; since?: number; found?: string[]; mixed?: boolean; away?: boolean }
 export interface Rec {
   v: 1; session_id: string | null; pid: number; start: string; seen: number
   claims: Record<string, { repo: string; paths: string[] }>; acks: Record<string, number>; kept: Kept[]
   checkouts: Record<string, Checkout>
   // The session's own Bash calls that may write, as [start ms, end ms], newest last.
   calls?: [number, number][]
+  // The stash entries this session's calls made, by commit, newest last.
+  stashes?: string[]
 }
 type Where = readonly [top: string, common: string]
 
@@ -98,8 +108,12 @@ const DAY = 24 * 3600
 const ACK_TTL = 30 * 60
 const NOTE_TTL = 3600
 const WRITER_WINDOW = 2 * 3600
-// How many of its own calls a session remembers.
+// How many of its own calls a session remembers, how many of its stash entries, and how many files already changed at
+// a first touch: past that the record would grow with the tree, so nothing is inferred there.
 const CALLS = 200
+const STASHES = 20
+const FOUND_MAX = 500
+const UNREAD_PS = 'could not read the process list'
 const UNREAD_TOOL = 'cc-tuner: could not read the process list; try again shortly.'
 // Whether a writer's mark may be a write after this checkout's first touch. Marks are whole seconds: one taken in the
 // second before `since` may belong to a write after it.
@@ -107,6 +121,7 @@ const wroteSince = (them: Checkout, me: Checkout) => them.writer !== null && me.
 const CTIMES = 'if stat -f %Fc / >/dev/null 2>&1; then for f; do stat -f %Fc -- "$f" 2>/dev/null || echo -; done; ' +
   'else for f; do stat -c %.9Z -- "$f" 2>/dev/null || echo -; done; fi'
 const CALL = '\u0000call'
+const STASH = '\u0000stash:'
 const IDLE = 8 * 3600
 const PS_TTL = 60
 const LEASE_RENEW = 60
@@ -157,11 +172,13 @@ const PS_ENV = { LC_ALL: 'C', TZ: 'UTC' }
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const READ_ONLY = new Set(['ls', 'cat', 'grep', 'rg', 'find'])
 const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show'])
-const NO_OWNER = 'unknown owner'
+const NO_OWNER = "no session's; they may be the user's work"
 const OPAQUE = new Set(['sudo', 'doas', 'su', 'eval', 'watch', 'bash', 'sh', 'zsh', 'dash'])
 const NAMES_A_COMMAND = /(^|[\s/])(git|gh|kill|pkill|killall)(\s|$)/
 const WRITING_ARGS = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir'])
 const VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-A', '--author-email', '--match-head-commit'])
+// Configuration that cannot change which files a command reaches: how git talks, signs and names its author.
+const INERT_CONFIG = /^(advice|color|user|author|committer|gpg|commit|tag|pager|credential|http|log|format|pretty|column|i18n|help|trace2|gc|maintenance)\.|^core\.(pager|editor|quotepath|abbrev|commentchar|askpass|sshcommand)$/i
 const SIGNAL = /^-(\d+|[A-Z][A-Z0-9]{2,})$/
 const NULL_SIGNAL = /^0+$/
 // Inspection is inert. A clean, smudge or process filter runs only when config defines the driver an attribute names, and
@@ -226,9 +243,11 @@ const covers = (spec: string, f: string) =>
   spec === '.' || f === spec || f.startsWith(`${spec.replace(/\/+$/, '')}/`) || (f.endsWith('/') && spec.startsWith(f))
 const overlaps = (a: string, b: string) => {
   const [x, y] = [a.replace(/\/+$/, ''), b.replace(/\/+$/, '')]
-  return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)
+  return x === '.' || y === '.' || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)
 }
 const listing = (files: readonly string[]) => files.slice(0, 3).join(', ') + (files.length > 3 ? ` and ${files.length - 3} more` : '')
+// A command as a reason names it: whole when short, else its head and its tail, so the operand at the end stays readable.
+const brief = (w: readonly string[]) => { const s = w.join(' '); return s.length <= 72 ? s : `${s.slice(0, 24)} … ${s.slice(-44)}` }
 const who = (r: Rec, co?: Checkout) => `pid ${r.pid}${co === undefined ? '' : ` on ${co.expected || 'a detached HEAD'}`}`
 const prefixed = (words: readonly string[], prefix: string) => {
   const p = prefix.trim().split(/\s+/)
@@ -248,29 +267,48 @@ function switches(step: Partial<Step>): boolean {
   return (name === 'git' && (sub === 'switch' || sub === 'checkout' || (sub === 'branch' && has(rest, '--move', 'mM'))))
     || (name === 'gh' && sub === 'pr' && (rest[0] === 'checkout' || rest[0] === 'merge'))
 }
-// The steps a guard decision is about: a recursive removal, and what git or gh discards, overwrites, deletes, stashes,
-// commits, stages or moves a branch of.
 // A step that signals processes, not a probe: whose they are needs the process list.
 function kills(w: readonly string[]): boolean {
   const name = basename(w[0] ?? '')
   return (name === 'kill' || name === 'pkill' || name === 'killall') && !probes(name, w.slice(1))
 }
 
-function destroys(w: readonly string[]): boolean {
+// What a `git stash` step does: `push` when it names nothing.
+const stashOp = (a: readonly string[]) => (a.length > 0 && !a[0]!.startsWith('-') ? a[0]! : 'push')
+const stashes = (step: Partial<Step>) => basename(step.words?.[0] ?? '') === 'git' && step.words?.[1] === 'stash' && ['push', 'save'].includes(stashOp(step.words.slice(2)))
+const forces = (a: readonly string[]) => has(a, '--force', 'f') || flags(a).some(x => x.startsWith('--force-with-lease') || x === '--force-if-includes')
+// A git step that rewrites the files of its checkout in place, as a branch switch does.
+const rewrites = (sub: string, a: readonly string[]) => sub === 'rebase' || sub === 'merge' || sub === 'pull' || (sub === 'reset' && (a.includes('--keep') || a.includes('--merge')))
+
+// A step that loses work when it runs in the wrong place: a recursive removal, and what git or gh discards, overwrites,
+// deletes or stashes away. A `git checkout` discards when it names paths (`--`, or a second operand) or is forced.
+function discards(w: readonly string[]): boolean {
   const [name, sub, a] = [basename(w[0] ?? ''), w[1] ?? '', w.slice(2)]
   if (name === 'rm') return has(w.slice(1), '--recursive', 'rR')
-  if (name === 'gh') return sub === 'pr' && (a[0] === 'checkout' || (a[0] === 'merge' && has(a.slice(1), '--delete-branch', 'd')))
+  if (name === 'gh') return sub === 'pr' && a[0] === 'checkout' && has(a.slice(1), '--force', 'f')
   if (name !== 'git') return false
   switch (sub) {
-    case 'switch': case 'checkout': case 'restore': case 'commit': case 'add': return true
+    case 'restore': return true
+    case 'checkout': return a.includes('--') || has(a, '--force', 'f') || (!has(a, '--orphan', 'bB') && operands(a).length > 1)
+    case 'switch': return has(a, '--force', 'f') || a.includes('--discard-changes')
     case 'reset': return a.includes('--hard')
     case 'clean': return !has(a, '--dry-run', 'n')
-    case 'stash': return ['push', 'save', 'drop', 'clear'].includes(a.length > 0 && !a[0]!.startsWith('-') ? a[0]! : 'push')
-    case 'push': return has(a, '--delete', 'd') || operands(a).some(x => x.startsWith(':'))
+    case 'stash': return ['push', 'save', 'drop', 'clear'].includes(stashOp(a))
     case 'branch': return has(a, '--delete', 'dD')
     case 'worktree': return a[0] === 'remove'
     default: return false
   }
+}
+
+// Every step a guard decision is about: the ones that lose work, and the ones that stage, commit, move a branch or
+// rewrite one a peer may be on.
+function destroys(w: readonly string[]): boolean {
+  const [name, sub, a] = [basename(w[0] ?? ''), w[1] ?? '', w.slice(2)]
+  if (discards(w)) return true
+  if (name === 'gh') return sub === 'pr' && (a[0] === 'checkout' || (a[0] === 'merge' && has(a.slice(1), '--delete-branch', 'd')))
+  if (name !== 'git') return false
+  if (sub === 'push') return has(a, '--delete', 'd') || forces(a) || operands(a).some(x => x.startsWith(':') || x.startsWith('+'))
+  return ['switch', 'checkout', 'commit', 'add'].includes(sub) || rewrites(sub, a)
 }
 // What a `git commit` says about its files: the paths it names, past the options that take a value and the message they
 // carry (`-mmine`, `-m mine`, `-am mine`), whether it takes all tracked changes (`-a`) or the staged files too (`-i`),
@@ -332,8 +370,10 @@ function valid(r: unknown): r is Rec {
     && Array.isArray(r.kept) && r.kept.every(k => isObject(k) && typeof k.id === 'string' && typeof k.key === 'string')
     && each(r.claims, c => typeof c.repo === 'string' && strings(c.paths))
     && each(r.checkouts, c => typeof c.repo === 'string' && typeof c.expected === 'string' && (c.writer === null || typeof c.writer === 'number') && strings(c.paths)
-      && (c.found === undefined || (strings(c.found) && typeof c.since === 'number')) && (c.mixed === undefined || typeof c.mixed === 'boolean'))
+      && (c.found === undefined || (strings(c.found) && typeof c.since === 'number')) && (c.mixed === undefined || typeof c.mixed === 'boolean')
+      && (c.away === undefined || typeof c.away === 'boolean'))
     && (r.calls === undefined || (Array.isArray(r.calls) && r.calls.every(c => Array.isArray(c) && c.length === 2 && c.every(n => typeof n === 'number'))))
+    && (r.stashes === undefined || strings(r.stashes))
 }
 
 function parseConfig(text: string): Config {
@@ -356,6 +396,10 @@ function holder(text: string): Holder | undefined {
   }
 }
 
+// One step of a call as the guard decides it: whether it may write or switch, its checkout (`at`) and directory (`d`),
+// and, for a step that may write, why its directory is unknown (`lost`) when it is.
+interface Planned { st: Partial<Step>; writes: boolean; switch: boolean; lost: string | undefined; at: Where | undefined; d: string }
+
 // ps could not be read: who this session is, or which peers still run, is unknown. Never taken for "none".
 export class Unread extends Error { constructor() { super('cc-tuner: could not read the process list') } }
 
@@ -370,6 +414,8 @@ export class Peers {
   private configs = new Map<string, { key: string | undefined; config: Config }>()
   private user: string | undefined
   private swept = 0
+  // The acks given while the process list could not be read, by key: there is no record to keep them in.
+  private passed = new Map<string, number>()
   private queue: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly w: World) {}
@@ -392,10 +438,11 @@ export class Peers {
   }
 
   // A checkout of this session where another session wrote since it came, or where a live one ever wrote (its background
-  // tasks may still), is mixed for good: a writer marks itself before it writes, so no write there goes unseen.
+  // tasks may still), is mixed for good: a writer marks itself before it writes, so no write there goes unseen. One the
+  // session has not looked at since it was gone waits for that look, which sets the moment its writers count from.
   private async mix(recs: Map<string, Rec>, me: [string, Rec] | undefined) {
     if (me === undefined) return
-    const open = Object.entries(me[1].checkouts).filter(([, co]) => co.since !== undefined && co.mixed !== true)
+    const open = Object.entries(me[1].checkouts).filter(([, co]) => co.since !== undefined && co.mixed !== true && co.away !== true)
     const others = [...recs].filter(([n]) => n !== me[0]).map(([, r]) => r)
     const writers = (top: string) => others.filter(r => (r.checkouts[top]?.writer ?? null) !== null)
     const live = await this.live(open.flatMap(([top]) => writers(top)))
@@ -474,9 +521,26 @@ export class Peers {
   }
 
   // This session's Claude process, read once: the nearest `claude` at or above the caller (a nested `claude -p` is its
-  // own session, so never the outermost). A caller with no `claude` above it (a stand-in) is itself.
+  // own session, so never the outermost). A caller with no `claude` above it (a stand-in) is itself. A read that found
+  // none, or failed, is kept for a minute like any other answer of `ps`: the calls in between do not ask again.
+  private nobody: { at: number; unread: boolean } | undefined
   async pid(): Promise<number | undefined> {
     if (this.claude !== undefined) return this.claude
+    if (this.nobody !== undefined && this.now() - this.nobody.at < PS_TTL) {
+      if (this.nobody.unread) throw new Unread()
+      return undefined
+    }
+    try {
+      const found = await this.readPid()
+      this.nobody = found === undefined ? { at: this.now(), unread: false } : undefined
+      return found
+    } catch (err) {
+      if (err instanceof Unread) this.nobody = { at: this.now(), unread: true }
+      throw err
+    }
+  }
+
+  private async readPid(): Promise<number | undefined> {
     const r = await this.run(['/bin/sh', '-c', 'echo $PPID']).catch(() => undefined)
     const given = Number(r?.stdout.trim())
     if (r === undefined || r.exitCode !== 0 || !/^\d+$/.test(r.stdout.trim()) || given <= 1) throw new Unread()
@@ -720,7 +784,7 @@ export class Peers {
     return r
   }
 
-  private async git(top: string, ...args: string[]): Promise<string | undefined> {
+  async git(top: string, ...args: string[]): Promise<string | undefined> {
     const r = await this.read(top, ...args)
     return r.exitCode === 0 ? r.stdout.trim() : undefined
   }
@@ -787,10 +851,10 @@ export class Peers {
       const same = [...recs].filter(([, t]) => t.session_id === sid)
       const live = await this.live(same.map(([, t]) => t))
       found = same.find(([, t]) => !live.has(t))
-      // What happened while the session was gone left no evidence it can read: nothing there is inferred any more.
+      // What changed while the session was gone is not its own: each checkout is looked at again when it is next touched.
       if (found !== undefined) {
         Object.assign(found[1], { pid, start, kept: [] })
-        for (const co of Object.values(found[1].checkouts)) co.mixed = true
+        for (const co of Object.values(found[1].checkouts)) co.away = true
       }
     }
     if (found !== undefined) return found
@@ -801,15 +865,26 @@ export class Peers {
     return [name, r]
   }
 
-  // A checkout's first touch also notes what was already changed there: those files are not this session's.
+  // A checkout's first touch also notes what was already changed there: those files are not this session's. So does the
+  // first touch after the session was gone, for the files that changed outside its own calls. From then on only a
+  // session that writes after that moment makes the checkout mixed.
   private async touch(r: Rec, at: Where): Promise<Checkout> {
     r.seen = this.now()
     const [top, common] = at
-    if (r.checkouts[top] === undefined) {
+    const co = r.checkouts[top]
+    if (co === undefined) {
       const [expected, changed] = [await this.branch(top), await this.status(at, [])]
-      r.checkouts[top] ??= { repo: common, expected, writer: null, paths: [], ...(changed && { since: this.now(), found: changed.map(([, , f]) => f) }) }
+      r.checkouts[top] ??= { repo: common, expected, writer: null, paths: [], ...(changed && changed.length <= FOUND_MAX && { since: this.now(), found: changed.map(([, , f]) => f) }) }
+    } else if (co.away) {
+      delete co.away
+      const changed = co.found === undefined ? undefined : (await this.status(at, []))?.map(([, , f]) => f)
+      const times = changed === undefined ? [] : await this.ctimes(changed.map(f => join(top, f)))
+      const own = (f: string, t: number | undefined) => owns(co.paths, f) || (t !== undefined && (r.calls ?? []).some(([s, e]) => Math.floor(t) >= s && Math.floor(t) <= e))
+      const found = changed === undefined ? undefined : [...new Set([...co.found ?? [], ...changed.filter((f, i) => !own(f, times[i]))])]
+      if (found !== undefined && found.length <= FOUND_MAX) Object.assign(co, { since: this.now(), found })
+      else { delete co.since; delete co.found }
     }
-    return r.checkouts[top]
+    return r.checkouts[top]!
   }
 
   // --- peers --------------------------------------------------------------------------------------------
@@ -944,9 +1019,10 @@ export class Peers {
     }
   }
 
-  // Runs f on this session's record, made for the occasion when a session id is given, and saves it.
+  // Runs f on this session's record, made for the occasion when a session id is given, and saves it. With ps unread
+  // there is no record to find: nothing is written, and that is no failure of the guard.
   private async update(sid: string | null | undefined, f: (r: Rec) => void) {
-    await this.serial(async () => {
+    await this.serial(() => this.known(async () => {
       const { recs } = await this.load()
       const pid = await this.pid()
       if (pid === undefined) return
@@ -954,7 +1030,7 @@ export class Peers {
       if (own === undefined) return
       f(own[1])
       await this.save(...own)
-    })
+    }, undefined))
   }
 
   // Any tool call shows the session is in use: its record's `seen` is renewed, at most once a minute.
@@ -967,7 +1043,7 @@ export class Peers {
 
   // The ids of the shared tasks this session keeps.
   async kept(): Promise<string[]> {
-    return (await this.view()).me?.kept.map(k => k.id) ?? []
+    return this.known(async () => (await this.view()).me?.kept.map(k => k.id) ?? [], [])
   }
 
   async unkeep(id: string) { await this.update(undefined, r => { r.kept = r.kept.filter(k => k.id !== id) }) }
@@ -994,7 +1070,7 @@ export class Peers {
     if (rule === undefined) return undefined
     const [user] = await this.users(recs, name, kept.top === undefined ? undefined : await this.where(kept.top), rule[1])
     return user === undefined ? undefined
-      : `cc-tuner: task ${task} runs ${kept.key}, which ${user} also uses. Wait, or SendMessage that session if you can.`
+      : `cc-tuner: task ${task} runs ${kept.key}, which ${user} also uses. Wait, or ask the user.`
   }
 
   // What a lease goes by: this session's Claude process and its start time.
@@ -1051,7 +1127,7 @@ export class Peers {
       }
       // Every lock this call holds is in use now: no give-back still owed may free it.
       for (const l of used) this.pending.delete(l)
-      return notes.length > 0 ? { decision: 'note', reason: notes.join(' ') } : { decision: 'allow' }
+      return notes.length > 0 ? { decision: 'note', reason: `cc-tuner: ${notes.join(' ')}` } : { decision: 'allow' }
     }, { decision: 'stop', reason: 'cc-tuner: could not read the process list, so who holds the resource is unknown; try again shortly.' }))
   }
 
@@ -1080,7 +1156,7 @@ export class Peers {
     }
     const r = await this.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
     if (r.exitCode !== 0) return this.leased(key, holder(await this.held(lock)), now)
-    return { decision: 'note', reason: `cc-tuner: you hold ${key}; release it with peers_release when you are done.` }
+    return { decision: 'note', reason: `you hold ${key}; release it with peers_release when you are done.` }
   }
 
   private taking(key: string): Verdict {
@@ -1089,7 +1165,7 @@ export class Peers {
 
   private leased(key: string, h: Holder | undefined, now: number): Verdict {
     const by = h === undefined ? 'another session' : `pid ${h.pid}, used ${now - h.last} s ago`
-    return { decision: 'stop', reason: `cc-tuner: ${key} is leased to ${by}. Wait, or SendMessage that session if you can.` }
+    return { decision: 'stop', reason: `cc-tuner: ${key} is leased to ${by}. Wait, or ask the user.` }
   }
 
   // Frees the lease only for its holder, checked against the holder file the shell removes it under: true when freed,
@@ -1136,15 +1212,19 @@ export class Peers {
     const sid = ev.session_id || null
     const target = ev.path ? join(ev.cwd, ev.path) : undefined
     const here = await this.where(target !== undefined ? dirname(target) : ev.cwd)
-    const plan: { st: Partial<Step>; writes: boolean; switch: boolean; blind: boolean; at: Where | undefined; d: string }[] = []
+    const plan: Planned[] = []
     if (ev.phase !== 'start' && ev.tool === 'Bash') {
       for (const st of ev.steps ?? [{} as Partial<Step>]) {
-        const blind = st.dir === UNKNOWN
-        const d = join(ev.cwd, blind ? '' : st.dir ?? '')
+        const d = join(ev.cwd, st.dir === UNKNOWN ? '' : st.dir ?? '')
+        // Why the step's directory is unknown, if it is: a `cd` nobody can read, or one assumed to have worked whose
+        // directory is not there.
+        const lost = (st.place ?? []).length > 0 ? `git is pointed elsewhere (${listing(st.place!)})`
+          : st.dir === UNKNOWN ? 'its `cd` names a directory the guard cannot read (a variable or a substitution)'
+            : st.assumed && !(await this.isDir(d)) ? `the directory of its \`cd\` (${d}) does not exist` : undefined
         const [writes, sw] = [!readOnly(st), switches(st)]
         // A git step is recorded in its checkout though it only reads, so the first touch fixes the branch it started on.
-        const known = !blind && (writes || sw || basename(st.words?.[0] ?? '') === 'git')
-        plan.push({ st, writes, switch: sw, blind: blind && writes, at: known ? (d === norm(ev.cwd) ? here : await this.where(d)) : undefined, d })
+        const known = lost === undefined && (writes || sw || basename(st.words?.[0] ?? '') === 'git')
+        plan.push({ st, writes, switch: sw, lost: writes ? lost : undefined, at: known ? (d === norm(ev.cwd) ? here : await this.where(d)) : undefined, d })
       }
     }
     // Outside every repository only a step that finds its own targets matters: a command of the machine's shared
@@ -1153,20 +1233,23 @@ export class Peers {
     // that needs the cwd's checkout does.
     const bare = here === undefined && !plan.some(p => p.at !== undefined)
     if ((bare && !(ev.phase === 'before' && await this.finds(plan))) || (sid === null && ev.phase === 'start')) return { decision: 'allow', line: '' }
-    // Peers or this session unknown: a step that destroys anything stops, and the ack still passes it.
-    // Its ack covers this call's guarded steps, each with its directory, its own git configuration and placement.
+    // Peers or this session unknown: nothing is checked, and the call runs. Only a step that loses work, or stops a
+    // process or a shared resource, stops, and the ack passes it for 30 minutes like any other: with no record to keep
+    // it in, it is kept by this load. The ack covers the guarded steps, each with its directory, its own git
+    // configuration and placement.
     const guarded: string[] = []
     if (ev.phase === 'before') {
       for (const p of plan) {
         const w = p.st.words ?? []
         if (await this.off((p.at ?? here)?.[0])) continue
-        if (destroys(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w, '', ...p.st.config ?? [], '', ...p.st.place ?? []].join('\0'))
+        if (discards(w) || kills(w) || await this.stopsShared([p], here?.[0])) guarded.push([p.d, ...w, '', ...p.st.config ?? [], '', ...p.st.place ?? []].join('\0'))
       }
     }
     const k = crc32(['processes', ...guarded].join('\n'))
-    const unread: Verdict & { line?: string } = guarded.length > 0 && !(ev.acks ?? []).includes(k)
-      ? { decision: 'stop', reason: `cc-tuner: could not read the process list, so peers and this session are unknown. To go on, rerun it prefixed CC_TUNER_ACK=${k}.` }
-      : { decision: 'allow', line: '' }
+    if ((ev.acks ?? []).includes(k)) this.passed.set(k, this.now())
+    const unread: Verdict & { line?: string } = guarded.length > 0 && this.now() - (this.passed.get(k) ?? -ACK_TTL) >= ACK_TTL
+      ? { decision: 'stop', reason: `cc-tuner: ${UNREAD_PS}, so whose work this command touches is unknown. To go on, rerun it prefixed CC_TUNER_ACK=${k}.` }
+      : { decision: 'allow', line: '', inactive: UNREAD_PS }
     return this.serial(() => this.known(async () => {
       const { recs, bad } = await this.load()
       const pid = await this.pid()
@@ -1197,11 +1280,17 @@ export class Peers {
         r.calls.splice(0, Math.max(0, r.calls.length - CALLS))
       }
       const writing: Checkout[] = []
+      const stash = (top: string) => this.git(top, 'rev-parse', '--verify', '--quiet', 'refs/stash').catch(() => undefined)
       if (verdict.decision !== 'stop') {
-        for (const { at, writes, switch: sw } of plan) {
+        for (const { st, at, writes, switch: sw } of plan) {
           if (at === undefined) continue
           if (ev.phase === 'before' && writes) writing.push(r.checkouts[at[0]]!)
           if (ev.phase === 'before' && sw) seen[at[0]] = await this.branch(at[0])
+          // A stash entry this session's own call makes is its own: the newest one before and after the call tell.
+          if (ev.phase === 'before' && stashes(st)) seen[STASH + at[0]] = (await stash(at[0])) ?? ''
+          const had = ev.seen?.[STASH + at[0]]
+          const made = ev.phase === 'after' && ev.ok !== false && had !== undefined && stashes(st) ? await stash(at[0]) : undefined
+          if (made !== undefined && made !== had) r.stashes = [...(r.stashes ?? []).filter(x => x !== made), made].slice(-STASHES)
         }
         if (ev.phase === 'before' && ev.tool !== undefined && EDITS.has(ev.tool) && co !== undefined) writing.push(co)
         if (ev.phase === 'after' && ev.tool !== undefined && EDITS.has(ev.tool) && ev.ok !== false && target !== undefined && here !== undefined && co !== undefined) {
@@ -1238,8 +1327,8 @@ export class Peers {
     return false
   }
 
-  private async finds(plan: { st: Partial<Step>; blind: boolean }[]): Promise<boolean> {
-    return plan.some(p => (p.blind || basename(p.st.words?.[0] ?? '') === 'rm') && destroys(p.st.words ?? [])) || this.machineUse(plan.map(p => p.st.words ?? []))
+  private async finds(plan: Planned[]): Promise<boolean> {
+    return plan.some(p => (p.lost !== undefined || basename(p.st.words?.[0] ?? '') === 'rm') && destroys(p.st.words ?? [])) || this.machineUse(plan.map(p => p.st.words ?? []))
   }
 
   // Whether a command starts or stops a shared resource the machine's own file declares.
@@ -1256,11 +1345,12 @@ export class Peers {
     const tomb = same.find(([, t]) => !live.has(t))
     if (tomb === undefined) return
     for (const [top, c] of Object.entries(tomb[1].checkouts)) {
-      c.mixed = true
       const mine = r.checkouts[top]
       const writer = Math.max(mine?.writer ?? -1, c.writer ?? -1)
-      r.checkouts[top] = mine === undefined ? c : { ...c, writer: writer < 0 ? null : writer, paths: [...new Set([...c.paths, ...mine.paths])], mixed: true }
+      const mixed = c.mixed === true || mine?.mixed === true
+      r.checkouts[top] = { ...c, writer: writer < 0 ? null : writer, paths: [...new Set([...c.paths, ...mine?.paths ?? []])], ...(mixed && { mixed }), away: true }
     }
+    r.stashes = [...(tomb[1].stashes ?? []), ...(r.stashes ?? [])].slice(-STASHES)
     Object.assign(r.claims, tomb[1].claims)
     r.calls = [...(tomb[1].calls ?? []), ...(r.calls ?? [])].sort((x, y) => x[0] - y[0]).slice(-CALLS)
     await this.forget(recs, [tomb[0]])
@@ -1278,7 +1368,9 @@ export class Peers {
   }
 
   // The changed files as [index, worktree, path], or undefined when git did not answer: that is not a clean tree.
+  // A git found too old for the inspection stays so for this load: it is not asked again before every edit and commit.
   async status([top]: Where, staged: readonly string[], path?: string): Promise<[string, string, string][] | undefined> {
+    if (this.tooOld) return undefined
     const spec = path === undefined ? [] : ['--', path]
     const r = await this.read(top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--ignore-submodules=all', ...spec).catch(() => undefined)
     if (r === undefined || r.exitCode !== 0) return undefined
@@ -1303,19 +1395,34 @@ export class Peers {
 // The open slices' Owned paths of a plan, in plan order: a slice is open while one of its criteria is not
 // ticked, or it has none.
 export function ownedOpen(text: string): string[] {
-  const slices: { owned: string[]; total: number; done: number }[] = []
-  for (const line of text.split('\n')) {
-    if (/^##[ \t]+Slice[ \t]+\d+/.test(line)) slices.push({ owned: [], total: 0, done: 0 })
-    const cur = slices[slices.length - 1]
+  type Slice = { owned: string[]; total: number; done: number }
+  const slices: Slice[] = []
+  let cur: Slice | undefined
+  let fence: string | undefined
+  for (const line of text.split(/\r?\n/)) {
+    const delimiter = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (fence !== undefined) {
+      if (delimiter !== null && delimiter[1]!.startsWith(fence) && /^[ \t]*$/.test(delimiter[2]!)) fence = undefined
+      continue
+    }
+    if (delimiter !== null && (delimiter[1]![0] === '~' || !delimiter[2]!.includes('`'))) {
+      fence = delimiter[1]
+      continue
+    }
+    if (/^##[ \t]+Slice[ \t]+\d+/.test(line)) {
+      cur = { owned: [], total: 0, done: 0 }
+      slices.push(cur)
+    } else if (/^##?(?:[ \t]|$)|^#+[ \t]*slice[ \t]*#?\d/i.test(line)) cur = undefined
     if (cur === undefined) continue
     const owned = /^[ \t]*Owned paths[ \t]*:(.*)$/.exec(line)
-    if (owned !== null) cur.owned = owned[1]!.split(',').map(p => p.trim()).filter(Boolean)
+    // Invalid plans are rejected by plan-lint. Keep every claim while the author fixes them.
+    if (owned !== null) cur.owned.push(...owned[1]!.split(',').map(p => p.replace(/^[ \t]+|[ \t]+$/g, '')).filter(Boolean))
     const box = /^[ \t]*-[ \t]*\[([ xX])\]/.exec(line)
     if (box !== null) { cur.total++; if (box[1] !== ' ') cur.done++ }
   }
   const paths: string[] = []
   for (const s of slices) if (s.total === 0 || s.done < s.total) for (const p of s.owned) if (!paths.includes(p)) paths.push(p)
-  return paths
+  return paths.includes('.') ? ['.'] : paths
 }
 
 // One call's decisions: a stop throws Halt, a note is kept and the call goes on.
@@ -1326,35 +1433,42 @@ class Guard {
   private moved = new Set<string>()
   private chains = new Map<number, Set<string>>()
   private staged = new Map<string, string[]>()
+  private cwd = ''
+  // Why nothing could be checked in a checkout, when a step that keeps every file ran there unchecked.
+  private inactive: string | undefined
 
   constructor(private readonly p: Peers, private readonly recs: Map<string, Rec>, private readonly bad: string[], private readonly name: string,
     private readonly r: Rec, private readonly pid: number, private readonly here: Where | undefined, private readonly now: number) {}
 
-  async judge(ev: Event, plan: { st: Partial<Step>; blind: boolean; at: Where | undefined; d: string }[], target: string | undefined): Promise<Verdict> {
+  async judge(ev: Event, plan: Planned[], target: string | undefined): Promise<Verdict> {
+    this.cwd = ev.cwd
     try {
       if (this.bad.length > 0 && !await this.p.off(this.here?.[0])) this.once('bad', `skipped malformed peer record ${listing(this.bad)}.`)
       if (ev.tool === 'Bash') {
         let prev: string[] = []
-        for (const { st, at, d, blind } of plan) {
+        for (const p of plan) {
+          const { st, at } = p
           this.moved = this.chains.get(st.scope ?? 0) ?? new Set()
           this.chains.set(st.scope ?? 0, this.moved)
           if (st.op !== '&&') this.moved.clear()
           const w = st.words ?? []
-          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, at, d, prev, blind, st.config, st.place)
+          if (w.length > 0 && !await this.p.off((at ?? this.here)?.[0])) await this.step(w, p, prev)
           prev = w
         }
       } else if (target !== undefined && this.here !== undefined && !await this.p.off(this.here[0])) {
         await this.edit(this.here, relpath(await this.p.real(target), this.here[0]))
       }
     } catch (err) {
-      if (err instanceof Halt) return { decision: 'stop', reason: [...this.notes, err.message].join(' ') }
+      if (err instanceof Halt) return { decision: 'stop', reason: `cc-tuner: ${[...this.notes, err.message].join(' ')}` }
       throw err
     }
-    return this.notes.length > 0 ? { decision: 'note', reason: this.notes.join(' ') } : { decision: 'allow' }
+    const said = this.inactive === undefined ? {} : { inactive: this.inactive }
+    return this.notes.length > 0 ? { decision: 'note', reason: `cc-tuner: ${this.notes.join(' ')}`, ...said } : { decision: 'allow', ...said }
   }
 
   private peers(at: Where, awake = false) { return this.p.peers(this.recs, this.name, at, awake) }
-  private note(text: string) { this.notes.push(`cc-tuner: ${text}`) }
+  // Every reason is one line under one `cc-tuner:`; a note is a sentence of it.
+  private note(text: string) { this.notes.push(text) }
 
   private once(key: string, text: string) {
     if (this.now - (this.r.acks[key] ?? 0) >= NOTE_TTL) {
@@ -1363,56 +1477,81 @@ class Guard {
     }
   }
 
-  // The safe way comes first; the ack is the way on, and its use is the agent's own call only where a peer owns what is at stake.
-  private stop(action: string, target: string, text: string, safe = '', peer = true) {
+  // The safe way comes first; the ack is the way on (`way` words it), and its use is the agent's own call only where a
+  // peer owns what is at stake.
+  private stop(action: string, target: string, text: string, safe = '', peer = true, way = 'To go on, rerun it') {
     const k = crc32(`${action}|${target}`)
     if (this.now - (this.r.acks[k] ?? 0) >= ACK_TTL) {
-      throw new Halt(`cc-tuner: ${text}${safe && ` ${safe}`} To go on, rerun it prefixed CC_TUNER_ACK=${k}.` +
-        (peer ? " Your call, not the user's." : ''))
+      throw new Halt(`${text}${safe && ` ${safe}`} ${way} prefixed CC_TUNER_ACK=${k}.` + (peer ? " Your call, not the user's." : ''))
     }
   }
 
   // The git configuration the step in hand was given for itself (`-c`, `--config-env`, GIT_CONFIG*).
   private config: readonly string[] = []
 
-  // That configuration is no setting the guard read and can change what a command reaches (`submodule.recurse`), so a
-  // command that discards anything and carries it has an unread scope.
+  // That configuration is no setting the guard read, and some of it changes what a command reaches (`submodule.recurse`,
+  // `core.worktree`), so a command that discards anything and carries such a key has an unread scope. A key that only
+  // shapes how git talks, signs or names its author (INERT_CONFIG) changes nothing the guard inspects.
   private configured(top: string, label: string) {
-    if (this.config.length === 0) return
-    this.stop('git config', `${top}|config`, `\`${label}\` sets git config for itself (${listing([...new Set(this.config.map(x => x.split('=')[0]!))])}), which the guard does not read.`,
+    const keys = [...new Set(this.config.map(x => x.split('=')[0]!).filter(k => !INERT_CONFIG.test(k)))]
+    if (keys.length === 0) return
+    this.stop('git config', `${top}|config`, `\`${label}\` sets git config for itself (${listing(keys)}), which the guard does not read.`,
       'Drop -c, --config-env and GIT_CONFIG_*, or check the tree yourself.', false)
   }
 
   // git and gh act on the checkout of their directory; rm and kill reach past it, so outside a repository
   // they are read from the cwd's.
-  private async step(w: string[], at: Where | undefined, d: string, prev: string[], blind: boolean, config: readonly string[] = [], place: readonly string[] = []) {
-    this.config = config
+  private async step(w: string[], { st, at, d, lost }: Planned, prev: string[]) {
+    this.config = st.config ?? []
     const name = basename(w[0]!)
     const scope = at ?? this.here
     await this.shared(w, at)
-    if (blind && (name === 'git' || name === 'gh' || name === 'rm')) {
-      if (destroys(w)) await this.unresolved(w, scope, place)
-      else await this.unsure(scope, `could not read the directory of \`${w.join(' ').slice(0, 60)}\`; peers_report shows who works there.`)
+    if (lost !== undefined && (name === 'git' || name === 'gh' || name === 'rm')) {
+      // Where nobody can tell the checkout: a step that loses work stops, any other the guard decides stops only next
+      // to a live peer, and the rest is a note there.
+      if (discards(w) || (destroys(w) && await this.near(scope))) await this.unresolved(w, scope, lost, st.place)
+      else if (!destroys(w)) await this.unsure(scope, `could not read the directory of \`${brief(w)}\`; peers_report shows who works there.`)
+      return
     }
-    else if (name === 'git' && at !== undefined) await this.git(w, at, d)
+    if (name === 'git' && at !== undefined) await this.git(w, at, d)
     else if (name === 'gh' && at !== undefined) await this.gh(w, at, d)
     else if (name === 'kill' || name === 'pkill' || name === 'killall') { if (scope !== undefined) await this.kill(name, w.slice(1), scope, prev) }
-    else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(scope, d, w.join(' ').slice(0, 60), operands(w.slice(1)))
-    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) await this.unsure(scope, `could not read \`${w.join(' ').slice(0, 60)}\`; peers_report shows who works here.`)
+    else if (name === 'rm' && has(w.slice(1), '--recursive', 'rR')) await this.remove(scope, d, brief(w), operands(w.slice(1)))
+    else if (OPAQUE.has(name) && NAMES_A_COMMAND.test(w.slice(1).join(' '))) await this.unsure(scope, `could not read \`${brief(w)}\`; peers_report shows who works here.`)
+    if (at !== undefined) await this.clobbers(w, st, at, d)
   }
 
-  // A destructive step in a directory nobody could tell (an earlier `cd` may have failed, or goes where the guard cannot read)
-  // acts on a checkout nobody can name, so it stops. The absolute operands of a removal do not depend on the directory.
-  private async unresolved(w: string[], scope: Where | undefined, place: readonly string[] = []) {
-    const label = w.join(' ').slice(0, 60)
+  // Whether a live session works next to `scope`, or anywhere when the cwd is in no repository.
+  private async near(scope: Where | undefined): Promise<boolean> {
+    return scope === undefined ? (await this.p.users(this.recs, this.name, undefined, true)).length > 0 : (await this.peers(scope)).length > 0
+  }
+
+  // A step in a directory nobody could tell (`lost` says why) acts on a checkout nobody can name, so it stops. The
+  // absolute operands of a removal do not depend on the directory.
+  private async unresolved(w: string[], scope: Where | undefined, lost: string, place: readonly string[] = []) {
     const rm = basename(w[0]!) === 'rm'
     const named = rm ? operands(w.slice(1)) : []
     const known = named.filter(x => x.startsWith('/'))
-    if (rm) await this.remove(scope, '/', label, known)
+    if (rm) await this.remove(scope, '/', brief(w), known)
     if (!rm || known.length < named.length) {
-      this.stop('unresolved', `${this.here?.[0] ?? ''}|${[...place, ...w].join(' ')}`,
-        `cannot tell which checkout \`${label}\` runs in: ${place.length > 0 ? `git is pointed elsewhere (${listing(place)})` : 'an earlier `cd` may have failed'}.`,
+      this.stop('unresolved', `${this.here?.[0] ?? ''}|${[...place, ...w].join(' ')}`, `cannot tell which checkout \`${brief(w)}\` runs in: ${lost}.`,
         'Use `cd <literal dir> && …` or `git -C <dir>`.', false)
+    }
+  }
+
+  // A file a live peer edited in this checkout that the step overwrites (`>`) or removes (`rm`): the note an edit of
+  // it gets, said once an hour.
+  private async clobbers(w: string[], st: Partial<Step>, at: Where, d: string) {
+    const removed = basename(w[0]!) === 'rm' && !has(w.slice(1), '--recursive', 'rR') ? operands(w.slice(1)).map(x => join(d, x)) : []
+    const targets = [...(st.outputs ?? []).map(o => join(this.cwd, o)), ...removed]
+    if (targets.length === 0) return
+    const there = (await this.peers(at)).flatMap(([r, cos]) => cos.filter(([t]) => t === at[0]).map(([, co]) => [r, co] as const))
+    if (there.length === 0) return
+    for (const target of targets) {
+      const rel = relpath(await this.p.real(target), at[0])
+      for (const [r, co] of there) {
+        if (owns(co.paths, rel)) this.once(`over:${r.pid}:${at[0]}|${rel}`, `${rel} has edits by ${who(r, co)}, and \`${brief(w)}\` ${removed.includes(target) ? 'removes' : 'overwrites'} it; read it first.`)
+      }
     }
   }
 
@@ -1421,14 +1560,14 @@ class Guard {
     for (const [res, machine] of await this.p.rules(at?.[0])) {
       if (res.kind !== 'shared' || !res.stop.some(p => prefixed(w, p))) continue
       const [user] = await this.p.users(this.recs, this.name, at, machine)
-      if (user !== undefined) this.stop('stop', res.key, `\`${w.join(' ').slice(0, 60)}\` would stop ${res.key}, which ${user} also uses.`)
+      if (user !== undefined) this.stop('stop', res.key, `\`${brief(w)}\` would stop ${res.key}, which ${user} also uses.`)
     }
   }
 
   private async git(w: string[], at: Where, d: string) {
     const top = at[0]
     if (w.length < 2) return
-    const [sub, a, label] = [w[1]!, w.slice(2), w.join(' ').slice(0, 60)]
+    const [sub, a, label] = [w[1]!, w.slice(2), brief(w)]
     // Paths listed in a file are never read: the file can change before the command reads it, so the scope is unresolved.
     const listed = a.some(x => x === '--pathspec-from-file' || x.startsWith('--pathspec-from-file='))
     const after = listed ? undefined : a.includes('--') ? a.slice(a.indexOf('--') + 1) : undefined
@@ -1447,12 +1586,14 @@ class Guard {
         await this.switch(at)
         this.moved.add(top)
       }
+    } else if (rewrites(sub, a)) {
+      await this.switch(at, `\`${label}\``)
     } else if (sub === 'reset' && a.includes('--hard')) {
       await this.recursing(at, label, 'reset', a)
       await this.lose(at, d, label, 'reset', 'discard', 'tracked', undefined, operands(a.slice(0, a.includes('--') ? a.indexOf('--') : a.length))[0] ?? 'HEAD')
     } else if (sub === 'stash') {
-      const op = a.length > 0 && !a[0]!.startsWith('-') ? a[0] : 'push'
-      if (op === 'drop' || op === 'clear') await this.stashDrop(at, label)
+      const op = stashOp(a)
+      if (op === 'drop' || op === 'clear') await this.stashDrop(at, label, op === 'drop' ? operands(a.slice(1))[0] ?? '0' : undefined)
       else if (op === 'push' || op === 'save') {
         const wide = has(a, '--include-untracked', 'u') || has(a, '--all', 'a')
         await this.lose(at, d, label, 'stash', 'stash away', wide ? 'all' : 'tracked', after)
@@ -1463,7 +1604,7 @@ class Guard {
       await this.recursing(at, label, 'restore', a)
       await this.lose(at, d, label, 'restore', 'overwrite', 'tracked', args(operands(a)))
     } else if (sub === 'commit') {
-      await this.drift(at, label, 'commit')
+      await this.drift(at, label)
       const { paths, all, include, only, amend } = commitArgs(a)
       if (listed) await this.lose(at, d, label, 'commit', 'commit', 'tracked')
       else if (paths.length === 0) {
@@ -1483,9 +1624,18 @@ class Guard {
       else if (has(a, '--update', 'u')) await this.lose(at, d, label, 'add', 'stage', 'tracked', named.length > 0 ? named : undefined)
       else if (wide.length > 0) await this.lose(at, d, label, 'add', 'stage', 'all', wide)
     } else if (sub === 'push') {
-      await this.drift(at, label, 'push')
+      await this.drift(at, label)
       if (has(a, '--delete', 'd')) await this.delete(at, operands(a).slice(1), label)
       await this.delete(at, operands(a).filter(x => x.startsWith(':')).map(x => x.slice(1)), label)
+      // A forced push rewrites the branches it names (the one HEAD holds when it names none, every one with --all or
+      // --mirror): a peer on one of them would build on commits that are gone.
+      const specs = operands(a).slice(1)
+      if (forces(a) || specs.some(x => x.startsWith('+'))) {
+        const head = await this.p.branch(top)
+        const dst = (x: string) => { const n = x.replace(/^\+/, '').split(':').pop()!.replace(/^refs\/heads\//, ''); return n === 'HEAD' ? head : n }
+        const forced = specs.filter(x => forces(a) || x.startsWith('+')).map(dst)
+        await this.delete(at, has(a, '--all') || has(a, '--mirror') ? undefined : forced.length > 0 ? forced : [head], label, 'rewrite')
+      }
     } else if (sub === 'branch' && has(a, '--delete', 'dD')) {
       await this.delete(at, operands(a), label)
     } else if (sub === 'worktree' && a[0] === 'remove') {
@@ -1495,14 +1645,14 @@ class Guard {
 
   private async gh(w: string[], at: Where, d: string) {
     if (w.length < 3 || w[1] !== 'pr' || (w[2] !== 'create' && w[2] !== 'merge' && w[2] !== 'checkout')) return
-    const label = w.join(' ').slice(0, 60)
+    const label = brief(w)
     if (w[2] === 'checkout') {
       if (has(w.slice(3), '--force', 'f')) await this.lose(at, d, label, 'gh pr checkout', 'discard', 'tracked')
       await this.switch(at)
       this.moved.add(at[0])
       return
     }
-    await this.drift(at, label, `gh pr ${w[2]}`)
+    await this.drift(at, label)
     if (w[2] !== 'merge' || !has(w.slice(3), '--delete-branch', 'd')) return
     const sel: string[] = []
     let skip = false
@@ -1516,21 +1666,26 @@ class Guard {
     else await this.delete(at, [sel[0]!], label)
   }
 
-  private async switch(at: Where) {
+  // What moves the files of a checkout under a peer that works there: a branch switch, or `what` (a rebase, a merge, a
+  // pull, a reset that keeps local changes). One ack covers them all for the checkout.
+  private async switch(at: Where, what = 'switching branches') {
     const top = at[0]
     const here = (await this.peers(at)).flatMap(([r, cos]) => cos.filter(([t]) => t === top).map(([, co]) => [r, co] as const))
     const busy = here.filter(([, co]) => co.writer !== null && this.now - co.writer < WRITER_WINDOW)
-    if (busy.length > 0) this.stop('switch', top, `${who(...busy[0]!)} works in ${top}; switching branches there changes its files.`, 'Take a worktree instead: `git worktree add <path> <branch>`.')
-    else if (here.length > 0) this.note(`${who(...here[0]!)} has its cwd in ${top}; switching branches there changes its files.`)
+    if (busy.length > 0) this.stop('switch', top, `${who(...busy[0]!)} works in ${top}; ${what} there changes its files.`, 'Take a worktree instead: `git worktree add <path> <branch>`.')
+    else if (here.length > 0) this.note(`${who(...here[0]!)} has its cwd in ${top}; ${what} there changes its files.`)
   }
 
-  private async drift(at: Where, label: string, action: string) {
+  // HEAD is not the branch this session was last on there: someone else moved it (the user, a script, another
+  // session). Which branch the work belongs on is the agent's to say, once: the ack makes HEAD the expected branch.
+  private async drift(at: Where, label: string) {
     const top = at[0]
-    const [head, want] = [await this.p.branch(top), this.r.checkouts[top]!.expected]
-    if (!this.moved.has(top) && head !== want && !await this.p.rebasing(top)) {
-      this.stop(`${action} on ${top}`, top, `\`${label}\` would run on ${head || 'a detached HEAD'} in ${top}; this session started on ${want || 'a detached HEAD'}.`,
-        `${want === '' ? 'Join' : `Switch back with \`git switch ${want}\`, or join`} your own switch to the command with \`&&\`.`)
-    }
+    const co = this.r.checkouts[top]!
+    const head = await this.p.branch(top)
+    if (this.moved.has(top) || head === co.expected || await this.p.rebasing(top)) return
+    const [on, was] = [head || 'a detached HEAD', co.expected || 'a detached HEAD']
+    this.stop('drift', `${top}|${head}`, `\`${label}\` would run on ${on} in ${top}; this session was last on ${was}.`, '', false, `If the work belongs on ${on}, rerun it`)
+    co.expected = head
   }
 
   // The paths this session edited in a checkout.
@@ -1584,9 +1739,11 @@ class Guard {
     return [...lost, ...loose.filter(f => tree.has(f) || dirs.has(f) || above(f))]
   }
 
-  private unread(action: string, top: string, label: string) {
-    if (this.p.tooOld) this.note('git 2.42 or newer is needed to inspect safely.')
-    this.stop(action, `${top}|?`, `could not read git status in ${top}, so \`${label}\` may lose files nobody here edited.`)
+  // A checkout whose status could not be read (a git older than 2.42 is one cause): whose the changed files are is
+  // unknown. A step that would lose them stops, with one ack per checkout.
+  private unreadable(top: string) { return `could not read git status in ${top}${this.p.tooOld ? ' (the guard needs git 2.42 or newer)' : ''}` }
+  private unread(top: string, label: string, verb: string) {
+    this.stop('unread', top, `${this.unreadable(top)}, so \`${label}\` may ${verb} files this session did not make.`, '', false)
   }
 
   private async owner(top: string, files: string[]): Promise<string> {
@@ -1596,12 +1753,20 @@ class Guard {
     return names.map(([, r]) => (live.get(r.pid) === r.start ? who(r, r.checkouts[top]!) : `pid ${r.pid}, exited`)).join(', ') || NO_OWNER
   }
 
+  // A step that stages or commits keeps every file, so with no live peer it runs and the files it takes that this
+  // session did not make are a note; one that discards them stops whoever is around.
   private async lose(at: Where, d: string, label: string, action: string, verb: string, kinds: string, specs?: readonly string[], into?: string) {
     const top = at[0]
-    if (verb !== 'commit' && verb !== 'stage') this.configured(top, label)
+    const keeps = verb === 'commit' || verb === 'stage'
+    if (!keeps) this.configured(top, label)
     const files = await this.foreign(at, kinds, specs, d, into)
-    if (files === undefined) this.unread(action, top, label)
-    else if (files.length > 0) await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
+    if (files === undefined) {
+      if (keeps) this.inactive = this.unreadable(top)
+      else this.unread(top, label, verb)
+    } else if (files.length > 0) {
+      if (keeps && (await this.peers(at)).length === 0) this.note(`\`${label}\` ${verb}s ${listing(files)}, which this session did not make.`)
+      else await this.foreignStop(action, top, files, `\`${label}\` would ${verb} ${listing(files)} in ${top}`)
+    }
   }
 
   // Status ignores submodules, so what a destructive command discards inside them is not inspected: a recursion stops.
@@ -1619,24 +1784,26 @@ class Guard {
     const owner = await this.owner(target, files)
     const unknown = owner === NO_OWNER
     this.stop(action, `${target}|${[...files].sort().join('|')}`, `${text} (${owner}).`,
-      `Act on your own paths instead${unknown ? "; those files may be the user's own edits" : ''}.`, !unknown)
+      'Name your own paths instead.', !unknown, unknown ? 'If the task itself calls for it, rerun it' : undefined)
   }
 
-  private async stashDrop(at: Where, label: string) {
+  // `entry` is the stash entry a drop names (`0` when it names none), undefined for a clear. An entry this session's own
+  // call made is its own to drop.
+  private async stashDrop(at: Where, label: string, entry: string | undefined) {
+    const sharing = (await this.peers(at, true)).flatMap(([r, cos]) => cos.filter(([, co]) => co.repo === at[1] && co.writer !== null).map(([top, co]) => [r, top, co] as const))
+    if (sharing.length === 0) return
+    const sha = entry === undefined ? undefined : await this.p.git(at[0], 'rev-parse', '--verify', '--quiet', /^\d+$/.test(entry) ? `stash@{${entry}}` : entry).catch(() => undefined)
+    if (sha !== undefined && (this.r.stashes ?? []).includes(sha)) return
+    const [r, top, co] = sharing[0]!
+    this.stop('stash drop', at[1], `\`${label}\` would drop a stash that ${who(r, co)} shares, working in ${top}.`)
+  }
+
+  // The branches a step deletes or rewrites (every branch when `names` is undefined) that a peer works on.
+  private async delete(at: Where, names: readonly string[] | undefined, label: string, verb = 'delete') {
     for (const [r, cos] of await this.peers(at, true)) {
       for (const [top, co] of cos) {
-        if (co.repo === at[1] && co.writer !== null) this.stop('stash drop', at[1], `\`${label}\` would drop a stash that ${who(r, co)} shares, working in ${top}.`)
-      }
-    }
-  }
-
-  private async delete(at: Where, names: readonly string[], label: string) {
-    for (const name of names) {
-      for (const [r, cos] of await this.peers(at, true)) {
-        for (const [top, co] of cos) {
-          if (co.repo === at[1] && co.expected === name) {
-            this.stop('delete branch', `${at[1]}:${name}`, `\`${label}\` would delete ${name}, the branch ${who(r, co)} works on in ${top}.`)
-          }
+        if (co.repo === at[1] && co.expected !== '' && (names === undefined || names.includes(co.expected))) {
+          this.stop(`${verb} branch`, `${at[1]}:${co.expected}`, `\`${label}\` would ${verb} ${co.expected}, the branch ${who(r, co)} works on in ${top}.`)
         }
       }
     }
@@ -1670,9 +1837,17 @@ class Guard {
       }
       for (const w of roots) {
         const files = await this.foreign(w, 'all', undefined, w[0])
-        if (files === undefined) this.unread('remove', w[0], label)
+        if (files === undefined) this.unread(w[0], label, 'delete')
         else if (files.length > 0) await this.foreignStop('remove', w[0], files, `\`${label}\` would delete ${listing(files)} in ${w[0]}`)
       }
+      // A directory inside a checkout: the uncommitted files under it that another session's record names go with it.
+      if (there === undefined || !path.startsWith(`${there[0]}/`)) continue
+      const rel = relpath(path, there[0])
+      const theirs = [...this.recs].filter(([n]) => n !== this.name).flatMap(([, r]) => r.checkouts[there[0]]?.paths ?? []).filter(f => covers(rel, f))
+      if (theirs.length === 0) continue
+      const files = (await this.foreign(there, 'all', [rel], there[0]))?.filter(f => owns(theirs, f))
+      if (files === undefined) this.unread(there[0], label, 'delete')
+      else if (files.length > 0) await this.foreignStop('remove', there[0], files, `\`${label}\` would delete ${listing(files)} in ${there[0]}`)
     }
   }
 
@@ -1691,13 +1866,13 @@ class Guard {
       pids = []
       for (const x of operands(a)) pids.push(...(await this.p.pidsOf(['pgrep', '-x', x]) ?? []))
     }
-    const label = [name, ...a].join(' ').slice(0, 60)
+    const label = brief([name, ...a])
     if (pids === undefined) return this.note(`could not tell which process \`${label}\` stops; peers_report shows each peer's pid.`)
     const table = await this.p.table()
     for (const pid of pids) {
       let [p, hops, row] = [pid, 0, await this.p.parent(pid, table)]
       while (row !== undefined && p > 1 && p !== this.pid && !peers.has(p) && hops < 64) [p, hops, row] = [row.ppid, hops + 1, await this.p.parent(row.ppid, table)]
-      if (peers.has(p)) this.stop('kill', String(pid), `\`${label}\` would stop process ${pid}, which belongs to ${who(...peers.get(p)!)}.`)
+      if (peers.has(p)) this.stop('kill', String(pid), `\`${label}\` would stop ${p === pid ? 'the session' : `process ${pid}, started by the session`} ${who(...peers.get(p)!)}.`)
     }
   }
 

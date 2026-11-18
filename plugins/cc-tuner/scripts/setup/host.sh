@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Which forge hosts THIS repository?
 #
-#   host.sh [repo-root]
+#   host.sh [--delivery] [repo-root]
 #
 # Prints exactly ONE line, tab separated:
 #
@@ -11,11 +11,13 @@
 #   via          url     the remote's host is github.com or gitlab.com
 #                config  the remote's host is one gh (hosts.yml) or glab (config.yml) is logged in to
 #                none    local, other and ambiguous
-#   remote       the remote that was read: `origin`, else the only remote; empty for local/ambiguous
+#   remote       the selected delivery remote; empty for local/ambiguous
 #   remote-host  the host the remote points at, lower case, after resolving an SSH alias or a glab
 #                `ssh_host`; it is the host a CLI logs in to. Empty when the remote is a filesystem
 #                path or has no usable host
 #
+# --delivery appends a fifth field, the forge project path (owner/repo or group/subgroup/repo).
+# It refuses an inconsistent fetch/push destination with exit 15 and a diagnostic on stderr.
 # Exit 0 with the line, 2 when the directory is not inside a git repository (nothing printed).
 #
 # **One program, many callers, and that is the whole point.** Host detection began as code in doctor.sh
@@ -32,19 +34,17 @@
 # which answers the real question -- "can that CLI act on this host?" -- without a request. Whether the
 # login still works is the caller's check, made against the host this script names.
 #
-# Remote choice: `origin` when it exists, else the only remote. Several remotes and no `origin` is
-# `ambiguous`: picking one silently turned a GitLab repository with a GitHub mirror into whichever
-# the CLI answered first, so the caller asks instead. No remote is `local`.
+# Select the requested or configured push remote, then origin or the sole remote.
+# Several candidates with no selection, or a configured remote that no longer exists, are ambiguous.
 #
 # The host is parsed from the URL, never matched as a substring: `scheme://[user@]host[:port]/path`
 # (ssh, https, http, git; the authority ends at the first `/`, `?` or `#`) or scp-like `[user@]host:path`. A filesystem path or `file://` has no host
 # and is `other`. A host that does not look like a hostname is dropped and is `other`, so it cannot
 # reach `ssh` as an option or a caller's command line.
 #
-# SSH aliases: for an ssh-style remote whose literal host is not recognised, `ssh -G` resolves the
-# alias (`Host github-work` / `HostName github.com`) from ssh_config, which reads local files only.
-# A literal github.com or gitlab.com is not resolved: `Host github.com` + `HostName ssh.github.com`
-# (port 443) is a real configuration and would otherwise stop being GitHub.
+# SSH aliases: `ssh -G` resolves aliases (`Host github-work` / `HostName github.com`) from ssh_config.
+# Setup accepts a known literal host directly. Delivery compares resolved endpoints too, treating
+# GitHub's alternate SSH endpoint ssh.github.com as GitHub.
 #
 # glab `ssh_host`: a GitLab whose SSH endpoint differs from its web/API host (`ssh.forge.example` for
 # `forge.example`) records it under that host, and glab resolves remotes through it. So does this
@@ -58,6 +58,8 @@
 # IFS. bash 3.2 compatible: macOS ships 3.2.57.
 set -u
 
+DELIVERY=no
+if [ "${1:-}" = --delivery ]; then DELIVERY=yes; shift; fi
 ROOT="${1:-$PWD}"
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 2
 
@@ -144,11 +146,24 @@ EOF
   fi
 }
 
-emit() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; exit 0; }
+emit() {
+  printf '%s\t%s\t%s\t%s' "$1" "$2" "$3" "$4"
+  if [ "$DELIVERY" = yes ]; then printf '\t%s' "${5:-}"; fi
+  printf '\n'
+  exit 0
+}
 
 REMOTES="$(git -C "$ROOT" remote 2>/dev/null)"
 if [ -z "$REMOTES" ]; then emit local none "" ""; fi
-if printf '%s\n' "$REMOTES" | grep -qx origin; then
+REMOTE="${CC_TUNER_REMOTE:-}"
+branch="$(git -C "$ROOT" symbolic-ref --short -q HEAD)" || branch=''
+if [ -z "$REMOTE" ] && [ -n "$branch" ]; then
+  REMOTE="$(git -C "$ROOT" config --get "branch.$branch.pushRemote")"
+fi
+[ -n "$REMOTE" ] || REMOTE="$(git -C "$ROOT" config --get remote.pushDefault)"
+if [ -n "$REMOTE" ]; then
+  printf '%s\n' "$REMOTES" | grep -qxF -- "$REMOTE" || emit ambiguous none "" ""
+elif printf '%s\n' "$REMOTES" | grep -qx origin; then
   REMOTE=origin
 elif [ "$(printf '%s\n' "$REMOTES" | grep -c '')" -eq 1 ]; then
   REMOTE="$REMOTES"
@@ -156,35 +171,86 @@ else
   emit ambiguous none "" ""
 fi
 
-URL="$(git -C "$ROOT" remote get-url "$REMOTE" 2>/dev/null)"
-KIND=path; RHOST=""
-case "$URL" in
-  file://*) ;;
-  *://*)
-    scheme="${URL%%://*}"; rest="${URL#*://}"; auth="${rest%%[/?#]*}"; auth="${auth##*@}"
-    RHOST="${auth%%:*}"
-    case "$(lower "$scheme")" in ssh|git+ssh|ssh+git) KIND=ssh ;; *) KIND=net ;; esac
-    ;;
-  /*|./*|../*) ;;
-  *:*)
-    before="${URL%%:*}"
-    case "$before" in */*) ;; *) RHOST="${before##*@}"; KIND=ssh ;; esac
-    ;;
-esac
-RHOST="$(lower "$RHOST")"
-case "$RHOST" in
-  ''|-*|*[!a-z0-9._-]*) emit other none "$REMOTE" "" ;;
-esac
-
-classify "$RHOST"
-if [ "$C_HOST" != other ] || [ "$KIND" != ssh ]; then emit "$C_HOST" "$C_VIA" "$REMOTE" "$C_NAME"; fi
-
-SSH_CMD="${CC_TUNER_SSH_CMD:-ssh}"
-if command -v "${SSH_CMD%% *}" >/dev/null 2>&1; then
-  resolved="$(lower "$($SSH_CMD -G -- "$RHOST" 2>/dev/null | sed -n 's/^hostname //p;/^hostname /q')")"
-  case "$resolved" in
-    ''|-*|*[!a-z0-9._-]*) ;;
-    *) RHOST="$resolved"; classify "$RHOST" ;;
+# resolve_url <effective Git URL> -> forge classification and CLI project path.
+resolve_url() {
+  local url="$1" kind=path rhost="" scheme="" rest auth="" before resolved
+  local ssh_cmd="${CC_TUNER_SSH_CMD:-ssh}"
+  PROJECT=""
+  case "$url" in
+    file://*) ;;
+    *://*)
+      scheme="$(lower "${url%%://*}")"; rest="${url#*://}"; auth="${rest%%[/?#]*}"
+      if [ "${rest#"$auth"/}" != "$rest" ]; then PROJECT="${rest#"$auth"/}"; fi
+      auth="${auth##*@}"; rhost="${auth%%:*}"
+      case "$scheme" in ssh|git+ssh|ssh+git) kind=ssh ;; *) kind=net ;; esac
+      ;;
+    /*|./*|../*) ;;
+    *:*)
+      before="${url%%:*}"
+      case "$before" in
+        */*) ;;
+        *) rhost="${before##*@}"; kind=ssh; PROJECT="${url#*:}"; PROJECT="${PROJECT#/}" ;;
+      esac
+      ;;
   esac
+  rhost="$(lower "$rhost")"
+  case "$rhost" in ''|-*|*[!a-z0-9._-]*) C_HOST=other; C_VIA=none; C_NAME=""; PROJECT=""; return ;; esac
+
+  classify "$rhost"
+  if [ "$kind" = ssh ] && { [ "$C_HOST" = other ] || [ "$DELIVERY" = yes ]; } &&
+      command -v "${ssh_cmd%% *}" >/dev/null 2>&1; then
+    resolved="$(lower "$($ssh_cmd -G -- "$rhost" 2>/dev/null | sed -n 's/^hostname //p;/^hostname /q')")"
+    case "$resolved" in ''|-*|*[!a-z0-9._-]*) ;; *) classify "$resolved" ;; esac
+  fi
+  [ "$DELIVERY" = yes ] || return 0
+
+  # A web port identifies a distinct service, while the forge CLI targets the login hostname.
+  # GitHub's hosted alternate SSH endpoint is a transport for the same API repository.
+  case "$kind:$C_NAME" in ssh:ssh.github.com) classify github.com ;; esac
+  case "$scheme:$auth" in
+    http:*:80|https:*:443|git:*:9418|ssh:*|git+ssh:*|ssh+git:*|:*) ;;
+    *:*:*) PROJECT="" ;;
+    http:*|https:*|git:*) ;;
+    *) PROJECT="" ;;
+  esac
+
+  PROJECT="${PROJECT%/}"; PROJECT="${PROJECT%.git}"
+  case "$PROJECT" in *[!a-zA-Z0-9._/-]*) PROJECT="" ;; esac
+  case "/$PROJECT/" in *//*|*/./*|*/../*) PROJECT="" ;; esac
+  case "$C_HOST:$PROJECT" in
+    github:*/*/*) PROJECT="" ;;
+    github:*/*|gitlab:*/*) ;;
+    *) PROJECT="" ;;
+  esac
+}
+
+delivery_fail() { printf 'host: remote %s %s\n' "$REMOTE" "$1" >&2; exit 15; }
+
+URL="$(git -C "$ROOT" remote get-url -- "$REMOTE" 2>/dev/null)"
+resolve_url "$URL"
+if [ "$DELIVERY" = no ]; then emit "$C_HOST" "$C_VIA" "$REMOTE" "$C_NAME"; fi
+
+[ -n "$URL" ] || delivery_fail 'has no fetch URL'
+case "$C_HOST" in
+  github|gitlab) [ -n "$PROJECT" ] || delivery_fail 'has no usable forge project path' ;;
+esac
+PUSH_URL="$(git -C "$ROOT" remote get-url --push --all -- "$REMOTE" 2>/dev/null && printf '.')" ||
+  delivery_fail 'has no push URL'
+PUSH_URL="${PUSH_URL%$'\n.'}"
+case "$PUSH_URL" in
+  "") delivery_fail 'has no push URL' ;;
+  *$'\n'*) delivery_fail 'has multiple push URLs; select a remote that pushes to one repository' ;;
+esac
+
+if [ "$URL" != "$PUSH_URL" ]; then
+  FETCH_HOST="$C_HOST"; FETCH_VIA="$C_VIA"; FETCH_NAME="$C_NAME"; FETCH_PROJECT="$PROJECT"
+  resolve_url "$PUSH_URL"
+  PUSH_PROJECT="$PROJECT"; CHECK_PROJECT="$FETCH_PROJECT"
+  if [ "$FETCH_HOST" = github ]; then
+    PUSH_PROJECT="$(lower "$PUSH_PROJECT")"; CHECK_PROJECT="$(lower "$CHECK_PROJECT")"
+  fi
+  [ -n "$CHECK_PROJECT" ] && [ "$FETCH_HOST:$FETCH_NAME:$CHECK_PROJECT" = "$C_HOST:$C_NAME:$PUSH_PROJECT" ] ||
+    delivery_fail 'fetches and pushes to different repositories; select a remote that uses one repository'
+  emit "$FETCH_HOST" "$FETCH_VIA" "$REMOTE" "$FETCH_NAME" "$FETCH_PROJECT"
 fi
-emit "$C_HOST" "$C_VIA" "$REMOTE" "$C_NAME"
+emit "$C_HOST" "$C_VIA" "$REMOTE" "$C_NAME" "$PROJECT"

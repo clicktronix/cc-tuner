@@ -7,22 +7,29 @@
 #   companion.sh why [repo-root]
 #   companion.sh optout [repo-root]
 #   companion.sh state <plugin-id> [repo-root]
+#   companion.sh root  <plugin-id> [repo-root]
 #   companion.sh hint  <plugin-id> [repo-root]
+#   companion.sh commands <plugin-id>
 #
-#   table   TSV, one row per companion: <id> <marketplace> <source> <needed-by>.
+#   table   TSV, one row per companion: <id> <marketplace> <source> <needed-by> <also>. <id> names the
+#           companion everywhere and is the one offered for install; <also> is a comma-separated list
+#           of other `plugin@marketplace` ids under which the same plugin counts as installed (empty
+#           when there is none): mattpocock-skills is also distributed by claude-plugins-official.
 #   codex   ready | nologin | absent: `codex` on PATH, and `codex login status` exits 0.
-#   review  `none:<reason>` (exit 0) when this repository has no Codex review bridge, else exit 1 and
-#           nothing. The reason is the recorded opt-out when there is one, otherwise
-#           `codex-not-installed` or `codex-not-logged-in`. This is the value a spec carries as
-#           `review: none:<reason>`.
-#   why     the same answer as one sentence for a person, empty when the bridge is on.
+#   review  Prints the spec value (codex or none:<reason>), exit 0. With usable Codex but an
+#           unavailable bridge, prints setup:<state>, exit 2; settle setup before approving a spec.
+#   why     Explains an unavailable or declined review.
 #   optout  the reason this repository recorded for declining Codex review, exit 0; exit 1 when it did
 #           not. Recorded as one line, `cc-tuner-review: none:<reason>`, in
 #           <repo>/.claude/rules/task-flow.local.md (the last such line wins).
-#   state   installed | disabled | absent | unknown, with `<TAB><version><TAB><scope>` after the first
-#           two; exit 0, 0, 1, 2. Asked of plugin-here.sh --with-disabled, so the scope and project
-#           rules are the resolver's own.
-#   hint    the one command that fixes the state, in `/plugin` form: `/plugin enable <id>` for a
+#   state   installed | disabled | absent | unknown, with `<TAB><version><TAB><scope><TAB><found-id>`
+#           after the first two; exit 0, 0, 1, 2. <found-id> is the accepted id that is installed. Each
+#           accepted id is asked of plugin-here.sh --with-disabled, so the scope and project rules are
+#           the resolver's own; an enabled copy under any accepted id wins over a disabled one.
+#   root    the install path of the enabled copy, exit 0; nothing and exit 1 when there is none
+#           (absent or disabled), 2 when it cannot be told.
+#   commands  the two `/plugin` lines that install the companion from nothing, from the table alone.
+#   hint    the one command that fixes the state, in `/plugin` form: `/plugin enable <found-id>` for a
 #           disabled copy; `/plugin install <id>` when the marketplace is configured from the expected
 #           repository; `/plugin marketplace add <source> && /plugin install <id>` when it is not
 #           configured at all. Nothing for an installed plugin. A marketplace of that name configured
@@ -52,15 +59,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TAB="$(printf '\t')"
 
 table() {
-  printf '%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\n' \
     'mattpocock-skills@mattpocock' 'mattpocock' 'mattpocock/skills' \
-    'grilling + domain-modeling + codebase-design in /cc-tuner:spec; pr, code-review + diagnosing-bugs in /cc-tuner:run'
-  printf '%s\t%s\t%s\t%s\n' \
+    'grilling + domain-modeling + codebase-design in /cc-tuner:spec; pr, code-review + diagnosing-bugs in /cc-tuner:run' \
+    'mattpocock-skills@claude-plugins-official'
+  printf '%s\t%s\t%s\t%s\t%s\n' \
     'cc-codex-triage@cc-codex-triage' 'cc-codex-triage' 'clicktronix/cc-codex-triage' \
-    'required-review gate in /cc-tuner:run'
+    'required-review gate in /cc-tuner:run' \
+    ''
 }
 
-# col <plugin-id> <1-4> -> that column of the id's table row; empty when the id is not a companion.
+# col <plugin-id> <1-5> -> that column of the id's table row; empty when the id is not a companion.
 col() {
   local row rest f i
   while IFS= read -r row; do
@@ -76,7 +85,7 @@ EOF
   return 1
 }
 
-usage() { printf 'companion: usage: companion.sh table|codex|review|why|optout [repo-root] | state|hint <plugin-id> [repo-root] | commands <plugin-id>\n' >&2; exit 2; }
+usage() { printf 'companion: usage: companion.sh table [plugin-id] | codex | review|why|optout [repo-root] | state|root|hint <plugin-id> [repo-root] | commands <plugin-id>\n' >&2; exit 2; }
 
 root_of() { # root_of [repo-root]
   local r="${1:-}"
@@ -109,31 +118,86 @@ cmd_review() { # review <repo-root>; $2 = reason | sentence
   case "$(codex_state)" in
     absent)  if [ "$2" = reason ]; then echo 'none:codex-not-installed'; else echo 'codex is not on PATH'; fi ;;
     nologin) if [ "$2" = reason ]; then echo 'none:codex-not-logged-in'; else echo 'codex is not logged in (run: codex login)'; fi ;;
-    *) return 1 ;;
+    ready)
+      local bridge rc state root usage
+      bridge="$(resolve 'cc-codex-triage@cc-codex-triage' "$1")"; rc=$?
+      case "$rc:$bridge" in
+        0:*"${TAB}disabled${TAB}"*) state=disabled ;;
+        0:*) root="${bridge%%$TAB*}"
+          state=incompatible
+          if [ -n "$root" ] && [ -r "$root/scripts/review-state.sh" ] &&
+             grep -qF -- '--required' "$root/commands/review.md" 2>/dev/null; then
+            # With no arguments the companion prints its public CLI usage without opening a thread.
+            usage="$(bash "$root/scripts/review-state.sh" 2>&1)"
+            if [[ "$usage" == *--integration* ]] &&
+               printf '%s\n' "$usage" | grep -Eq '(^|[[:space:]|])check <thread>' &&
+               printf '%s\n' "$usage" | grep -Eq '(^|[[:space:]|])renew <thread> --by'; then
+              [ "$2" != reason ] || echo codex
+              return 0
+            fi
+          fi ;;
+        1:*) state=absent ;;
+        *) state=unknown ;;
+      esac
+      if [ "$2" = reason ]; then echo "setup:$state"; else echo "review bridge $state"; fi
+      return 2 ;;
   esac
+}
+
+# resolve <id> <repo-root>: which accepted id of this companion is installed here. Prints that
+# install's plugin-here row with the id appended (path, version, scope, enabled|disabled, id).
+# rc 0 found, 1 none, 2 cannot tell. An enabled copy under any accepted id wins over a disabled one:
+# the plugin loads either way, and its skills are addressed by plugin name, not by marketplace.
+resolve() {
+  local ids id row rc disabled=""
+  ids="$1,$(col "$1" 5)"
+  local IFS=,
+  for id in $ids; do
+    [ -n "$id" ] || continue
+    row="$(bash "$HERE/plugin-here.sh" --with-disabled "$id" "$2" 2>/dev/null)"; rc=$?
+    case "$rc" in
+      0) case "$row" in
+           *"${TAB}disabled") [ -n "$disabled" ] || disabled="$row$TAB$id" ;;
+           *) printf '%s\t%s\n' "$row" "$id"; return 0 ;;
+         esac ;;
+      1) ;;
+      *) return 2 ;;
+    esac
+  done
+  [ -n "$disabled" ] || return 1
+  printf '%s\n' "$disabled"
 }
 
 cmd_state() { # state <id> <repo-root>
   local row rc rest
   [ -n "$(col "$1" 2)" ] || { printf 'companion: %s is not a companion plugin\n' "$1" >&2; exit 2; }
-  row="$(bash "$HERE/plugin-here.sh" --with-disabled "$1" "$2" 2>/dev/null)"
+  row="$(resolve "$1" "$2")"
   rc=$?
   case "$rc" in
     0) ;;
     1) echo absent; return 1 ;;
     *) echo unknown; return 2 ;;
   esac
-  # path <TAB> version <TAB> scope <TAB> enabled|disabled. Parameter expansion, not `read` with a tab
-  # IFS, which collapses an empty installPath and shifts every column left.
+  # Parameter expansion, not `read` with a tab IFS, which collapses an empty installPath and shifts
+  # every column left.
   rest="${row#*$TAB}"
   local ver="${rest%%$TAB*}"; rest="${rest#*$TAB}"
-  local scope="${rest%%$TAB*}" en="${rest#*$TAB}"
+  local scope="${rest%%$TAB*}"; rest="${rest#*$TAB}"
+  local en="${rest%%$TAB*}" found="${rest#*$TAB}"
   if [ "$en" = disabled ]; then
-    printf 'disabled\t%s\t%s\n' "$ver" "$scope"
+    printf 'disabled\t%s\t%s\t%s\n' "$ver" "$scope" "$found"
   else
-    printf 'installed\t%s\t%s\n' "$ver" "$scope"
+    printf 'installed\t%s\t%s\t%s\n' "$ver" "$scope" "$found"
   fi
   return 0
+}
+
+cmd_root() { # root <id> <repo-root>
+  local row
+  [ -n "$(col "$1" 2)" ] || { printf 'companion: %s is not a companion plugin\n' "$1" >&2; exit 2; }
+  row="$(resolve "$1" "$2")" || return $?
+  case "$row" in *"${TAB}disabled${TAB}"*) return 1 ;; esac
+  printf '%s\n' "${row%%$TAB*}"
 }
 
 cmd_hint() { # hint <id> <repo-root>
@@ -143,7 +207,7 @@ cmd_hint() { # hint <id> <repo-root>
   st="$(cmd_state "$id" "$2")"
   case "${st%%$TAB*}" in
     installed) return 0 ;;
-    disabled) printf '/plugin enable %s\n' "$id"; return 0 ;;
+    disabled) printf '/plugin enable %s\n' "${st##*$TAB}"; return 0 ;;
     unknown) exit 2 ;;
   esac
   mkts="$(${CC_TUNER_MARKETPLACE_LIST_CMD:-claude plugin marketplace list --json} 2>/dev/null)" || mkts=""
@@ -189,6 +253,10 @@ case "$SUB" in
     [ -n "${1:-}" ] || usage
     command -v jq >/dev/null 2>&1 || { printf 'companion: jq is required\n' >&2; echo unknown; exit 2; }
     cmd_state "$1" "$(root_of "${2:-}")"; exit $? ;;
+  root)
+    [ -n "${1:-}" ] || usage
+    command -v jq >/dev/null 2>&1 || { printf 'companion: jq is required\n' >&2; exit 2; }
+    cmd_root "$1" "$(root_of "${2:-}")"; exit $? ;;
   hint)
     [ -n "${1:-}" ] || usage
     command -v jq >/dev/null 2>&1 || { printf 'companion: jq is required\n' >&2; exit 2; }

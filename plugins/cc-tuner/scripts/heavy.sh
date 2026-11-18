@@ -3,6 +3,7 @@
 #
 #   heavy.sh [--weight w] [--slots N] [--label <text>] -- <command> [args...]
 #   heavy.sh status
+#   heavy.sh --help
 #
 # Capacity is shared by every session and subagent on this machine, so five agents asking for e2e at
 # once run only as many as the capacity allows. The command runs unchanged: its output and exit code are its own;
@@ -13,7 +14,17 @@
 # above capacity is clamped, with a note. Callers start in the order they asked: each waiter takes
 # a ticket in queue/ and only the oldest live ticket takes slots, keeping the ones it took while it
 # waits for the rest, so a weight-2 check is not starved by weight-1 arrivals. A dead waiter's
-# ticket is swept; a waiter whose caller died leaves the queue.
+# ticket is swept; a waiter whose caller exits while it is queued leaves the queue (exit 64). A launch
+# that is already detached when heavy.sh starts (nohup, launchd) has no caller to lose and runs.
+#
+# The wait for slots is bounded by CC_TUNER_HEAVY_WAIT. While it lasts the holders are restated every
+# 5 minutes (a sixth of the bound when that is shorter); when it runs out the command starts anyway,
+# with the line "heavy.sh: started without a slot after <n>s, holding <k> of <w>: <label>; held by:
+# <holders>". A slot directory that cannot be written, or a missing python3, also runs the command at
+# once, with "heavy.sh: <why> — running without a slot: <label>".
+#
+# Exit code: the command's own. 64 when heavy.sh did not start it (bad arguments or environment, or
+# the caller exited while it was queued); 127 when the command could not be executed.
 #
 # A slot is a kernel lock (flock) on slot-<n>.lock held for as long as the work lives. The command
 # runs in its own process group under a small supervisor, which returns the command's exit code as
@@ -43,6 +54,8 @@
 #   CC_TUNER_HEAVY_SLOTS     capacity in slots (default: RAM / 8 GB, at least 1)
 #   CC_TUNER_HEAVY_DIR       slot directory (default ~/.cache/cc-tuner/heavy)
 #   CC_TUNER_HEAVY_POLL      seconds between attempts while waiting (default 2)
+#   CC_TUNER_HEAVY_WAIT      seconds a check waits for its slots before it starts without them
+#                            (default 1800)
 #   CC_TUNER_HEAVY_MEM_WAIT  seconds the head waits for pressure to clear (default 600)
 #   CC_TUNER_HEAVY_TOTAL_MB  RAM in MB instead of the machine's (macOS hw.memsize; Linux MemTotal
 #                            rounded up to a whole GiB); CC_TUNER_HEAVY_PROC replaces /proc;
@@ -50,7 +63,6 @@
 #                            pressure reading; CC_TUNER_HEAVY_DEFICIT sets how long the deficit
 #                            mark lasts (default 600 s)
 #
-# Needs python3 for the lock; without it the command runs unslotted, and says so.
 # bash 3.2 compatible: macOS ships 3.2.57.
 set -u
 
@@ -60,9 +72,37 @@ WEIGHT=1
 POLL="${CC_TUNER_HEAVY_POLL:-2}"
 LABEL=""
 
-die() { printf 'heavy.sh: %s\n' "$1" >&2; exit 2; }
+die() { printf 'heavy.sh: %s\n' "$1" >&2; exit 64; }
+usage() {
+  cat <<'USAGE'
+usage: heavy.sh [--weight <w>] [--slots <n>] [--label <text>] -- <command> [args...]
+       heavy.sh status
+
+  --weight <w>   slots this check holds (default 1; an e2e suite asks for 2)
+  --slots <n>    capacity for this call instead of CC_TUNER_HEAVY_SLOTS or RAM / 8 GB
+  --label <text> what `status` and a waiting caller show for this check (default: the command)
+  status         capacity, memory pressure, who holds each slot and who is queued
+
+The command's output and exit code pass through. heavy.sh's own lines go to stderr and start with
+"heavy.sh:". Exit 64: heavy.sh did not start the command (bad arguments or environment, or its
+caller exited while it was queued). Exit 127: the command could not be executed.
+
+A check waits for its slots at most CC_TUNER_HEAVY_WAIT seconds (default 1800), then starts with
+"heavy.sh: started without a slot ...". With them, it waits for memory pressure to ease at most
+CC_TUNER_HEAVY_MEM_WAIT seconds (default 600), then starts with
+"heavy.sh: started under memory pressure ...".
+USAGE
+}
+# The command runs now, outside the slots, when the slot machinery itself is unavailable: a check
+# that cannot be limited is still a check the caller asked for.
+run_unslotted() { # run_unslotted <why> <command> [args...]
+  local why="$1"; shift
+  printf 'heavy.sh: %s — running without a slot: %s\n' "$why" "$LABEL" >&2
+  exec "$@"
+}
 
 MODE=run
+case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 if [ "${1:-}" = status ]; then
   MODE=status
   shift
@@ -73,7 +113,7 @@ else
       --weight) [ -n "${2:-}" ] || die "--weight needs a number"; WEIGHT="$2"; shift 2 ;;
       --label) [ -n "${2:-}" ] || die "--label needs text"; LABEL="$2"; shift 2 ;;
       --) shift; break ;;
-      *) die "usage: heavy.sh [--weight w] [--slots N] [--label <text>] -- <command> [args...] | heavy.sh status" ;;
+      *) die "unknown argument '$1'. usage: heavy.sh [--weight <w>] [--slots <n>] [--label <text>] -- <command> [args...] | heavy.sh status | heavy.sh --help" ;;
     esac
   done
   [ "$#" -gt 0 ] || die "no command given after --"
@@ -89,10 +129,13 @@ fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   [ "$MODE" = run ] || die "python3 is required to read slot state"
-  printf 'heavy.sh: python3 not found — running without a slot: %s\n' "$LABEL" >&2
-  exec "$@"
+  run_unslotted "python3 not found" "$@"
 fi
-mkdir -p "$DIR" || die "cannot create $DIR"
+# Probed by writing: a sandbox can deny the write while the mode bits allow it.
+if ! { mkdir -p "$DIR/queue" && touch "$DIR/.probe.$$" "$DIR/queue/.probe.$$" && rm -f "$DIR/.probe.$$" "$DIR/queue/.probe.$$"; } 2>/dev/null; then
+  [ "$MODE" = run ] || die "cannot write the slot directory $DIR"
+  run_unslotted "cannot write the slot directory $DIR" "$@"
+fi
 
 # RAM in MB, empty when it cannot be read.
 total_mb() {
@@ -114,6 +157,7 @@ total_mb() {
 
 case "${CC_TUNER_HEAVY_DEFICIT:-600}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_DEFICIT must be a number of seconds" ;; esac
 case "${CC_TUNER_HEAVY_MEM_WAIT:-600}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_MEM_WAIT must be a number of seconds" ;; esac
+case "${CC_TUNER_HEAVY_WAIT:-1800}" in ''|*[!0-9.]*|*.*.*) die "CC_TUNER_HEAVY_WAIT must be a number of seconds" ;; esac
 case "${CC_TUNER_HEAVY_PRESSURE:-normal}" in normal|warn|critical|unknown) ;; *) die "CC_TUNER_HEAVY_PRESSURE must be normal, warn, critical or unknown" ;; esac
 case "${CC_TUNER_HEAVY_TOTAL_MB:-}" in *[!0-9]*) die "CC_TUNER_HEAVY_TOTAL_MB must be a number of MB" ;; esac
 if [ -z "$SLOTS" ]; then
@@ -135,6 +179,7 @@ mode, d, slots, weight, poll, label = sys.argv[1], sys.argv[2], int(sys.argv[3])
 cmd = sys.argv[7:]
 qdir = os.path.join(d, "queue")
 mem_wait = float(os.environ.get("CC_TUNER_HEAVY_MEM_WAIT") or 600)
+slot_wait = float(os.environ.get("CC_TUNER_HEAVY_WAIT") or 1800)
 deficit_ttl = float(os.environ.get("CC_TUNER_HEAVY_DEFICIT") or 600)
 deficit_path = os.path.join(d, "memory-deficit")
 
@@ -353,23 +398,16 @@ if mode == "status":
         print(line)
     sys.exit(0)
 
-def init_is_parent():
-    # PID 1 is the parent: an orphan when PID 1 is the system's init (launchd, systemd, init); a shell
-    # that is PID 1 in a container is a real caller.
-    comm = subprocess.run(["ps", "-p", "1", "-o", "comm="], capture_output=True, text=True).stdout.strip()
-    return os.path.basename(comm) in ("launchd", "systemd", "init")
-
+# The caller is whoever is the parent now. A launch that is already detached (nohup, launchd) has
+# init for a parent from the start and keeps it; only a parent that changes while this waits is a
+# caller that went away.
 ppid = os.getppid()
-orphan_at_start = ppid == 1 and init_is_parent()
-
-def caller_gone():
-    return orphan_at_start or os.getppid() != ppid
 
 def leave_if_caller_gone():
-    if caller_gone():
+    if os.getppid() != ppid:
         leave_queue()
-        sys.stderr.write("heavy.sh: the caller is gone; leaving the queue: %s\n" % label)
-        sys.exit(1)
+        sys.stderr.write("heavy.sh: the caller exited while this check was queued; leaving the queue: %s\n" % label)
+        sys.exit(64)
 
 ticket_fd, ticket_path = enqueue()
 ticket = os.path.basename(ticket_path)
@@ -383,7 +421,10 @@ def leave_queue():
 
 held = {}
 notes = {}
-said = False
+queued_at = time.time()
+said_at = None
+# Every 5 minutes, or a sixth of the bound when that is shorter.
+restate = min(300.0, slot_wait / 6)
 while True:
     leave_if_caller_gone()
     head = oldest_live() == ticket
@@ -406,18 +447,25 @@ while True:
             # Never sleep past the bound: the forced start happens at CC_TUNER_HEAVY_MEM_WAIT.
             time.sleep(max(0.01, min(poll, pressure_since + mem_wait - time.time())))
             continue
-    if not said:
+    now = time.time()
+    if now - queued_at >= slot_wait:
+        # The same policy as the memory wait: a bounded delay, then the check runs and says so.
+        sys.stderr.write("heavy.sh: started without a slot after %ds, holding %d of %d: %s; held by: %s\n"
+                         % (now - queued_at, len(held), weight, label, " | ".join(h.strip() for h in holders())))
+        break
+    if said_at is None or now - said_at >= restate:
         want = "one" if weight == 1 else str(weight)
-        sys.stderr.write("heavy.sh: waiting for %s of %d heavy-check slot(s); held by:\n%s\n" % (want, slots, "\n".join(holders())))
-        said = True
-    # The head polls fast: a pre-change heavy.sh waiter has no ticket and competes for the slot the
-    # head still needs at its own interval, so the head should see a release first.
-    time.sleep(min(poll, 0.1) if head else poll)
+        lead = "waiting" if said_at is None else "still waiting after %ds" % (now - queued_at)
+        sys.stderr.write("heavy.sh: %s for %s of %d heavy-check slot(s), at most %ds; held by:\n%s\n"
+                         % (lead, want, slots, slot_wait, "\n".join(holders())))
+        said_at = now
+    time.sleep(max(0.01, min(poll, queued_at + slot_wait - now)))
 
 # Admission can block (the pressure reader); check the caller once more right before the work starts.
 leave_if_caller_gone()
 leave_queue()
-env = dict(os.environ, CC_TUNER_HEAVY_HELD=",".join("slot-%d" % i for i in sorted(held)))
+# Never empty: a heavy.sh inside this work must run at once, also when this one started without a slot.
+env = dict(os.environ, CC_TUNER_HEAVY_HELD=",".join("slot-%d" % i for i in sorted(held)) or "none")
 # A signal that comes while the command starts waits until its group is known and stop() is in place;
 # before, the default action ended this process and left the new session's group running.
 SIGS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
@@ -456,7 +504,7 @@ signal.pthread_sigmask(signal.SIG_UNBLOCK, SIGS)
 rc = child.wait()
 code = rc if rc >= 0 else 128 - rc
 left = members()
-if left and os.fork() == 0:
+if held and left and os.fork() == 0:
     # The command is done but its group is not: a keeper holds the slots until the last
     # process in the group exits, while the caller gets the command's exit code now.
     os.setsid()

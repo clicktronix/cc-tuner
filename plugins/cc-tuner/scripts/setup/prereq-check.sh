@@ -32,13 +32,11 @@ PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 PROJECT_ROOT="$(git -C "$PROJECT_ROOT" rev-parse --show-toplevel 2>/dev/null \
   || (CDPATH='' cd -- "$PROJECT_ROOT" 2>/dev/null && pwd -P) || true)"
 
-# roots <plugin-id> -> install paths, best first. rc=2 means the question could not be answered,
-# which is reported as its own failure rather than as "not installed": telling someone to reinstall a
-# plugin they already have, because `jq` is missing, sends them to fix the wrong thing.
-roots() { bash "$PLUGIN_HERE" "$1" "$PROJECT_ROOT" 2>/dev/null; }
-
+# rc=2 from the resolver means the question could not be answered, which is reported as its own
+# failure rather than as "not installed": telling someone to reinstall a plugin they already have,
+# because `jq` is missing, sends them to fix the wrong thing.
 UNANSWERABLE=""
-roots 'cc-tuner@cc-tuner' >/dev/null 2>&1
+bash "$PLUGIN_HERE" 'cc-tuner@cc-tuner' "$PROJECT_ROOT" >/dev/null 2>&1
 [ $? -ne 2 ] || UNANSWERABLE=1
 if [ -n "$UNANSWERABLE" ]; then
   echo "MISSING: cannot list installed plugins, so the prerequisites are unknown" >&2
@@ -52,7 +50,8 @@ fi
 # and passed if a file turned up in any of them, which reported `prereqs OK` for a `local` install
 # missing the code-review skill because a `user` install two rows down still had it. Only the top
 # install loads, so a check satisfied by a lower one is checking files nothing will read.
-root_of() { roots "$1" | cut -f1; }
+# Asked of companion.sh, because a companion may be installed under more than one marketplace id.
+root_of() { bash "$COMPANION" root "$1" "$PROJECT_ROOT" 2>/dev/null; }
 
 # has_file <plugin-id> <relative path> -- does the applicable install carry this file?
 # A companion skill is found by its directory name anywhere under the plugin's skills/, not by an
@@ -64,29 +63,20 @@ has_skill() {
     && [ -n "$(find "$root/skills" -path "*/$2/SKILL.md" -print 2>/dev/null | head -n 1)" ]
 }
 
-# The required-review contract, not merely the plugin: an installed cc-codex-triage predating it
-# would satisfy "is it there" and still be unable to answer for a delivery gate. The contract is what
-# merge.sh consumes: review-state.sh answers `check` with the approval marker. review.md only has to
-# document `--required`; 0.13.1 stopped quoting the marker there, and requiring it reported a working
-# install as missing (#42).
-codex_contract() {
-  local root review state
-  root="$(root_of 'cc-codex-triage@cc-codex-triage')"
-  [ -n "$root" ] || return 1
-  review="$root/commands/review.md"; state="$root/scripts/review-state.sh"
-  [ -f "$review" ] && [ -f "$state" ] \
-    && grep -qF -- '--required' "$review" \
-    && grep -qF -- 'CC_CODEX_REQUIRED_REVIEW APPROVE' "$state" \
-    && grep -q '^  check)' "$state"
-}
-
 # Which plugin is installed, disabled or absent, and the command that fixes it, are companion.sh's
 # answers, shared with doctor.sh and the setup node; so are codex's state and the repository's opt-out
 # of Codex review. This script keeps only what is its own: whether the installed copy carries the
 # contract the flow needs.
 #
-# state_of <id>: ST is installed | disabled | absent | unknown.
-state_of() { local out; out="$(bash "$COMPANION" state "$1" "$PROJECT_ROOT" 2>/dev/null)"; ST="${out%%$TAB*}"; }
+# state_of <id>: ST is installed | disabled | absent | unknown; FOUND_ID is the accepted id that is
+# installed (the companion's own id when none is).
+state_of() {
+  local out; out="$(bash "$COMPANION" state "$1" "$PROJECT_ROOT" 2>/dev/null)"
+  ST="${out%%$TAB*}"; FOUND_ID="$1"
+  case "$ST" in installed|disabled) FOUND_ID="${out##*$TAB}" ;; esac
+}
+# update_of: the command that updates the installed copy, from its own marketplace.
+update_of() { printf '/plugin marketplace update %s && /plugin update %s' "${FOUND_ID#*@}" "$FOUND_ID"; }
 # fix_line <id>: the fix for a plugin that is not usable here, as the line printed under its MISSING --
 # `install:` or `enable:` with the command, or the conflict text when a same-named marketplace comes
 # from another repository (nothing to run, so no label).
@@ -108,9 +98,8 @@ fix_line() {
 # Not installed and installed-but-incomplete are different findings with different commands: `update`
 # fixes a stale copy and fails on a plugin that was never installed.
 MP='mattpocock-skills@mattpocock'
-MP_MKT="$(bash "$HERE/companion.sh" table "$MP" | cut -f2)"
-MP_UPDATE="/plugin marketplace update $MP_MKT && /plugin update $MP"
 state_of "$MP"
+MP_UPDATE="$(update_of)"
 if [ "$ST" != installed ]; then
   if [ "$ST" = disabled ]; then
     echo "MISSING: mattpocock-skills is installed but disabled for this repo (skills: grilling, domain-modeling, code-review)" >&2
@@ -143,13 +132,13 @@ fi
 # declined it, has nothing to fix.
 CT='cc-codex-triage@cc-codex-triage'
 CT_REVIEW="$(bash "$COMPANION" review "$PROJECT_ROOT")"
-if [ -n "$CT_REVIEW" ]; then
+if [[ "$CT_REVIEW" == none:* ]]; then
   echo "NOTE: cc-codex-triage review bridge is off — $(bash "$COMPANION" why "$PROJECT_ROOT"); specs use review: $CT_REVIEW"
-elif ! codex_contract; then
+elif [ "$CT_REVIEW" != codex ]; then
   state_of "$CT"
   if [ "$ST" = installed ]; then
-    echo "MISSING: cc-codex-triage required-review contract (--required + exact approval state)" >&2
-    echo "  update: /plugin marketplace update $(bash "$HERE/companion.sh" table "$CT" | cut -f2) && /plugin update $CT" >&2
+    echo "MISSING: cc-codex-triage 0.14 or later (the installed copy lacks the required-review contract: --required, the exact approval state, integration rounds or renew)" >&2
+    echo "  update: $(update_of)" >&2
   else
     if [ "$ST" = disabled ]; then
       echo "MISSING: cc-codex-triage is installed but disabled for this repo (the required-review gate in /cc-tuner:run; codex is logged in)" >&2
@@ -159,16 +148,6 @@ elif ! codex_contract; then
     fix_line "$CT"
   fi
   missing=1
-fi
-
-# Optional companion capabilities /run uses when present (cc-codex-triage 0.14+): an integration round
-# outside the review cap, and renewing an authorized budget on the same thread. Older versions still
-# gate correctly, so this is a note naming the fallback, not a missing prerequisite.
-if codex_contract; then
-  CODEX_STATE="$(root_of 'cc-codex-triage@cc-codex-triage')/scripts/review-state.sh"
-  if ! grep -qF -- '--integration' "$CODEX_STATE" || ! grep -q '^  renew)' "$CODEX_STATE"; then
-    echo "NOTE: cc-codex-triage predates integration rounds and renew — /run reviews an integrated target as a normal round and asks before resetting for a new budget; update: /plugin update cc-codex-triage@cc-codex-triage"
-  fi
 fi
 
 if [ "$missing" -eq 0 ]; then echo "prereqs OK"; else exit 1; fi

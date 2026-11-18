@@ -30,9 +30,8 @@ HOST=${ROW%%$(printf '\t')*}
 echo "host: $HOST"
 ```
 
-`$HOST` is `github`, `gitlab`, `local`, `other` or `ambiguous`. `ambiguous` (several remotes, none named
-`origin`) blocks this node: report it and tell the user to rename one remote to `origin`
-(`git remote rename <remote> origin`).
+For `ambiguous`, select the task's destination with `CC_TUNER_REMOTE=<remote>` and repeat Locate.
+If it is unknown, defer this node while independent setup continues.
 
 ## check
 

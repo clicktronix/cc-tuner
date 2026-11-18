@@ -11,6 +11,12 @@ set -u
 
 MERGE="$FLOW_PLUGIN/scripts/merge.sh"
 OTHER_SHA="0000111122223333"
+# Every CLI call is stubbed and fixture remotes are never usable over the network.
+export GIT_ALLOW_PROTOCOL=file
+unset CC_TUNER_REMOTE GH_HOST GH_REPO
+export CC_TUNER_GH_HOSTS_FILE="$FLOW_ROOT/gh-hosts.yml"
+printf 'github.example.invalid:\n    user: agent-bot\n' > "$CC_TUNER_GH_HOSTS_FILE"
+
 
 # A real repository, because merge.sh asks git whether the target is inside the candidate and a
 # fake SHA cannot answer that. base -> candidate on main; `advanced` is one commit past base that
@@ -20,6 +26,8 @@ mkdir -p "$FIX_REPO"
 (
   cd "$FIX_REPO"
   git init -q -b main
+  git remote add origin https://github.com/example/origin.git
+  git remote add delivery https://github.example.invalid/example/selected.git
   git config user.email test@example.com
   git config user.name test
   printf 'base\n' > base.txt;      git add base.txt;      git commit -qm base
@@ -132,11 +140,37 @@ run_without_thread() {
 # --- the one state that merges ------------------------------------------------------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run "$D" 42 squash "$SHA")"
-check "attested-candidate-merges" "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check "attested-candidate-merges" "MERGED pr merge 42 --repo github.com/example/origin --squash --match-head-commit $SHA" "$OUT"
 check "attested-candidate-rc0"    "rc=0"                                                 "$OUT"
+
 # The pin is not the caller's to omit: merge.sh always adds it, so the head cannot move underneath.
 check "always-pins-the-head" "--match-head-commit" "$OUT"
 check "required-review-check-runs" "check review-default" "$(cat "$D/codex-calls")"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(CC_TUNER_REMOTE=delivery GH_HOST=github.com GH_REPO=github.com/elsewhere/repo run "$D" 42 squash "$SHA")"
+check "selected-repo-number-merges" "rc=0" "$OUT"
+CALLS="$(cat "$D/calls")"
+check "selected-repo-files" "api repos/example/selected/pulls/42/files --hostname github.example.invalid" "$CALLS"
+check "selected-host-user" "api user --hostname github.example.invalid" "$CALLS"
+for action in view checks merge; do
+  check "selected-repo-$action" "pr $action 42 --repo github.example.invalid/example/selected" "$CALLS"
+done
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(CC_TUNER_REMOTE=delivery GH_HOST=github.com run "$D" https://github.com/example/origin/pull/42 squash "$SHA")"
+check "rejects-url-from-wrong-repo" "rc=1" "$OUT"
+[ ! -f "$D/calls" ] && pass "rejects-url-before-forge-calls" || fail "rejects-url-before-forge-calls"
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(CC_TUNER_REMOTE=delivery GH_HOST=github.com run "$D" https://github.example.invalid/Example/Selected/pull/42 squash "$SHA")"
+check "same-repo-url-merges-with-number" "pr merge 42 --repo github.example.invalid/example/selected" "$OUT"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+OUT="$(git -C "$FIX_REPO" remote set-url --push origin https://github.com/example/elsewhere.git
+       run "$D" 42 squash "$SHA"
+       git -C "$FIX_REPO" config --unset-all remote.origin.pushurl)"
+check "merge-refuses-split-delivery-remote" "fetches and pushes to different repositories" "$OUT"
+[ ! -f "$D/calls" ] && pass "split-delivery-made-no-forge-call" || fail "split-delivery-made-no-forge-call"
+
 
 # --- the target moved on while the candidate was under review -------------------------------------
 # --match-head-commit protects the head, not the base. A candidate that does not contain the
@@ -158,13 +192,13 @@ INTEGRATED="$(git -C "$FIX_REPO" rev-parse main)"
 APPROVED_INT="$(review agent-bot "$INTEGRATED" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $INTEGRATED")"
 D="$(world "$PLAN_FILES" "$APPROVED_INT" "$GREEN_CI" "$INTEGRATED" "" "$ADVANCED")"
 OUT="$(run "$D" 42 squash "$INTEGRATED")"
-check "integrated-candidate-merges"        "MERGED pr merge 42 --squash --match-head-commit $INTEGRATED" "$OUT"
+check "integrated-candidate-merges"        "MERGED pr merge 42 --repo github.com/example/origin --squash --match-head-commit $INTEGRATED" "$OUT"
 check "integrated-candidate-rc0"           "rc=0"                                      "$OUT"
 # The check is a cc-tuner rule and applies only to cc-tuner runs: an --unmanaged pull request is
 # merged unchecked, pinned, however far its target has moved.
 D="$(world "$NO_PLAN_FILES" '[]' '[]' "" "" "$ADVANCED")"
 OUT="$(run_without_thread "$D" --unmanaged 42 squash "$SHA")"
-check "out-of-scope-ignores-target-advance" "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check "out-of-scope-ignores-target-advance" "MERGED pr merge 42 --repo github.com/example/origin --squash --match-head-commit $SHA" "$OUT"
 check "out-of-scope-ignores-target-rc0"     "rc=0"                                                 "$OUT"
 # The base moves WHILE merge.sh is consulting CI and the companion: the first read saw the reviewed
 # base, later reads see the advanced one. Caught by the final re-read, in merge and in --check-only.
@@ -221,6 +255,30 @@ absent "no-verdict-no-jq-error" "jq: error" "$OUT"
 
 D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"fail"},{"name":"test","bucket":"pass"}]')"
 check "red-ci-refused" "not passing" "$(run "$D" 42 squash "$SHA")"
+
+# gh's buckets are pass, fail, cancel, pending and skipping. A job whose `if:` was false reports
+# `skipping`, which GitHub itself does not hold against a merge; counting it as a failure refused
+# every candidate in a repository with one conditional job, with no mode that could get past it.
+D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"pass"},{"name":"deploy-preview","bucket":"skipping"}]')"
+check "skipped-check-does-not-block" "MERGED" "$(run "$D" 42 squash "$SHA")"
+# ...but skipped is not passed: a head on which every check was skipped had no CI.
+D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"skipping"},{"name":"e2e","bucket":"skipping"}]')"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "all-skipped-refused"  "were skipped, so no CI ran" "$OUT"
+absent "all-skipped-no-merge" "MERGED"                     "$OUT"
+# The refusal names each check with its bucket, and offers a retry only when one is still running.
+D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"fail"},{"name":"e2e","bucket":"pending"},{"name":"lint","bucket":"pass"},{"name":"docs","bucket":"skipping"}]')"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "refusal-names-failed-check"   "build (fail)"                  "$OUT"
+check  "refusal-names-pending-check"  "e2e (pending)"                 "$OUT"
+check  "pending-offers-a-retry"       "when the pending ones finish"  "$OUT"
+absent "passing-check-not-named"      "lint"                          "$OUT"
+absent "skipped-check-not-named"      "docs ("                        "$OUT"
+D="$(world "$PLAN_FILES" "$APPROVED" '[{"name":"build","bucket":"cancel"},{"name":"lint","bucket":"pass"}]')"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "cancelled-check-refused"      "build (cancel)"                "$OUT"
+absent "no-retry-without-pending"     "when the pending ones finish"  "$OUT"
+absent "cancelled-check-no-merge"     "MERGED"                        "$OUT"
 
 # A branch that requires nothing does not report an empty list -- gh exits 1 and says so on stderr.
 # Reading only the exit status called that "cannot read CI", sending the operator to hunt a failing
@@ -340,6 +398,15 @@ OUT="$(run "$D" 42 squash "$SHA")"
 check  "later-dissent-blocks"  "has not been reviewed at this commit" "$OUT"
 absent "later-dissent-no-merge" "MERGED"                              "$OUT"
 
+# An empty review is not a dissent. GitHub creates one for every reply in a review thread, so
+# answering a comment after publishing the verdict used to make the approval disappear.
+EMPTY="$(review agent-bot "$SHA" 2026-01-01T05:00:00Z "")"
+D="$(world "$PLAN_FILES" "$(printf '%s' "$APPROVED" | jq -c --argjson extra "$EMPTY" '. + $extra')" "$GREEN_CI")"
+check "empty-review-does-not-hide-approval" "MERGED" "$(run "$D" 42 squash "$SHA")"
+BLANK="$(review agent-bot "$SHA" 2026-01-01T05:00:00Z '  \n')"
+D="$(world "$PLAN_FILES" "$(printf '%s' "$APPROVED" | jq -c --argjson extra "$BLANK" '. + $extra')" "$GREEN_CI")"
+check "blank-review-does-not-hide-approval" "MERGED" "$(run "$D" 42 squash "$SHA")"
+
 # A marker quoted inside prose does not open a record, for the same reason it does not open a review.
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI" "$SHA" "I think cc-tuner-local-ci: $SHA bun test would be enough here")"
 : > "$D/checks-none-any"
@@ -365,7 +432,7 @@ absent "stale-sha-no-merge" "MERGED"          "$OUT"
 # moved, and was used in the field as a general merge button.
 D="$(world "$NO_PLAN_FILES" '[]' '[]')"
 OUT="$(run_without_thread "$D" --unmanaged 42 squash "$SHA")"
-check "non-cc-tuner-pr-merges"   "MERGED pr merge 42 --squash" "$OUT"
+check "non-cc-tuner-pr-merges"   "MERGED pr merge 42 --repo github.com/example/origin --squash" "$OUT"
 check "non-cc-tuner-says-so"     "merged as --unmanaged"       "$OUT"
 check "non-cc-tuner-rc0"         "rc=0"                        "$OUT"
 # Still pinned. The head can move between reading the PR and merging it whether or not cc-tuner has
@@ -419,7 +486,7 @@ check  "thread-makes-no-plan-pr-in-scope" "did not approve this worktree candida
 absent "thread-scope-no-merge"            "MERGED"                                    "$OUT"
 D="$(world "$ARCHIVED_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run "$D" 42 squash "$SHA")"
-check  "thread-scoped-approved-merges"    "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check  "thread-scoped-approved-merges"    "MERGED pr merge 42 --repo github.com/example/origin --squash --match-head-commit $SHA" "$OUT"
 check  "thread-scoped-reaches-checker"    "check review-default" "$(cat "$D/codex-calls")"
 # --unmanaged cannot be used on a PR that says it is a run.
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
@@ -433,7 +500,7 @@ check  "unmanaged-with-thread-refused"    "contradicts this call"               
 # --- --review none: Codex is optional, the rest still decides -----------------------------------
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run_without_thread "$D" --review 'none:owner reviewed by hand' 42 squash "$SHA")"
-check  "review-none-merges"               "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check  "review-none-merges"               "MERGED pr merge 42 --repo github.com/example/origin --squash --match-head-commit $SHA" "$OUT"
 check  "review-none-prints-reason"        "owner reviewed by hand"                    "$OUT"
 [ ! -f "$D/codex-calls" ] && pass "review-none-skips-codex" || fail "review-none-skips-codex (codex was called)"
 D="$(world "$NO_PLAN_FILES" '[]' "$GREEN_CI")"
@@ -461,6 +528,16 @@ LATER_RC="$(jq -nc --arg b "cc-tuner-verdict: REQUEST_CHANGES $SHA" '[{author:{l
 D="$(EXTRA_COMMENTS="$LATER_RC" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 check "later-comment-request-changes-refused" "is not an approval" "$(run "$D" 42 squash "$SHA")"
 
+# --- a pull request that is not in the delivery repository ---------------------------------------
+# The repository is the one the selected remote pushes to. A pull request opened from a fork lives in
+# the base repository, so the refusal names where it looked instead of only "cannot resolve".
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/pr.json"
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "missing-pr-names-the-repository" "cannot resolve pull request '42' in " "$OUT"
+check  "missing-pr-names-the-remote"     "pushes to"                            "$OUT"
+check  "missing-pr-explains-a-fork"      "lives in the base repository"         "$OUT"
+check  "missing-pr-rc1"                  "rc=1"                                 "$OUT"
+
 # --- a draft is not ready, and a preflight must not say it is -----------------------------------
 D="$(DRAFT=true world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run "$D" --check-only 42 squash "$SHA")"
@@ -474,7 +551,7 @@ RC_VERDICT="$(review agent-bot "$SHA" 2026-01-04T00:00:00Z "cc-tuner-verdict: RE
 ACCEPT="$(jq -nc --arg b "cc-tuner-accepted: $SHA owner accepted after 5 rounds: deferred finding F3" '[{author:{login:"agent-bot"}, createdAt:"2026-01-05T00:00:00Z", body:$b}]')"
 D="$(EXTRA_COMMENTS="$ACCEPT" world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"
 OUT="$(run_without_thread "$D" --review 'none:owner accepted after 5 rounds' 42 squash "$SHA")"
-check  "accepted-decision-merges"    "MERGED pr merge 42 --squash --match-head-commit $SHA" "$OUT"
+check  "accepted-decision-merges"    "MERGED pr merge 42 --repo github.com/example/origin --squash --match-head-commit $SHA" "$OUT"
 check  "accepted-decision-printed"   "deferred finding F3"                                  "$OUT"
 D="$(world "$PLAN_FILES" "$RC_VERDICT" "$GREEN_CI")"
 OUT="$(run_without_thread "$D" --review 'none:owner accepted after 5 rounds' 42 squash "$SHA")"
@@ -623,36 +700,47 @@ check "unreadable-file-list-refused" "refusing rather than guessing" "$(run "$D"
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/user"
 check "unknown-identity-refused" "rc=1" "$(run "$D" 42 squash "$SHA")"
 
-# --- a repository mid-flight on the deleted runtime ----------------------------------------------
-# Removing the old state machine without detecting its leftovers would fail OPEN: every gate that
-# file used to arm is gone, so a half-finished run looks finished. This is the one real refusal --
-# SessionStart can only advise -- so it is asserted against the fully-approved world, where every
-# other check passes and only the leftover state can be what refuses.
-#
-# The check reads the repository the script runs IN, so these cases run from a real repo on disk;
-# invoking from the cc-tuner checkout would only ever assert the absence of a file here.
-LEGACY_REPO="$(flow_repo)"
-# The target-inclusion check runs after the legacy check and asks THIS repository about the fixture's
-# commits, so give it the objects: the refusal cases never reach it, the cleared case does.
-git -C "$LEGACY_REPO" fetch -q "$FIX_REPO" main advanced
-mkdir -p "$LEGACY_REPO/.claude/execute-task-runs"
-printf '{"schema_version":1,"status":"active"}\n' > "$LEGACY_REPO/.claude/execute-task-runs/old.state.json"
+# --- the candidate or the target is not in this clone ----------------------------------------------
+# Without the candidate's commit the ancestry test fails, and it used to report "the target advanced".
+ELSEWHERE="$(flow_repo)"
+git -C "$ELSEWHERE" remote add origin https://github.com/example/origin.git
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
-OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
-check  "legacy-state-refuses-merge"     "removed runtime"  "$OUT"
-check  "legacy-state-names-the-file"    "old.state.json"   "$OUT"
-check  "legacy-state-refuses-rc1"       "rc=1"             "$OUT"
-absent "legacy-state-never-merges"      "MERGED"           "$OUT"
+OUT="$(cd "$ELSEWHERE" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
+check  "missing-candidate-named"          "is not in this clone"  "$OUT"
+check  "missing-candidate-names-a-fetch"  "pull/42/head"          "$OUT"
+absent "missing-candidate-not-target"     "the target advanced"   "$OUT"
+absent "missing-candidate-no-merge"       "MERGED"                "$OUT"
 
-# --check-only must refuse too: it is the eval's evidence, and "would merge" from a repository whose
-# state cannot be reasoned about is not evidence of anything.
-OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" --check-only 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
-check "legacy-state-refuses-check-only" "removed runtime" "$OUT"
-
-# And the same world with the leftover removed merges, so the refusal above is attributable to the
-# state file and to nothing else in the setup.
-rm -rf "$LEGACY_REPO/.claude/execute-task-runs"
-OUT="$(cd "$LEGACY_REPO" && CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" 42 squash "$SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
-check "cleared-legacy-state-merges" "MERGED" "$OUT"
+# The target tip is fetched from the remote host.sh names, which is not always called origin.
+UPSTREAM="$(flow_repo)"
+CLONE="$(flow_workdir)/clone"
+git clone -q "file://$UPSTREAM" "$CLONE"
+(
+  cd "$CLONE" || exit 1
+  git remote rename origin upstream
+  git remote set-url upstream https://github.com/example/upstream.git
+  git config user.email flow@example.invalid; git config user.name 'Flow Harness'
+  git checkout -q -b task
+  printf 'candidate\n' > cand.txt; git add cand.txt; git commit -qm candidate
+)
+( cd "$UPSTREAM" && printf 'moved\n' > moved.txt && git add moved.txt && git commit -qm 'target moved' )
+C_SHA="$(git -C "$CLONE" rev-parse task)"
+T_SHA="$(git -C "$UPSTREAM" rev-parse main)"
+D="$(world "$PLAN_FILES" "$(review agent-bot "$C_SHA" 2026-01-01T00:00:00Z "cc-tuner-verdict: APPROVE $C_SHA")" "$GREEN_CI" "$C_SHA" "" "$T_SHA")"
+# Host resolution sees a GitHub repository. The fetch subprocess alone redirects that fixture URL
+# to the local upstream, so the test exercises the named remote without contacting any forge.
+REAL_GIT="$(command -v git)"
+mkdir "$D/bin"
+cat > "$D/bin/git" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = -C ] && [ "${3:-}" = fetch ]; then
+  exec "$REAL_GIT" -c "url.file://$UPSTREAM.insteadOf=https://github.com/example/upstream.git" "$@"
+fi
+exec "$REAL_GIT" "$@"
+EOF
+chmod +x "$D/bin/git"
+OUT="$(cd "$CLONE" && PATH="$D/bin:$PATH" REAL_GIT="$REAL_GIT" UPSTREAM="$UPSTREAM" CC_TUNER_GH="$D/gh" CC_TUNER_PLUGIN_LIST_CMD="cat $D/plugins.json" bash "$MERGE" 42 squash "$C_SHA" review-default 2>&1; printf 'rc=%s\n' "$?")"
+check  "target-fetched-from-named-remote" "does not include it"                    "$OUT"
+absent "named-remote-not-unresolvable"    "cannot resolve the current target tip"  "$OUT"
 
 exit $fails

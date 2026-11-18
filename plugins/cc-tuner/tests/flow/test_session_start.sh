@@ -195,60 +195,46 @@ R5="$(repo_with_plan feature/quotes 2026-01-01-feature-quotes.md "$NASTY")"
 equals "quotes-do-not-break-json" "0" "$(fire "$R5" | jq -e . >/dev/null 2>&1; echo $?)"
 check  "quoted-text-survives" 'He said "run' "$(context "$R5")"
 
-# --- a repository mid-flight on the deleted runtime ----------------------------------------------
-# Advisory, and asserted as advisory: SessionStart cannot block, so the wording must not read as a
-# gate, and the refusal is merge.sh's (tests/flow/test_merge.sh). What this must not do is stay
-# quiet -- a repository holding state for a runtime that no longer exists otherwise looks idle.
-legacy() { mkdir -p "$1/.claude/execute-task-runs"
-           printf '{"schema_version":1}\n' > "$1/.claude/execute-task-runs/old.state.json"; }
+# --- a session without the task tools ------------------------------------------------------------
+# TaskCreate is off by default on current models. The instruction used to name only the tool calls,
+# so a session without them had an order it could not follow and no word about the plan file.
+R6="$(repo_with_plan feature/notools 2026-01-01-feature-notools.md "$HALF")"
+check "names-the-fallback-without-task-tools" "If TaskCreate is not in your tool list, skip the rebuild and work from docs/task-plans/2026-01-01-feature-notools.md" "$(context "$R6")"
 
-# No plan at all is the likeliest pairing, and the path that used to exit before saying anything.
-R6="$(flow_repo)"; legacy "$R6"
-C6="$(context "$R6")"
-check "legacy-without-a-plan-is-reported" "removed runtime" "$C6"
-check "legacy-names-the-leftover-file"    "old.state.json"  "$C6"
-equals "legacy-without-a-plan-is-json" "0" "$(fire "$R6" | jq -e . >/dev/null 2>&1; echo $?)"
+# --- checkboxes outside the slices ----------------------------------------------------------------
+# Plans end in `## Verify`, `## Review`, `## Deliver` sections with their own checkboxes. Those are
+# not the last slice's criteria (that kept it open after its work was done), and they are not
+# dropped either: the hook lists them by section.
+TAIL='
+## Deliver
+- [x] PR opened
+- [ ] merged by squash
 
-# With a plan, both must arrive: reporting one and dropping the other is how a session acts on a
-# plan whose repository cannot deliver it.
-R7="$(repo_with_plan feature/legacy 2026-01-01-feature-legacy.md "$HALF")"; legacy "$R7"
+## Follow-ups
+- [ ] metrics counter
+'
+R7="$(repo_with_plan feature/tail 2026-01-01-feature-tail.md "$HALF$TAIL")"
 C7="$(context "$R7")"
-check "legacy-and-plan-both-reported" "removed runtime"  "$C7"
-check "legacy-does-not-eat-the-plan"  "Rebuild it from"  "$C7"
-
-# The disposal advice is conditional on what the leftover state records. It used to say "delete and
-# re-plan" in every case; the live instance had a committed plan that passed the linter, and
-# re-planning would have discarded a correct one.
-#
-# R6 and R7 above carry `{"schema_version":1}` -- a run that reached nothing -- so they must get the
-# bare delete.
-check  "untouched-run-is-a-bare-delete" "nothing to re-plan" "$C6"
-absent "untouched-run-does-not-say-replan" "and re-plan —" "$C6"
-
-# A run that recorded a candidate changed the tree, so its state is not disposable on its own.
-R9="$(flow_repo)"; mkdir -p "$R9/.claude/execute-task-runs"
-printf '{"schema_version":1,"candidate":{"sha":"%s","tree_sha":null,"recorded_at":null}}\n' \
-  "0123456789012345678901234567890123456789" > "$R9/.claude/execute-task-runs/old.state.json"
-C9="$(context "$R9")"
-check  "candidate-run-says-replan"      "and re-plan —"     "$C9"
-absent "candidate-run-not-bare-delete"  "nothing to re-plan" "$C9"
-
-# So does one that got past planning, even with no candidate recorded yet.
-R10="$(flow_repo)"; mkdir -p "$R10/.claude/execute-task-runs"
-printf '{"schema_version":1,"completed_phases":["readiness","planning","implementation"]}\n' \
-  > "$R10/.claude/execute-task-runs/old.state.json"
-check "implemented-run-says-replan" "and re-plan —" "$(context "$R10")"
-
-# A file this cannot read takes the cautious branch: advising a bare delete over work that was done
-# is the costly error, and the opposite only wastes a re-plan.
-R11="$(flow_repo)"; mkdir -p "$R11/.claude/execute-task-runs"
-printf 'not json at all\n' > "$R11/.claude/execute-task-runs/old.state.json"
-check "unreadable-state-fails-toward-replan" "and re-plan —" "$(context "$R11")"
-
-# A repository with neither must stay silent. Without this, a warning that fired unconditionally
-# would pass every assertion above.
-R8="$(flow_repo)"
-absent "no-legacy-no-warning" "removed runtime" "$(context "$R8")"
+check  "open-slice-still-restored"        "Slice 3 — Ship it"                    "$C7"
+check  "outside-checkboxes-are-listed"    "Open checkboxes outside the slices"   "$C7"
+check  "outside-checkbox-under-its-section" "Deliver
+    - [ ] merged by squash"                                                       "$C7"
+check  "second-section-listed"            "Follow-ups
+    - [ ] metrics counter"                                                        "$C7"
+absent "ticked-outside-checkbox-not-listed" "PR opened"                          "$C7"
+absent "outside-checkbox-is-not-a-criterion" "released
+    - [ ] merged"                                                                 "$C7"
+# Every slice done, delivery still open: the plan is not finished, and silence would lose it.
+DONE_SLICES="$(printf '%s' "$HALF" | sed 's/- \[ \] /- [x] /g')"
+R8="$(repo_with_plan feature/deliver 2026-01-01-feature-deliver.md "$DONE_SLICES$TAIL")"
+C8="$(context "$R8")"
+check  "done-slices-open-delivery-speaks"  "every slice in this branch's committed plan is done" "$C8"
+check  "done-slices-lists-the-open-box"    "    - [ ] merged by squash"   "$C8"
+absent "done-slices-ask-for-no-rebuild"    "TaskCreate"                   "$C8"
+equals "done-slices-output-is-json" "0" "$(fire "$R8" | jq -e . >/dev/null 2>&1; echo $?)"
+# Nothing open anywhere is still silence.
+R9="$(repo_with_plan feature/alldone 2026-01-01-feature-alldone.md "$DONE_SLICES$(printf '%s' "$TAIL" | sed 's/- \[ \] /- [x] /g')")"
+equals "all-ticked-everywhere-is-silent" "" "$(fire "$R9")"
 
 # A plan already present in the remote default branch is finished work: a branch reused after its
 # merge must not be told to rebuild it (field: a finished epic's plan was pushed into a new session).
@@ -285,5 +271,45 @@ C_OPEN="$(context "$R_OPEN")"
 check  "unlanded-plan-restored"   "Slice 2 — Wire the budget" "$C_OPEN"
 check  "restore-is-advisory"      "if the session is about something else, ignore this" "$C_OPEN"
 absent "no-before-anything-else"  "before doing anything else" "$C_OPEN"
+
+# A different index or working file cannot silently become the branch's committed task list.
+(
+  cd "$R_OPEN" || exit 1
+  P=docs/task-plans/2026-01-01-feat-open.md
+  sed 's/Wire the budget/Staged version/' "$P" > "$P.new"
+  mv "$P.new" "$P"
+  git add "$P"
+  sed 's/Staged version/Working version/' "$P" > "$P.new"
+  mv "$P.new" "$P"
+)
+C_DIRTY="$(context "$R_OPEN")"
+check "dirty-plan-restores-head-version" "Slice 2 — Wire the budget" "$C_DIRTY"
+absent "staged-version-not-restored" "Staged version" "$C_DIRTY"
+absent "unstaged-version-not-restored" "Working version" "$C_DIRTY"
+# The working copy is named, since a --local-only run keeps its ticks there; a clean one is not.
+check  "dirty-plan-names-the-working-copy" "differs from HEAD" "$C_DIRTY"
+absent "clean-plan-says-nothing-about-the-working-copy" "differs from HEAD" "$(context "$R")"
+
+# --- a plan that exists only on disk (a --local-only run) is restored from the file ----------------
+# plan-path.sh found it with --local-only and /run worked from it, but the hook asked HEAD alone and
+# said nothing: the run lost its plan at every /clear, compaction and new session.
+R_LOCAL="$(flow_repo)"
+(
+  cd "$R_LOCAL" || exit 1
+  git checkout -q -b feature/local
+  mkdir -p docs/task-plans
+  printf '%s' "$HALF" > docs/task-plans/2026-01-01-feature-local.md
+) || { printf 'FATAL: setup failed\n'; exit 1; }
+C_LOCAL="$(context "$R_LOCAL")"
+check  "local-only-plan-is-restored"          "Slice 2 — Wire the budget"   "$C_LOCAL"
+check  "local-only-plan-keeps-open-criteria"  "exhaustion is observable"    "$C_LOCAL"
+check  "local-only-plan-is-named-uncommitted" "an uncommitted plan on disk" "$C_LOCAL"
+check  "local-only-plan-names-the-resume"     "/cc-tuner:run --local-only"  "$C_LOCAL"
+absent "local-only-plan-is-not-told-to-commit" "and commit it"              "$C_LOCAL"
+# Committed afterwards, the same plan is HEAD's again and is described as such.
+( cd "$R_LOCAL" && git add -A && git commit -q -m 'add plan' )
+C_NOW="$(context "$R_LOCAL")"
+check  "committed-later-plan-is-a-committed-plan" "a committed plan with unfinished slices" "$C_NOW"
+absent "committed-later-plan-has-no-local-wording" "uncommitted plan on disk" "$C_NOW"
 
 exit $fails

@@ -249,7 +249,8 @@ Delivers: behaviour
 - [ ] a
 ')"
 OUT="$(lint check "$P")"
-check "lowercase-blocked-by-is-not-the-field" 'has no "Blocked by" line' "$OUT"
+check "lowercase-blocked-by-is-not-the-field" 'write "Blocked by: <value>" at the start of the line' "$OUT"
+check "lowercase-blocked-by-rc1" "rc=1" "$OUT"
 
 P="$(plan capitalnone '## Slice 1 — A
 Blocked by: None
@@ -364,10 +365,11 @@ Delivers: d
 ')"
 check "blocked-by-is-one-record" 'more than one "Blocked by" line' "$(lint check "$P")"
 
-# --- frontier: the runner asks the file which slice may start ------------------------------------
-# /cc-tuner:run drives from this, with or without the native task tools. The rule -- lowest-numbered
-# open slice whose blockers are all done -- was prose in two skills and arithmetic done by hand, which
-# is how a blocked slice gets started under --auto.
+# --- readiness: the runner asks the file which slice may start -----------------------------------
+# /cc-tuner:run drives from `ready-batches`, with or without the native task tools. The rule -- open
+# slices whose blockers are all done -- was prose in two skills and arithmetic done by hand, which is
+# how a blocked slice gets started under --auto. ready <plan> prints the SLICE records of the batch.
+ready() { bash "$LINT" ready-batches "$1" | grep '^SLICE'; }
 FRONTIER='## Slice 1 — Seed
 Blocked by: none
 Owned paths: a/
@@ -395,18 +397,18 @@ Delivers: d
 P="$(plan frontier "$FRONTIER")"
 # Slice 2 is the lowest-numbered OPEN slice, and it is exactly the one that must not be handed back:
 # slice 3 blocks it and is not done. A frontier that just took the first open slice would return 2.
-equals "frontier-refuses-a-blocked-slice" "SLICE	3	open	-	Independent" "$(bash "$LINT" frontier "$P")"
+equals "frontier-refuses-a-blocked-slice" "SLICE	3	open	-	Independent" "$(ready "$P")"
 
 # With the blocker done, the blocked slice becomes the frontier -- and its edges come back normalised
 # the same way `slices` emits them, so one reader parses both modes.
 P="$(plan frontier_unblocked "$(printf '%s' "$FRONTIER" | sed 's/- \[ \] c/- [x] c/')")"
-equals "frontier-releases-when-blockers-clear" "SLICE	2	open	1,3	Wire" "$(bash "$LINT" frontier "$P")"
+equals "frontier-releases-when-blockers-clear" "SLICE	2	open	1,3	Wire" "$(ready "$P")"
 
 # Nothing open means the loop is over, and that has to be distinguishable from an error.
 P="$(plan frontier_done "$(printf '%s' "$FRONTIER" | sed 's/- \[ \] /- [x] /g')")"
-OUT="$(lint frontier "$P")"
+OUT="$(lint ready-batches "$P")"
 check "frontier-empty-when-all-done" "rc=0" "$OUT"
-equals "frontier-prints-nothing-when-all-done" "" "$(bash "$LINT" frontier "$P")"
+equals "frontier-prints-nothing-when-all-done" "" "$(bash "$LINT" ready-batches "$P")"
 
 # A plan that does not parse gets no answer at all: half a graph would start the wrong slice.
 P="$(plan frontier_invalid '## Slice 1 — A
@@ -417,7 +419,7 @@ Delivers: d
 
 - [ ] a
 ')"
-OUT="$(lint frontier "$P")"
+OUT="$(lint ready-batches "$P")"
 check "frontier-refuses-an-invalid-plan" "refusing to parse an invalid plan" "$OUT"
 check "frontier-invalid-rc1"             "rc=1"                              "$OUT"
 
@@ -449,7 +451,7 @@ Delivers: d
 - [ ] c
 ')"
 equals "frontier-emits-every-ready-slice" "SLICE	1	open	-	Alpha
-SLICE	2	open	-	Beta" "$(bash "$LINT" frontier "$P")"
+SLICE	2	open	-	Beta" "$(ready "$P")"
 
 # By slice number, not by the order the file declares them. Nothing stops a plan writing Slice 3
 # above Slice 1, and the loop was promised the lowest number first.
@@ -470,7 +472,7 @@ Delivers: d
 - [ ] a
 ')"
 equals "frontier-orders-by-number-not-by-file" "SLICE	1	open	-	Declared second
-SLICE	3	open	-	Declared first" "$(bash "$LINT" frontier "$P")"
+SLICE	3	open	-	Declared first" "$(ready "$P")"
 
 # --- ready batches: parallelism is an executable decision ---------------------------------------
 P="$(plan ready_batches '## Slice 1 — Retry
@@ -520,7 +522,7 @@ Delivers: d
 check "component-boundary-is-not-a-prefix-overlap" "BATCH	1,2	parallel" \
   "$(bash "$LINT" ready-batches "$P")"
 
-for owned_path in 'src/**/*.ts' '/abs/path/' '.' './src/' '../other/' 'src/{a,b}/' 'src//double/'; do
+for owned_path in 'src/**/*.ts' '/abs/path/' '., src/' './src/' '../other/' 'src/{a,b}/' 'src//double/'; do
   P="$(plan bad_owned "## Slice 1 — A
 Blocked by: none
 Owned paths: $owned_path
@@ -571,35 +573,41 @@ Delivers: d
 - [ ] a
 ")"
 check "matching-spec-and-branch-pass" "rc=0" \
-  "$(lint check "$P" --spec README.md --branch "$BRANCH")"
+  "$(lint check "$P" --spec README.md --branch "$BRANCH" --local-only)"
+# One path, two spellings: the caller's `./README.md` is the plan's `README.md`, and the other way round.
+check "dot-slash-spec-is-the-same-path" "rc=0" \
+  "$(lint check "$P" --spec ./README.md --branch "$BRANCH" --local-only)"
+sed 's|^\*\*Spec:\*\* |&./|' "$P" > "$P.dot"
+check "dot-slash-in-the-plan-header-too" "rc=0" \
+  "$(lint check "$P.dot" --spec README.md --branch "$BRANCH" --local-only)"
 check "mismatched-spec-is-refused" "expected \"CHANGELOG.md\"" \
-  "$(lint check "$P" --spec CHANGELOG.md --branch "$BRANCH")"
+  "$(lint check "$P" --spec CHANGELOG.md --branch "$BRANCH" --local-only)"
 check "mismatched-branch-is-refused" "expected \"not-this-branch\"" \
-  "$(lint check "$P" --spec README.md --branch not-this-branch)"
+  "$(lint check "$P" --spec README.md --branch not-this-branch --local-only)"
 # /spec lints the plan before committing spec and plan together, so a spec that exists but is not
 # tracked yet is accepted; a missing one is still refused.
 UR="$(flow_repo)"
 mkdir -p "$UR/docs/PLANS" "$UR/docs/task-plans"
 printf '# fixture\n' > "$UR/docs/PLANS/untracked.md"
 printf '**Spec:** docs/PLANS/untracked.md\n**Branch:** %s\n\n## Slice 1 — A\nBlocked by: none\nOwned paths: src/\nDeciding check: t\nDelivers: d\n\n- [ ] a\n' "$BRANCH" > "$UR/docs/task-plans/p.md"
-OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH" --local-only)"
 check "untracked-spec-accepted" "rc=0" "$OUT"
-OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/absent.md --branch "$BRANCH")"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/absent.md --branch "$BRANCH" --local-only)"
 check "missing-spec-refused" "does not exist" "$OUT"
 # full_test_cadence is a closed set /run reads: a misspelling would silently mean the default.
 printf '# fixture\nfull_test_cadence: per-batch — cheap suite\n' > "$UR/docs/PLANS/untracked.md"
-OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH" --local-only)"
 check "known-cadence-accepted" "rc=0" "$OUT"
 printf '# fixture\nfull_test_cadence: nightly\n' > "$UR/docs/PLANS/untracked.md"
-OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH" --local-only)"
 check "unknown-cadence-refused" 'full_test_cadence to "nightly"' "$OUT"
 check "unknown-cadence-rc1"     "rc=1" "$OUT"
 printf '# fixture\nfull_test_cadence: per-batch\nfull_test_cadence: per-candidate\n' > "$UR/docs/PLANS/untracked.md"
-OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH")"
+OUT="$(cd "$UR" && lint check docs/task-plans/p.md --spec docs/PLANS/untracked.md --branch "$BRANCH" --local-only)"
 check "duplicate-cadence-refused" "more than one full_test_cadence" "$OUT"
 printf '# fixture\n' > "$UR/docs/PLANS/untracked.md"
 check "empty-expected-spec-is-refused" "--spec requires a non-empty path" \
-  "$(lint check "$P" --spec '' --branch "$BRANCH")"
+  "$(lint check "$P" --spec '' --branch "$BRANCH" --local-only)"
 check "empty-expected-branch-is-refused" "--branch requires a non-empty name" \
   "$(lint check "$P" --spec README.md --branch '')"
 
@@ -702,9 +710,6 @@ OUT="$(lint ready-batches "$P" --active 2,3)"
 check "all-active-is-not-completion-message" "this is not completion" "$OUT"
 check "all-active-rc0"                       "rc=0"                   "$OUT"
 equals "all-active-emits-no-batch" "0" "$(bash "$LINT" ready-batches "$P" --active 2,3 2>/dev/null | grep -c '^BATCH')"
-# frontier honours the exclusion but never proved paths, so 4 comes back there and not from ready-batches.
-equals "frontier-active-excludes-but-does-not-path-check" "3,4" \
-  "$(bash "$LINT" frontier "$P" --active 2 | awk -F'\t' '$1=="SLICE"{print $2}' | paste -sd, -)"
 # A stale active set is the state that launches a duplicate writer, so it is refused, never ignored.
 OUT="$(lint ready-batches "$P" --active 9)"
 check "unknown-active-slice-message" "active slice 9 does not exist" "$OUT"
@@ -716,9 +721,163 @@ OUT="$(lint ready-batches "$P" --active 2,,3)"
 check "malformed-active-list-message" "slice numbers separated by commas" "$OUT"
 check "malformed-active-list-rc1"     "rc=1"                              "$OUT"
 OUT="$(lint check "$P" --active 2)"
-check "active-refused-outside-readiness-modes" "applies to frontier and ready-batches only" "$OUT"
+check "active-refused-outside-readiness-modes" "applies to ready-batches only" "$OUT"
 check "active-refused-rc1"                     "rc=1"                                       "$OUT"
 check "help-names-the-active-set" "An empty result with --active does not mean the plan is done" "$(bash "$LINT" --help)"
+
+# `frontier` was a second readiness mode with no caller, and one that did not check paths.
+OUT="$(lint frontier "$P")"
+check "frontier-mode-is-gone" "usage:" "$OUT"
+check "frontier-mode-rc1"     "rc=1"   "$OUT"
+absent "help-does-not-offer-frontier" "frontier" "$(bash "$LINT" --help)"
+
+# --- where a slice ends ---------------------------------------------------------------------------
+# A slice used to run to the next slice heading or the end of the file, so a checkbox in a closing
+# section belonged to the last slice: fully ticked, it stayed open, ready-batches offered it again and
+# the restore hook resurrected it every session.
+SLICE_ONE='## Slice 1 — Seed
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [x] a
+- [x] b
+'
+P="$(plan trailing "$SLICE_ONE"'
+## Deliver
+Blocked by: whoever picks these up
+- [x] PR opened
+- [ ] merged by squash
+
+## Follow-ups
+- [ ] consider a metrics counter later
+')"
+OUT="$(lint check "$P")"
+check  "trailing-section-is-valid" "rc=0" "$OUT"
+# The work those sections track is not dropped: their unticked boxes come back as OPEN records, after
+# the slices, so the restore hook can still name them. Real plans end in `## Verify`, `## Deliver`.
+equals "trailing-checkbox-is-not-a-criterion" "SLICE	1	done	-	Seed
+CRIT	1	done	a
+CRIT	1	done	b
+OPEN	Deliver	merged by squash
+OPEN	Follow-ups	consider a metrics counter later" "$(bash "$LINT" slices "$P")"
+equals "finished-slice-is-not-offered-again" "" "$(bash "$LINT" ready-batches "$P")"
+# A deeper heading is part of the slice, and its checkboxes still count.
+P="$(plan subheading "$SLICE_ONE"'
+### Edge cases
+- [ ] c
+')"
+check "subheading-stays-in-the-slice" "CRIT	1	open	c" "$(bash "$LINT" slices "$P")"
+
+# A fenced block is an example. Its heading used to become a phantom slice and its checkbox a criterion.
+P="$(plan fenced "$SLICE_ONE"'
+```markdown
+## Slice 2 — Example
+- [ ] example criterion
+```
+~~~
+- [ ] another example
+~~~
+')"
+check  "fenced-example-is-valid"     "rc=0"    "$(lint check "$P")"
+equals "fenced-example-adds-nothing" "1 done"  "$(bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE"{print $2, $3}')"
+equals "fenced-checkbox-is-not-a-criterion" "2" "$(bash "$LINT" slices "$P" | grep -c '^CRIT')"
+
+# --- a near miss names the grammar ---------------------------------------------------------------
+# `### Slice 1: Title` was skipped as an unknown line and the report was about its criteria:
+# "checkbox outside any slice", which names the symptom.
+for near in '### Slice 1 — Seed' '# Slice 1 — Seed' '## slice 1 — Seed' '##Slice 1 — Seed' '## Slice #1 — Seed'; do
+  P="$(plan near "$near"'
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+  OUT="$(lint check "$P")"
+  check  "near-miss-heading-refused ($near)"  "is not a slice heading; write \"## Slice <n> — <title>\"" "$OUT"
+  check  "near-miss-heading-quoted ($near)"   "\"$near\""                    "$OUT"
+  absent "near-miss-no-orphan-cascade ($near)" "checkbox outside any slice"   "$OUT"
+  check  "near-miss-rc1 ($near)"              "rc=1"                         "$OUT"
+done
+for near in '## Slice 1: Seed' '## Slice 1 -' '## Slice 1:'; do
+  P="$(plan near2 "$near"'
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+')"
+  check "near-miss-separator-names-grammar ($near)" "use \"## Slice 1 — Title\"" "$(lint check "$P")"
+done
+
+# A field line with a bullet or emphasis was skipped too, and reported as a field the slice lacks.
+P="$(plan decorated '## Slice 1 — Seed
+- **Blocked by:** none
+- **Owned paths:** `a/`
+**Deciding check:** t
+* delivers: d
+
+- [ ] a
+')"
+OUT="$(lint check "$P")"
+check  "bulleted-field-names-the-grammar" "write \"Owned paths: <value>\" at the start of the line" "$OUT"
+check  "bulleted-field-is-quoted"         "\"- **Owned paths:** \`a/\`\" is not read as a field"     "$OUT"
+check  "bold-field-names-the-grammar"     "write \"Deciding check: <value>\""  "$OUT"
+check  "lowercase-field-names-the-grammar" "write \"Delivers: <value>\""       "$OUT"
+check  "bulleted-blocker-names-the-grammar" "write \"Blocked by: <value>\""    "$OUT"
+absent "decorated-field-not-also-missing" "has no \""                         "$OUT"
+equals "one-error-per-decorated-field" "4" "$(printf '%s' "$OUT" | grep -c '^plan-lint: ')"
+# A criterion or a note that mentions a field name is prose when the slice has the field, and a
+# heading that merely starts with the word is an ordinary heading. Both are in committed plans.
+P="$(raw_plan mentions '# Slice unit cap — plan
+
+**Spec:** docs/PLANS/example.md
+**Branch:** feat/example
+
+'"$SLICE_ONE"'- [ ] Delivers: the doc says so
+- Deciding check: `git diff --check` → clean
+')"
+check "prose-mentioning-a-field-is-valid" "rc=0" "$(lint check "$P")"
+
+# --- the dash under a byte-oriented awk ----------------------------------------------------------
+# A bracket expression holding the em dash matched one of its three bytes in the C locale (and in mawk
+# everywhere), so the restored title began with the other two.
+P="$(plan dashes '## Slice 1 — Em
+Blocked by: none
+Owned paths: a/
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 – En
+Blocked by: Slice 1
+Owned paths: b/
+Deciding check: t
+Delivers: d
+
+- [ ] b
+
+## Slice 3 - Hyphen
+Blocked by: slice 1, 2
+Owned paths: c/
+Deciding check: t
+Delivers: d
+
+- [ ] c
+')"
+equals "c-locale-titles-are-whole" "Em|En|Hyphen" \
+  "$(LC_ALL=C bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE"{print $5}' | paste -sd'|' -)"
+equals "utf8-locale-titles-are-whole" "Em|En|Hyphen" \
+  "$(LC_ALL=en_US.UTF-8 bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE"{print $5}' | paste -sd'|' -)"
+# `Blocked by: Slice 1` is the number 1, and every mode emits the number.
+check  "slice-word-blocker-is-valid" "rc=0" "$(lint check "$P")"
+equals "slice-word-blocker-is-normalised" "-|1|1,2" \
+  "$(bash "$LINT" slices "$P" | awk -F'\t' '$1=="SLICE"{print $4}' | paste -sd'|' -)"
 
 # --- refusals that are not about the format ------------------------------------------------------
 OUT="$(lint check "$W/does-not-exist.md")"
@@ -727,5 +886,140 @@ check "missing-file-fails" "no such plan file" "$OUT"
 out="$(bash "$LINT" bogus "$P" 2>&1)"; rc=$?
 check  "unknown-mode-message" "usage:" "$out"
 equals "unknown-mode-rc1"     "1"      "$rc"
+
+# Both recovery and the peers claim test consume this fixture.
+P="$FLOW_FIXTURES/plan-section-boundaries.md"
+EXPECTED="$(printf 'SLICE\t1\tdone\t-\tDone\nCRIT\t1\tdone\told work\nSLICE\t2\topen\t1\tOpen\nCRIT\t2\topen\tpublish report\nOPEN\tDeliver\tpublish release')"
+equals "shared-plan-recovers-exactly-the-real-tasks" "$EXPECTED" "$(bash "$LINT" slices "$P")"
+check "shared-plan-keeps-literal-owned-paths" "docs/My File.md,docs/отчёт.md" "$(bash "$LINT" owned "$P")"
+check "shared-plan-only-schedules-the-real-open-slice" "BATCH	2	serial" "$(bash "$LINT" ready-batches "$P")"
+
+P="$(plan duplicate_owned '## Slice 1 — A
+Blocked by: none
+Owned paths: a.md
+Owned paths: b.md
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — B
+Blocked by: none
+Owned paths: a.md
+Deciding check: t
+Delivers: d
+
+- [ ] b
+')"
+check "duplicate-owned-is-rejected" 'more than one "Owned paths" line' "$(lint check "$P")"
+check "duplicate-owned-cannot-schedule" "rc=1" "$(lint ready-batches "$P")"
+
+P="$(plan spaces_unicode '## Slice 1 — A
+Blocked by: none
+Owned paths: docs/My Folder/, docs/отчёт.md
+Deciding check: t
+Delivers: d
+
+- [ ] a
+
+## Slice 2 — B
+Blocked by: none
+Owned paths: docs/My Folder/Part B.md
+Deciding check: t
+Delivers: d
+
+- [ ] b
+
+## Slice 3 — C
+Blocked by: none
+Owned paths: docs/приложение.md
+Deciding check: t
+Delivers: d
+
+- [ ] c
+')"
+check "spaces-and-unicode-preserve-prefix-overlaps" "BATCH	1,3	parallel" "$(bash "$LINT" ready-batches "$P")"
+check "spaces-and-unicode-preserve-active-overlaps" "BATCH	3	serial" "$(bash "$LINT" ready-batches "$P" --active 1)"
+
+ROOT_SLICE='## Slice 1 — Rename files
+Blocked by: none
+Owned paths: .
+Deciding check: test -f "a,b.md" && test -f " edge.md "
+Delivers: Files with unusual names.
+
+- [ ] both names work
+'
+P="$(plan whole_repository "$ROOT_SLICE")"
+check "whole-repository-slice-is-valid" "rc=0" "$(lint check "$P")"
+check "whole-repository-slice-runs-alone" "BATCH	1	serial" "$(bash "$LINT" ready-batches "$P")"
+equals "whole-repository-path-is-emitted" "OWNED	1	." "$(bash "$LINT" owned "$P")"
+P="$(plan whole_repository_and_other "$ROOT_SLICE
+## Slice 2 — Other work
+Blocked by: none
+Owned paths: src/unrelated/
+Deciding check: true
+Delivers: Other work.
+
+- [ ] other work
+")"
+check "whole-repository-slice-excludes-ready-neighbour" "BATCH	1	serial" "$(bash "$LINT" ready-batches "$P")"
+equals "active-ordinary-slice-blocks-whole-repository-slice" "" "$(bash "$LINT" ready-batches "$P" --active 2 2>/dev/null)"
+equals "active-whole-repository-slice-blocks-ordinary-slice" "" "$(bash "$LINT" ready-batches "$P" --active 1 2>/dev/null)"
+
+CR="$(flow_repo)"
+COMMITTED_PLAN='docs/task-plans/2026-01-01-main.md'
+COMMITTED_SPEC='docs/PLANS/Spec report.md'
+mkdir -p "$CR/docs/task-plans" "$CR/docs/PLANS"
+sed -e "s|^\*\*Spec:.*|**Spec:** $COMMITTED_SPEC|" -e 's/^\*\*Branch:.*/**Branch:** main/' \
+  "$FLOW_FIXTURES/plan-section-boundaries.md" > "$CR/$COMMITTED_PLAN"
+printf '# Spec\n' > "$CR/$COMMITTED_SPEC"
+check_git_plan() {
+  ( cd "$CR" && lint check "$COMMITTED_PLAN" --spec "$COMMITTED_SPEC" --branch main "$@" )
+}
+( cd "$CR" && git add -- "$COMMITTED_PLAN" "$COMMITTED_SPEC" )
+check "staged-only-plan-is-uncommitted" 'plan is not a regular file in HEAD' "$(check_git_plan)"
+check "staged-only-plan-is-usable-in-local-mode" 'rc=0' "$(check_git_plan --local-only)"
+( cd "$CR" && git commit -q -m 'commit plan and spec' )
+check "committed-plan-and-spec-pass" 'rc=0' "$(check_git_plan)"
+# Execute the actual /run startup block from a nested checkout directory.
+mkdir "$CR/service"
+startup="$(sed -n '/^ROOT=$(git rev-parse --show-toplevel) /,/^```$/p' \
+  "$FLOW_PLUGIN/skills/run/SKILL.md" | sed '$d')"
+run_startup() (
+  cd "$CR/service" || exit 1
+  export CLAUDE_PLUGIN_ROOT="$FLOW_PLUGIN" SPEC="$COMMITTED_SPEC"
+  [ -n "$startup" ] || exit 1
+  bash -c 'plan_mode=("$@"); '"$startup" -- "$@"
+)
+if run_startup; then pass "run-from-nested-checkout"; else fail "run-from-nested-checkout"; fi
+
+( cd "$CR" && git config filter.plan_probe.clean 'touch called-plan-filter; cat'
+  printf 'docs/** filter=plan_probe\n' >> .git/info/attributes
+  for path in "$COMMITTED_PLAN" "$COMMITTED_SPEC"; do
+    git show "HEAD:$path" | sed $'s/$/\r/' > "$path"
+  done
+)
+check "crlf-checkout-keeps-committed-identity" 'rc=0' "$(check_git_plan)"
+equals "committed-check-runs-no-git-filter" "no" "$([ -e "$CR/called-plan-filter" ] && echo yes || echo no)"
+( cd "$CR" && rm .git/info/attributes
+  git show "HEAD:$COMMITTED_PLAN" > "$COMMITTED_PLAN"
+  git show "HEAD:$COMMITTED_SPEC" > "$COMMITTED_SPEC"
+)
+printf '\nChanged on disk.\n' >> "$CR/$COMMITTED_PLAN"
+check "unstaged-plan-version-refused" 'plan differs from HEAD' "$(check_git_plan)"
+( cd "$CR" && git add -- "$COMMITTED_PLAN" )
+check "staged-plan-version-refused" 'plan differs from HEAD' "$(check_git_plan)"
+check "dirty-plan-local-mode-passes" 'rc=0' "$(check_git_plan --local-only)"
+( cd "$CR" && git show "HEAD:$COMMITTED_PLAN" > "$COMMITTED_PLAN" )
+check "worktree-matching-head-used-even-if-index-differs" 'rc=0' "$(check_git_plan)"
+printf '\nChanged on disk.\n' >> "$CR/$COMMITTED_SPEC"
+check "unstaged-spec-version-refused" 'spec differs from HEAD' "$(check_git_plan)"
+( cd "$CR" && git add -- "$COMMITTED_SPEC" )
+check "staged-spec-version-refused" 'spec differs from HEAD' "$(check_git_plan)"
+
+if run_startup --local-only; then pass "nested-local-handoff"; else fail "nested-local-handoff"; fi
+if run_startup >/dev/null 2>&1; then fail "uncommitted-spec-is-not-publishable"; else pass "uncommitted-spec-is-not-publishable"; fi
+( cd "$CR" && git add -- "$COMMITTED_PLAN" "$COMMITTED_SPEC" && git commit -q -m 'apply approved plan edits' )
+if run_startup; then pass "committed-replan-ready-to-resume"; else fail "committed-replan-ready-to-resume"; fi
 
 exit $fails

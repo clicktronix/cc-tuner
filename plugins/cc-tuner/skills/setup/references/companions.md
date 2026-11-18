@@ -36,16 +36,19 @@ bash "$C" table | cut -f1 | while IFS= read -r ID; do
 done
 ```
 
-`table` lists the two companions with their marketplace and source. `state` prints `installed`, `disabled`,
-`absent` or `unknown`, with the version and scope after the first two; a copy installed for another project
-does not count.
+`table` lists the two companions with their marketplace, source and the other ids it accepts (the same
+plugin from another marketplace). `state` prints `installed`, `disabled`, `absent` or `unknown`, with the
+version, scope and the id it found after the first two; a copy installed for another project does not count.
 
 Each companion's state, decided in this order:
 
 1. `claude` is not on PATH (the desktop app or an IDE) → **no CLI**; see install step 1.
 2. `jq` is missing or `state` is `unknown` → **unknown**: "cannot tell what is installed", naming `jq`
    (<https://jqlang.github.io/jq/download/>) when that is the reason; see install step 1.
-3. `installed` → nothing to do.
+3. `installed` → check the Codex bridge with `companion.sh review`. For `setup:incompatible`,
+   report `/plugin marketplace update cc-codex-triage` and `/plugin update cc-codex-triage@cc-codex-triage`.
+   During install, run their CLI equivalents if the user authorized the update. Otherwise list them
+   in the handoff. A successful repair returns `codex` on recheck.
 4. `disabled` → **disabled**.
 5. `absent` → **absent**.
 
@@ -89,7 +92,7 @@ command and `/cc-tuner:setup install companions`.
      1, whatever its state. Say that an installed one can be skipped. The row reads "printed, not installed".
    - **No jq, or `state` is `unknown`** → "cannot tell what is installed", with the reason. Install nothing;
      the row reads "blocked".
-2. **Nothing to do** → no companion is offered: report each companion's state (up to date, optional, declined, conflict) and finish.
+2. **Nothing to do** → no companion is offered: report each companion's state (up to date, update pending, optional, declined, conflict) and finish.
 3. **Confirm once, per plugin.** One `AskUserQuestion` with `multiSelect: true`: one option per offered
    plugin and a last option **Install nothing**. Each option shows:
    - the source, `<marketplace> from <source>` from `table`, for example `mattpocock from mattpocock/skills`;
@@ -108,7 +111,7 @@ command and `/cc-tuner:setup install companions`.
      local hint src
      hint="$(bash "$C" hint "$1" "$ROOT")" || { echo "STOP: $1 — not applied"; return 1; }
      case "$hint" in
-       "/plugin enable "*) claude plugin enable "$1" ;;
+       "/plugin enable "*) claude plugin enable "${hint#/plugin enable }" ;;
        "/plugin marketplace add "*)
          src="$(bash "$C" table "$1" | cut -f3)"
          claude plugin marketplace add "$src" || { echo "ERROR: marketplace add $src failed; $1 not installed"; return 1; }
@@ -145,9 +148,9 @@ fi
 ```
 
 The line is committed with `task-flow.local.md`, since task worktrees read only committed files. When the
-file does not exist yet, the task-flow node (3) has not run. If it runs in this invocation, its step 6 creates
+file does not exist yet, the task-flow node (3) has not run. If it runs in this invocation, its step 5 creates
 the file and then runs this block. Otherwise skip, and say so: the row reads "declined — review: none not
-recorded; run `/cc-tuner:setup install task-flow companions`". Never create the file here. When the line is
+recorded; run `/cc-tuner:setup install`". Never create the file here. When the line is
 recorded, the row reads **"declined — review: none recorded"**.
 
 ## Verification

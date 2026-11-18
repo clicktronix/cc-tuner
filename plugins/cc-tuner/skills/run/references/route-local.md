@@ -6,9 +6,7 @@ merge. The candidate is a branch tip, and nothing here pushes, fetches or pulls:
 `refs/heads/<target>`.
 
 A failing step is a stop: fix its cause or hand over to the user, never edit or skip this route to get past
-it. A `.claude/execute-task-runs/*.state.json` in the repository is run state from a removed runtime: refuse
-delivery, as `merge.sh` does, and tell the user to finish that run under the plugin version that created it
-or to delete the directory.
+it.
 
 **Records.** A record is a paragraph of a git note in the `cc-tuner` notes ref, on the commit it judges. Its
 first line is one of these, naming the full 40-character SHA of that commit:
@@ -25,7 +23,8 @@ criterion, tagged `[browser]`, `[api]`, `[test]` or `[cli]`, or marked `NOT PROV
 the user's decision to merge without an approval, recorded only after they gave it in this session, and
 counts only under `review: none:<reason>`.
 
-Write each record to a file with a quoted heredoc, so backticks and `$(...)` in it stay text, and append it
+Append the verifier’s file using `git notes --ref cc-tuner append -C "$(git hash-object -w "$VERIFY_FILE")" <verified sha>`.
+Write other records to a file with a quoted heredoc, so backticks and `$(...)` in it stay text, and append it
 from the file:
 
 ```bash
@@ -57,7 +56,7 @@ Notes live in this clone only: say so when handing the result over.
    marker `CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…`,
    with `head` equal to the candidate and to the worktree's `git rev-parse HEAD`, is an approval. Under
    `review: none:<reason>`, you judge the candidate once the findings are fixed or refuted. Either way,
-   record the `cc-tuner-verdict` for the judged commit at once. The latest record about the head must be an
+   append the `cc-tuner-verdict` to the judged commit before addressing findings. The latest record about the head must be an
    `APPROVE`, or, under `none`, a `cc-tuner-accepted` record.
 4. **CI.** There is none: the CI mode is always `ci: none:<reason>`. Run the spec's local checks on the
    candidate and record `cc-tuner-local-ci: <full sha> <command and result>` on the head, truthful about

@@ -20,7 +20,8 @@
 #
 # A rename lists both of its paths, so that `git diff -- <paths>` shows it as a rename and not as an
 # added file. Paths come from `--numstat -z`, never from the quoted text form, so a non-ASCII name is
-# the name a lens can read. A path the SHARD grammar cannot carry (comma, tab, newline) is refused.
+# the name a lens can read. A path with a tab or a newline is refused; one with a comma is refused
+# only when the diff is sharded, because only the SHARD list separates paths with commas.
 #
 # This used to be prose in deep-review, and prose arithmetic is what failed in the field: a lens
 # handed a 1071-file candidate spawned five readers of its own (#38). A bad ref exits 1 with nothing
@@ -77,7 +78,6 @@ read_rows() {
       for p in "$path" "$old"; do
         # Balanced parentheses: bash 3.2 cannot parse an unbalanced `)` inside $( ... ).
         case "$p" in
-          (*,*)      printf 'shard-diff: cannot list a path containing a comma: %s\n' "$p" >&2; exit 2 ;;
           (*"$TAB"*) printf 'shard-diff: cannot list a path containing a tab: %s\n' "$p" >&2; exit 2 ;;
           (*"$NL"*)  printf 'shard-diff: cannot list a path containing a newline: %s\n' "$p" >&2; exit 2 ;;
         esac
@@ -100,13 +100,15 @@ RESULT="$(
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 # The same prefix rule plan-lint.sh applies between slices: a path owns itself and everything below.
 function owns(prefix, path) { sub(/\/+$/, "", prefix); return (path == prefix || index(path, prefix "/") == 1) }
-function key_of(path,   i, m, parts, j) {
+function key_of(path,   i, m, parts, j, root) {
   if (on > 0) {
     for (i = 1; i <= on; i++) {
+      # Whole-repository ownership catches changes without a narrower owner.
+      if (opaths[i] == ".") { if (root == "") root = "slice-" onum[i]; continue }
       m = split(opaths[i], parts, ",")
       for (j = 1; j <= m; j++) if (owns(trim(parts[j]), path)) return "slice-" onum[i]
     }
-    return "rest"
+    return (root == "") ? "rest" : root
   }
   return (index(path, "/") > 0) ? substr(path, 1, index(path, "/") - 1) : "root"
 }
@@ -129,6 +131,13 @@ NF >= 3 && $3 != "" {
 }
 END {
   if (files < files_t && lines < lines_t) { printf "SIZE\t%d\t%d\nMODE\tsingle\n", files, lines; exit 0 }
+  # Only now does the comma matter: a SHARD record lists its paths separated by commas.
+  for (i = 1; i <= entries; i++) {
+    if (index(epath[i], ",") > 0 || index(eold[i], ",") > 0) {
+      printf "shard-diff: cannot list a path containing a comma in a sharded diff: %s; raise --files and --lines above the SIZE of this diff (%d files, %d lines) to review it as one packet\n", (index(epath[i], ",") > 0 ? epath[i] : eold[i]), files, lines > "/dev/stderr"
+      exit 1
+    }
+  }
   # Changes are atomic: a fresh chunk cannot make an oversized file fit. Refuse before
   # emitting any result; the owner may explicitly raise the budget and retry.
   for (i = 1; i <= entries; i++) {

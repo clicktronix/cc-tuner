@@ -28,7 +28,8 @@
 # Total order, not list order: local, then project, then user, matching the scope precedence Claude
 # Code applies to settings. Grouping any two of them would leave the choice to row order, so two
 # readers of one list could pick different installs and both be "right". A row scoped to a different
-# project cannot answer for this repository at all.
+# project cannot answer for this repository at all; a project row of the main checkout answers for
+# its linked worktrees.
 #
 # `enabled: false` is excluded. A disabled plugin does not load its commands, so a check that reports
 # it as present greenlights a run whose gate will never fire.
@@ -68,6 +69,11 @@ fi
 # repo under /var/tmp is recorded lexically and reported canonically under /private/var/tmp, and a
 # project-scoped install then loses to a user-scoped one that should never have been reached.
 PROJECT="$(CDPATH='' cd -- "$PROJECT" 2>/dev/null && pwd -P)" || PROJECT="$PROJECT"
+# A project-scoped install is recorded for the checkout it was made in, and its enabling line is in
+# the committed .claude/settings.json, so a linked worktree of that checkout has the plugin too. The
+# main worktree is git's first entry; it is this directory itself outside a linked worktree.
+MAIN="$(git -C "$PROJECT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+[ -z "$MAIN" ] || MAIN="$(CDPATH='' cd -- "$MAIN" 2>/dev/null && pwd -P)" || MAIN=""
 
 command -v jq >/dev/null 2>&1 || { printf 'plugin-here: jq is required\n' >&2; exit 2; }
 
@@ -104,7 +110,8 @@ while IFS= read -r row; do
       # exists cannot be canonicalized, so it falls back to the literal comparison rather than
       # matching everything.
       preal="$(CDPATH='' cd -- "$ppath" 2>/dev/null && pwd -P)" || preal="$ppath"
-      [ "$preal" = "$PROJECT" ] || continue
+      # `local` is settings.local.json, which is not committed and so not in a linked worktree.
+      [ "$preal" = "$PROJECT" ] || { [ "$scope" = project ] && [ -n "$MAIN" ] && [ "$preal" = "$MAIN" ]; } || continue
       ;;
     *) continue ;;
   esac

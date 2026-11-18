@@ -40,9 +40,9 @@ The branch and PR attach to the **sub-issue**. The epic closes when its children
 
 ## Board recipes (GitHub Projects)
 
-Boards are GitHub-only: outside GitHub the spec says `board: none`. Use these recipes only when the repository
-has a configured board. With `board: none`, omit
-`--project` from issue creation and skip project commands, fields and project-scope setup.
+Boards are GitHub-only: outside GitHub the spec says `board: none`. Use these recipes only when the
+repository has a configured board. With `board: none`, omit `--project` from issue creation and skip
+project commands, fields and project-scope setup.
 
 **Create an issue directly on the board (preferred):**
 
@@ -63,12 +63,11 @@ gh project item-edit --project-id <PID> --id <ITEM_ID> --field-id <FID> --single
 gh project item-edit --project-id <PID> --id <ITEM_ID> --field-id <FID> --clear   # restore a field to unset
 ```
 
-Always pass `--limit` on the `list`/`field-list`/`item-list` calls — they default to **30 rows**, so
-on any active board a card beyond the first 30 silently disappears from the lookup and the lifecycle
-skips it. If a lookup returns exactly its `--limit` rows, treat the result as possibly truncated:
-retry with a larger limit before concluding "not found".
+Always pass `--limit` on the `list`/`field-list`/`item-list` calls: they default to **30 rows**, so
+a card beyond the first 30 silently drops out of the lookup. A lookup that returns exactly its
+`--limit` rows may be truncated: retry with a larger limit before concluding "not found".
 
-`item-edit` sets **one field per call** — Status and Priority are two separate edits.
+`item-edit` sets **one field per call**: Status and Priority are two edits.
 
 **When a move fails.** An empty `item-list` lookup means the card is not on the board (or the lookup
 was truncated, above): add it with `item-add`, which prints the item ID, then edit that ID.
@@ -79,11 +78,10 @@ cache, retry once. Write the cache in a task commit only while no candidate is u
 that, use the refreshed IDs for this session and leave the file for the next task, since an edit
 would make the reviewed tree dirty.
 
-Cache the IDs from `field-list` in `.claude/rules/task-flow.local.md` the first time you fetch them —
-they are stable per board, and re-fetching every time is the main friction that makes agents skip the
-board.
+Cache the IDs from `field-list` in `.claude/rules/task-flow.local.md` the first time you fetch them:
+they are stable per board.
 
-The `gh project *` commands need the `project` token scope — a missing scope fails with an opaque
+The `gh project *` commands need the `project` token scope; without it they fail with an opaque
 GraphQL error. Fix once per machine: `gh auth refresh -s project`.
 
 **Card lifecycle:** on the board when the spec is approved; In Progress when implementation opens
@@ -116,24 +114,24 @@ Start a preview, a dedicated MCP server or a disposable container as a Bash call
 `run_in_background: true`, and run a container attached (`docker run --rm --init`, not `-d`).
 Stop each with TaskStop when its consumers finish, including work handed back without a merge, and
 release each exclusive lease the work took (`mcp__cc-tuner__peers_release <key>`). A task the guard
-refuses to stop stays running; name it in the final answer.
-Claude Code stops the rest when the session exits, and cc-tuner's hook stops them on `/clear`.
-When the user asks to keep one running past the session, start it detached instead and name it in
-the final answer.
+refuses to stop stays running; name it in the final answer. Claude Code stops the rest when the
+session exits, and cc-tuner's hook stops them on `/clear`. When the user asks to keep one running
+past the session, start it detached instead and name it in the final answer.
 
 ## After the merge
 
 Finishing is the merge plus a clean machine. Preserve local tracker files through
-[Local issue files](#local-issue-files) before removing any worktree. Then run these steps in order:
+[Local issue files](#local-issue-files) before removing any worktree. For a remote delivery use the remote, host and project from the
+[delivery preflight](../run/references/hosts.md) throughout cleanup:
 
 ```bash
-git switch <target> && git pull --ff-only      # local target was stale the moment the PR merged
+git switch <target> && git pull --ff-only "$DELIVERY_REMOTE" <target>
 git worktree list                              # any worktree still pointing at the merged branch?
 git worktree remove <path>                     # remove it; --force only when you know the diff is dead
 git worktree prune                             # clears stale registrations for directories already gone
 git branch --merged <target>                   # inspect local branches already merged into the target
 git branch -d <branch>                         # -d refuses if unmerged
-git fetch --prune                              # drops remote-tracking refs for branches deleted on the remote
+git fetch --prune "$DELIVERY_REMOTE"
 ```
 
 After a **squash** merge `-d` always refuses: the branch's commits are not ancestors of the squash
@@ -141,68 +139,58 @@ commit, even though their changes landed. Delete it only when the merged PR's he
 local tip, so nothing local is left out of what merged:
 
 ```bash
-[ "$(gh pr view <pr> --json state,headRefOid --jq 'select(.state=="MERGED") | .headRefOid')" = \
+[ "$(gh pr view <pr> --repo "$DELIVERY_HOST/$DELIVERY_PROJECT" --json state,headRefOid --jq 'select(.state=="MERGED") | .headRefOid')" = \
   "$(git rev-parse <branch>)" ] && git branch -D <branch>
 ```
 
 A local tip that differs holds commits the PR never carried: look at them, do not delete.
 
-Other hosts check the same fact. On GitLab, `glab mr view <iid>` must show state `merged` with its sha equal to
-the local tip. With no remote, `git rev-parse refs/heads/<target>` must equal the merged head, and the local tip
-must equal it too.
+Other hosts check the same fact. On GitLab, `glab mr view <iid> --repo "https://$DELIVERY_HOST/$DELIVERY_PROJECT"` must show state `merged` with its
+sha equal to the local tip. With no remote, `git rev-parse refs/heads/<target>` must equal the merged
+head, and the local tip must equal it too.
 
-On host `local` (no remote) skip `git pull` and `git fetch --prune`, and sync the target in the worktree that
-holds it (`git worktree list`).
+On host `local` (no remote) skip `git pull` and `git fetch --prune`, and sync the target in the
+worktree that holds it (`git worktree list`).
 
-When cc-tuner's guard stops the switch, take a worktree instead of overriding it: sync the target in the one that
-holds it (`git worktree list`), or `git worktree add <path> <target>`.
+When cc-tuner's guard stops the switch or the pull, take a worktree instead of overriding it: sync
+the target in the one that holds it (`git worktree list`), or `git worktree add <path> <target>`.
 
-`--ff-only` is deliberate: if it refuses, the local target has commits that are not upstream and that is
-something to look at, not to paper over with a merge commit.
-
-Do not delete a worktree whose branch never merged — that is the orphan-branch anti-pattern below,
-and the fix is to open the PR, not to erase the evidence.
+When `--ff-only` refuses, the local target has commits that are not upstream: look at them, do not
+merge over them. Do not delete a worktree whose branch never merged: open its PR instead.
 
 ## Commit conventions
 
-The message format, including attribution trailers, comes from the first of these that answers:
-`.claude/rules/task-flow.local.md`, `AGENTS.md`/`CLAUDE.md`/`CONTRIBUTING.md`,
-the shape of recent history, then the defaults in `.claude/rules/task-flow.md`. For trailers in a
-repository silent in all four, ask the user once and record the answer in `task-flow.local.md`. This section is the single owner of
-that order; `/spec` and `/run` point here.
-
-**Attribution trailers are the repository's call, not the plugin's.** Whether an agent's commit
-carries `Co-Authored-By:` or a session trailer is a preference: some repositories want the authorship
-visible, some want the history to read as the team's. A repository records its answer in
-`task-flow.local.md`, because the generated `task-flow.md` is rewritten on every update and would
-lose it.
+The message format, including attribution trailers (`Co-Authored-By:`, a session trailer), comes
+from the first of these that answers: `.claude/rules/task-flow.local.md`,
+`AGENTS.md`/`CLAUDE.md`/`CONTRIBUTING.md`, the shape of recent history, then the defaults in
+`.claude/rules/task-flow.md`. For trailers in a repository silent in all four, ask the user once and
+record the answer in `task-flow.local.md`: the generated `task-flow.md` is rewritten on every update.
+`/spec` and `/run` point here for this order.
 
 ## Release notes from commits
 
-Conventional Commits are the default format; it is required where release notes are generated from
-commit messages, and optional where they are not. Two ways to consume them:
+Conventional Commits are the default format, and required where release notes are generated from
+commit messages. Two ways to consume them:
 
-- **`release-please`** (GitHub Action) — reads the commits since the last release, opens a release PR
-  that bumps the version and writes `CHANGELOG.md`. Use it where a version number exists in more than
-  one manifest: it keeps them in sync, which is a class of bug hand-editing keeps reintroducing.
-- **`.github/release.yml`** — GitHub's built-in autogeneration. Cheaper to adopt, but it groups
-  merged PRs by label, so it reads PR titles rather than commit history and does not bump versions.
-
-Follow the commit format configured for release-please. GitHub-generated notes use PR titles and labels.
+- **`release-please`** (GitHub Action) reads the commits since the last release and opens a release
+  PR that bumps the version and writes `CHANGELOG.md`. Use it where a version number exists in more
+  than one manifest, and follow the commit format it is configured for.
+- **`.github/release.yml`**, GitHub's built-in autogeneration, groups merged PRs by label: it reads
+  PR titles, not commit history, and does not bump versions.
 
 ## Merge strategies
 
-- Feature → `<target>`: **squash** + `--delete-branch` — linear trunk, WIP chain collapses.
+- Feature → `<target>`: **squash** — linear trunk, WIP chain collapses. The branch goes in After the merge.
 - Stacked PRs: **merge-commit inside the chain** (preserves ancestry), squash only when the top of
   the stack lands on `<target>`. Squashing mid-chain orphans the SHAs of every PR above it.
 - Re-check the base of each stacked PR after the one below merges.
 
 ## Spec lifecycle (`PLANS/`)
 
-These are design documents — `/cc-tuner:spec` writes them and their execution plans. Execution plans
-are a different artifact with a different path (`task-plans/`): a plan stays where
-`plan-path.sh create` put it for its whole life, is ticked as work lands, and merges with the task.
-It is never moved or archived — `plan-path.sh`, SessionStart and `merge.sh` all find it there.
+These are design documents; `/cc-tuner:spec` writes them and their execution plans. An execution
+plan is a different artifact (`task-plans/`): it stays where `plan-path.sh create` put it, is ticked
+as work lands, and merges with the task. It is never moved or archived: `plan-path.sh`, SessionStart
+and `merge.sh` all find it there.
 
 1. Keep optional drafts in the repo's documented ignored scratch space; do not assume a companion
    plugin path.
@@ -229,7 +217,7 @@ for resume; record later DoD evidence on the PR. For shared tasks, update compan
 
 ## Pre-PR checklist
 
-- [ ] Branch is based on the current target tip (`origin/<target>`, or `refs/heads/<target>` with no remote;
+- [ ] Branch is based on the current target tip (the selected remote's target, or `refs/heads/<target>` with no remote;
       check, do not assume) and its PR is not already merged
 - [ ] Commits follow the repository's convention (Conventional Commits by default, required where release
       notes are generated), `!`/`BREAKING CHANGE:` where applicable
@@ -242,7 +230,7 @@ for resume; record later DoD evidence on the PR. For shared tasks, update compan
       typecheck and lint universally.
 - [ ] Findings follow the scope contract in `.claude/rules/task-flow.md`, including regressions
       and older dependencies needed for acceptance; independent improvements remain optional
-- [ ] PR links the candidate's green CI under its declared mode, or records the exact-SHA local
-      result for `none:<reason>` as the CI policy above requires
+- [ ] The verification steps and CI mode for the candidate are known. After creating or reusing the PR,
+      record the observed CI result or exact-SHA local evidence as the CI policy requires.
 - [ ] Spec archived if this PR completes it; the plan stays in `task-plans/`
 - [ ] No credentials, unrelated WIP or unintended generated files staged

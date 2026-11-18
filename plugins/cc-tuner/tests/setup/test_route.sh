@@ -268,8 +268,9 @@ printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > "%s/glab-argv"
 printf 'cc-tuner-verified: %s\n[test] %s\n' "$SHA" "$HOSTILE" > "$T/rec"
 CMD="$(grep -m1 '^glab mr note create' "$PLUGIN/skills/run/references/route-gitlab.md" | sed 's/<iid>/7/')"
 has "route-gitlab-publish-command-found" "--message" "$CMD"
-( cd "$T/work" && PATH="$T/bin:$PATH" REC="$T/rec" bash -c "$CMD" )
-eq "route-gitlab-publish-passes-the-record-literally" "$(cat "$T/rec")" "$(tail -n 2 "$T/glab-argv")"
+( cd "$T/work" && PATH="$T/bin:$PATH" REC="$T/rec" GITLAB_REPO=https://gitlab.com/group/nested/selected bash -c "$CMD" )
+eq "route-gitlab-publish-passes-the-record-literally" "$(cat "$T/rec")" "$(sed -n '7,8p' "$T/glab-argv")"
+eq "route-gitlab-publish-targets-selected-project" "$(printf '%s\n' --repo https://gitlab.com/group/nested/selected)" "$(tail -n 2 "$T/glab-argv")"
 eq "route-gitlab-publish-runs-nothing-in-the-record" "" "$(ls "$T/work")"
 eq "route-gitlab-publish-has-no-resolvable-thread" 1 "$(grep -c '^--resolvable=false$' "$T/glab-argv")"
 
@@ -358,5 +359,38 @@ ERR="$(bash "$ROUTE" write local "$LINE1/header-first.md" 2>&1 >/dev/null)"
 eq "write-legacy-header-on-line-1-has-no-stderr" "" "$ERR"
 lacks "legacy-header-on-line-1-replaced" "setup never touches this file" "$(cat "$LINE1/header-first.md")"
 rm -rf "$LINE1"
+
+# Follow the same entry point for a single repo and each participant in a shared task.
+PREFLIGHT_REPO="$(mktemp -d "$T/preflight.XXXXXX")"
+(
+  cd "$PREFLIGHT_REPO" || exit 1
+  git init -q
+  git remote add origin https://github.com/example/task.git || exit 1
+  mkdir -p bin .claude/rules
+  printf '#!/bin/sh\n[ "$*" = "auth status --hostname github.com" ] && exit "${AUTH_RC:-0}"\nexit 1\n' > bin/gh
+  chmod +x bin/gh
+  export PATH="$PWD/bin:$PATH"
+  config=.claude/rules/task-flow.local.md
+  : > "$config"
+  bash "$ROUTE" write gitlab "$config" >/dev/null || exit 1
+  result="$(bash "$ROUTE" preflight github 2>&1)"; rc=$?
+  [ "$rc:$result" = '14:stale-on-github gitlab' ] || exit 1
+  : > "$config"
+  AUTH_RC=1 bash "$ROUTE" preflight github >/dev/null 2>&1; [ "$?" = 16 ] || exit 1
+  bash "$ROUTE" preflight github >/dev/null || exit 1
+  git remote set-url --push origin https://github.com/example/other.git
+  bash "$ROUTE" preflight github >/dev/null 2>&1; [ "$?" = 15 ] || exit 1
+  git remote add delivery https://gitlab.com/group/nested/target.git || exit 1
+  printf '#!/bin/sh\n[ "$*" = "auth status --hostname gitlab.com" ]\n' > bin/glab
+  chmod +x bin/glab
+  bash "$ROUTE" write gitlab "$config" >/dev/null || exit 1
+  result="$(CC_TUNER_REMOTE=delivery bash "$ROUTE" preflight gitlab)" || exit 1
+  [ "$result" = "$(printf 'current\ndestination\tdelivery\tgitlab.com\tgroup/nested/target')" ] || exit 1
+  git remote remove delivery || exit 1
+  git remote remove origin || exit 1
+  : > "$config"
+  bash "$ROUTE" preflight local >/dev/null 2>&1; [ "$?" = 10 ] || exit 1
+  bash "$ROUTE" write local "$config" >/dev/null && bash "$ROUTE" preflight local >/dev/null
+) && pass preflight-after-host-change || fail preflight-after-host-change
 
 exit $fails

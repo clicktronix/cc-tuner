@@ -1,6 +1,7 @@
 # cc-tuner plugin
 
-Skills that tune Claude Code's own configuration. One install, no per-project copies to drift.
+Sets a repository up for agent work and carries a task from an approved spec to a merged pull
+request. One install, no per-project copies to drift.
 
 ## Skills
 
@@ -40,33 +41,31 @@ field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
 
 The always-on core installs per repo via the task-flow node of `/cc-tuner:setup` (plugins
 can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in
-`task-flow.local.md`, migration of the legacy `git-flow*` files, and a diff-and-ask for a
-hand-maintained copy. Setup manages the local file's delivery block, review opt-out and cached board IDs;
+`task-flow.local.md`, and a diff-and-ask for a hand-maintained copy. Setup manages the local file's delivery block, review opt-out and cached board IDs;
 it preserves other content.
 
 Previews, dedicated MCP servers and test containers run as Bash background tasks, which Claude Code
 stops when the session exits. A `/clear` does not stop them, so the plugin's hooks module
 (`hooks/register.ts`, a Claude Code mod) stops the ones Bash started in the cleared conversation, except a task the guard keeps (see
 [Sessions of one product](#sessions-of-one-product)).
-The same module refuses a Bash command that would print secret values into the transcript —
-`env`, `printenv`, `set`, `export`, `declare` or `typeset` with nothing to run or name, or
-`cat`/`head`/`tail`/`less`/`more`/`bat` of a `.env` file — wherever the shell would run it (after
-`&&`, in a pipe, a subshell or `$(…)`), reading comments, redirections, quotes and heredocs the way
-the shell does, and names commands that answer the same question
-without printing a value, even one that spans lines.
+The same module refuses a Bash command that would print secret values into the transcript: a bare `env`,
+`printenv`, `set`, `export`, `declare` or `typeset`, or `cat`/`head`/`tail`/`less`/`more`/`bat` of a `.env`
+file, also in a subshell, `$(…)` or `bash -c`. Output sent to a file or piped into `wc`, `grep -c` or
+`grep -q` passes. The refusal names commands that print no value. It guards against the common accident and
+is no boundary: `grep . .env` still prints the file.
 
 ### `deep-review`
 
 A read-only review for large, cross-boundary or sensitive candidates, replacing the ordinary
 advisory pass. Restricted `cc-tuner:deep-review-lens` agents read owner-prepared diff files; one
-owner validates findings and coverage before required Codex review of the final SHA.
+owner validates findings and coverage for the spec's verdict owner.
 
 The shared `review-diff.sh` reader keeps inventory and packets consistent. `shard-diff.sh` validates
 actual packet coverage and size before dispatch. Seven lenses run; with shards, four file-local
 lenses run per shard and Specification, Architecture and Blind spots each cover the whole candidate.
 Blind spots asks what the user and the spec did not consider (unwalked scenarios, business-logic
 holes, simpler alternatives); its findings are questions for the owner, never blockers. Architecture,
-Security and Blind spots run on Opus, the rest on Sonnet. Past 19 lenses (four shards) the owner asks
+Security and Blind spots run on Opus, the rest on Sonnet unless the packet is one of the Opus cases below. Past 19 lenses (four shards) the owner asks
 the user whether to run them all, cut to the limit, or re-shard. The
 [deep-review procedure](skills/deep-review/SKILL.md) owns the accepted partition and the line printed
 before dispatch — lens count by model and effort, with a dollar figure only from a source the owner
@@ -80,30 +79,26 @@ criteria and the diff, finds what the repository already provides (test commands
 dev server, a database, a browser tool), picks the instrument each behaviour needs, runs it, and
 records **what was observed**, each line tagged with its instrument (`[browser]`, `[api]`, `[test]`,
 `[cli]`) or marked `NOT PROVED`. Evidence must directly decide the criterion; unproved criteria return
-to `/run`, which runs this stage in a Sonnet subagent and takes back only the record. Steps:
+to `/run`, which runs this stage in a subagent and takes back only the record. Steps:
 `skills/verify-feature/SKILL.md`.
 
 ## /spec and /run
 
 The task loop has two commands. `/cc-tuner:spec <issue | description>` does the discovery, creates the
 task branch, resolves open decisions, has a read-only Opus agent look for Blind spots in the draft (its
-questions go to the user), confirms the contract and tracer-bullet slices once, then commits the spec
-and plan, puts the issue's card on the board, and, when the Task tools are available, publishes the
-slices as native tasks. `/cc-tuner:spec --groom <issue>` does the discovery and the interview only and
-records the decisions in the issue, with no branch, spec or plan; a later `/cc-tuner:spec <issue>`
-builds on that record.
-`/cc-tuner:run [--auto] <spec>` works that plan to a merged pull request: it proves each slice
-RED→GREEN, reviews the candidate (Matt Pocock review, or `cc-tuner:deep-review` for large or sensitive
-changes), obtains the review the spec names (Codex's by default, or none with a recorded reason) at the
-exact final SHA, and on GitHub merges only through `scripts/merge.sh` (other hosts: see Delivery routes
-below). Where the spec names a board, `/run` moves the card to In Progress, In review and Done as it goes,
-and the epic's card with its first and last sub-issue. Implementation may be handed to
-`cc-tuner:slice-unit` subagents, one per slice, capped at `maxTurns: 300` so an over-long slice returns
-partial; the parent owns integration, proof, review and every later gate. Procedures:
-`skills/spec/SKILL.md`, `skills/run/SKILL.md`.
+questions go to the user), and confirms the contract and slices once. It saves the approved spec
+and plan, commits when authorized, and projects the plan into native tasks when available.
+`/cc-tuner:spec --groom <issue>` records decisions directly in the issue.
 
-`/run` continues through slice commits, push and a draft PR/MR. Merge requires `--auto` or an explicit
-user instruction for that delivery; otherwise it hands over the checked candidate and command.
+`/cc-tuner:run [--auto | --local-only] <spec>` implements, verifies and reviews the task. It performs
+authorized commits, pushes and PR/MR writes. When commits are reserved for a person, it uses the
+files in the task checkout and hands over the diff and evidence. When publication alone is reserved,
+it can hand over a verified commit. Merge requires explicit authorization or requested `--auto`
+within the repository's permissions. GitHub merges go through `scripts/merge.sh`.
+
+Implementation units have a 300-turn cap and return unfinished work to the orchestrator. Deep-review
+lenses have read-only tools and a stated dispatch budget. The orchestrator may split and reassign
+slices while preserving scope and acceptance. See `skills/run/references/placement.md`.
 Unattended execution continues only while
 every gate is green, and never waives incomplete DoR, missing RED→GREEN evidence, failed tests, stale
 review, unresolved `[eyes]`, CI that ran and did not pass, or scope beyond the spec. Where a repository
@@ -111,24 +106,25 @@ runs no CI at all, the spec says so in advance and a pull-request comment record
 for that commit; what a person approves is the **mode**, once, at spec time. After merge it reconciles
 only the task lifecycle; deploy, publish and migration remain forbidden. Heavy checks (full suite, e2e,
 builds) go through `scripts/heavy.sh`, whose machine-wide slots limit how many run at once across
-sessions: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order (an older heavy.sh may overtake),
+sessions: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order,
 and a check waits while the system reports memory pressure, at most `CC_TUNER_HEAVY_MEM_WAIT` seconds
-(default 600), then starts with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the slot count, in slots of weight; set it user-wide,
+(default 600), then starts with a warning. It waits for a slot at most `CC_TUNER_HEAVY_WAIT` seconds
+(default 1800), then starts without one, also with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the slot count, in slots of weight; set it user-wide,
 since sessions with different values see different capacities.
 
-Run progress lives in the committed plan file (its `- [x]` ticks) and in Claude Code's task list; there
+Run progress lives in the saved plan file (its `- [x]` ticks) and in Claude Code's task list; there
 is no state file. The task list survives `/compact` and resume unchanged. A new session (`startup` or
-`/clear`) starts with an empty list, and a `SessionStart` hook asks the agent to rebuild it from the
-plan, emitting the unfinished slices with their blocking edges. It only asks: a command hook cannot call
+`/clear`) starts with an empty list, and a `SessionStart` hook asks the agent to rebuild it from the plan in HEAD, emitting the unfinished slices with their blocking edges and any open checkbox outside a slice. It only asks: a command hook cannot call
 `TaskCreate`.
 
-One thing checks rather than advises. `scripts/merge.sh [--ci <mode>] <pr> <squash|merge>
-<candidate-sha> [review-thread]` re-reads the companion's exact-candidate approval, the public verdict,
+One thing checks rather than advises. `scripts/merge.sh [--check-only] [--ci <mode>]
+[--review none:<reason>] <pr> <squash|merge> <candidate-sha> [review-thread]` re-reads the companion's exact-candidate approval, the public verdict,
 CI and the head SHA, refuses unless they agree at that commit, and pins the head with
 `--match-head-commit`. `--ci` says which checks answer for CI: GitHub's required ones by default
 (`required` does not look at optional checks, so require an optional check on the branch or declare
 `any` where it matters), every reported one with `any`, or none where the repository runs none, which
-needs a PR comment recording the local result for the same commit. No mode lets a check it reads fail.
+needs a PR comment recording the local result for the same commit. No mode lets a check it reads fail;
+a skipped check does not count either way, and at least one must pass.
 A pull request with neither a plan nor a named review is refused, drafts are refused until marked ready,
 and `--unmanaged` merges only an ordinary pull request outside a run.
 
@@ -144,7 +140,7 @@ delivery is `merge.sh`. On GitLab and with no remote, `/run` follows a delivery 
 (`skills/run/references/route-<host>.md`), so a candidate cannot edit its own gate; on another host the
 route is the user's own description. The repository keeps only a short key block in
 `.claude/rules/task-flow.local.md`, written by `/cc-tuner:setup install delivery-route` and checked by
-`scripts/setup/route.sh`: `/run` stops when it is missing or wrong. A route keeps the gate's order and
+`scripts/setup/route.sh`. A missing or stale route blocks publication while local work continues. A route keeps the gate's order and
 records, but the agent performs its steps, so no script refuses on its behalf.
 
 Where issues live comes from `docs/agents/issue-tracker.md`, which `/setup-matt-pocock-skills` writes; the
@@ -153,39 +149,52 @@ asks once when the file is absent. Boards stay GitHub-only.
 
 ### Sessions of one product
 
-The hooks module keeps a record per live Claude session in `~/.cache/cc-tuner/sessions`. Sessions in one
-repository, or in repositories with the same `product` key, see each other. Before each tool call a guard
-allows, notes or stops. A stop names who and what would be lost, then the safe way (act on your own paths,
-take a worktree, wait), then the ack; lease and `TaskStop` stops have none.
+The hooks module keeps a record per live Claude session in `~/.cache/cc-tuner/sessions`. Sessions of one
+repository, or of repositories sharing a `product` key, are peers. Before each tool call a guard allows,
+notes (the call runs) or stops, naming what is at stake, the safe way and the ack.
 
-- **Stops:** a branch switch where another session writes; discarding or committing files that are not this
-  session's (`reset --hard`, `stash`, `clean`, `restore`, `commit -a`, `add -A`); commit, push or PR from a
-  branch other than the one this session last switched to; deleting a peer's branch or worktree; stopping a shared
-  resource, or the task that started it, while another session of the product is live; an exclusive resource
-  leased to another session; `kill` of a peer's process.
-- **Notes** (the action runs): an edit where another session writes or of a path a peer claimed; a branch
-  switch where a peer's cwd is.
+Stops:
 
-A session's own files are the ones it edited and, where no other session writes, the ones its Bash calls
-changed. Files changed before it came or between its calls (by the user or a background tool) stay protected,
-and so does a deleted path: after `git mv` or `git rm` the commit needs the ack once. A session with no peers
-gets no notes about peers.
+- Next to a peer writing in the same checkout: a branch switch, `rebase`, `merge`, `pull`, `reset --keep`.
+- Losing files this session did not make, peer or not: `reset --hard`, `clean`, `restore`,
+  `checkout -- <path>`, `stash`, `rm -r` or `worktree remove` of their checkout, `rm -r` of a directory
+  with another session's uncommitted files.
+- With a live peer: staging or committing such files (`add -A`, `commit -a`).
+- Commit, push or PR while HEAD is not the branch this session was last on; the ack makes HEAD that branch.
+- A peer's branch or worktree deleted, its branch force-pushed, its process killed, a stash entry not this
+  session's dropped.
+- A step that loses work in a directory the guard cannot read (`cd "$DIR" && git clean -fd`).
+- Bash stopping a shared resource another session uses: the agent can acknowledge that specific stop.
+- `TaskStop` for a shared task in use, or a tool leased exclusively to another session: wait for the
+  other session to finish or release its lease. These operations have no Bash acknowledgement.
 
-When the safe way does not fit, rerun the command prefixed `CC_TUNER_ACK=<key>` from the reason. The ack covers that
-action for 30 minutes; the prefix is stripped before the command runs. For a lease or `TaskStop` stop, wait or
-`SendMessage` the holder.
+Notes:
+
+- With no live peer: files a staging or committing step takes that this session did not make.
+- An edit of a changed file this session did not make; an edit, `>` or `rm` on a file a peer edited; an edit
+  where a peer writes or of a path it claimed; a branch switch where a peer's cwd is.
+- Once a session, `the peers guard is inactive (…)`: it failed, or could not read the process list or a
+  checkout.
+
+Direct edits identify a writer. For Bash, the guard infers ownership from a file's `ctime` during
+a saved command interval while no peer is writing. An editor save during a build can look like the
+build's edit, including after resume. Inspect the actual diff before discarding or staging it.
+
+For a Bash stop, the reason names the action and its `CC_TUNER_ACK=<key>`. The acknowledgement
+lasts 30 minutes. The agent decides for a known peer; when an edit may belong to the user, preserve
+it or obtain their decision before discarding it.
 
 Tools, `mcp__cc-tuner__peers_*`:
 
-- `peers_report [path]`: live peers of the repository at `path` (the cwd by default) with branch, claims, edited
-  paths and, in the same repository, merge conflicts of HEAD with their branch. `/spec` calls it before the
-  approval.
-- `peers_claim <plan>`: publishes the plan's open Owned paths as a claim and reports overlaps. `/run` calls it
-  before the first slice, after each tick and before integration.
-- `peers_release <key>`: gives up every lease of `key` this session holds, declared on this branch or not. A lease
-  also ends when its holder exits or has not used it for 10 minutes (up to 11: use is written once a minute).
+- `peers_report [path]`: live peers of the repository at `path` or the cwd: branch, claims, edited paths,
+  merge conflicts with HEAD. `/spec` calls it before approval.
+- `peers_claim <plan>`: publishes the plan's open Owned paths and reports overlaps. `/run` calls it before
+  the first slice, after each tick and before integration.
+- `peers_release <key>`: gives up this session's leases of `key`. A lease also ends with its holder, or after
+  10 minutes unused.
 
-Resources are declared, never detected. The repository's go in `.claude/cc-tuner-resources.json`:
+Resources are declared, never detected; setup writes them only when asked. The repository's go in
+`.claude/cc-tuner-resources.json`:
 
 ```json
 {"product": "shop", "resources": [{"key": "stack", "kind": "shared", "start": ["pnpm stack:up"], "stop": ["pnpm stack:down"]}]}
@@ -197,30 +206,26 @@ The machine's go in `~/.config/cc-tuner/resources.json` and apply across product
 {"resources": [{"key": "chrome", "kind": "exclusive", "tools": ["mcp__chrome-devtools__*"]}]}
 ```
 
-A `shared` resource stays up while another session of the product is live; an `exclusive` one is leased to
-its first user, one lease per product for a repository's resource and per machine for the machine's. Setup writes these files only when asked. The user file can also map repositories to
-products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`. `"guard": false` in either file
-turns the guard off there.
+A `shared` resource stays up while another session of the product is live, and `/clear` keeps its task. An
+`exclusive` one is leased to its first user, per product or, for the machine's, per machine. The machine
+file can map repositories to products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`.
+`"guard": false` disables peer coordination. The session-wide transcript check and Bash task tracking still run.
 
-`/clear` keeps a task that started a shared resource; stopping it, as `/run`'s cleanup does, is refused only while
-another session of the product is live, and the task ends with its Claude process.
+Known limits:
 
-The guard needs git 2.42 or newer: with an older git, or in a repository with replacement refs (`git replace`), it
-cannot read a checkout, so a destructive step stops with an ack.
-
-Known limits: liveness is cached for a minute; a session idle for 8 h stays in reports but blocks nothing that
-needs only its being live, and its uncommitted files stay protected.
+- With git older than 2.42, replacement refs (`git replace`) or no readable `ps`, nothing is checked: staging,
+  committing and pushing run with the inactive note, and a step that loses files stops with an ack.
+- Liveness is cached for a minute; a session idle for 8 h blocks only through its uncommitted files. Past 500
+  files already changed at a first touch, only edited files are a session's own.
 
 ### Companions
 
 **mattpocock-skills** is required by `/spec` and `/run`: grilling, domain modelling, module design,
 prototypes, PR bodies, hard-bug diagnosis and ordinary review. **cc-codex-triage** is optional: it
-supplies the default `review: codex` gate and needs a logged-in Codex CLI (`codex login`); without it a
-spec declares `review: none:<reason>` and the run's owner publishes the verdict. `/cc-tuner:setup install`
-installs accepted companions after one confirmation, and prereq-check reports what is missing. `scripts/setup/companion.sh`
-owns the companion table, the Codex check and the recorded opt-out. Integration rounds
-outside the review cap and `renew` need cc-codex-triage 0.14+; with an older companion prereq-check
-prints a NOTE and `/run` uses a normal round and the companion's reset.
+supplies `review: codex` with a logged-in Codex CLI and the required-review interface (0.14+).
+`scripts/setup/companion.sh` selects the spec value. An unavailable CLI or a recorded opt-out
+gives `none:<reason>`. With usable Codex and a missing, disabled or incompatible bridge, resolve
+setup or explicitly decline before approving the spec. The approved mode governs delivery.
 
 ## Output style
 

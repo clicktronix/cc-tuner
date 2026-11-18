@@ -143,14 +143,47 @@ class SetupTests(unittest.TestCase):
         self.assertIn("agent-rules:begin", self.target.read_text())
         self.assertIn(str(self.target), self.run_setup("check"))
 
-    def test_modified_block_is_not_overwritten(self):
-        self.run_setup()
-        text = self.target.read_text().replace(
-            "Repository rule loading", "My changed loading"
-        )
-        self.target.write_text(text)
-        self.run_setup(code=2)
-        self.assertEqual(self.target.read_text(), text)
+    OLD_BLOCK = "<!-- agent-rules:begin -->\nAn earlier release's wording.\n<!-- agent-rules:end -->\n"
+
+    def test_outdated_block_is_reported_then_replaced_in_place(self):
+        # The block between the markers is managed, so one that differs from the bundled text is an
+        # older release's. It used to be "review it manually", exit 2, from check and install alike:
+        # the first change to the instruction would have stranded every repository that had it.
+        tail = "\n# Owner\n\nKeep this rule.\n"
+        self.target.write_text(self.OLD_BLOCK + tail)
+        before = self.target.read_bytes()
+        out = self.run_setup("check", code=1)
+        self.assertEqual(out.strip().splitlines()[-1].split()[0], "OUTDATED")
+        self.assertIn("-An earlier release's wording.", out)
+        self.assertIn("+## Repository rule loading", out)
+        self.assertEqual(self.target.read_bytes(), before)
+        out = self.run_setup()
+        self.assertEqual(out.strip().splitlines()[-1].split()[0], "UPDATED")
+        result = self.target.read_text()
+        self.assertTrue(result.startswith("<!-- agent-rules:begin -->\n## Repository rule loading"))
+        self.assertNotIn("An earlier release's wording.", result)
+        self.assertTrue(result.endswith("<!-- agent-rules:end -->\n" + tail))
+        self.assertEqual(result.count("<!-- agent-rules:begin -->"), 1)
+        self.assertIn("OK ", self.run_setup("check"))
+
+    def test_outdated_late_block_is_replaced_and_moved_to_the_top(self):
+        self.target.write_text("# Owner\n\nKeep this rule.\n\n" + self.OLD_BLOCK + "After.\n")
+        out = self.run_setup("check", code=1)
+        self.assertEqual(out.strip().splitlines()[-1].split()[0], "OUTDATED")
+        out = self.run_setup()
+        self.assertEqual(out.strip().splitlines()[-1].split()[0], "UPDATED")
+        result = self.target.read_text()
+        self.assertTrue(result.startswith("<!-- agent-rules:begin -->\n## Repository rule loading"))
+        self.assertTrue(result.endswith("# Owner\n\nKeep this rule.\n\nAfter.\n"))
+        self.assertIn("OK ", self.run_setup("check"))
+
+    def test_several_blocks_are_still_nobodys_to_rewrite(self):
+        self.target.write_text(self.OLD_BLOCK + "\n" + self.OLD_BLOCK)
+        before = self.target.read_bytes()
+        for mode in ("check", "install"):
+            out = self.run_setup(mode, code=2)
+            self.assertIn("ambiguous agent-rules markers", out)
+        self.assertEqual(self.target.read_bytes(), before)
 
     def test_malformed_markers_are_not_overwritten(self):
         for text in (
