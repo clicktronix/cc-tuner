@@ -20,8 +20,11 @@ fi
 printf '%s\n' "$ISSUE_PATH"
 ```
 
-- **Tracked or not ignored:** write in the task checkout and commit with the candidate. Groom only
-  appends its comment; the later spec/run commits it. Closing changes enter the candidate before review.
+Close an issue only when this delivery completes the whole issue and tracker writes are authorized.
+For a partial `Refs` delivery or local handoff, leave the issue and parent epic open.
+
+- **Tracked or not ignored:** write in the task checkout. Groom appends its comment. Include an
+  authorized closing change in the candidate before review so the merge carries it to the target.
 - **Ignored:** write in the main checkout, leave uncommitted and record the absolute path in the spec
   or hand-back. Close only after the issue's own work is complete and its merge is observed.
   Resolve companion link files the same way.

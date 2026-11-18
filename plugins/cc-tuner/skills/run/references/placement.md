@@ -18,15 +18,16 @@ A unit receives one bounded implementation job and returns evidence; it does not
 Delegate when saved context or independent work justifies the brief and verification cost. One
 unit may work sequentially in the task checkout. Concurrent writers require independent slices,
 disjoint Owned paths and separate worktrees. Use the batch from `plan-lint.sh ready-batches --active`;
-do not recalculate ownership from prose or substitute `frontier`.
+do not recalculate ownership from prose.
 
 The concurrency cap counts running units plus proposed starts, not just a returned batch. Respect
 available host slots; on build-heavy repositories keep at most two implementation units active.
-Heavy checks queue through machine-wide slots ([below](#heavy-checks)), so parallel units and parallel
-sessions run only as many of them at once as the machine's capacity allows. Candidate acceptance and delivery remain sequential.
+Heavy checks queue through machine-wide slots ([below](#heavy-checks)), so parallel units and
+sessions run only as many at once as the machine allows. Candidate acceptance and delivery remain
+sequential.
 
 Independent read-only review is the exception to sequential review: its own skill defines the
-reviewers and packets, while one owner aggregates. `deep-review` owns its agent availability and
+reviewers and packets, while the orchestrator aggregates. `deep-review` owns its agent availability and
 coverage refusals. Before paid fan-out, state the count, model and effort; a dollar figure needs a
 source you can name.
 
@@ -41,9 +42,9 @@ when that is the deciding check, and anything else that finishes in seconds.
 
 - **A unit runs focused checks.** A build or container start runs from a unit only when it is the
   slice's deciding check: once, through `heavy.sh`, and stopped before the unit returns.
-- **The owner runs the full suite**, at the cadence `/run`'s Test cadence names.
+- **The orchestrator runs the full suite**, at the cadence `/run`'s Test cadence names.
 - **`verify-feature` runs the e2e suite.**
-- **Browser MCP sessions and dev servers belong to the owner and `verify-feature`.** A regression test
+- **Browser MCP sessions and dev servers belong to the orchestrator and `verify-feature`.** A regression test
   that starts and stops its own server inside its test command is still focused.
 
 Every heavy check, from whoever runs it, goes through the machine's slots:
@@ -59,66 +60,61 @@ The weight is how many of the machine's slots the check holds:
   after their start command returns.
 
 A heavy.sh call inside another one runs in its slots; the outer call's weight governs. Capacity is
-shared by every session on the machine and waiters start in arrival order (an older heavy.sh without the
-queue may overtake), so the call may wait.
+shared by every session on the machine and waiters start in arrival order, so the call may wait.
 Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read the output
 when it exits; the command's own output and exit code pass through unchanged.
 
 While the system reports memory pressure, a check waits up to `CC_TUNER_HEAVY_MEM_WAIT` (600 s), then
-starts anyway; for the next 600 s the wait is skipped for every check.
-Slots limit concurrency; they do not guarantee free memory. Carry into your report every output line
-that starts with `heavy.sh: started under memory pressure` or `heavy.sh: memory pressure not measured`:
-a failure in that run may be the machine, not the code.
+starts anyway; for the next 600 s the wait is skipped for every check. A check also waits at most
+`CC_TUNER_HEAVY_WAIT` (1800 s) for a slot, then starts without one. Carry into your report every
+output line that starts with `heavy.sh: started under memory pressure`,
+`heavy.sh: memory pressure not measured` or `heavy.sh: started without a slot`: a failure in that run
+may be the machine, not the code.
+heavy.sh's own failures exit 64; any other code is the command's.
 
 ## Brief and return
 
-Build the brief from committed files: repository/worktree, candidate starting SHA, spec path with
-an instruction to read it, the slice verbatim (title, Owned paths, deciding check, delivery, criteria),
-any shared-task prerequisites, and whether other units run beside it. Tell the unit to:
+Pass the worktree, starting SHA, spec path, slice text, shared prerequisites, concurrent writers,
+any partial result and the resolved `heavy.sh` command. The unit definition owns its checks and
+return format. In local-only mode the orchestrator works directly in the approved checkout.
 
-- load applicable repository rules and write within Owned paths. `agents/slice-unit.md` says what a
-  unit may do outside them when it works alone and what it returns when others run beside it, so the
-  brief only states which case applies; the owner applies a returned out-of-path change once after
-  integration;
-- prove the expected RED or approved non-code baseline and return commands and deciding output;
-- commit after every green step, so a stop at the turn cap leaves committed work;
-- run only the checks [Heavy checks](#heavy-checks) gives a unit, through the `heavy.sh` command the
-  owner resolved to an absolute path in the brief; never decide integrated acceptance;
-- follow the remaining rules in `agents/slice-unit.md` (container cleanup, no further implementation
-  delegation, commit per green step, never push, open or comment on PRs, merge, create issues or
-  claim approval) and report incomplete criteria, assumptions and blockers to the owner.
-
-The owner reads the diff, verifies paths and actual check inputs/output, and integrates commits into
+The orchestrator reads the diff, verifies paths and actual check inputs/output, and integrates commits into
 one candidate per repository. Reuse evidence only when it still covers the assembled result.
 Shared-task readiness is checked across the whole candidate set.
 
 ## Agent selection
 
 Use `cc-tuner:slice-unit` for implementation. Its definition supplies sonnet, `effort: high` and
-the turn cap.
-If unavailable, do the slice as owner; do not substitute an uncapped worker. Use Explore for location
-search, not exhaustive auditing, and a suitable general-purpose reader for other bounded questions.
-Review lenses use their own restricted definition, without an unrestricted fallback.
+the turn cap; the ladder below says when to override the model. If unavailable, do the slice
+yourself; do not substitute an uncapped worker. Use Explore for location search, not exhaustive
+auditing, and a suitable general-purpose reader for other bounded questions. Review lenses use their
+own restricted definition; `deep-review` owns their model and effort.
 
 A brief configures neither model nor effort: pass them as the dispatch's `model` and `effort`
 parameters, else the agent definition's, else the session's. The ladder:
 
-- **Units and lenses: Sonnet** at `effort: high`, from their definitions — whatever the session
-  runs on, so a Fable or `max` orchestrator does not multiply every unit's cost — except where
-  `deep-review`, `/spec` or `/run` name the model of an agent they dispatch.
-- **Opus on evidence** for implementation units (`model: "opus", effort: "medium"`), chosen by the
-  orchestrator without asking, in two cases only: a retry after the same deciding check failed twice on Sonnet, with that
-  failure output in the brief; or a slice the plan marks `Model: opus — <reason>`. Write the reason
-  as one line in the brief and beneath the slice in the plan, where `Evidence:` lines go:
-  `Opus-reason: <the failed check and its output | the plan's reason>`. Pass the effort explicitly:
-  medium is Opus's own API default, and without it the unit's definition would run Opus at high.
-  After an Opus attempt fails, the orchestrator takes the slice and runs
-  `mattpocock-skills:diagnosing-bugs` on that check before editing: three failed attempts mean the
-  cause is not where the briefs looked.
+- **Sonnet by default** for units, ordinary review and verification, at `effort: high` — whatever the
+  session runs on, so a Fable or `max` orchestrator does not multiply every agent's cost.
+- **Opus by complexity** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
+  asking, for a unit, ordinary reviewer or verifier whose work is one of:
+  - a sensitive surface, as [delivery.md](delivery.md) step 2 lists them (authorization, secrets,
+    cryptography, migrations, money, public contracts, infrastructure);
+  - performance decided by measurement: profiling, a benchmark, a query plan;
+  - concurrency, ordering or data-integrity logic;
+  - an invariant that spans several modules or services;
+  - a slice the plan marks `Model: opus — <reason>`;
+  - a retry after the same deciding check failed twice on Sonnet, with that failure output in the brief.
+
+  Size alone is not a case: a long mechanical slice stays on Sonnet. Write the reason as one line in
+  the brief and, for a slice, beneath it in the plan, where `Evidence:` lines go:
+  `Opus-reason: <the failed check and its output | the plan's reason | the case above>`. Pass the
+  effort explicitly, or the agent's definition would run Opus at high. After an Opus attempt fails,
+  the orchestrator takes the slice and runs `mattpocock-skills:diagnosing-bugs` on that check before
+  editing: repeated failed attempts mean the cause is not where the briefs looked.
 - **Fable only for the orchestrator.** A unit or reader on Fable needs the user's explicit decision.
 - **Readers: Haiku** (`model: "haiku", effort: "high"`) for a bounded read-only question with a
   literal answer — locate, extract, list, summarise named files or command output. It decides
-  nothing, so the owner checks what it uses. Pass `model: "sonnet", effort: "high"` instead when
+  nothing, so the orchestrator checks what it uses. Pass `model: "sonnet", effort: "high"` instead when
   the reader must judge — compare designs, assess a risk, explain why something fails. Readers have
   no definition of their own, so pass the effort explicitly. Use `Explore` for location search.
 
@@ -150,12 +146,12 @@ work or use force to hide a dirty checkout.
 
 ## Unit size and partial returns
 
-A capped slice returns partial when unfinished. The owner reads landed commits/diff, check evidence,
+A capped slice returns partial when unfinished. The orchestrator reads landed commits/diff, check evidence,
 proven and remaining criteria. Permit one fresh unit with those facts — not a `SendMessage`
 continuation, which resumes the large context the cap stopped and pays for it on every turn. After a
-second partial the owner finishes the slice, or reports the concrete blocker. A slice that reached the
-cap twice was too large, but splitting what remains changes the approved plan: propose the split to the
-user and apply it only on their decision. Record the consumed retry beneath the slice:
+second partial, finish directly or split the remainder into independently verifiable slices.
+Coordinate ownership, preserve the acceptance criteria and validate updated dependencies before dispatch.
+Escalate only a scope decision or a concrete external blocker. Record the consumed retry beneath the slice:
 
 ```text
 Partial: <unit> at maxTurns; landed <commits>; redispatched once

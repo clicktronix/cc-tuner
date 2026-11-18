@@ -69,6 +69,11 @@ OUT="$(shard "$R" --lines 5 --plan plan.md)"
 equals "plan-groups-by-owned-paths-with-rest" "SHARD	1	slice-1	lib/c.txt,src/x/a.txt
 SHARD	2	slice-2	docs/d.txt
 SHARD	3	rest	src/b.txt,top.txt" "$(lines_of "$OUT" SHARD)"
+# Whole-repository ownership includes otherwise unclaimed files, even before a narrower slice.
+sed 's@^Owned paths: src/x/,lib/c.txt$@Owned paths: .@' "$PLAN" > "$R/root-plan.md"
+OUT="$(shard "$R" --lines 5 --plan root-plan.md)"
+equals "root-plan-owns-files-without-narrower-owner" "SHARD	1	slice-1	lib/c.txt,src/b.txt,src/x/a.txt,top.txt
+SHARD	2	slice-2	docs/d.txt" "$(lines_of "$OUT" SHARD)"
 ( cd "$R" && printf '## Slice 1 — A\nBlocked by: 9\n\n- [ ] a\n' > bad.md )
 out="$(cd "$R" && bash "$SHARD" base HEAD --lines 5 --plan bad.md 2>/dev/null)"; rc=$?
 equals "invalid-plan-fails-closed-rc" "1" "$rc"
@@ -144,10 +149,16 @@ equals "merge-holds-the-cap" "4" "$(lines_of "$OUT" SHARD | wc -l | tr -d ' ')"
 # --- a path the grammar cannot carry is refused, not split ---------------------------------------
 R="$(flow_repo)"
 ( cd "$R" && git tag base && printf 'x\n' > 'a,b.txt' && git add -A && git commit -q -m c )
+# Only a SHARD record separates paths with commas. A diff reviewed whole lists none, so the comma is
+# no reason to refuse it, and it used to be refused before the mode was even decided.
 out="$(cd "$R" && bash "$SHARD" base HEAD 2>"$R/err")"; rc=$?
+equals "comma-path-single-rc0"  "0" "$rc"
+equals "comma-path-single-mode" "single" "$(lines_of "$out" MODE | cut -f2)"
+out="$(cd "$R" && bash "$SHARD" base HEAD --files 1 --max 9 2>"$R/err")"; rc=$?
 equals "comma-path-rc1"          "1" "$rc"
 equals "comma-path-empty-stdout" ""  "$out"
-check  "comma-path-names-the-file" "cannot list a path containing a comma: a,b.txt" "$(cat "$R/err")"
+check  "comma-path-names-the-file" "cannot list a path containing a comma in a sharded diff: a,b.txt" "$(cat "$R/err")"
+check  "comma-path-names-the-way-out" "raise --files and --lines" "$(cat "$R/err")"
 
 # --- a bad ref exits non-zero with an empty stdout -----------------------------------------------
 out="$(cd "$R" && bash "$SHARD" base no-such-ref 2>/dev/null)"; rc=$?

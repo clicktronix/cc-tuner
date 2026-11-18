@@ -15,7 +15,11 @@ check "pattern-covers-docs-and-wiki" '^(docs|wiki)/task-plans/.*\.md$' "$OUT"
 check "pattern-outside-repo-rc0"     'rc=0'                              "$OUT"
 
 # run <repo> <mode> -> stdout+stderr, then a final line rc=<code>
-run() { ( cd "$1" && bash "$PLAN_PATH" "$2" 2>&1; printf 'rc=%s\n' "$?" ); }
+run() {
+  local repo="$1"
+  shift
+  ( cd "$repo" && bash "$PLAN_PATH" "$@" 2>&1; printf 'rc=%s\n' "$?" )
+}
 
 commit_plan() { # commit_plan <repo> <path>
   ( cd "$1" && mkdir -p "$(dirname "$2")" && printf '# plan\n' > "$2" \
@@ -95,6 +99,14 @@ R5="$(flow_repo)"
 ( cd "$R5" && git checkout -q -b draft && mkdir -p docs/task-plans && printf '# plan\n' > docs/task-plans/2026-01-01-draft.md )
 OUT="$(run "$R5" resolve)"
 check "untracked-plan-ignored" "no committed plan" "$OUT"
+check "untracked-plan-found-in-local-mode" "2026-01-01-draft.md" "$(run "$R5" resolve --local-only)"
+( cd "$R5" && git add docs/task-plans/2026-01-01-draft.md )
+check "staged-plan-ignored" "no committed plan" "$(run "$R5" resolve)"
+check "staged-plan-found-in-local-mode" "2026-01-01-draft.md" "$(run "$R5" resolve --local-only)"
+( cd "$R5" && git commit -q -m draft && mkdir wiki && git rm --cached -q docs/task-plans/2026-01-01-draft.md )
+check "resolve-uses-committed-tree-with-staged-deletion-and-untracked-wiki" \
+  "2026-01-01-draft.md" "$(run "$R5" resolve)"
+
 
 # --- refusals that are not about plans at all ----------------------------------------------------
 R6="$(flow_repo)"

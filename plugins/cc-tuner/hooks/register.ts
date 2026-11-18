@@ -34,11 +34,14 @@ async function showModels($: EngineInterface) {
   $.ui.status(counts.size === 0 ? undefined : `subagents: ${[...counts].map(([m, n]) => `${n} ${m}`).join(' · ')}`)
 }
 
-// A printed secret is in the transcript for good, so this one effect is refused at the call rather
+// A printed secret is in the transcript for good, so the common accident is refused at the call rather
 // than left to prose: `env`, `printenv`, `set`, `export`, `declare` or `typeset` with nothing to run
-// or name dumps every variable with its value, and reading a `.env` file prints its values. Each
+// or name dumps every variable with its value, and reading a `.env` file prints its values. Only what
+// reaches the transcript counts: output sent to a file, or piped into a command that prints none of it
+// (`wc`, `grep -c`, `grep -q`), is let through. A `bash -c` text is read as the commands it runs. Each
 // refusal names commands that answer the same question and print no value even when one spans
-// lines (a PEM key does; `cut -d= -f1` would print its body). Templates (`.env.example`) hold none.
+// lines (a PEM key does; `cut -d= -f1` would print its body). Templates (`.env.example`), schemas and
+// notes (`.env.schema`, `.env.md`) hold none. This is no boundary: `grep . .env` still prints the file.
 const CHECK_SET = "printenv NAME | wc -c"
 const LIST_NAMES = "awk 'BEGIN { for (k in ENVIRON) print k }'"
 const CHECK_KEY = "grep -c '^NAME=' FILE"
@@ -49,7 +52,7 @@ const WRAPPERS = new Set(['command', 'builtin', 'exec'])
 const LOOKUP = /^-[pvV]*[vV][pvV]*$/
 const ASSIGNMENT = /^[A-Za-z_]\w*=/
 const ENV_FILE = /(^|\/)\.env([.*?[][\w.*?[\]-]*)?$/
-const TEMPLATE = /\.(example|sample|template|dist)$/
+const TEMPLATE = /\.(example|sample|template|dist|schema|md)$/
 
 // The simple commands shell text would run, each as its words with quotes and escapes resolved and
 // the files it reads on stdin (`< file`). One reader handles every place the shell expands text —
@@ -59,66 +62,89 @@ const TEMPLATE = /\.(example|sample|template|dist)$/
 // text. Comments, quoted heredoc bodies and other redirections drop out.
 // Each command also keeps the directory it runs in (`dir`, relative to where the text starts or
 // absolute) and the operator that joins it to the command before it (`op`: `&&`, `||`, `;` or `|`,
-// empty for the first), and whether a redirection writes a file (`writes`). A `cd` moves the commands
-// after it only while they run if it succeeded, that is joined to it by `&&` (as long as the chain goes on); a step
-// that may run after a `cd` that failed, or the one before it, is in a directory nobody can tell (UNKNOWN). A $( … ),
-// backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage. The commands
+// empty for the first), the files its redirections write (`outputs`, read from where the text starts; `writes` when
+// there is one) and whether its standard output goes to a file (`out`, /dev/null included). A `cd` moves the
+// commands after it. Those joined to it by `&&` run only if it succeeded; any other (after `;`, a newline, `||`, or
+// once the chain ended) is `assumed` to be there: the guard checks that the directory exists. A `cd` whose target
+// cannot be read (a variable other than HOME and PWD, a substitution, `-`, `~user`) leaves the directory unknown
+// (UNKNOWN). A $( … ), backquote or ( … ) keeps its own `cd` to itself, and so does a pipeline stage. The commands
 // of one $( … ) or backquote share a `scope` of their own: what they do gates nothing outside, since the substitution's
 // failure does not fail the command around it.
-interface Simple { words: string[]; inputs: string[]; dir: string; op: string; writes: boolean; scope: number }
+interface Simple {
+  words: string[]; inputs: string[]; dir: string; op: string; writes: boolean; scope: number
+  assumed: boolean; out: boolean; outputs: string[]
+  // The indexes of the words a substitution wrote part of.
+  dynamic: number[]
+}
 let scopes = 0
 const METACHARS = ' \t\n;&|()<>'
 const OPERATORS = ['&&', '||', '|&', '|', ';', '&']
 const at = (dir: string, to: string) => to.startsWith('/') || dir === '' ? to : dir === UNKNOWN ? UNKNOWN : `${dir}/${to}`
+// A path as the shell expands it where that can be read: `~`, `$HOME` and `$PWD` at its head (the directory the shell is
+// in, so the rest is relative). undefined for any other expansion, `~user` and `-`.
+function placed(to: string, home: string): string | undefined {
+  const m = /^(~|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\})(\/.*)?$/.exec(to)
+  const path = m === null ? to : m[1]!.includes('PWD') ? `.${m[2] ?? ''}` : home === '' ? undefined : `${home}${m[2] ?? ''}`
+  return path === undefined || path === '-' || path.startsWith('~') || path.includes('$') ? undefined : path
+}
 
-function commands(text: string, base = '', first = '', top = 0): Simple[] {
+function commands(text: string, base = '', first = '', top = 0, home = '', loosely = false): Simple[] {
   const found: Simple[] = []
   const heredocs: { end: string; tabs: boolean; quoted: boolean }[] = []
   let i = 0
   let quoted = false
+  // Whether the word just read held a substitution, and how many substitutions were read so far.
+  let dynamic = false
+  let substituted = 0
   let literal = false
   let dir = base
   // Whether `dir` came from a `cd` the steps so far depend on: the chain of `&&` that ends it ends it.
   let armed = false
+  // Whether `dir` holds only if a `cd` the steps do not depend on succeeded.
+  let loose = loosely
   let op = first
   let scope = top
+  const fresh = (): Simple => ({ words: [], inputs: [], dir, op, writes: false, scope, assumed: loose, out: false, outputs: [], dynamic: [] })
 
   // A command list from i; nested, it stops after the `)` that closes its $(.
   function list(nested: boolean) {
-    let current: Simple = { words: [], inputs: [], dir, op, writes: false, scope }
-    const parens: [string, boolean][] = []
+    let current = fresh()
+    const parens: [string, boolean, boolean][] = []
     // Ends the command at an operator (`joined` is its text).
     const end = (joined?: string) => {
       let moves = false
       let to: string | undefined
       if (current.words.length > 0 || current.inputs.length > 0) {
-        current.dir = dir
-        current.op = op
+        Object.assign(current, { dir, op, assumed: loose && dir !== UNKNOWN && dir !== '' })
+        // A file a redirection writes is named from where the text starts, like `dir`; one nobody can place is left out.
+        current.outputs = current.outputs.flatMap(o => { const p = at(dir, o); return p === UNKNOWN ? [] : [p] })
         found.push(current)
-        const [name, ...args] = current.words.slice(lead(current.words))
-        to = args.find(a => a !== '--' && !/^-[LPe@]+$/.test(a))
-        moves = name === 'cd'
+        const k = lead(current.words)
+        moves = current.words[k] === 'cd'
+        const n = current.words.findIndex((a, j) => j > k && a !== '--' && !/^-[LPe@]+$/.test(a))
+        // `cd` alone goes home.
+        to = n === -1 ? (home === '' ? undefined : home) : current.dynamic.includes(n) ? undefined : placed(current.words[n]!, home)
       }
       const chained = joined === undefined || joined === '&&'
       const piped = joined === '|' || joined === '|&'
       if (moves && !piped && joined !== '&') {
-        dir = chained && to && to !== '-' && !to.startsWith('~') && !to.includes('$') ? at(dir, to) : UNKNOWN
-        armed = chained && dir !== UNKNOWN
+        if (to === undefined) [dir, loose, armed] = [UNKNOWN, false, false]
+        else [dir, loose, armed] = [at(dir, to), chained ? loose && !to.startsWith('/') : true, chained]
       } else if (armed && !chained && !piped) {
-        dir = UNKNOWN
+        loose = true
         armed = false
       }
-      current = { words: [], inputs: [], dir, op, writes: false, scope }
+      current = fresh()
       if (joined !== undefined) op = joined === '&' ? ';' : joined === '|&' ? '|' : joined
     }
     while (i < text.length) {
       const c = text[i]!
       if (c === '\n') { end(';'); i++; bodies() } else if (c === ' ' || c === '\t') i++
-      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); parens.push([dir, armed]); armed = false; i++ } else if (c === ')') {
+      else if (c === '#') { while (i < text.length && text[i] !== '\n') i++ } else if (c === '(') { end(); parens.push([dir, armed, loose]); armed = false; i++ } else if (c === ')') {
         end()
         i++
         if (parens.length === 0 && nested) return
-        ;[dir, armed] = parens.pop() ?? [dir, armed]
+        ;[dir, armed, loose] = parens.pop() ?? [dir, armed, loose]
       } else if (c === '&' && text[i + 1] === '>') { i++; redirect(current) } else if (';&|'.includes(c)) {
         const joined = OPERATORS.find(o => text.startsWith(o, i))!
         end(joined)
@@ -126,8 +152,11 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
       } else if (c === '<' || c === '>') redirect(current)
       else {
         const w = word()
-        if ((text[i] === '<' || text[i] === '>') && /^\d+$/.test(w)) redirect(current)
-        else current.words.push(w)
+        if ((text[i] === '<' || text[i] === '>') && /^\d+$/.test(w)) redirect(current, w)
+        else {
+          if (dynamic) current.dynamic.push(current.words.length)
+          current.words.push(w)
+        }
       }
     }
     end()
@@ -137,6 +166,7 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
   function word(): string {
     let out = ''
     let q = false
+    const before = substituted
     while (i < text.length && !METACHARS.includes(text[i]!)) {
       const c = text[i]!
       const start = i
@@ -156,6 +186,7 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
       } else if (substitution()) { if (literal) out += text.slice(start, i) } else { out += c; i++ }
     }
     quoted = q
+    dynamic = substituted > before
     return out
   }
 
@@ -179,13 +210,14 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
   function substitution(): boolean {
     const kept = found.length
     if (text.startsWith('$(', i)) {
-      const [outerDir, outerArmed, outerOp, outerScope] = [dir, armed, op, scope]
+      const [outerDir, outerArmed, outerLoose, outerOp, outerScope] = [dir, armed, loose, op, scope]
       i += 2
       scope = ++scopes
       armed = false
       list(true)
-      ;[dir, armed, op, scope] = [outerDir, outerArmed, outerOp, outerScope]
+      ;[dir, armed, loose, op, scope] = [outerDir, outerArmed, outerLoose, outerOp, outerScope]
       if (literal) found.length = kept
+      substituted++
       return true
     }
     if (text[i] !== '`') return false
@@ -195,12 +227,14 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
       body += text[i]
     }
     i++
-    if (!literal) found.push(...commands(body, dir, op, ++scopes))
+    if (!literal) found.push(...commands(body, dir, op, ++scopes, home, loose))
+    substituted++
     return true
   }
 
-  function redirect(current: Simple) {
-    const op = /^(<<-|<<<|<<|<>|<&|>>|>&|>\||<|>)/.exec(text.slice(i))![0]
+  // `fd` is the descriptor written before the operator, if any.
+  function redirect(current: Simple, fd?: string) {
+    const op = /^(<<-|<<<|<<|<>|<&|>>|>&|>\||<|>)/.exec(text.slice(i, i + 3))![0]
     i += op.length
     while (text[i] === ' ' || text[i] === '\t') i++
     const heredoc = op === '<<' || op === '<<-'
@@ -211,7 +245,12 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
     if (outer) return
     if (heredoc) heredocs.push({ end: target, tabs: op === '<<-', quoted })
     else if (op === '<' || op === '<>') current.inputs.push(target)
-    if (/^(>>?|>\||<>|>&)$/.test(op) && target !== '/dev/null' && !(op === '>&' && /^(\d+-?|-)$/.test(target))) current.writes = true
+    if (!/^(>>?|>\||<>|>&)$/.test(op) || (op === '>&' && /^(\d+-?|-)$/.test(target))) return
+    if (op !== '<>' && (fd === undefined || fd === '1')) current.out = true
+    if (target === '/dev/null') return
+    current.writes = true
+    const file = dynamic ? undefined : placed(target, home)
+    if (file !== undefined) current.outputs.push(file)
   }
 
   // The heredoc bodies that start after a newline; unquoted ones expand like double quotes.
@@ -239,16 +278,23 @@ function commands(text: string, base = '', first = '', top = 0): Simple[] {
   return found
 }
 
+// Where the command `env` runs starts in its arguments, past its options and assignments: -1 when it runs none
+// (it prints the environment) and undefined when `-S` hides the command in a string.
+function envRuns(args: string[]): number | undefined {
+  for (let k = 0; k < args.length; k++) {
+    const arg = args[k]!
+    if (arg === '-S' || arg.startsWith('--split-string')) return undefined
+    if (arg === '-u' || arg === '-P' || arg === '-C') k++
+    else if (!arg.startsWith('-') && !ASSIGNMENT.test(arg)) return k
+  }
+  return -1
+}
+
 function dumps(name: string, args: string[]): boolean {
   if (name === 'set') return args.length === 0
   if (name !== 'env') return args.every(arg => arg.startsWith('-'))
-  for (let k = 0; k < args.length; k++) {
-    const arg = args[k]!
-    if (arg === '-S' || arg.startsWith('--split-string')) return false
-    if (arg === '-u' || arg === '-P' || arg === '-C') k++
-    else if (!arg.startsWith('-') && !ASSIGNMENT.test(arg)) return false
-  }
-  return true
+  if (args.length === 1 && ['-i', '--ignore-environment', '-'].includes(args[0]!)) return false
+  return envRuns(args) === -1
 }
 
 // Where the command proper starts: past control words, variable assignments and the wrappers that
@@ -269,19 +315,45 @@ function lead(words: string[]): number {
   return at
 }
 
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
+const base = (word: string | undefined) => (word ?? '').slice((word ?? '').lastIndexOf('/') + 1)
+// The text a shell is given to run (`bash -c '…'`), or undefined.
+function shellText(name: string, args: string[]): string | undefined {
+  const c = SHELLS.has(name) ? args.findIndex(a => /^-[a-z]*c[a-z]*$/.test(a)) : -1
+  return c === -1 ? undefined : args[c + 1]
+}
+// A command that prints none of what it reads.
+function silent({ words }: Simple): boolean {
+  const [name, ...args] = words.slice(lead(words))
+  return base(name) === 'wc' || (base(name) === 'grep' && args.some(a => /^-[a-zA-Z]*[cq]/.test(a) || /^--(count|quiet|silent)$/.test(a)))
+}
+
 function secretLeak(command: string): string | undefined {
-  for (const { words, inputs } of commands(command)) {
-    const [name, ...args] = words.slice(lead(words))
+  const all = commands(command)
+  for (const [i, simple] of all.entries()) {
+    // What goes to a file, or into a command that prints none of it, does not reach the transcript. The next command
+    // of the same scope is the pipe's reader when `|` joins it.
+    const next = all.slice(i + 1).find(x => x.scope === simple.scope)
+    if (simple.out || (next?.op === '|' && silent(next))) continue
+    let [first, ...args] = simple.words.slice(lead(simple.words))
+    // `env VAR=1 cat .env` runs the command after it: that command is the one read.
+    for (let at = envRuns(args); first !== undefined && base(first) === 'env' && at !== undefined && at >= 0; at = envRuns(args)) {
+      ;[first, ...args] = args.slice(at)
+    }
+    const name = first === undefined ? undefined : base(first)
     if (name !== undefined && DUMPS.has(name) && dumps(name, args)) {
       return `cc-tuner: \`${[name, ...args].join(' ')}\` prints every variable's value, secrets included, into the transcript. ` +
         `Check one is set with \`${CHECK_SET}\`; list names only with \`${LIST_NAMES}\`.`
     }
-    const read = name === undefined || READERS.has(name) ? [...args, ...inputs] : []
+    const read = name === undefined || READERS.has(name) ? [...args, ...simple.inputs] : []
     const file = read.find(arg => ENV_FILE.test(arg) && !(TEMPLATE.test(arg) && !/[*?[]/.test(arg)))
     if (file !== undefined) {
       return `cc-tuner: \`${name ?? '<'} ${file}\` prints secret values into the transcript. ` +
         `Check a key is set with \`${CHECK_KEY.replace('FILE', file)}\`; key names come from its template (\`.env.example\`) or the user.`
     }
+    const inner = name === undefined ? undefined : shellText(name, args)
+    const leak = inner === undefined ? undefined : secretLeak(inner)
+    if (leak !== undefined) return leak
   }
   return undefined
 }
@@ -291,7 +363,6 @@ function secretLeak(command: string): string | undefined {
 // the wrapper's scope: `heavy.sh --`, `bash -c`, `env`, `xargs`, `git -C`. A `cd` is not a step, it
 // moved the directory of the steps after it. A wrapper it cannot read stays a step as written.
 type Step = Event['steps'] extends (infer S)[] | undefined ? S : never
-const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
 const XARGS_VALUED = new Set(['-n', '-I', '-L', '-P', '-d', '-E', '-s', '-a'])
 // Launchers that only start the command after them: their valued options, and the words that precede it.
 const LAUNCHERS = new Map<string, { valued: string[]; lead: number }>([
@@ -305,9 +376,8 @@ const GIT_CONFIG_ENV = /^GIT_CONFIG\w*=/
 // where nobody can tell, whatever `cd` follows.
 const GIT_PLACE_ENV = /^GIT_(DIR|WORK_TREE|COMMON_DIR|INDEX_FILE)=/
 const GIT_PLACE = new Set(['--git-dir', '--work-tree'])
-const base = (word: string | undefined) => (word ?? '').slice((word ?? '').lastIndexOf('/') + 1)
 
-function unwrap(simple: Simple): Step[] {
+function unwrap(simple: Simple, home = ''): Step[] {
   const config: string[] = []
   const place: string[] = []
   const peel = (ws: string[]) => {
@@ -347,11 +417,12 @@ function unwrap(simple: Simple): Step[] {
       if (dash === -1) break
       words = words.slice(dash + 1)
     } else if (SHELLS.has(name)) {
-      const c = args.findIndex(a => /^-[a-z]*c[a-z]*$/.test(a))
-      if (c === -1 || args[c + 1] === undefined) break
-      const inner = commands(args[c + 1]!, dir, simple.op, simple.scope).flatMap(unwrap)
+      const text = shellText(name, args)
+      if (text === undefined) break
+      const inner = commands(text, dir, simple.op, simple.scope, home, simple.assumed).flatMap(s => unwrap(s, home))
+      const outputs = (step: Step) => [...step.outputs ?? [], ...simple.outputs]
       return inner.map(step => ({
-        ...step, writes: step.writes || simple.writes,
+        ...step, writes: step.writes || simple.writes, ...(outputs(step).length > 0 ? { outputs: outputs(step) } : {}),
         ...(config.length > 0 ? { config: [...config, ...step.config ?? []] } : {}),
         ...(place.length > 0 ? { place: [...place, ...step.place ?? []], dir: UNKNOWN } : {}),
       }))
@@ -373,11 +444,13 @@ function unwrap(simple: Simple): Step[] {
   return words.length === 0 ? [] : [{
     words, dir: place.length > 0 ? UNKNOWN : dir, op: simple.op, writes: simple.writes, scope: simple.scope,
     ...(config.length > 0 ? { config } : {}), ...(place.length > 0 ? { place } : {}),
+    ...(simple.assumed && place.length === 0 ? { assumed: true } : {}), ...(simple.outputs.length > 0 ? { outputs: simple.outputs } : {}),
   }]
 }
 
-export function steps(command: string): Step[] {
-  return commands(command).flatMap(unwrap)
+// `home` is the user's home directory, for `cd ~` and `$HOME`; without it they are directories nobody can tell.
+export function steps(command: string, home = ''): Step[] {
+  return commands(command, '', '', 0, home).flatMap(s => unwrap(s, home))
 }
 
 // The guard is peers.ts, which owns the record of what each session did and every decision: allow, a note
@@ -396,31 +469,45 @@ const noted = <T extends { deny?: string; context?: readonly string[] }>(ran: T,
   verdict?.decision === 'note' && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), verdict.reason ?? ''] } : ran
 
 // A guard that fails never stops the call, but it says so: in the debug log, and once a session in the call's
-// own result, so the agent knows nothing is watching its steps.
+// own result, so the agent knows nothing is watching its steps. The guard says the same of a checkout or a process
+// list it could not read (`inactive` on its verdict). After a failure the guard is left alone for a minute, so the
+// calls that follow go on at once instead of failing the same way.
 const told = new Set<string | undefined>()
-async function fault($: EngineInterface, err: unknown, tell: boolean): Promise<Verdict | undefined> {
-  const why = err instanceof Error ? err.message : String(err)
-  await Promise.resolve().then(() => $.ui.log(`cc-tuner: peers guard failed: ${why}`, { to: 'debug' })).catch(() => undefined)
-  const sid = await $.session.id().catch(() => undefined)
+const REST = 60_000
+let down = 0
+const resting = () => Date.now() < down
+// The sentence, the first time a session is to hear it; `after` is the reason it follows, if any.
+function inactive(sid: string | undefined, why: string, tell: boolean, after?: string): string | undefined {
   if (!tell || told.has(sid)) return undefined
   told.add(sid)
-  return { decision: 'note', reason: `cc-tuner: the peers guard is inactive (${why})` }
+  return after === undefined ? `cc-tuner: the peers guard is inactive (${why})` : `${after} The peers guard is inactive (${why}).`
+}
+async function fault($: EngineInterface, err: unknown, tell: boolean): Promise<Verdict | undefined> {
+  const why = err instanceof Error ? err.message : String(err)
+  down = Date.now() + REST
+  await Promise.resolve().then(() => $.ui.log(`cc-tuner: peers guard failed: ${why}`, { to: 'debug' })).catch(() => undefined)
+  const said = inactive(await $.session.id().catch(() => undefined), why, tell)
+  return said === undefined ? undefined : { decision: 'note', reason: said }
 }
 
 async function guard($: EngineInterface, event: Partial<Event> & Pick<Event, 'phase'>): Promise<(Verdict & { line?: string }) | undefined> {
+  if (resting()) return undefined
   try {
     const t = Date.now()
-    const verdict = await peersOf($).check({ session_id: await $.session.id(), cwd: await $.session.cwd(), ...event })
+    const session_id = await $.session.id()
+    const verdict = await peersOf($).check({ session_id, cwd: await $.session.cwd(), ...event })
     await Promise.resolve()
       .then(() => $.ui.log(`cc-tuner: peers decided ${verdict.decision} in ${Date.now() - t} ms`, { to: 'debug' }))
       .catch(() => undefined)
-    return verdict
+    const said = verdict.inactive === undefined || verdict.decision === 'stop' ? undefined : inactive(session_id, verdict.inactive, event.phase === 'before', verdict.reason)
+    return said === undefined ? verdict : { ...verdict, decision: 'note', reason: said }
   } catch (err) {
     return fault($, err, event.phase === 'before')
   }
 }
 
 async function withPeers<T>($: EngineInterface, f: (p: Peers) => Promise<T>): Promise<T | undefined> {
+  if (resting()) return undefined
   try {
     return await f(peersOf($))
   } catch (err) {
@@ -463,7 +550,7 @@ export const register: Register = on => {
 
   // Another MCP server's tool may belong to an exclusive resource: one session at a time uses it.
   on('tool.call', { tool: /^mcp__(?!cc-tuner__)/ }, async ($, e, next) => {
-    const verdict = await peersOf($).lease(e.tool, await $.session.cwd(), await $.session.id()).catch(err => fault($, err, true))
+    const verdict = resting() ? undefined : await peersOf($).lease(e.tool, await $.session.cwd(), await $.session.id()).catch(err => fault($, err, true))
     if (verdict?.decision === 'stop') return { deny: verdict.reason ?? 'cc-tuner: stopped' }
     return noted(await next(e), verdict)
   })
@@ -472,7 +559,7 @@ export const register: Register = on => {
     const command = e.command.replace(ACK, '')
     const leak = secretLeak(command)
     if (leak !== undefined) return { deny: leak }
-    const parsed = steps(command)
+    const parsed = steps(command, (await $.env.get('HOME').catch(() => undefined)) ?? '')
     const before = await guard($, { phase: 'before', tool: 'Bash', steps: parsed, acks: acks(e.command) })
     if (before?.decision === 'stop') return { deny: before.reason ?? 'cc-tuner: stopped' }
     const ran = await next(command === e.command ? e : { ...e, command })

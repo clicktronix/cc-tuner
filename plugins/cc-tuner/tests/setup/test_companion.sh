@@ -91,9 +91,9 @@ eq "review-codex-not-logged-in" "none:codex-not-logged-in" "$OUT"
 comp "$W/codex-out:$NOCODEX" "$LIST_NONE" "$MKT_NONE" why "$OTHER"
 case "$OUT" in *"codex login"*) pass "why-not-logged-in-names-login" ;; *) fail "why-not-logged-in-names-login ($OUT)" ;; esac
 comp "$W/codex-in:$NOCODEX" "$LIST_NONE" "$MKT_NONE" review "$OTHER"
-eq "review-codex-ready-is-rc1" 1 "$RC"; eq "review-codex-ready-prints-nothing" "" "$OUT"
+eq "review-needs-a-bridge-decision" 2 "$RC"; eq "logged-in-without-bridge" "setup:absent" "$OUT"
 comp "$W/codex-in:$NOCODEX" "$LIST_NONE" "$MKT_NONE" why "$OTHER"
-eq "why-codex-ready-prints-nothing" "" "$OUT"
+eq "why-bridge-is-unavailable" "review bridge absent" "$OUT"
 comp "$W/codex-in:$NOCODEX" "$LIST_NONE" "$MKT_NONE" review "$REPO"
 eq "review-optout-wins-over-ready-codex" "none:later-reason" "$OUT"
 comp "$NOCODEX" "$LIST_NONE" "$MKT_NONE" review "$REPO"
@@ -105,14 +105,14 @@ case "$OUT" in *"opted out"*"later-reason"*) pass "why-optout-names-the-reason" 
 list() { jq -nc --arg id "$MATT" --arg pp "$REPO" "$1"; }
 INST="$(as_json "$(list '[{id:$id,version:"1.0.0",scope:"user",enabled:true,installPath:"/p"}]')")"
 comp "$NOCODEX" "$INST" "$MKT_NONE" state "$MATT" "$REPO"
-eq "state-installed" "installed${TAB}1.0.0${TAB}user" "$OUT"; eq "state-installed-rc0" 0 "$RC"
+eq "state-installed" "installed${TAB}1.0.0${TAB}user${TAB}$MATT" "$OUT"; eq "state-installed-rc0" 0 "$RC"
 
 comp "$NOCODEX" "$LIST_NONE" "$MKT_NONE" state "$MATT" "$REPO"
 eq "state-absent" absent "$OUT"; eq "state-absent-rc1" 1 "$RC"
 
 DIS="$(as_json "$(list '[{id:$id,version:"2.0.0",scope:"user",enabled:false,installPath:"/p"}]')")"
 comp "$NOCODEX" "$DIS" "$MKT_NONE" state "$MATT" "$REPO"
-eq "state-disabled" "disabled${TAB}2.0.0${TAB}user" "$OUT"; eq "state-disabled-rc0" 0 "$RC"
+eq "state-disabled" "disabled${TAB}2.0.0${TAB}user${TAB}$MATT" "$OUT"; eq "state-disabled-rc0" 0 "$RC"
 
 # A disabled project install belonging to ANOTHER project is not this repository's to enable.
 FOREIGN="$(as_json "$(list '[{id:$id,version:"2.0.0",scope:"project",enabled:false,installPath:"/p",projectPath:"/somewhere/else"}]')")"
@@ -124,13 +124,51 @@ case "$OUT" in *"/plugin enable"*) fail "hint-foreign-disabled-no-enable ($OUT)"
 # A disabled install scoped to THIS project counts.
 HERE_DIS="$(as_json "$(list '[{id:$id,version:"2.0.0",scope:"project",enabled:false,installPath:"/p",projectPath:$pp}]')")"
 comp "$NOCODEX" "$HERE_DIS" "$MKT_NONE" state "$MATT" "$REPO"
-eq "state-disabled-here-scope" "disabled${TAB}2.0.0${TAB}project" "$OUT"
+eq "state-disabled-here-scope" "disabled${TAB}2.0.0${TAB}project${TAB}$MATT" "$OUT"
 
 # An applicable enabled install answers as installed even beside a disabled one: the mode never
 # disagrees with plugin-here.sh without the flag about whether the plugin is installed.
 BOTH="$(as_json "$(list '[{id:$id,version:"2.0.0",scope:"project",enabled:false,installPath:"/p",projectPath:$pp},{id:$id,version:"1.0.0",scope:"user",enabled:true,installPath:"/q"}]')")"
 comp "$NOCODEX" "$BOTH" "$MKT_NONE" state "$MATT" "$REPO"
-eq "state-enabled-install-beats-disabled" "installed${TAB}1.0.0${TAB}user" "$OUT"
+eq "state-enabled-install-beats-disabled" "installed${TAB}1.0.0${TAB}user${TAB}$MATT" "$OUT"
+
+# --- one companion, more than one marketplace id ----------------------------------------------------
+# mattpocock-skills is also distributed by claude-plugins-official. Its skills are addressed by plugin
+# name, so that copy serves /spec and /run exactly as the other does; identifying the companion by one
+# id reported it missing on a machine where every skill resolved.
+OFFICIAL='mattpocock-skills@claude-plugins-official'
+comp "$NOCODEX" "$LIST_NONE" "$MKT_NONE" table "$MATT"
+eq "table-lists-the-other-accepted-id" "$OFFICIAL" "$(printf '%s' "$OUT" | cut -f5)"
+eq "table-keeps-needed-by-in-column-4" "grilling" "$(printf '%s' "$OUT" | cut -f4 | cut -c1-8)"
+ALT="$(as_json "$(jq -nc --arg id "$OFFICIAL" '[{id:$id,version:"1.3.1",scope:"user",enabled:true,installPath:"/official"}]')")"
+comp "$NOCODEX" "$ALT" "$MKT_NONE" state "$MATT" "$REPO"
+eq "state-accepts-the-other-id" "installed${TAB}1.3.1${TAB}user${TAB}$OFFICIAL" "$OUT"; eq "state-other-id-rc0" 0 "$RC"
+comp "$NOCODEX" "$ALT" "$MKT_NONE" root "$MATT" "$REPO"
+eq "root-is-the-install-path-of-the-found-id" "/official" "$OUT"; eq "root-rc0" 0 "$RC"
+comp "$NOCODEX" "$ALT" "$MKT_NONE" hint "$MATT" "$REPO"
+eq "hint-nothing-for-the-other-id" "" "$OUT"; eq "hint-other-id-rc0" 0 "$RC"
+# Disabled under the other id: the command names the id that is there, which is the one `enable` takes.
+ALT_DIS="$(as_json "$(jq -nc --arg id "$OFFICIAL" '[{id:$id,version:"1.3.1",scope:"user",enabled:false,installPath:"/official"}]')")"
+comp "$NOCODEX" "$ALT_DIS" "$MKT_NONE" state "$MATT" "$REPO"
+eq "state-other-id-disabled" "disabled${TAB}1.3.1${TAB}user${TAB}$OFFICIAL" "$OUT"
+comp "$NOCODEX" "$ALT_DIS" "$MKT_NONE" hint "$MATT" "$REPO"
+eq "hint-enables-the-id-that-is-installed" "/plugin enable $OFFICIAL" "$OUT"
+comp "$NOCODEX" "$ALT_DIS" "$MKT_NONE" root "$MATT" "$REPO"
+eq "root-none-for-a-disabled-copy" "" "$OUT"; eq "root-disabled-rc1" 1 "$RC"
+# An enabled copy under either id beats a disabled one under the other.
+MIXED="$(as_json "$(jq -nc --arg a "$MATT" --arg b "$OFFICIAL" '[{id:$a,version:"1.0.0",scope:"user",enabled:false,installPath:"/p"},{id:$b,version:"1.3.1",scope:"user",enabled:true,installPath:"/official"}]')")"
+comp "$NOCODEX" "$MIXED" "$MKT_NONE" state "$MATT" "$REPO"
+eq "state-enabled-other-id-beats-disabled-own" "installed${TAB}1.3.1${TAB}user${TAB}$OFFICIAL" "$OUT"
+# Absent under every id: the install offered is the companion's own id, the first in the row.
+comp "$NOCODEX" "$LIST_NONE" "$MKT_MATT" hint "$MATT" "$REPO"
+eq "hint-installs-the-first-id" "/plugin install $MATT" "$OUT"
+comp "$NOCODEX" "$LIST_NONE" "$MKT_NONE" root "$MATT" "$REPO"
+eq "root-absent-rc1" 1 "$RC"
+comp "$NOCODEX" "false" "$MKT_NONE" root "$MATT" "$REPO"
+eq "root-unlistable-rc2" 2 "$RC"
+# The other id is not a companion name of its own: one row, one name.
+comp "$NOCODEX" "$ALT" "$MKT_NONE" state "$OFFICIAL" "$REPO"
+eq "other-id-is-not-a-companion-name-rc2" 2 "$RC"
 
 comp "$NOCODEX" "false" "$MKT_NONE" state "$MATT" "$REPO"
 eq "state-unlistable-is-unknown" unknown "$OUT"; eq "state-unlistable-rc2" 2 "$RC"

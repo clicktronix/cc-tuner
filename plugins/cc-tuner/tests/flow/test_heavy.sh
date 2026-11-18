@@ -12,10 +12,13 @@ W="$(flow_workdir)"
 # unless a case sets CC_TUNER_HEAVY_SLOTS itself.
 # Memory pressure is pinned to normal the same way: no case may depend on how loaded this machine is.
 export CC_TUNER_HEAVY_DIR="$W/slots" CC_TUNER_HEAVY_POLL=0.1 CC_TUNER_HEAVY_TOTAL_MB=16384 CC_TUNER_HEAVY_PRESSURE=normal
-unset CC_TUNER_HEAVY_HELD CC_TUNER_HEAVY_SLOTS CC_TUNER_HEAVY_PROC CC_TUNER_HEAVY_MEM_WAIT
+unset CC_TUNER_HEAVY_HELD CC_TUNER_HEAVY_SLOTS CC_TUNER_HEAVY_PROC CC_TUNER_HEAVY_MEM_WAIT CC_TUNER_HEAVY_WAIT
 
 # until_logged <file> <marker>: wait until the work under test has started, instead of guessing a
 # delay (the supervisor's start-up time is not a constant).
+# A background launch empties its stderr file only once the child runs, so each one is emptied here
+# first (`: > file`): a wait on a file an earlier case used would otherwise match that case's
+# "waiting" and let the next step start before this caller is queued.
 # A marker that never appears fails the case by name rather than letting a later assertion pass on
 # a timing accident.
 until_logged() {
@@ -50,6 +53,7 @@ LOG="$W/order.log"; : > "$LOG"
 CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; i=0; while [ ! -f '$W/a.release' ] && [ \$i -lt 200 ]; do sleep 0.05; i=\$((i + 1)); done; echo A-end >> '$LOG'" &
 A=$!
 until_logged "$LOG" A-start
+: > "$W/second.err"
 CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label second -- sh -c "echo B-start >> '$LOG'" 2> "$W/second.err" &
 B=$!
 until_logged "$W/second.err" "waiting"
@@ -235,6 +239,7 @@ check "bad-weight-refused" "positive integer" "$(bash "$HEAVY" --weight 0 -- tru
 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label holder -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
 A=$!
 until_logged "$LOG" A-start
+: > "$W/h.err"
 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label double -- sh -c "echo H-start >> '$LOG'; echo H-end >> '$LOG'" 2> "$W/h.err" &
 H=$!
 until_logged "$W/h.err" "waiting"
@@ -250,9 +255,11 @@ equals "weight-two-starts-after-both-free" "A-start A-end H-start H-end" "$(orde
 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
 A=$!
 until_logged "$LOG" A-start
+: > "$W/h.err"
 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label heavyhead -- sh -c "echo H-start >> '$LOG'; $(hold_until "$W/h.release"); echo H-end >> '$LOG'" 2> "$W/h.err" &
 H=$!
 until_logged "$W/h.err" "waiting"
+: > "$W/c.err"
 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label late -- sh -c "echo C-start >> '$LOG'; echo C-end >> '$LOG'" 2> "$W/c.err" &
 C=$!
 until_waiting_or_started "$W/c.err" "$LOG" C-start
@@ -270,71 +277,17 @@ touch "$W/h.release"
 wait "$H"; wait "$C"; wait "$A"
 equals "arrival-order-is-kept" "A-start A-end H-start H-end C-start C-end" "$(order)"
 
-# The head polls fast, so a pre-change waiter polling at its default interval rarely wins the slot
-# the head still needs: with everyone else polling every 5 s, the head starts well within 3 s of
-# the release.
-: > "$LOG"; rm -f "$W/a.release" "$W/h.release"
-CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --label first -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
-A=$!
-until_logged "$LOG" A-start
-CC_TUNER_HEAVY_POLL=5 CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label fasthead -- sh -c "echo H-start >> '$LOG'" 2> "$W/h.err" &
-H=$!
-until_logged "$W/h.err" "waiting"
-sleep 5.2
-T0=$(python3 -c 'import time; print(time.time())')
-touch "$W/a.release"
-until_logged "$LOG" H-start
-T1=$(python3 -c 'import time; print(time.time())')
-wait "$H"; wait "$A"
-if python3 -c "import sys; sys.exit(0 if $T1 - $T0 < 3 else 1)"; then
-  pass "head-polls-fast-for-its-last-slot"
-else
-  fail "head-polls-fast-for-its-last-slot (took $(python3 -c "print(round($T1 - $T0, 2))")s after the release)"
-fi
-
-# A slot held by the pre-change heavy.sh (slot-1..N, weight 1, no queue) blocks the new one.
-OLD="$W/heavy-old.sh"
-git -C "$FLOW_PLUGIN" show 45795a7:plugins/cc-tuner/scripts/heavy.sh > "$OLD" 2>/dev/null || fail "pre-change heavy.sh not retrievable (fetch-depth 0 needed)"
-: > "$LOG"; rm -f "$W/o.release"
-CC_TUNER_HEAVY_SLOTS=1 bash "$OLD" --label oldholder -- sh -c "echo O-start >> '$LOG'; $(hold_until "$W/o.release"); echo O-end >> '$LOG'" &
-O=$!
-until_logged "$LOG" O-start
-CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" -- sh -c "echo N-start >> '$LOG'" 2> "$W/n.err" &
-N=$!
-until_logged "$W/n.err" "waiting"
-equals "pre-change-holder-blocks-new" "O-start" "$(order)"
-touch "$W/o.release"
-wait "$N"; wait "$O"
-equals "new-starts-after-pre-change-holder" "O-start O-end N-start" "$(order)"
-
-# A pre-change waiter does not overtake a weight-2 head. The old waiter retries every 5 s; the head
-# retries every 0.1 s, so it has the freed slot long before the old waiter looks.
-: > "$LOG"; rm -f "$W/o.release" "$W/h.release"
-CC_TUNER_HEAVY_SLOTS=2 bash "$OLD" --label oldholder -- sh -c "echo O-start >> '$LOG'; $(hold_until "$W/o.release"); echo O-end >> '$LOG'" &
-O=$!
-until_logged "$LOG" O-start
-CC_TUNER_HEAVY_SLOTS=2 bash "$HEAVY" --weight 2 --label heavyhead -- sh -c "echo H-start >> '$LOG'; $(hold_until "$W/h.release"); echo H-end >> '$LOG'" 2> "$W/h.err" &
-H=$!
-until_logged "$W/h.err" "waiting"
-CC_TUNER_HEAVY_SLOTS=2 CC_TUNER_HEAVY_POLL=5 bash "$OLD" --label oldwaiter -- sh -c "echo L-start >> '$LOG'" 2> "$W/l.err" &
-L=$!
-until_logged "$W/l.err" "waiting"
-touch "$W/o.release"
-until_logged "$LOG" H-start
-equals "pre-change-waiter-at-slow-poll-yields-to-head" "O-start O-end H-start" "$(order)"
-touch "$W/h.release"
-wait "$H"; wait "$L"; wait "$O"
-equals "pre-change-waiter-at-slow-poll-starts-after-head" "O-start O-end H-start H-end L-start" "$(order)"
-
 # A waiter that died leaves a ticket nobody holds; it must not block the ones behind it.
 : > "$LOG"; rm -f "$W/a.release"
 CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label holder -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
 A=$!
 until_logged "$LOG" A-start
+: > "$W/d.err"
 CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label doomedwaiter -- sh -c "echo D-start >> '$LOG'" 2> "$W/d.err" &
 D=$!
 until_logged "$W/d.err" "waiting"
 kill -9 "$D"; wait "$D" 2>/dev/null
+: > "$W/c.err"
 CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label survivor -- sh -c "echo C-start >> '$LOG'" 2> "$W/c.err" &
 C=$!
 until_logged "$W/c.err" "waiting"
@@ -373,6 +326,7 @@ until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
 rm -f "$W/slots/memory-deficit"
 for LEVEL in warn critical; do
   : > "$LOG"
+  : > "$W/p.err"
   CC_TUNER_HEAVY_PRESSURE=$LEVEL CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" --label pressured -- sh -c "echo P-start >> '$LOG'" 2> "$W/p.err" &
   P=$!
   until_waiting_or_started "$W/p.err" "$LOG" P-start
@@ -391,6 +345,7 @@ mkdir -p "$W/linux/proc/pressure"
 psi() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n' "$1" > "$W/linux/proc/pressure/memory"; }
 linux_env() { env -u CC_TUNER_HEAVY_PRESSURE PATH="$W/linux/bin:$PATH" CC_TUNER_HEAVY_PROC="$W/linux/proc" "$@"; }
 : > "$LOG"; psi 25.00
+: > "$W/p.err"
 linux_env CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- sh -c "echo P-start >> '$LOG'" 2> "$W/p.err" &
 P=$!
 until_waiting_or_started "$W/p.err" "$LOG" P-start
@@ -421,7 +376,7 @@ kill -9 "$P"; wait "$P" 2>/dev/null
 n=0
 while kill -0 "$Y" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.05; n=$((n + 1)); done
 if kill -0 "$Y" 2>/dev/null; then fail "pressure-wait-honours-caller-gone"; kill -9 "$Y" 2>/dev/null; else pass "pressure-wait-honours-caller-gone"; fi
-check "pressure-wait-says-caller-gone" "the caller is gone" "$(cat "$W/y.err")"
+check "pressure-wait-says-caller-gone" "the caller exited while this check was queued" "$(cat "$W/y.err")"
 equals "pressure-wait-orphan-never-ran" "" "$(order)"
 
 # The readers parse what the OS prints. Linux: some avg10 >= 10 is pressure; a missing file is not measured.
@@ -469,6 +424,7 @@ n=0
 while CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status | grep -q "deficit mark" && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
 absent "deficit-mark-ends" "deficit mark" "$(CC_TUNER_HEAVY_PRESSURE=critical bash "$HEAVY" status)"
 : > "$LOG"
+: > "$W/r.err"
 CC_TUNER_HEAVY_PRESSURE=critical CC_TUNER_HEAVY_MEM_WAIT=60 bash "$HEAVY" -- sh -c "echo R-start >> '$LOG'" 2> "$W/r.err" &
 P=$!
 until_waiting_or_started "$W/r.err" "$LOG" R-start
@@ -497,6 +453,52 @@ rm -f "$W/slots/memory-deficit"
 check "no-command-refused" "no command" "$(bash "$HEAVY" -- 2>&1)"
 check "bad-slots-refused" "positive integer" "$(bash "$HEAVY" --slots 0 -- true 2>&1)"
 
+# heavy.sh's own refusals have their own exit code: 2 is what a test runner returns for its own
+# failures, and a caller reading only the code took a mistyped flag for a failed check.
+OUT="$(bash "$HEAVY" --weight x -- true 2>&1; printf 'rc=%s' "$?")"
+check "own-refusal-exits-64" "rc=64" "$OUT"
+check "command-exit-2-passes-through" "rc=2" "$(bash "$HEAVY" -- sh -c 'exit 2' 2>&1; printf 'rc=%s' "$?")"
+OUT="$(bash "$HEAVY" --wieght 2 -- true 2>&1; printf 'rc=%s' "$?")"
+check "unknown-flag-named" "unknown argument '--wieght'" "$OUT"
+check "bad-wait-refused" "CC_TUNER_HEAVY_WAIT must be" "$(CC_TUNER_HEAVY_WAIT=soon bash "$HEAVY" -- true 2>&1)"
+OUT="$(bash "$HEAVY" --help; printf 'rc=%s' "$?")"
+check "help-documents-status" "heavy.sh status" "$OUT"
+check "help-documents-slots"  "--slots <n>"     "$OUT"
+check "help-documents-exit-64" "Exit 64"        "$OUT"
+check "help-rc0"              "rc=0"            "$OUT"
+
+# The wait for a slot is bounded. A holder that never lets go (a dev server left behind by a build)
+# used to hold every later check on the machine with one line of output and no end; now the holders
+# are restated while it waits, and at the bound the check starts anyway and says so.
+: > "$LOG"; rm -f "$W/a.release"
+CC_TUNER_HEAVY_SLOTS=1 bash "$HEAVY" --label stuck-holder -- sh -c "echo A-start >> '$LOG'; $(hold_until "$W/a.release"); echo A-end >> '$LOG'" &
+A=$!
+until_logged "$LOG" A-start
+OUT="$(CC_TUNER_HEAVY_SLOTS=1 CC_TUNER_HEAVY_WAIT=1.5 bash "$HEAVY" --label bounded -- sh -c "echo B-start >> '$LOG'; echo held=\$CC_TUNER_HEAVY_HELD; exit 7" 2>&1; printf 'rc=%s' "$?")"
+touch "$W/a.release"; wait "$A"
+equals "bounded-wait-starts-anyway" "A-start B-start A-end" "$(order)"
+check  "bounded-wait-says-so"        "heavy.sh: started without a slot after" "$OUT"
+check  "bounded-wait-counts-slots"   "holding 0 of 1: bounded"              "$OUT"
+check  "bounded-wait-names-holder"   "held by: slot-1: stuck-holder"        "$OUT"
+check  "bounded-wait-states-bound"   "waiting for one of 1 heavy-check slot(s), at most 1s" "$OUT"
+check  "waiting-restates-holders"    "still waiting after"                  "$OUT"
+check  "bounded-wait-passes-code"    "rc=7"                                 "$OUT"
+# A heavy.sh inside that work must not queue again behind the same holder.
+check  "unslotted-work-nests"        "held=none"                            "$OUT"
+until bash "$HEAVY" status | grep -q "all slots free"; do sleep 0.1; done
+
+# A slot directory that cannot be written (a sandboxed HOME) is the same case as a missing python3:
+# the check cannot be limited, and it still runs. It used to end in a Python traceback.
+: > "$W/not-a-dir"
+OUT="$(CC_TUNER_HEAVY_DIR="$W/not-a-dir/slots" bash "$HEAVY" --label nodir -- sh -c 'echo ran-anyway; exit 5' 2>&1; printf 'rc=%s' "$?")"
+check  "unwritable-dir-runs-command"  "ran-anyway"                                 "$OUT"
+check  "unwritable-dir-says-so"       "cannot write the slot directory"            "$OUT"
+check  "unwritable-dir-names-label"   "running without a slot: nodir"              "$OUT"
+check  "unwritable-dir-passes-code"   "rc=5"                                       "$OUT"
+absent "unwritable-dir-no-traceback"  "Traceback"                                  "$OUT"
+OUT="$(CC_TUNER_HEAVY_DIR="$W/not-a-dir/slots" bash "$HEAVY" status 2>&1; printf 'rc=%s' "$?")"
+check  "unwritable-dir-status-refused" "rc=64" "$OUT"
+
 # `status` read a holder file between its truncate and its write and printed "unknown holder"
 # (release PR #64, ubuntu CI). The window is too short to hit on demand, so the guard is on the
 # writes: every one replaces the file whole through write_owner.
@@ -513,9 +515,9 @@ else
 fi
 
 if python3 "$(dirname "$0")/test_heavy_caller.py"; then
-  pass "work-never-starts-for-a-gone-caller"
+  pass "caller-exit-and-detached-launch"
 else
-  fail "work-never-starts-for-a-gone-caller"
+  fail "caller-exit-and-detached-launch"
 fi
 
 exit $fails

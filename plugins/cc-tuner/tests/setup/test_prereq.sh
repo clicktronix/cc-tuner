@@ -40,9 +40,17 @@ codex_root() {  # codex_root <dir> [broken: review|state]
   # which review-state.sh alone emits (#42).
   if [ "$broken" = "review" ]; then printf 'legacy review command\n' > "$r/commands/review.md"
   else printf '%s\n' '--required' > "$r/commands/review.md"; fi
-  if [ "$broken" = "state" ]; then printf 'legacy review state\n' > "$r/scripts/review-state.sh"
-  elif [ "$broken" = "old" ]; then printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' > "$r/scripts/review-state.sh"
-  else printf '%s\n' '  check)' 'CC_CODEX_REQUIRED_REVIEW APPROVE' '        --integration) INTEGRATION=true; shift ;;' '  renew)' > "$r/scripts/review-state.sh"; fi
+  case "$broken" in
+    state) printf '%s\n' 'exit 1' > "$r/scripts/review-state.sh" ;;
+    old) printf '%s\n' 'echo "usage: check <thread>" >&2; exit 1' > "$r/scripts/review-state.sh" ;;
+    *) cat > "$r/scripts/review-state.sh" <<'SH'
+case "$1" in
+  begin|renew) exit 1 ;; # No thread was opened by preflight.
+  check) echo "NOT_APPROVED"; exit 1 ;;
+  *) echo 'usage: renew <thread> --by <who> | begin <thread> [--integration] | check <thread>' >&2; exit 1 ;;
+esac
+SH
+  esac
   printf '%s' "$r"
 }
 
@@ -84,9 +92,26 @@ M="$(matt_root matt)"; C="$(codex_root codex)"
 OUT="$(run_with "$(rows "$M" "$C")")"
 case "$OUT" in *"prereqs OK"*) pass "all-present" ;; *) fail "all-present ($OUT)" ;; esac
 case "$OUT" in *NOTE:*) fail "current-companion-has-no-note ($OUT)" ;; *) pass "current-companion-has-no-note" ;; esac
-OUT="$(run_with "$(rows "$(matt_root matt-old)" "$(codex_root codex-old old)")")"
-case "$OUT" in *"prereqs OK"*) pass "old-companion-still-passes" ;; *) fail "old-companion-still-passes ($OUT)" ;; esac
-case "$OUT" in *"predates integration rounds and renew"*) pass "old-companion-named-with-fallback" ;; *) fail "old-companion-named-with-fallback ($OUT)" ;; esac
+# A cc-codex-triage older than 0.14 has no integration rounds and no renew, which /cc-tuner:run uses:
+# a blocker with the update command, not a note about a fallback the flow no longer has.
+OUT="$(run_with "$(rows "$(matt_root matt-old)" "$(codex_root codex-old old)")")"; rc=$?
+[ "$rc" -eq 1 ] && pass "old-companion-rc1" || fail "old-companion-rc1 (rc=$rc)"
+case "$OUT" in *"MISSING: cc-codex-triage 0.14 or later"*) pass "old-companion-is-missing" ;; *) fail "old-companion-is-missing ($OUT)" ;; esac
+case "$OUT" in *"update: /plugin marketplace update cc-codex-triage && /plugin update cc-codex-triage@cc-codex-triage"*) pass "old-companion-names-the-update" ;; *) fail "old-companion-names-the-update ($OUT)" ;; esac
+case "$OUT" in *"prereqs OK"*|*NOTE:*) fail "old-companion-neither-ok-nor-note ($OUT)" ;; *) pass "old-companion-neither-ok-nor-note" ;; esac
+
+# mattpocock-skills installed from the official marketplace is the same plugin under another id.
+OFFICIAL_ROWS="$(jq -nc --arg m "$M" --arg c "$C" '
+  [ {id:"mattpocock-skills@claude-plugins-official", version:"1.3.1", scope:"user", enabled:true, installPath:$m},
+    {id:"cc-codex-triage@cc-codex-triage", version:"1.0.0", scope:"user", enabled:true, installPath:$c} ]')"
+OUT="$(run_with "$OFFICIAL_ROWS")"
+case "$OUT" in *"prereqs OK"*) pass "official-marketplace-matt-is-present" ;; *) fail "official-marketplace-matt-is-present ($OUT)" ;; esac
+# ...and an incomplete copy of it is updated from the marketplace it came from.
+OFFICIAL_STALE="$(jq -nc --arg m "$(matt_root matt-official-stale engineering/code-review)" --arg c "$C" '
+  [ {id:"mattpocock-skills@claude-plugins-official", version:"1.0.0", scope:"user", enabled:true, installPath:$m},
+    {id:"cc-codex-triage@cc-codex-triage", version:"1.0.0", scope:"user", enabled:true, installPath:$c} ]')"
+OUT="$(run_with "$OFFICIAL_STALE")"
+case "$OUT" in *"update: /plugin marketplace update claude-plugins-official && /plugin update mattpocock-skills@claude-plugins-official"*) pass "official-marketplace-update-names-its-own-id" ;; *) fail "official-marketplace-update-names-its-own-id ($OUT)" ;; esac
 
 # --- each dependency, missing on its own ----------------------------------------------------------
 OUT="$(run_with "$(rows "$W/nope" "$C")")"
@@ -163,6 +188,31 @@ r "$(rows "$M" "$C")" 'nothing@nowhere' >/dev/null 2>&1
 
 CC_TUNER_PLUGIN_LIST_CMD=false bash "$RESOLVER" 'x@y' "$PROJECT" >/dev/null 2>&1
 [ $? -eq 2 ] && pass "resolver-unanswerable-is-rc2" || fail "resolver-unanswerable-is-rc2"
+
+# A project-scoped install is recorded for the checkout it was made in. A linked worktree of that
+# checkout has the committed .claude/settings.json and so the plugin, but its own root is another
+# path: from a task worktree the companion read as absent and merge.sh refused the Codex review.
+# Real `git worktree add`, because the question is what git reports as the main worktree.
+MAINCO="$W/mainco"; mkdir -p "$MAINCO"
+( cd "$MAINCO" && git init -q -b main && git -c user.email=t@e.x -c user.name=t commit -q --allow-empty -m seed \
+  && git worktree add -q -b task "$W/linked" ) || fail "worktree-fixture"
+MAINCO="$(cd "$MAINCO" && pwd -P)"; LINKED="$(cd "$W/linked" && pwd -P)"
+IN_MAIN="$(jq -nc --arg pp "$MAINCO" '
+  [ {id:"p@p", version:"2", scope:"project", enabled:true, installPath:"/p", projectPath:$pp} ]')"
+OUT="$(CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$IN_MAIN")" bash "$RESOLVER" 'p@p' "$LINKED" 2>/dev/null)"
+[ "$OUT" = "$(printf '/p\t2\tproject')" ] \
+  && pass "resolver-finds-main-checkout-install-from-a-worktree" || fail "resolver-finds-main-checkout-install-from-a-worktree (got '$OUT')"
+OUT="$(cd "$LINKED" && CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$IN_MAIN")" bash "$RESOLVER" 'p@p' 2>/dev/null)"
+[ "$OUT" = "$(printf '/p\t2\tproject')" ] \
+  && pass "resolver-worktree-root-inferred-from-cwd" || fail "resolver-worktree-root-inferred-from-cwd (got '$OUT')"
+# `local` is settings.local.json, which is not committed: the worktree does not have it.
+LOCAL_MAIN="$(jq -nc --arg pp "$MAINCO" '
+  [ {id:"p@p", version:"1", scope:"local", enabled:true, installPath:"/l", projectPath:$pp} ]')"
+CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$LOCAL_MAIN")" bash "$RESOLVER" 'p@p' "$LINKED" >/dev/null 2>&1
+[ $? -eq 1 ] && pass "resolver-local-install-stays-with-its-checkout" || fail "resolver-local-install-stays-with-its-checkout"
+# Another repository's worktree is still another repository.
+CC_TUNER_PLUGIN_LIST_CMD="$(as_list "$IN_MAIN")" bash "$RESOLVER" 'p@p' "$PROJECT" >/dev/null 2>&1
+[ $? -eq 1 ] && pass "resolver-other-repository-still-absent" || fail "resolver-other-repository-still-absent"
 
 # Precedence: local beats project beats user, and list order must not decide it. Emitted worst-first
 # here on purpose -- a resolver that returned the list as given would pass every other case.

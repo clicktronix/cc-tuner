@@ -35,29 +35,13 @@ The template carries no substitution tokens; it installs verbatim.
 - No `$DEST` → report "not installed".
 - `$DEST` exists → print its first line (the marker). If the file content equals `$RENDERED` →
   "up to date". Differs → "outdated or locally modified — run `/cc-tuner:setup install task-flow`"
-  and show `diff` output. Also report whether `$LOCAL` exists, and whether a legacy
-  `git-flow.md` / `git-flow.local.md` is still present. Take no other action.
+  and show `diff` output. Also report whether `$LOCAL` exists. Take no other action.
 - Compare by content, not by marker version: the marker is the plugin version at the template's last
   change, so an older marker on an unchanged template is expected.
 
 ## install
 
-1. **Migrate the deltas file off the `git-flow` name — first, before anything else.** An older
-   release shipped this rule as `git-flow.md`. Step 6 creates `$LOCAL` when it is missing, so if it
-   ran first this migration would decline and the repo would start from an empty deltas file with its
-   cached board field IDs gone:
-   ```bash
-   OLD_LOCAL="$ROOT/.claude/rules/git-flow.local.md"
-   if [ -f "$OLD_LOCAL" ] && [ ! -f "$LOCAL" ]; then
-     mkdir -p "$ROOT/.claude/rules" || { echo "ERROR: cannot create $ROOT/.claude/rules"; exit 1; }
-     git -C "$ROOT" mv "$OLD_LOCAL" "$LOCAL" 2>/dev/null || mv "$OLD_LOCAL" "$LOCAL" \
-       || { echo "ERROR: failed to migrate $OLD_LOCAL"; exit 1; }
-     echo "Migrated git-flow.local.md -> task-flow.local.md (your deltas, including cached board field IDs)"
-   fi
-   ```
-   The local file is moved, never regenerated. The old canonical `git-flow.md` is removed in step 7,
-   after `$DEST` exists, so a failed write never leaves the repo with no rule at all.
-2. **No existing file** → write it fail-closed and atomically (same-dir tmp → `mv`) — success is
+1. **No existing file** → write it fail-closed and atomically (same-dir tmp → `mv`) — success is
    claimed only after every step actually succeeded:
    ```bash
    mkdir -p "$ROOT/.claude/rules" || { echo "ERROR: cannot create $ROOT/.claude/rules"; exit 1; }
@@ -68,20 +52,20 @@ The template carries no substitution tokens; it installs verbatim.
      rm -f "$TMP"; echo "ERROR: failed to write $DEST"; exit 1
    fi
    ```
-3. **Existing file, content identical to `$RENDERED`** → report "up to date" and **skip only the
-   destination write** — still run steps 6–7 below (a clone that committed the canonical file but
-   git-ignored the deltas file would otherwise never get `task-flow.local.md` or the legacy cleanup).
-4. **Existing file with our marker** (first line contains `cc-tuner:task-flow`) but different
+2. **Existing file, content identical to `$RENDERED`** → report "up to date" and **skip only the
+   destination write** — still run steps 5–6 below (a clone that committed the canonical file but
+   git-ignored the deltas file would otherwise never get `task-flow.local.md`).
+3. **Existing file with our marker** (first line contains `cc-tuner:task-flow`) but different
    content → show `diff "$DEST" <(printf '%s\n' "$RENDERED")` to the user. Hand-edits would be lost
    — they belong in `task-flow.local.md`. Ask before overwriting (AskUserQuestion: overwrite /
-   keep). On **overwrite**, write via the same guarded tmp+`mv` writer as branch 2 and suggest
+   keep). On **overwrite**, write via the same guarded tmp+`mv` writer as branch 1 and suggest
    moving any local edits visible in the diff into `$LOCAL`. On **keep**, report "kept existing
    file — not updated" and mark this node kept; the other nodes still run.
-5. **Existing file WITHOUT our marker** — a legacy hand-maintained copy of this rule, carried
+4. **Existing file WITHOUT our marker** — a legacy hand-maintained copy of this rule, carried
    between repositories before the plugin existed. Show the diff, say this replaces the legacy copy
    with the canonical versioned one, and ask before overwriting — same overwrite/keep semantics as
-   branch 4. Never overwrite a legacy file silently.
-6. **Deltas file** — if `$LOCAL` does not exist, create it (plain `if`, not `|| ... &&` — that chain
+   branch 3. Never overwrite a legacy file silently.
+5. **Deltas file** — if `$LOCAL` does not exist, create it (plain `if`, not `|| ... &&` — that chain
    would echo "Created" even when the file already exists):
    ```bash
    if [ ! -f "$LOCAL" ]; then
@@ -96,28 +80,15 @@ The template carries no substitution tokens; it installs verbatim.
    If the companions node declined `cc-codex-triage` in this run while `$LOCAL` did not yet exist, its
    decision was held for this step: now that the file exists, run the **Record the decline** block of
    [companions.md](companions.md#record-the-decline).
-7. **Legacy cleanup.** Remove the superseded `git-flow.md` — but only once `$DEST` is actually in
-   place, so an aborted install never strips a repo of its only rule file. Two files both claiming
-   to govern branches is worse than either one alone:
-   ```bash
-   OLD="$ROOT/.claude/rules/git-flow.md"
-   if [ -f "$DEST" ] && [ -f "$OLD" ]; then
-     git -C "$ROOT" rm -q "$OLD" 2>/dev/null || rm -f "$OLD"
-     echo "Removed the superseded git-flow.md (its invariants are now in task-flow.md)"
-   fi
-   ```
-   Then, if `$ROOT/.claude/rules/no-tiny-doc-prs.md` exists, tell the user that policy is now a case
-   study in the `cc-tuner:task-flow` skill rather than a rule, and ask whether to delete it. Never
-   delete without confirmation.
+6. If `$ROOT/.claude/rules/no-tiny-doc-prs.md` exists, tell the user that policy is now a case study
+   in the `cc-tuner:task-flow` skill rather than a rule, and ask whether to delete it. Never delete
+   without confirmation.
 
 ## Verification
 
 - [ ] `$DEST` starts with the `cc-tuner:task-flow` marker line and is byte-identical to the
       template.
 - [ ] Re-running the node reports "up to date" and writes nothing to `$DEST` (it may still create
-      a missing `$LOCAL` — that is by design, branch 3).
+      a missing `$LOCAL` — that is by design, branch 2).
 - [ ] A failed read/mkdir/write reports ERROR and exits non-zero — no success message is ever
       printed for an operation that did not happen.
-- [ ] In a repo that had `git-flow.md`: it is gone, `task-flow.md` is present, and any
-      `git-flow.local.md` survived as `task-flow.local.md` with its **cached board field IDs
-      intact** (grep the migrated file for the IDs rather than trusting the rename).

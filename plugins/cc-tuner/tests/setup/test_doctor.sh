@@ -98,40 +98,28 @@ check   "baseline-version"    "mattpocock-skills@mattpocock 1.0.0 (user)" "$OUT"
 [ $rc -eq 0 ] || { echo "FAIL baseline-rc (rc=$rc)"; fails=1; }
 check   "matt-setup-missing-warned" "mattpocock-skills not configured for this repo" "$OUT"
 mkdir -p "$R/docs/agents" && : > "$R/docs/agents/issue-tracker.md"
-# The config files alone are not the contract: code-review 1.3 expects the tracker to "have been
-# provided", i.e. named by the instructions the session loads, and asks for setup when it is not.
-check   "matt-setup-unreferenced-warned" "docs/agents pointer not found" "$(run)"
-POINTER='See `docs/agents/issue-tracker.md`.'
-printf '## Agent skills\n\n%s\n' "$POINTER" > "$R/AGENTS.md"
-OUT="$(run)"
-absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$OUT"
-absent  "matt-setup-referenced-quiet" "docs/agents pointer" "$OUT"
-# A CLAUDE file anywhere on the path switches AGENTS.md off, so its pointer no longer reaches the session.
+absent  "matt-setup-present-quiet"  "mattpocock-skills not configured" "$(run)"
+# Whether the session's instructions point at docs/agents is not doctor's to judge. It used to
+# re-implement instruction loading for that, and warned "AGENTS.md is switched off by CLAUDE.md" in
+# exactly this layout, which is false under the claude-md-and-agents-md mode.
+printf '## Agent skills\n\nSee `docs/agents/issue-tracker.md`.\n' > "$R/AGENTS.md"
 printf 'Project instructions.\n' > "$R/CLAUDE.md"
 OUT="$(run)"
-check   "matt-setup-shadowed-agents-warned" "docs/agents pointer not loaded" "$OUT"
-check   "matt-setup-shadowed-names-claude" "/repo/CLAUDE.md switches" "$OUT"
-rm -f "$R/AGENTS.md"
-# @-imports are not followed: a pointer reached only through one is reported, and the limit is named,
-# rather than doctor claiming to know the session's context. That includes an @-path in a code span.
-printf '%s\n' "$POINTER" > "$R/guide.md"
-printf 'Project instructions.\n@guide.md\n' > "$R/CLAUDE.md"
-check   "matt-setup-import-limit-named" "does not follow @-imports" "$(run)"
-printf 'Example: `@guide.md`\n' > "$R/CLAUDE.md"
-check   "matt-setup-codespan-import-warned" "docs/agents pointer not found" "$(run)"
-rm -f "$R/CLAUDE.md" "$R/guide.md"
-printf '%s\n' "$POINTER" > "$R/CLAUDE.local.md"
-absent  "matt-setup-claude-local-quiet" "docs/agents pointer" "$(run)"
-rm -f "$R/CLAUDE.local.md"
-mkdir -p "$R/.claude/rules/sub"; printf '%s\n' "$POINTER" > "$R/.claude/AGENTS.md"
-absent  "matt-setup-dotclaude-agents-quiet" "docs/agents pointer" "$(run)"
-rm -f "$R/.claude/AGENTS.md"
-# Rules without paths: load at launch; a path-scoped rule loads only when a matching file is touched.
-printf -- '---\ndescription: setup\n---\n%s\n' "$POINTER" > "$R/.claude/rules/sub/setup.md"
-absent  "matt-setup-unscoped-rule-quiet" "docs/agents pointer" "$(run)"
-printf -- '---\npaths:\n  - "src/**"\n---\n%s\n' "$POINTER" > "$R/.claude/rules/sub/setup.md"
-check   "matt-setup-scoped-rule-warned" "docs/agents pointer not found" "$(run)"
-rm -rf "$R/.claude/rules/sub"
+absent  "matt-setup-no-pointer-guess"      "docs/agents pointer"        "$OUT"
+absent  "matt-setup-no-loading-claim"      "switches native AGENTS.md"  "$OUT"
+check   "matt-setup-layout-has-no-blockers" "doctor: no blockers"       "$OUT"
+rm -f "$R/AGENTS.md" "$R/CLAUDE.md"
+# The same plugin from the official marketplace is the same plugin: its skills are addressed by
+# plugin name. Listed only as mattpocock-skills@claude-plugins-official it used to be a MISS.
+claude_plugins '[
+  {"id":"mattpocock-skills@claude-plugins-official","version":"1.3.1","scope":"user","enabled":true},
+  {"id":"cc-codex-triage@cc-codex-triage","version":"0.14.0","scope":"user","enabled":true}
+]'
+OUT="$(run)"
+check   "matt-official-marketplace-is-installed" "ok   mattpocock-skills@mattpocock 1.3.1 (user) as mattpocock-skills@claude-plugins-official" "$OUT"
+absent  "matt-official-marketplace-no-miss"      "MISS mattpocock-skills"  "$OUT"
+check   "matt-official-marketplace-no-blockers"  "doctor: no blockers"     "$OUT"
+plugins_ok
 rm -rf "$R/docs/agents"
 # Outside a repository there is no repo config to judge; the repo checks below are skipped too.
 NOGIT="$T/plain"; mkdir -p "$NOGIT"
@@ -242,13 +230,6 @@ claude_plugins '[
 OUT="$(run)"
 check  "foreign-disabled-install-gets-install-hint" "/plugin marketplace add mattpocock/skills" "$OUT"
 absent "foreign-disabled-install-no-enable-hint"    "/plugin enable"                          "$OUT"
-rm -rf "$T"
-
-# --- legacy git-flow.md in the repo -> migration warning -----------------------------------------
-mkenv; tool git; tool jq; ghstub "'project'"; plugins_ok
-mkdir -p "$R/.claude/rules"; echo legacy > "$R/.claude/rules/git-flow.md"
-OUT="$(run)"
-check "legacy-rule-warned" "WARN legacy git-flow.md still present" "$OUT"
 rm -rf "$T"
 
 # --- installed task-flow rule compared with the plugin's template ---------------------------------
@@ -403,7 +384,7 @@ codexstub 1
 check  "triage-installed-not-logged-in-warns"  "WARN cc-codex-triage@cc-codex-triage .*codex login" "$(run)"
 codexstub 0
 OUT="$(run)"
-check  "triage-installed-codex-ready-ok"        "ok   cc-codex-triage@cc-codex-triage 0.10.0 (user)" "$OUT"
+check  "triage-unusable-install-requires-setup" "review bridge incompatible" "$OUT"
 absent "triage-installed-codex-ready-quiet"     "cannot run"                                        "$OUT"
 rm -rf "$T"
 
@@ -550,8 +531,8 @@ rm -rf "$T"
 mkenv; tool git; tool jq; ghstub "'project'"; glabstub; plugins_ok
 noremote; ( cd "$R" && git remote add a https://github.com/acme/app.git && git remote add b https://gitlab.com/acme/app.git )
 OUT="$(run)"; rc=$?
-check  "host-ambiguous-warns"      "WARN host: ambiguous — several remotes and none is origin" "$OUT"
-check  "host-ambiguous-asks"       "name one origin, or answer the question /cc-tuner:spec asks" "$OUT"
+check  "host-ambiguous-warns"      "WARN host: ambiguous" "$OUT"
+check  "host-ambiguous-asks"       "select the delivery remote with CC_TUNER_REMOTE" "$OUT"
 absent "host-ambiguous-no-miss"    "MISS"                                                       "$OUT"
 [ $rc -eq 0 ] && echo "PASS host-ambiguous-rc0" || { echo "FAIL host-ambiguous-rc0 (rc=$rc)"; fails=1; }
 rm -rf "$T"

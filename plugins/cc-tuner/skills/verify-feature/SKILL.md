@@ -74,9 +74,14 @@ that directly exercises it. A plausible diff or an unrelated green suite is not 
 
 ## 5. Hand back
 
-Return a short record that `/run` publishes verbatim where the host keeps records (a PR comment on GitHub). Its first line names the full SHA
-the checks ran against; every line after it is one criterion, tagged with the instrument that
-observed it:
+Write one observation per criterion. When the caller supplies an output path, write the complete
+Markdown record directly to that file outside the checkout, including every `NOT PROVED` line.
+Use a quoted heredoc with Bash if needed. Return only the path and the verified SHA or worktree
+base. Without an output path, return the record in the conversation.
+
+For a local-only or dirty checkout use `worktree verification (base <sha>)` as the first line,
+include new files in the inspected diff and return the observations for local handoff. Reserve
+the following publishable format for a clean committed candidate.
 
 ```text
 cc-tuner-verified: <full sha>

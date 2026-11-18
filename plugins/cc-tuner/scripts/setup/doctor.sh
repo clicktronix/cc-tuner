@@ -27,52 +27,6 @@ ok()   { say "ok   $1"; }
 warn() { say "WARN $1"; }
 bad()  { say "MISS $1"; miss=1; }
 
-# Instruction files a session started here loads at launch under the default "Project instructions"
-# setting (claude-md-writer/reference.md), split by kind, one path per line: CLAUDE files from the
-# working directory up to / (the user-global ~/.claude/CLAUDE.md does not count), AGENTS files, which
-# load only when there is no CLAUDE file, and .claude/rules files without paths: frontmatter.
-# @-imports are not followed: resolving them means parsing Markdown the way the loader does, so a
-# pointer reached only through one is reported with that limit named instead of guessed at.
-launch_files() { # launch_files claude|agents|rules
-  local d="$PWD" f
-  if [ "$1" = rules ]; then
-    grep -rl --include='*.md' '' "$REPO_ROOT/.claude/rules" 2>/dev/null | while IFS= read -r f; do
-      scoped_rule "$f" || printf '%s\n' "$f"
-    done
-    return
-  fi
-  while :; do
-    if [ "$1" = claude ]; then
-      for f in "$d/CLAUDE.md" "$d/.claude/CLAUDE.md" "$d/CLAUDE.local.md"; do
-        if [ -f "$f" ] && [ "$f" != "$CONFIG_DIR/CLAUDE.md" ]; then printf '%s\n' "$f"; fi
-      done
-    else
-      for f in "$d/AGENTS.md" "$d/.claude/AGENTS.md"; do
-        if [ -f "$f" ]; then printf '%s\n' "$f"; fi
-      done
-    fi
-    [ "$d" = / ] && break
-    d="$(dirname "$d")"
-  done
-}
-scoped_rule() { # true when the rule file $1 opens with frontmatter that has a paths: key
-  local line n=0
-  while IFS= read -r line; do
-    n=$((n + 1))
-    if [ $n -eq 1 ]; then [ "$line" = --- ] || return 1; continue; fi
-    [ "$line" = --- ] && return 1
-    case "$line" in paths:*) return 0 ;; esac
-  done < "$1"
-  return 1
-}
-names_pointer() { # true when any file listed on stdin mentions docs/agents
-  local f
-  while IFS= read -r f; do
-    if [ -n "$f" ] && grep -q 'docs/agents' "$f" 2>/dev/null; then return 0; fi
-  done
-  return 1
-}
-
 # --- 1. command-line tools ----------------------------------------------------------------------
 # Only git blocks: nothing here works without it. jq blocks two named consumers, not this tool, and
 # both refuse on their own -- the statusline node checks before it patches settings.json, and
@@ -211,7 +165,7 @@ case "$HOST" in
       warn "host: other — remote $REMOTE has no host name to log in to (a local path or an unusable URL); delivery needs a route you describe; /cc-tuner:setup install delivery-route records it"
     fi
     ;;
-  ambiguous) warn "host: ambiguous — several remotes and none is origin; name one origin, or answer the question /cc-tuner:spec asks" ;;
+  ambiguous) warn "host: ambiguous — select the delivery remote with CC_TUNER_REMOTE or remote.pushDefault" ;;
   *) say "     host not detected (not inside a git repository)" ;;
 esac
 
@@ -252,17 +206,21 @@ esac
 COMPANION="$(cd "$(dirname "$0")" && pwd)/companion.sh"
 TAB="$(printf '\t')"
 
-# state_of <id>: sets ST (installed | disabled | absent | unknown) and FOUND ("<version> (<scope>)").
+# state_of <id>: sets ST (installed | disabled | absent | unknown) and FOUND ("<version> (<scope>)",
+# with "as <id>" when the plugin is installed under another accepted marketplace id).
 # The resolver's three outcomes stay distinct: an earlier version flattened "cannot tell" into "nothing
 # found", so a malformed plugin list produced confident MISS lines telling the user to reinstall plugins
 # that were never looked for. Split in bash, not awk or cut: this tool reports on environments missing
 # things, so every external it adds is one more way for it to fail where it is needed most.
 state_of() {
-  local out rest ver
+  local out rest ver scope found
   out="$(bash "$COMPANION" state "$1" "$REPO_ROOT" 2>/dev/null)"
   ST="${out%%$TAB*}"; FOUND=""
   case "$ST" in
-    installed|disabled) rest="${out#*$TAB}"; ver="${rest%%$TAB*}"; FOUND="$ver (${rest#*$TAB})" ;;
+    installed|disabled)
+      rest="${out#*$TAB}"; ver="${rest%%$TAB*}"; rest="${rest#*$TAB}"
+      scope="${rest%%$TAB*}"; found="${rest#*$TAB}"
+      FOUND="$ver ($scope)"; [ "$found" = "$1" ] || FOUND="$FOUND as $found" ;;
     absent) ;;
     *) ST=unknown ;;
   esac
@@ -273,7 +231,10 @@ state_of() {
 fix_of() { FIX="$(bash "$COMPANION" hint "$1" "$REPO_ROOT" 2>&1)"; FIXRC=$?; }
 
 # needed_by <id>: what the plugin is for, from the companion table.
-needed_by() { local row; row="$(bash "$COMPANION" table "$1")"; printf '%s' "${row##*$TAB}"; }
+needed_by() {
+  local row; row="$(bash "$COMPANION" table "$1")"
+  row="${row#*$TAB}"; row="${row#*$TAB}"; row="${row#*$TAB}"; printf '%s' "${row%%$TAB*}"
+}
 
 # codex is what makes cc-codex-triage necessary: the plugin only drives codex, so without a usable one
 # the review bridge cannot run, specs say `review: none:<reason>`, and a missing plugin is no blocker.
@@ -315,12 +276,13 @@ triage_check() {
   state_of "$id"
   case "$ST" in
     installed)
-      if [ -z "$review" ]; then ok "$id $FOUND — $what"
+      if [ "$review" = codex ]; then ok "$id $FOUND — $what"
+      elif [[ "$review" == setup:* ]]; then bad "$id $FOUND — $why; run /cc-tuner:setup check companions"
       elif [ "$opted" -eq 1 ]; then say "     $id $FOUND — installed, $why; specs use review: $review"
       else warn "$id $FOUND — installed, but $why: the review bridge cannot run (specs use review: $review)"
       fi ;;
     disabled|absent)
-      if [ -n "$review" ]; then
+      if [[ "$review" == none:* ]]; then
         label="not installed"; [ "$ST" = disabled ] && label="disabled"
         say "     $id $label — optional, $why (specs use review: $review)"
       else
@@ -339,22 +301,12 @@ elif [ -z "$PLUGIN_LIST" ]; then
 else
   companion 'mattpocock-skills@mattpocock'
   # The engineering skills expect the issue tracker to "have been provided": docs/agents/ holds the
-  # config, and the instructions the session loads have to name it. Files nobody points at leave
-  # code-review asking for /setup-matt-pocock-skills on every run. Repo config needs a repo.
-  if [ -n "$REPO_ROOT" ] && { state_of 'mattpocock-skills@mattpocock'; [ "$ST" = installed ]; }; then
-    if [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
-      warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
-    else
-      CLAUDE_FILES="$(launch_files claude)" AGENTS_FILES="$(launch_files agents)"
-      if [ -n "$CLAUDE_FILES" ]; then FIRST="${CLAUDE_FILES%%$'\n'*}"; else FIRST="$REPO_ROOT/AGENTS.md"; fi
-      if printf '%s\n' "${CLAUDE_FILES:-$AGENTS_FILES}" | names_pointer || launch_files rules | names_pointer; then
-        :
-      elif [ -n "$CLAUDE_FILES" ] && printf '%s\n' "$AGENTS_FILES" | names_pointer; then
-        warn "docs/agents pointer not loaded: AGENTS.md names it, but $FIRST switches native AGENTS.md loading off — unless that file @-imports AGENTS.md, move the '## Agent skills' block into it"
-      else
-        warn "docs/agents pointer not found: no CLAUDE/AGENTS file on this path and no .claude/rules file without paths: names docs/agents (doctor does not follow @-imports; ignore this if an imported file carries it) — add the '## Agent skills' block /setup-matt-pocock-skills writes to $FIRST"
-      fi
-    fi
+  # config. Whether the session's instructions point at it is not checked: that depends on the
+  # "Project instructions" mode and on @-imports, which this tool cannot read, and guessing warned
+  # about pointers that were loaded.
+  if [ -n "$REPO_ROOT" ] && { state_of 'mattpocock-skills@mattpocock'; [ "$ST" = installed ]; } \
+     && [ ! -f "$REPO_ROOT/docs/agents/issue-tracker.md" ]; then
+    warn "mattpocock-skills not configured for this repo (no docs/agents/issue-tracker.md) — run /setup-matt-pocock-skills once"
   fi
   triage_check
 fi
@@ -396,8 +348,6 @@ if [ -n "$REPO_ROOT" ]; then
   else
     warn "task-flow rule $(tf_version "$TF_RULE") differs from the plugin's $(tf_version "$TF_TEMPLATE") — /cc-tuner:setup install task-flow (task-flow.local.md is kept)"
   fi
-  [ -f "$REPO_ROOT/.claude/rules/git-flow.md" ] \
-    && warn "legacy git-flow.md still present — /cc-tuner:setup install task-flow migrates it (keeps your cached board field IDs)"
   # Verification is a stage of /run (cc-tuner:verify-feature), not a per-repo opt-in any more, so
   # there is nothing to report here. What still helps is knowing whether anything can drive a browser,
   # because that is the instrument a UI criterion needs and its absence changes what a run can prove.

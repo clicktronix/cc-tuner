@@ -6,7 +6,7 @@
 # would part company on the first branch name carrying a slash or a capital.
 #
 #   plan-path.sh create    prints the canonical path for a plan that does not exist yet
-#   plan-path.sh resolve   prints the one existing plan for this branch; fails on none and on several
+#   plan-path.sh resolve   prints the one plan in HEAD for this branch (or on disk with --local-only)
 #   plan-path.sh pattern   prints the repository-relative plan-path pattern used by delivery checks
 #   plan-path.sh spec-dir  prints the directory `/cc-tuner:spec` writes specs into (never task-plans/)
 #
@@ -18,6 +18,14 @@
 set -u
 
 MODE="${1:-}"
+LOCAL_ONLY=0
+die() { printf 'plan-path: %s\n' "$1" >&2; exit 1; }
+
+case "$MODE:$#:${2:-}" in
+  resolve:2:--local-only) LOCAL_ONLY=1 ;;
+  create:1:|resolve:1:|pattern:1:|spec-dir:1:) ;;
+  *) die "usage: plan-path.sh create|resolve [--local-only]|pattern|spec-dir" ;;
+esac
 
 # This is path grammar, not repository state. Keep it usable before resolving a checkout so callers
 # do not need to copy the docs/wiki rule or invent a fake branch merely to ask what a plan looks like.
@@ -33,12 +41,15 @@ fi
 # two spellings also disagree about what exists. A distinct directory removes the whole class.
 # The root follows the spec's own convention: wiki/ when the repo uses it, docs/ otherwise.
 
-die() { printf 'plan-path: %s\n' "$1" >&2; exit 1; }
-
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not a git repository"
 cd "$ROOT" || die "cannot enter $ROOT"
 PLANS_ROOT="docs"
-[ -d wiki ] && PLANS_ROOT="wiki"
+if [ "$MODE" = resolve ] && [ "$LOCAL_ONLY" -eq 0 ]; then
+  REV="$(git rev-parse --verify HEAD 2>/dev/null)" || die "cannot read HEAD"
+  [ "$(git cat-file -t "$REV:wiki" 2>/dev/null)" = tree ] && PLANS_ROOT="wiki"
+else
+  [ -d wiki ] && PLANS_ROOT="wiki"
+fi
 DIR="$PLANS_ROOT/task-plans"
 
 if [ "$MODE" = "spec-dir" ]; then
@@ -73,6 +84,18 @@ SLUG="$(printf '%s' "$BRANCH" \
 # `2026-08-13-rewrite-main.md`; anchoring `????-??-??-` to the front cannot.
 PATTERN="$DIR/????-??-??-$SLUG.md"
 
+committed_plans() {
+  set -o pipefail
+  git ls-tree -z "$REV" -- "$DIR/" | while IFS= read -r -d '' entry; do
+    path="${entry#*$'\t'}"
+    case "$entry" in
+      '100644 blob '*|'100755 blob '*) ;;
+      *) continue ;;
+    esac
+    case "$path" in $PATTERN) printf '%s\n' "$path" ;; esac
+  done
+}
+
 case "$MODE" in
   create)
     # A second plan for one branch is the ambiguity `resolve` refuses. Failing here, where the fix is
@@ -105,21 +128,29 @@ case "$MODE" in
     printf '%s\n' "$CANDIDATE"
     ;;
   resolve)
-    # Tracked files only. An uncommitted plan does not survive the session it was written in, which
-    # is the one thing the plan file exists to do.
-    found="$(git ls-files -- "$PATTERN" 2>/dev/null)"
+    found=""
+    if [ "$LOCAL_ONLY" -eq 1 ]; then
+      for path in "$DIR"/????-??-??-"$SLUG".md; do
+        [ -f "$path" ] && [ ! -L "$path" ] || continue
+        found="${found:+$found
+}$path"
+      done
+      missing="no local plan"
+    else
+      # ls-tree takes a literal directory pathspec. Match the canonical basename ourselves
+      # and read NUL records so unrelated filenames cannot be quoted or mistaken for plans.
+      found="$(committed_plans)" || die "cannot list plans in HEAD"
+      missing="no committed plan"
+    fi
     n="$(printf '%s' "$found" | grep -c . )"
     case "$n" in
       1) printf '%s\n' "$found" ;;
-      0) die "no committed plan for branch '$BRANCH' (looked for $PATTERN)" ;;
+      0) die "$missing for branch '$BRANCH' (looked for $PATTERN)" ;;
       *)
         printf 'plan-path: %s plans claim branch %s:\n' "$n" "$BRANCH" >&2
         printf '%s\n' "$found" | sed 's/^/  /' >&2
         exit 1
         ;;
     esac
-    ;;
-  *)
-    die "usage: plan-path.sh create|resolve|pattern|spec-dir"
     ;;
 esac

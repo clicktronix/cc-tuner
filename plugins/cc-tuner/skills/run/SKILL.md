@@ -1,7 +1,7 @@
 ---
 name: run
-description: Implement or resume this branch's committed cc-tuner plan through verification, review and authorized delivery.
-argument-hint: '[--auto] <path-to-spec>'
+description: Implement or resume this branch's approved cc-tuner plan through verification, review and authorized delivery.
+argument-hint: '[--auto | --local-only] <path-to-spec>'
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, AskUserQuestion, WebFetch, mcp__context7, mcp__cc-tuner__peers_claim, mcp__cc-tuner__peers_report, mcp__cc-tuner__peers_release
 ---
 
@@ -10,14 +10,9 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, Skill, TaskCreate, Ta
 **Plugin root: `${CLAUDE_PLUGIN_ROOT}`.** Only this file gets the variable filled in: wherever a reference
 or a route writes `${CLAUDE_PLUGIN_ROOT}/…` or `<plugin root>/…`, use this path.
 
-Work the committed plan for the current branch. `--auto` selects unattended mode; the remaining
-argument is the spec path. It additionally authorises the merge, never deploy, publish, migration,
-force-push or work outside the plan; the task-scoped commits and, where the host has them, the push and
-draft PR or MR need no flag (see "Who may stop the run").
-
-You may start this command yourself when the user asked for the task to be implemented or
-continued and a committed spec exists. Use `--auto` only when the user asked for unattended
-delivery; starting the command is not that request.
+Work the approved plan in this checkout. The argument is the spec path. Start `/run` yourself
+when the user requested implementation or continuation. Use `--auto` only for requested unattended
+delivery. Apply the task and repository permissions in [Merge authorization](#who-may-stop-the-run).
 
 ## Before starting
 
@@ -26,57 +21,36 @@ Start previews, dedicated MCP servers and test containers as `task-flow`'s Runti
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
 DoD. If the argument is missing or names a plan, read the spec from the plan's `**Spec:**` header and
-say which one you took. Stop if neither names a spec that exists. Refuse `--auto` unless
-`auto_ready: yes`.
+say which one you took. Stop if neither names a spec that exists. `auto_ready: yes` is required for unattended delivery. If the sole obstacle is a destination or
+publication prerequisite, continue the approved local work and hold delivery. Missing acceptance
+or an unresolved human-only criterion still needs the spec's normal decision.
 
-**Re-detect the host** with the program every caller uses:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
-```
-
-It prints the host, how it was found, the remote and the host to log in to (`<remote-host>`);
-compare it with the spec's `host:`.
-A spec without `host:` means `github`. `ambiguous` (several remotes, none named `origin`) stops the run: ask
-the user to rename one remote to `origin`. A mismatch stops the run too. When the spec says `github` or
-`gitlab` and host.sh says `other`, the CLI is not logged in to that host: name
-`gh auth login --hostname <remote-host>` (`glab auth login --hostname <remote-host>` for gitlab). Any other
-mismatch: tell the user to correct the spec's `host:`.
-
-Then check the host's CLI before any slice: `gh auth status --hostname <remote-host>` for `github`,
-`glab auth status --hostname <remote-host>` for `gitlab`. A failure stops the run with the same login
-command. `local` and `other` need no CLI.
-
-Check the delivery route now too, so a route that would stop delivery stops the run before any work:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>
-```
-
-It has the outcomes and messages of **The route** under [Delivery](#delivery), which checks it again.
-
-Host `local` has no remote: no push, fetch or pull, and the target is `refs/heads/<target>`. Fetching the
-target in Prepare the candidate and the push and PR of Delivery step 1 do not apply.
+**Re-detect the host** with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"`. For every delivery host,
+follow [hosts.md](references/hosts.md) before the first slice. A delivery prerequisite can wait
+while the approved base, local implementation and checks are available.
 
 For work spanning repositories or a spec naming `second-repo`/`shared-task`, read
 [shared-task.md](references/shared-task.md) before resolving plans. Apply it throughout this run,
 including combined verification and preflight of every candidate before the first merge.
 
-Resolve the branch's plan, then validate its spec and branch headers:
+Resolve the plan from the checkout root. Set `SPEC` to the repository-relative spec path and
+`plan_mode=()` for a committed plan or `plan_mode=(--local-only)` for an approved local handoff.
+Run these in one Bash call:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the path resolve printed> \
-  --spec <the spec path from arguments> --branch "$(git branch --show-current)"
+ROOT=$(git rev-parse --show-toplevel) && cd "$ROOT" || exit 1
+PLAN=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" resolve "${plan_mode[@]}") || exit 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check "$PLAN" \
+  --spec "$SPEC" --branch "$(git branch --show-current)" "${plan_mode[@]}"
 ```
 
-Read the returned path and use it literally in later calls. A missing or ambiguous plan, or a
-spec/branch mismatch, stops the run: finish `/cc-tuner:spec` first. Never execute a plan that exists
-only in the conversation.
+A committed plan and spec must match HEAD. Resolve subsequent paths from this same root, including
+the absolute plan path passed to `peers_claim`. If the contract is missing or ambiguous, finish
+`/cc-tuner:spec` before implementing it.
 
 When native task tools exist, reconcile the list against the plan even if the list is nonempty.
-`SessionStart` restores slices only. Create missing tasks with `TaskCreate`, then set edges with
-`TaskUpdate addBlockedBy`:
+`SessionStart` restores slices and lists open checkboxes outside them, nothing more. Create missing
+tasks with `TaskCreate`, then set edges with `TaskUpdate addBlockedBy`:
 
 - one task per slice with the plan's dependencies;
 - **verify the feature**, blocked by every slice → **review the candidate** → **deliver**.
@@ -84,54 +58,42 @@ When native task tools exist, reconcile the list against the plan even if the li
 Mark tasks completed for every ticked slice before starting. Update statuses as stages execute. If
 native tools are absent, say so once and continue with the plan file as durable state.
 
-**The board.** When the spec's `board:` names one, read `cc-tuner:task-flow`'s Board recipes now: this
-run moves the issue's card, and nothing else will. Set it In Progress before the first slice starts
-(adding the card when it is missing); for a sub-issue, also move the epic's card to In Progress if it
-has not started. Delivery steps 1 and 7 name the later moves. A move that fails after the recipes'
-recovery is said at once — the card, the move and the error — while the run goes on, and again in the
-final answer; never skipped silently.
+**The board.** For an authorized board, use the `cc-tuner:task-flow` Board recipes. Add the
+card if missing, set it In Progress before work, and move an unstarted parent epic with it.
+Report failed moves now and at handoff, then continue. Delivery owns the later moves.
 
 ## The loop
 
-Ask the parser for the next safe batch; do not select slices by eye. Name every slice a unit is
-still working on — the parser knows open and done, and only you know running:
+Get the next safe batch from the parser, passing every running slice:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" ready-batches <the resolved plan path> --active <n,n,...>
 ```
 
-Omit `--active` when nothing is running. It emits a `BATCH` and its `SLICE` records: parallel
-slices have proven-disjoint literal Owned paths, disjoint also from every active slice; otherwise
-one ready slice. Dispatch what it returns without re-deriving it.
+Omit `--active` when idle. Dispatch returned `SLICE` records within placement's concurrency cap.
+Refresh the active set from task status and agent handles after each return and on resume. Start
+ready work as slots open. Under `--auto` check each `blockedBy` edge; native tasks do not enforce it.
 
-**Rolling dispatch.** A slice whose blockers are done starts as soon as the active set (running units
-plus the new start) is under placement's concurrency cap; do not wait for the rest of its batch. Ask
-the parser again after every unit returns, with the active set refreshed from native task status and
-your agent handles. On resume, first reconcile which units still exist.
+An empty `BATCH` with open slices means all are active, blocked or conflicting. Wait for a writer
+or resolve the blocker. Close a slice after reading its diff and deciding-check evidence on the
+assembled result. Verify the feature once all slices close.
 
-**An empty batch is not completion.** With `--active` it is also what an all-busy or all-conflicting
-plan returns, and the parser says so on stderr. Decide by the plan, not the batch: open slices remain
-→ wait for an active unit or diagnose the block; no open slices → verify the feature.
+After a spike, revise dependent slices and any affected spec facts. For every plan edit (including
+ticks, path transfers and archive links), check the edited files with the startup `plan-lint.sh check`
+arguments **plus `--local-only` before commit**. Where commits are permitted, commit the reviewed
+change and repeat the HEAD check before dispatching or resuming. Local-only work keeps the disk plan.
 
-A unit's process ending is not acceptance either: a slice closes only after you have read its diff and
-its deciding-check evidence and integrated the commits.
+Within approved scope, split remaining work or move an Owned path between open slices yourself.
+Wait for affected writers to return or coordinate their handoff first. Update ownership, blockers and evidence; apply the edit check above and refresh the task list and peer claims.
+Ask only when the outcome, acceptance or an external owner's work would change.
 
-Under `--auto`, never start a task whose `blockedBy` is nonempty; native task tools do not enforce
-the edge.
+Peers: if `mcp__cc-tuner__peers_claim` is listed, call it with the plan before the first slice,
+after each tick and before integrating the target. Before starting a slice whose Owned paths a peer's
+claims, edits or conflicts touch, name the peer and the overlapping path.
 
-A spike's result can contradict the wording of the slices that depend on it. When one lands, re-read
-them, update their text in the plan (and the spec if the fact changes its Sources), and re-run the
-`plan-lint check` above. A change to acceptance, scope or an Owned path set is not yours to make:
-ask once.
-
-Peers: if `mcp__cc-tuner__peers_claim` is listed, call it with the plan before the first slice, after each tick
-and before integrating the target. Before starting a slice whose Owned paths a peer's claims, edits or
-conflicts touch, name the peer and the overlapping path.
-
-Mark tasks `in_progress` and `completed` as work advances. When a slice's criteria hold, tick the plan
-and whichever spec acceptance criteria it established **in the same commit**. When a unit did the
-slice, that is the commit integrating its work: the plan is outside the unit's Owned paths. DoD is recorded during
-Delivery, not in these commits. Take the commit message format, trailers included, from `cc-tuner:task-flow`'s Commit conventions.
+Update task status as work progresses. Tick the slice and proved spec criteria together. For a
+delegated slice the orchestrator owns this integration commit. In local-only mode save the ticks
+on disk. Follow `cc-tuner:task-flow` for commit messages and trailers. Record DoD at delivery.
 
 ## Who may stop the run
 
@@ -139,15 +101,24 @@ This skill owns the lifecycle. Invoked skills supply methods and findings; their
 confirmation prompts, gates or completion messages do not interrupt work already approved here.
 Acceptance criteria, review findings and candidate evidence remain strict.
 
-**Merge authorization.** `--auto` or an explicit user instruction to merge authorizes this delivery.
-Without either, continue through commits, push and draft PR/MR, then run the preflight and hand the
-verified candidate and merge command to the user. Routine checks and reviews need no new confirmation.
-In either mode, unresolved acceptance, scope choices or waivers may require input. Batch those
-questions and continue available work; keep the blocked outcome pending.
+**Merge authorization.** User and repository permissions govern each write, including commits, push,
+PR/MR creation, comments, board updates and merge. A request for PR delivery covers its ordinary
+branch push, draft PR and evidence comments wherever repository policy permits them. `--auto` or an explicit request to merge
+authorizes a merge within those boundaries. It grants no deployment, release or migration authority.
+Continue through the last permitted action. When only merge is reserved, run the checked preflight
+and hand over the candidate and command.
 
-**Waiting is not stopping.** While units, CI or a review run in the background, do the next
-available work, or wait for their notification. Do not end the turn with a statement of what you
-will do next: nothing resumes a run that ended its turn except the user.
+**Local handoff.** When commits are reserved, select `--local-only` from the start; the user can
+also request it. Work in this checkout, serialize edits, tick the local plan and verify the
+actual worktree. Skip commit-based integration and archiving; record local review of the complete
+task diff, including new files. When only publication is reserved or unavailable, verify the
+committed candidate and do the advisory review locally. In either case return the base SHA,
+task diff and new paths, checks and observed results, and the first pending delivery action.
+Only a clean committed candidate can earn a public verification marker, exact-SHA verdict or merge.
+Resume the normal route after the permitted operator commits or publishes, checking the new inputs.
+Keep unresolved acceptance, scope choices and waivers pending while independent work continues.
+
+While units, CI or review are running, do available work or wait for completion in the same turn.
 
 ## Delegating a slice
 
@@ -160,9 +131,8 @@ delivery, and it owns a partial return.
 
 Before dispatching any implementation unit, read [placement.md](references/placement.md): it defines
 the brief and return checks, model choice, isolation, concurrency, escalation and what a partial
-return triggers. Read it also before
-invoking `prototype`, `domain-modeling` or `diagnosing-bugs`. `deep-review` and `/spec` name
-their own read-only agent type/model; where silent, placement decides.
+return triggers. Read it also before invoking `prototype`, `domain-modeling` or `diagnosing-bugs`.
+`deep-review` and `/spec` name their own read-only agent type/model; where silent, placement decides.
 
 ## Proving a slice
 
@@ -174,8 +144,7 @@ their own read-only agent type/model; where silent, placement decides.
   evidence, not just the verdict.
 - **Record the deciding check's evidence in the plan**, under the slice, as one line the next reader
   can re-run: `Evidence: <command> → <the deciding output line> @ <sha or worktree>`. The parser
-  ignores the line. It does not replace reading the diff; it names the code the result was taken from,
-  which is what makes reuse honest.
+  ignores the line. It names the code the result was taken from; it does not replace reading the diff.
 - **Test cadence.** Slices run the spec's targeted checks, as placement's Heavy checks assigns them.
   The full regression suite runs at the spec's `full_test_cadence`: `per-candidate` (the default,
   also when the field is absent) runs it once on the assembled candidate and once after each batch of
@@ -192,199 +161,55 @@ their own read-only agent type/model; where silent, placement decides.
 
 ## Prepare the candidate
 
-After implementation, read `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist. Complete
-archiving and update plan/spec links before the first required review. Under `tracker: local`, follow
-[local-issues.md](../task-flow/references/local-issues.md): commit a tracked issue's closing change;
-leave an ignored issue uncommitted and close it at the recorded absolute path after merge.
-Continue with the archived spec path. The plan stays where `plan-path.sh` put it; validate its updated
-headers with the resolver/linter contract used at startup.
+For publication, follow `cc-tuner:task-flow`'s Prepare the candidate and Pre-PR checklist.
+Archive a completed spec and update its live links before pinning review. Keep the plan at its
+resolved path and validate the changed headers. For `tracker: local` use
+[local-issues.md](../task-flow/references/local-issues.md) to decide whether and where to close the issue.
 
-Fetch the integration target before the first candidate and before delivery. If it advanced beyond
-this branch, notify the user and integrate it, resolving conflicts within the agreed task. Prefer
-merge on published branches or after required review began; rebase only unpublished work before the
-first required round when repository policy allows it. Do not force-push to synchronize. Preserve
-unrelated WIP, using a separate clean task checkout when necessary. Reverify the integrated result. A
-conflict needing a product decision blocks only its dependent work; do not ask again for routine
-conflict resolution.
+Fetch the target before the first publishable candidate and before delivery. If offline, verify
+and review against the known local base and record the pending sync. Integrate an advanced target
+within scope, then reverify affected evidence. Prefer merge on published branches or after review
+began; rebase only unpublished work when policy permits. Preserve unrelated WIP, using a clean
+task checkout when needed. A conflict that needs a product decision blocks only its dependent work.
 
 Pass a literal synchronized target SHA as the initial review base; keep it and the spec path fixed
 for that thread. Later target updates are merged without changing that base. If target advances
 after approval, integrate it with a merge commit, refresh affected evidence and obtain approval for
 the new candidate; under `review: codex` claim that round with `begin --integration`, which reviews
-the integration without spending the cap. A companion older than 0.14 has neither this nor `renew`
-(prereq-check prints a NOTE): review the integration as a normal round, and after an authorized new
-budget use its documented reset.
+the integration without spending the cap.
 
 On resume, read the existing PR and review state, and reconcile an already merged PR instead of
 opening or merging it again.
 
 ## Verifying the feature
 
-After every slice is done and before offering a candidate for review,
-run `cc-tuner:verify-feature` in a subagent with `model: "sonnet"` and `effort: "high"`: a
-`general-purpose` agent whose brief names the spec path, the candidate worktree and SHA, placement's
-heavy-check command, "stop what you started, as task-flow's Runtime cleanup says, and name anything
-left running" and "return only the record". Test output, browser snapshots and logs stay in its
-context; the record comes back. It selects instruments from acceptance criteria and repository
-capabilities, exercises the behaviour and returns observations. A machine replacement for an `[eyes]`
-step must prove the same criterion, and
-`[eyes]` criteria stay with you: arrange the human step with the user, and close one without them only
-through a proved machine replacement or a recorded waiver. Read the record before
-publishing it and re-run any line whose evidence looks thin. If the host offers no subagent, invoke
-the skill yourself.
+After every slice is done and before offering a candidate for review, run `cc-tuner:verify-feature`
+in a `general-purpose` subagent with `model: "sonnet"` and `effort: "high"`, or the model and effort [placement](references/placement.md#agent-selection) assigns to a complex verification. Create a private scratch directory outside the
+checkout (for example with `mktemp -d`). Pass the verifier an absolute output path there, the spec,
+candidate worktree and SHA, heavy-check command and cleanup instructions. Use a fresh file for each
+verification. The verifier writes the record and returns its path and verified SHA or worktree base.
+Use the same file contract when running the skill yourself.
 
-The orchestrator decides what an unproved criterion means: ask under `--auto`, or carry it as a named
-residual risk if the user already accepted it. Publish the record verify-feature returned, verbatim,
-as one record: on GitHub a PR comment, written to a file and posted with
-`gh pr comment <pr> --body-file <file>`; elsewhere as the route says. Its lines come from verify-feature
-alone, and a criterion it did not observe stays `NOT PROVED`. `merge.sh`, or the route, requires the record,
-prints its `NOT PROVED` lines, and accepts any commit the head contains, so a later fix commit needs a new
-record only if the evidence no longer covers it.
+Read the file before delivery. Keep it through handoff or publication. If evidence needs another
+check, record your own observations in the DoD or have the verifier produce a fresh file. Keep every
+`NOT PROVED` line. Resolve human-only criteria with the user, a proved machine replacement or a dated
+waiver. A later change needs fresh evidence when it affects what the record covered.
 
 ## Delivery
 
-**The route.** At Delivery entry run `host.sh` again and check the repository's key block:
+For `--local-only`, finish the local handoff after verification. Review the complete worktree
+against the spec and repository rules yourself when delegated reviewers are unavailable or outside
+the task's permissions. Record the findings locally and leave committed-candidate review pending.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>
-```
-
-`current`, `present-other` and `none-needed` go on. Anything else stops the run, `--auto` included, and so
-does a host that changed since the start. For `missing`, tell the user to commit
-`.claude/rules/task-flow.local.md` with its delivery-route block on `<target>`, or to run
-`/cc-tuner:setup install delivery-route` (a user-only command).
-
-- `github`: the steps below as written.
-- `gitlab`, `local`: read `${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-gitlab.md` (gitlab) or
-  `${CLAUDE_PLUGIN_ROOT}/skills/run/references/route-local.md` (local), the plugin's copy and never the
-  repository's. Wherever a step below names a GitHub command (open the PR; publish the verdict, accepted,
-  verified, DoD and local-ci records; mark ready; `merge.sh`), do the route's step instead,
-  with the same gates, order and record lines.
-- `other`: the route is the block's body as committed on the target: `git fetch <remote> <target>` with the
-  remote host.sh printed, then `git show FETCH_HEAD:.claude/rules/task-flow.local.md`. Stop when the
-  candidate's copy differs, since a candidate never edits its own gate, and when a step reads
-  "not described".
-
-`--check-only` means running every route step up to the merge and handing over the merge command.
-`--auto` is allowed on every host.
-
-A new commit needs fresh authoritative approval and CI, with acceptance and DoD evidence covering
-the resulting candidate. Local checks follow the reuse rule in Proving a slice; a new SHA does not
-restart findings already read or advisory passes already completed.
-Shared-task delivery also covers the complete repository/SHA set defined in the loaded reference.
-
-1. **Push and open the PR** (draft is fine while work continues). The candidate is its exact head
-   SHA, with a clean working tree. Write the body with `mattpocock-skills:pr` when it is installed
-   (call the Skill tool with "mattpocock-skills:pr"); its Evidence comes from the verify-feature record.
-   Without it, keep the same three sections: Summary, Evidence, Merge Danger.
-   Then, whichever wrote the body, when a board is named and has an In review option,
-   move the card to In review.
-2. **Choose one advisory workflow for the first clean candidate.**
-   - `deep-review` for a sensitive surface, at least 15 production files or 500 production lines,
-     multiple repositories/services, or a major architectural boundary. Sensitive surfaces are
-     authentication/authorization/secrets/cryptography; migrations or destructive data operations;
-     public APIs, persisted schemas or cross-service contracts; money/pricing/billing;
-     infrastructure/CI/deployment/release; and security-relevant input handling. Values, defaults,
-     fixtures and configuration count when they decide behaviour on these surfaces. Deep-review owns
-     packet preparation, sharding, the lens limit and the line it prints before dispatch.
-   - Otherwise `mattpocock-skills:code-review`: give it the review base SHA as its fixed point, the
-     spec path as its spec and the rule files `cc-tuner:agent-rules` resolved as its standards, so it
-     neither asks for them nor guesses from issue links. Dispatch exactly its two subagents, Standards
-     and Spec, each with `model: "sonnet"`, and keep their reports separate. Fix a documented-standard or
-     spec finding once validated, and a code smell only when you agree it costs something here; list
-     the smells you declined.
-   - Claude Code's built-in `/code-review <level> <target>` only when the user asks for it. Put the
-     level first: a level written after the target is read as part of the target. It has no Spec
-     axis, so the spec's acceptance stays yours to check, and `max` dispatches a verifier per
-     candidate finding, which is costly on a large candidate. Pass base, candidate and spec; run without publishing findings automatically.
-
-   Deep review already covers Spec and Standards, so do not stack workflows. If fixes newly meet a
-   deep-review trigger, escalate once. These are not merge gates. A deep-review `INCOMPLETE` names the lenses/paths
-   nobody read; the table below says who closes that gap.
-
-   Triage findings per `.claude/rules/task-flow.md`: validate them against the agreed outcome,
-   repository rules and evidence; refute speculative extensions outside the spec or rules (style
-   notes with no violation do not move the candidate); fix the rest grouped by cause, update the
-   plan, then verify the affected findings and continue to required review. Record independent
-   future work through `cc-tuner:task-flow`.
-3. **Obtain the verdict from the owner the spec's `review:` names.**
-
-   | | `codex` (default) | `none:<reason>` |
-   |---|---|---|
-   | verdict owner | cc-codex-triage `--required` at the exact SHA, one task-specific `--thread` for all rounds and `merge.sh`, in the candidate worktree | you: after step 2's findings are fixed or refuted with `file:line` evidence, you judge the candidate |
-   | after a fix commit | a new required round on the new SHA | re-check the affected findings on the new SHA, not a new fan-out, then judge again |
-   | deep-review `INCOMPLETE` | name the unread lenses/paths in the round's brief | read those paths yourself before judging, or ask the user to accept the gap |
-   | review cap (`--cap`, default 5) | stop paid rounds, keep fixing what is safe, ask the user once: more rounds (`review-state.sh renew <thread> --by <who>`, same thread) or merge on their decision. `--by` names who agreed, in this conversation, to more rounds of this thread; one yes covers one renew | — |
-   | user decides to merge without an approval | merge under `--review 'none:<who> decided at the cap'` with a decision record (step 4) | decision record (step 4) |
-
-   An advisory review that returns reports rather than a verdict (Standards and Spec) is input to the
-   owner, never a verdict to copy. A finding refuted with evidence or deferred by the user needs no
-   code change: re-judge the same SHA. Do not manufacture an empty commit to move the candidate, and
-   do not reset a thread to seek a more favourable verdict.
-4. **Publish each verdict immediately, for the SHA that was judged** (the companion's marker, or the
-   commit you judged). Read the PR's full `headRefOid` in this turn: if the head moved, the verdict
-   belongs to the old SHA, so review the difference to the new head instead of relabelling it.
-   Abbreviated SHAs do not match the gate:
-
-   ```bash
-   gh pr review <pr> --comment --body "cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <judged-sha>"
-   ```
-
-   `gh pr comment` with the same first line is read too. Never turn a `REQUEST_CHANGES` into
-   `APPROVE`. A user's decision to merge anyway is a separate record, published only after they gave
-   it in this session, naming them and what they accepted:
-
-   ```bash
-   REC=$(mktemp) && cat > "$REC" <<'EOF'
-   cc-tuner-accepted: <head-sha> <who>: <what was accepted>
-   EOF
-   gh pr comment <pr> --body-file "$REC"
-   ```
-
-   `merge.sh` honours it only under `--review none:<reason>` and only for that exact head.
-5. **Record the spec's DoD before merge.** Name each item and its evidence in a PR comment or body
-   section. Do not commit it to the spec (that moves the reviewed SHA) or to the integration target.
-6. **Mark the PR ready and deliver through the checked script.** When the candidate is verified,
-   judged and its DoD recorded, run `gh pr ready <pr>` if it is a draft and wait for the checks that
-   start then.
-   Recheck target advancement as described above. When [Merge authorization](#who-may-stop-the-run)
-   permits delivery, merge with the spec's strategy,
-   CI mode, pinned head and same review thread:
-
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] [--review none:<reason>] <pr> <squash|merge> <candidate-sha> [<review-thread>]
-   ```
-
-   Omit `--ci` for `required`; legacy specs naming checks without a mode mean `required`. The thread
-   is required under `review: codex`.
-   If any participating spec declares `none:<reason>`, read [local-ci.md](references/local-ci.md)
-   before this step and record the exact candidate's local evidence as it requires.
-   For a shared task, complete the reference's preflight of **all** candidates before any merge,
-   then follow its declared-order and partial-delivery recovery instructions.
-
-   Without merge authorization, run this command with `--check-only` and hand the passing candidate and merge
-   command to the user. `--check-only` requires everything a merge does; it only skips the final
-   merge action. Keep deliver pending until the merge is observed.
-
-   The script rechecks required review, public verdict, the verify-feature record, the selected CI
-   checks and PR head. Fix any refusal; do not substitute raw CLI/web/API merge or direct push.
-7. **Reconcile after merge.** Sync targets and clean up task branches/worktrees through
-   `cc-tuner:task-flow`. Close the issue only when the whole agreed result and delivery
-   prerequisites are complete, through the tracker `docs/agents/issue-tracker.md` names. Under `tracker: local`,
-   tracked closing changes arrive with the merge; close the ignored task issue at its recorded absolute
-   path after observing the merge, following [local-issues.md](../task-flow/references/local-issues.md).
-   Then move the card to Done. When the issue was an
-   epic's last open sub-issue,
-   also move the epic's card to Done and close the epic. A partial `Refs` merge closes nothing:
-   after a partial `Refs` merge, move it back to In Progress (it sat in In review while the PR was
-   open). Do not commit a completion record directly to an integration target.
+For a committed candidate, read [delivery.md](references/delivery.md) before the first push and
+again on resuming delivery. Follow its route through review, verdict, DoD and the last authorized step.
 
 ## Ending the run
 
-Every final answer — after the merge, at the handoff before it, or on a block — first stops what this
-run started (TaskStop each background task, close the browser pages it opened, remove each container it created), as `task-flow`'s Runtime cleanup says. Something the user asked to keep running stays, and so does a task the guard refuses to stop
-(name it under `retained`).
-The answer then carries one line:
+Before every final answer — after the merge, at the handoff before it, or on a block — stop what this
+run started, as `task-flow`'s Runtime cleanup says: TaskStop each background task, close the browser
+pages it opened, remove each container it created. What the user asked to keep running stays, and so
+does a task the guard refuses to stop. The answer then carries one line:
 
 ```text
 resources: closed | retained <what, and why> | none

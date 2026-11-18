@@ -67,7 +67,7 @@ test('a variable dump is refused however the shell spells it', async ($, on) => 
   const dumps = [
     'env', 'printenv', 'set', ' export ', 'export -p', 'declare -x', 'typeset',
     'cd app && env', 'env | grep TOKEN', 'env | cut -d= -f1',
-    'env # inspect configured variables', 'printenv 2>/dev/null', 'env -i', 'env -u HOME', 'env FOO=1',
+    'env # inspect configured variables', 'printenv 2>/dev/null', 'env -i FOO=1', 'env -u HOME', 'env FOO=1',
     'FOO=1 env', 'command env', 'command -- env', 'exec -a sh env', '(env)', 'echo "$(printenv)"', 'x=`env`', 'true;\\\nenv',
     'cat <<EOF\n$(env)\nEOF', 'cat <<EOF\n`env`\nEOF', 'cat <<EOF\n$(\nenv\n)\nEOF', 'cat <<< "$(env)"', 'cat <<< `env`',
     `printf '%s\\n' "$(printf ')'; env)"`, 'echo "x$(echo "$(env)")"', 'echo `echo \\`env\\``',
@@ -112,6 +112,26 @@ test('printing a .env file is refused, its template is not', async ($, on) => {
   const allowed = ['cat .env.example', 'cat src/environment.ts', "echo 'cat .env'"]
   for (const command of allowed) await $.tool.call({ tool: 'Bash', command })
   expect(ran).toEqual(allowed)
+})
+
+test('a dump or a .env read whose output does not reach the transcript passes, and one behind a shell is read as the command it runs', async ($, on) => {
+  const ran = reached(on)
+  // Sent to a file, or piped into a command that prints none of it.
+  const quiet = ['env > /dev/null', 'env > vars.txt', 'env >> vars.txt', 'printenv &> all.txt', 'env 1>/dev/null', 'env | wc -l', 'env | grep -c TOKEN',
+    'env | grep -q ^CI=', 'printenv | grep -qc X', 'if env | grep -q CI; then echo ci; fi', 'env -0 | wc -c', 'export -p | grep --count KEY', '(env) | wc -l',
+    'echo $(env | wc -l)', 'cat .env > /dev/null', 'cat .env >> .env.backup', 'cat .env | wc -l', 'cat < .env > copy', 'cat .env | grep -c ^KEY=',
+    "bash -c 'env | wc -l'", "sh -c 'cat .env' > /dev/null", 'cat .env.schema', 'cat docs/.env.md', 'head -5 app/.env.local.md',
+    'env FOO=1 node app.js', 'env FOO=1 cat .env.example', 'env -i PATH=/bin true', 'env -i', 'env --ignore-environment', 'env -']
+  for (const command of quiet) expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toBeUndefined()
+  expect(ran).toEqual(quiet)
+  // Still printed: only stderr is sent away, the reader of the pipe prints what it reads, a capture is printed later,
+  // or a shell runs the same command.
+  const loud = ['env 2>/dev/null', 'env 2> err.txt', 'env | grep TOKEN', 'env | grep -v X', 'env | sort | wc -l', 'env | tee vars.txt', 'env > /dev/null; env',
+    'env | wc -l; printenv', 'x=$(printenv); echo ${#x}', 'echo "$(env)" | wc -l', 'cat .env 2>/dev/null', 'cat .env | tee copy', 'cat .env | cut -d= -f1',
+    'bash -c "cat .env"', 'sh -c env', "bash -lc 'printenv'", 'zsh -c "head -3 .env.local"', '/bin/bash -c env', "bash -c 'bash -c env'", '/usr/bin/env',
+    'cat .env.production', 'cat .env.example.local', 'env FOO=1 cat .env', 'env -u X env', 'env A=1 env B=2 printenv']
+  for (const command of loud) expect((await $.tool.call({ tool: 'Bash', command })).deny, command).toContain('into the transcript')
+  expect(ran, 'none of them ran').toEqual(quiet)
 })
 
 test('a foreground command records nothing', async ($, on) => {
@@ -213,7 +233,7 @@ test('the status line clears once no tracked subagent runs', async ($, on) => {
   expect(lines).toEqual([undefined])
 })
 
-interface Step { words: string[]; dir: string; op: string; writes: boolean }
+interface Step { words: string[]; dir: string; op: string; writes: boolean; assumed?: boolean; outputs?: string[] }
 
 // One step as the test reads it: "<dir> <op> <words>", `>` after a step that writes a file.
 const show = (s: Step) => `${s.dir || '.'} ${s.op || '-'} ${s.words.join(' ')}${s.writes ? ' >' : ''}`
@@ -232,15 +252,15 @@ const COMMANDS = [
   ['git -C a -C b --no-pager log', ['a/b - git log']],
   ['git -c core.pager=cat log', ['. - git log']],
   ['cd x && git reset --hard', ['x && git reset --hard']],
-  ['cd a; cd b; git log', [`${UNKNOWN} ; git log`]],
+  ['cd a; cd b; git log', ['a/b ; git log']],
   ['cd a && cd b && git log', ['a/b && git log']],
   ['cd /abs && git log', ['/abs && git log']],
   ['cd x | git log', ['. | git log']],
-  ['(cd a; git status); git log', [`${UNKNOWN} ; git status`, '. ; git log']],
+  ['(cd a; git status); git log', ['a ; git status', '. ; git log']],
   ['(cd a && git status); git log', ['a && git status', '. ; git log']],
-  ['{ cd a && git status; }; git log', ['a && git status', `${UNKNOWN} ; git log`]],
+  ['{ cd a && git status; }; git log', ['a && git status', 'a ; git log']],
   ['echo "$(cd ../x && git status)"; git reset --hard', ['../x && git status', '. - echo ', '. ; git reset --hard']],
-  ['echo `cd x; git status`', [`${UNKNOWN} ; git status`, '. - echo ']],
+  ['echo `cd x; git status`', ['x ; git status', '. - echo ']],
   ['echo `cd x && git status`', ['x && git status', '. - echo ']],
   ['git switch -c x && git commit -m m', ['. - git switch -c x', '. && git commit -m m']],
   ['git add f && git commit -m m', ['. - git add f', '. && git commit -m m']],
@@ -328,11 +348,42 @@ test('a cd the guard cannot resolve leaves the later steps in a directory it doe
   expect(steps('(cd "$X"; git log); git reset --hard').map(s => s.dir), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
 })
 
-test('a cd the steps after it do not wait on leaves their directory unresolved: it may have failed', () => {
-  for (const command of ['cd x; git reset --hard', 'cd /nonexistent; git reset --hard', 'cd x || git reset --hard', 'cd x\ngit reset --hard',
-    'cd x && git status; git reset --hard', 'cd x && git status || git reset --hard', 'cd x && git status\ngit reset --hard',
-    'cd a && cd b; git reset --hard', 'cd a; cd /abs; git reset --hard', 'cd x; echo ok && git reset --hard', 'cd x && git status | cat; git reset --hard']) {
-    expect(steps(command).at(-1)?.dir, command).toBe(UNKNOWN)
+test('a cd the steps after it do not wait on still moves them: the directory is assumed, for the guard to check that it exists', () => {
+  const last = (command: string) => { const s = steps(command).at(-1)!; return [s.dir, s.assumed === true] }
+  for (const [command, dir] of [['cd x; git reset --hard', 'x'], ['cd /nonexistent; git reset --hard', '/nonexistent'], ['cd x || git reset --hard', 'x'],
+    ['cd x\ngit reset --hard', 'x'], ['cd x && git status; git reset --hard', 'x'], ['cd x && git status || git reset --hard', 'x'],
+    ['cd x && git status\ngit reset --hard', 'x'], ['cd a && cd b; git reset --hard', 'a/b'], ['cd a; cd /abs; git reset --hard', '/abs'],
+    ['cd x; echo ok && git reset --hard', 'x'], ['cd x && git status | cat; git reset --hard', 'x'], ['cd a; cd b && git reset --hard', 'a/b'],
+    ['set -e\ncd pkg/app\ngit add f.ts\ngit commit -m fix', 'pkg/app'], ["cd x; bash -c 'git reset --hard'", 'x']] as const) {
+    expect(last(command), command).toEqual([dir, true])
+  }
+  for (const command of ['cd x && git reset --hard', 'cd a; cd /abs && git reset --hard', 'git reset --hard', 'cd x | git reset --hard']) {
+    expect(steps(command).at(-1)!.assumed, `nothing-is-assumed: ${command}`).toBeUndefined()
+  }
+})
+
+test('a cd to the home directory or under the directory the shell is in is read; any other expansion is not', () => {
+  const dir = (command: string, home = '/home/u') => steps(command, home).at(-1)!.dir
+  for (const [command, want] of [['cd ~ && git add .', '/home/u'], ['cd ~/proj && git commit -m x', '/home/u/proj'], ['cd "$HOME/proj" && git add .', '/home/u/proj'],
+    ['cd ${HOME}/proj && git add .', '/home/u/proj'], ['cd && git add .', '/home/u'], ['cd "$PWD/pkg/app" && git add f.ts', './pkg/app'],
+    ['cd "$PWD"/pkg && git add f.ts', './pkg'], ['cd sub && cd $PWD/x && git add .', 'sub/./x'], ['cd ~/a; git add .', '/home/u/a']] as const) {
+    expect(dir(command), command).toBe(want)
+  }
+  for (const command of ['cd ~other/x && git add .', 'cd "$REPO" && git add .', 'cd $(git rev-parse --show-toplevel) && git add .', 'cd $(pwd)/sub && git add .',
+    'cd "`pwd`/sub" && git add .', 'cd $HOMEDIR/x && git add .', 'cd - && git add .', 'cd "$X"; cd y; git add .']) {
+    expect(dir(command), command).toBe(UNKNOWN)
+  }
+  expect(dir('cd ~/proj && git add .', ''), 'no-home-no-directory').toBe(UNKNOWN)
+})
+
+test('a step names the files its redirections write, from where the command starts', () => {
+  const outputs = (command: string) => steps(command, '/home/u').map(s => s.outputs)
+  expect(outputs('echo x > a.txt')).toEqual([['a.txt']])
+  expect(outputs('cd sub && echo x >> b.txt && cat c > /abs/d 2> err.log')).toEqual([['sub/b.txt'], ['/abs/d', 'sub/err.log']])
+  expect(outputs('echo x > ~/n.txt; echo y &> all.log')).toEqual([['/home/u/n.txt'], ['all.log']])
+  expect(outputs("bash -c 'echo x > in.txt' > out.txt")).toEqual([['in.txt', 'out.txt']])
+  for (const command of ['echo x > /dev/null', 'echo x 2>&1', 'cat < in.txt', 'echo x > "$F"', 'echo x > $(mktemp)', 'cd "$D" && echo x > rel.txt', 'git log']) {
+    expect(outputs(command).at(-1), `no-file-named: ${command}`).toBeUndefined()
   }
 })
 
@@ -342,9 +393,10 @@ test('a cd whose steps are joined to it with && keeps its directory, and one in 
   expect(dirs('cd x && cd y && git status && git reset --hard')).toEqual(['x/y', 'x/y'])
   expect(dirs('cd a; cd /abs && git reset --hard'), 'an absolute cd that the chain depends on is certain').toEqual(['/abs'])
   expect(dirs('cd x && (git status; git reset --hard)'), 'a group after a cd runs only if it succeeded').toEqual(['x', 'x'])
-  expect(dirs('(cd x; git status); git reset --hard'), 'a subshell keeps its own cd').toEqual([UNKNOWN, ''])
+  expect(dirs('(cd x; git status); git reset --hard'), 'a subshell keeps its own cd').toEqual(['x', ''])
   expect(dirs('(cd x && git status); git reset --hard')).toEqual(['x', ''])
-  expect(dirs('echo "$(cd x; git status)"; git reset --hard')).toEqual([UNKNOWN, '', ''])
+  expect(dirs('echo "$(cd x; git status)"; git reset --hard')).toEqual(['x', '', ''])
+  expect(steps('(cd x; git status); git reset --hard').map(s => s.assumed), 'what-a-subshell-assumed-ends-with-it').toEqual([true, undefined])
   expect(dirs('cd x | git reset --hard'), 'a pipeline stage moves nothing').toEqual([''])
   expect(dirs('cd x & git reset --hard')).toEqual([''])
   expect(dirs('git switch y && git reset --hard'), 'no cd, no change').toEqual(['', ''])

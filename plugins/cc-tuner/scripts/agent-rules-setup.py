@@ -32,26 +32,28 @@ def read_instruction(target):
 
 
 def proposed(current, block):
+    """Return (text the file should hold, state): missing, late, outdated or current.
+
+    The block between the markers is managed: one that differs from the bundled text is an older
+    release's, and is replaced. Several blocks, or markers out of order, are nobody's to rewrite.
+    """
     if BEGIN not in current and END not in current:
-        return block + ("\n" + current if current else "")
+        return block + ("\n" + current if current else ""), "missing"
     if current.count(BEGIN) != 1 or current.count(END) != 1:
         raise ValueError("ambiguous agent-rules markers; nothing written")
     start = current.index(BEGIN)
     stop = current.index(END) + len(END)
     if stop < start:
         raise ValueError("reversed agent-rules markers; nothing written")
-    if current[start:stop] != block.rstrip("\n"):
-        raise ValueError(
-            "existing agent-rules block differs; review it manually; nothing written"
-        )
+    outdated = current[start:stop] != block.rstrip("\n")
     if start == 0:
-        return current
+        return block.rstrip("\n") + current[stop:], "outdated" if outdated else "current"
     # Consume the newline that terminated the block's last line, mirroring the
     # separator this function adds when it inserts one. Without it, moving the
     # block leaves the separators on both of its former sides adjacent.
     if current[stop : stop + 1] == "\n":
         stop += 1
-    return block + "\n" + current[:start] + current[stop:]
+    return block + "\n" + current[:start] + current[stop:], "outdated" if outdated else "late"
 
 
 def main():
@@ -93,10 +95,7 @@ def main():
     ).read_text()
     if not block.startswith(BEGIN) or not block.rstrip().endswith(END):
         raise ValueError("invalid bundled instruction; nothing written")
-    result = proposed(current, block)
-    # proposed() has already refused a differing or ambiguous block, so a marker
-    # surviving here means the instruction is present verbatim.
-    present = BEGIN in current
+    result, state = proposed(current, block)
     if len(result.encode("utf-8")) > 32768:
         print(
             "WARN root instructions exceed Codex default 32 KiB; verify your configured budget"
@@ -117,18 +116,19 @@ def main():
         ),
         end="",
     )
-    # "The file needs an edit" is not one state. A block that is present but not
-    # first needs a move, and reporting that as MISSING sends the operator
-    # looking for text that is already there.
+    # "The file needs an edit" is not one state: reporting a late or an older
+    # block as MISSING sends the operator looking for text that is already there.
     if args.mode == "check":
-        if present:
-            print(
-                "PRESENT BUT NOT FIRST: the rule-loading instruction is installed lower "
+        print(
+            {
+                "missing": "MISSING rule-loading instruction; check wrote nothing",
+                "late": "PRESENT BUT NOT FIRST: the rule-loading instruction is installed lower "
                 "in the file, where the instruction budget can truncate it; "
-                "install moves it to the top; check wrote nothing"
-            )
-        else:
-            print("MISSING rule-loading instruction; check wrote nothing")
+                "install moves it to the top; check wrote nothing",
+                "outdated": "OUTDATED rule-loading instruction: the installed block differs from "
+                "this plugin version's; install replaces it; check wrote nothing",
+            }[state]
+        )
         return 1
     # Keep bytes outside the block, permissions, and an intervening user's edit intact.
     temp_name = None
@@ -151,10 +151,8 @@ def main():
     finally:
         if temp_name and Path(temp_name).exists():
             Path(temp_name).unlink()
-    print(
-        f"{'MOVED' if present else 'INSTALLED'} {target}; "
-        "start a fresh Codex session to load startup instructions"
-    )
+    done = {"missing": "INSTALLED", "late": "MOVED", "outdated": "UPDATED"}[state]
+    print(f"{done} {target}; start a fresh Codex session to load startup instructions")
     return 0
 
 

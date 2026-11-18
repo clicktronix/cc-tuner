@@ -27,6 +27,7 @@ cat > "$SSH" <<EOF
 #!/bin/sh
 echo "ssh \$*" >> "$CALLS"
 case "\$3" in
+  github.com)   echo "hostname \${GITHUB_SSH_HOST:-github.com}" ;;
   github-work)  echo "hostname github.com" ;;
   gitlab-work)  echo "hostname gitlab.com" ;;
   ghe-alias)    echo "hostname ghe.corp.example" ;;
@@ -167,6 +168,45 @@ mkrepo both2 mirror https://github.com/acme/app.git origin https://gitlab.com/ac
 run_host "$REPO"; want "origin-wins-regardless-of-order" gitlab url origin gitlab.com
 mkrepo amb a https://github.com/acme/app.git b https://gitlab.com/acme/app.git
 run_host "$REPO"; want "several-remotes-no-origin-ambiguous" ambiguous none "" ""
+
+git -C "$REPO" config remote.pushDefault b
+run_host "$REPO"; want "configured-push-default" gitlab url b gitlab.com
+git -C "$REPO" config branch.main.pushRemote a
+run_host "$REPO"; want "branch-push-remote" github url a github.com
+CC_TUNER_REMOTE=b run_host "$REPO"; want "explicit-delivery-remote" gitlab url b gitlab.com
+CC_TUNER_REMOTE=gone run_host "$REPO"; want "unknown-remote-needs-resolution" ambiguous none "" ""
+
+# Delivery checks the effective fetch and push destinations without changing setup detection.
+mkrepo delivery origin https://github.com/acme/app.git destination https://gitlab.com/acme/nested/app.git
+run_host --delivery "$REPO"
+want "delivery-identifies-github-project" github url origin "$(printf 'github.com\tacme/app')"
+CC_TUNER_REMOTE=destination run_host --delivery "$REPO"
+want "delivery-identifies-selected-gitlab-project" gitlab url destination "$(printf 'gitlab.com\tacme/nested/app')"
+git -C "$REPO" remote set-url --push origin git@github-work:Acme/App.git
+run_host --delivery "$REPO"
+want "delivery-accepts-equivalent-ssh-alias" github url origin "$(printf 'github.com\tacme/app')"
+git -C "$REPO" remote set-url --push origin git@github.com:acme/other.git
+run_host "$REPO"; want "setup-still-detects-the-fetch-host" github url origin github.com
+run_host --delivery "$REPO"
+if [ "$RC" -eq 15 ]; then echo "PASS delivery-rejects-different-project-on-same-host"; else echo "FAIL delivery-rejects-different-project-on-same-host ($RC: $OUT)"; fails=1; fi
+git -C "$REPO" remote set-url --push origin git@gitlab.com:acme/app.git
+run_host --delivery "$REPO"
+if [ "$RC" -eq 15 ]; then echo "PASS delivery-rejects-different-forge"; else echo "FAIL delivery-rejects-different-forge ($RC: $OUT)"; fails=1; fi
+git -C "$REPO" remote set-url --push origin git@github-work:Acme/App.git
+git -C "$REPO" remote set-url --add --push origin git@github.com:acme/other.git
+run_host --delivery "$REPO"
+if [ "$RC" -eq 15 ]; then echo "PASS delivery-rejects-multiple-push-urls"; else echo "FAIL delivery-rejects-multiple-push-urls ($RC: $OUT)"; fails=1; fi
+
+mkrepo push-rewrite origin https://github.com/acme/app.git
+git -C "$REPO" config url.git@gitlab.com:acme/app.git.pushInsteadOf https://github.com/acme/app.git
+run_host --delivery "$REPO"
+if [ "$RC" -eq 15 ]; then echo "PASS delivery-checks-push-instead-of"; else echo "FAIL delivery-checks-push-instead-of ($RC: $OUT)"; fails=1; fi
+mkrepo configured-ssh origin https://github.com/acme/app.git
+git -C "$REPO" remote set-url --push origin git@github.com:acme/app.git
+GITHUB_SSH_HOST=ssh.github.com run_host --delivery "$REPO"
+want "delivery-accepts-github-alternate-ssh" github url origin "$(printf 'github.com\tacme/app')"
+GITHUB_SSH_HOST=gitlab.com run_host --delivery "$REPO"
+if [ "$RC" -eq 15 ]; then echo "PASS delivery-rejects-known-ssh-host-redirect"; else echo "FAIL delivery-rejects-known-ssh-host-redirect ($RC: $OUT)"; fails=1; fi
 
 # --- where it runs from, and what it is not ------------------------------------------------------
 mkrepo sub origin https://github.com/acme/app.git; mkdir -p "$REPO/a/b"

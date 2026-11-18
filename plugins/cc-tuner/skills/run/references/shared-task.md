@@ -6,8 +6,8 @@ orchestrator.
 
 ## Spec and plans
 
-Keep one shared outcome and issue for coupled work. Each repository needs its own branch, PR,
-local spec and committed plan for the existing resolver and review gates.
+Coupled work has one shared outcome and issue, plus a local spec and plan per checkout.
+Commit the files and open a PR/MR when authorized. Local-only participants use the files on disk.
 
 The **primary spec** owns the shared outcome, cross-repository prerequisites, combined acceptance
 checks and merge order. Its `second-repo` entry identifies the companion checkout, branch and local
@@ -33,30 +33,29 @@ Publish one combined task list after preparing the plans. Qualify slice names by
 the local plan edges and add cross-repository edges from the primary spec. Reconcile missing tasks
 and completed slices on resume. Use one verify → review → deliver chain for the shared result.
 
-Read each local frontier and select work whose shared prerequisites are satisfied. Local
+Read each local ready batch and select work whose shared prerequisites are satisfied. Local
 `ready-batches` establishes only local readiness. Update the prerequisites when review changes the
 plan; a ready local batch does not discharge an external dependency.
 
 ## Combined verification
 
-For `verify-feature`, read the primary spec, all local specs and each participating diff. Exercise
-the combined acceptance checks and record the repository/SHA set tested together. Local checks alone
-do not prove the pair. Return unproved criteria and missing environment evidence to the caller;
-standalone verification does not initiate review, merge or deployment.
+Exercise the combined acceptance checks across the actual checkouts. Identify each clean participant
+by commit SHA and each uncommitted one by base SHA, inspected task diff and new files. Record which
+set was tested together and any missing evidence. A local proof can precede synchronization or
+archiving; only committed candidates can earn publishable records.
 
 ## Review and delivery
 
-Before combined verification, prepare all candidates through `/run`: synchronize each target, archive
-specs and update cross-repository links before any required thread is pinned. Complete `/run`'s
-Delivery steps up to the merge for each repository before the first merge. Give each required
-review its local spec, the primary spec, companion diffs and SHAs. Record each repository's PR,
-candidate SHA, review thread and CI policy in the primary's PR or MR, or, with no remote, in the final
-report. A changed participant requires rechecking combined acceptance and refreshing
-affected reviews against the new set of commits.
+When publication is permitted, synchronize targets, archive specs and update cross-repository links.
+Validate edits in each checkout before committing and against HEAD afterwards. Recheck combined
+acceptance against the final candidate set before any merge. Give each required reviewer its local
+spec, the primary spec, companion diffs and SHAs. Record the PR/MR, candidate SHA, thread and CI
+policy per participant on the primary PR/MR, or in the local report for a remote-less task.
 
-Each participant first runs `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"` and
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/route.sh" check <host>` in its own checkout, as `/run`'s Before
-starting and Delivery entry say, since the hosts can differ.
+Apply [hosts.md](hosts.md) in every checkout at startup and delivery. A missing credential or route
+keeps that participant's publication pending; independent local slices and combined verification
+can proceed. A participant whose commit or publication belongs to a person follows the local
+handoff in `/run`. Preserve the full candidate set for the eventual coordinated delivery.
 
 Before merging any participant, run the preflight in every candidate's checkout, using its own PR,
 SHA, strategy, CI mode and review thread: `merge.sh --check-only` for a GitHub candidate, every route step

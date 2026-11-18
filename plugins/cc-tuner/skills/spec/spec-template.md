@@ -43,7 +43,7 @@ Reported after merge, not committed.
 ## Run config
 branch: <current task branch>
 target: <integration branch>
-host: github|gitlab|local|other — from scripts/setup/host.sh; github delivers through merge.sh, the others through /run's route
+host: github|gitlab|local|other|pending — from scripts/setup/host.sh; pending defers delivery until the destination is known
 merge: squash|merge|ff — ff only with host: local
 second-repo: <checkout path>, branch <name>, spec <repo-relative path> — <contribution,
     prerequisites, merge order and why>. Omit for one repository; see ../run/references/shared-task.md
