@@ -653,6 +653,6 @@ need "setup-names-the-machine-resources-file"    '~/.config/cc-tuner/resources.j
 need "readme-documents-the-ack"             'CC_TUNER_ACK=<key>' "$README_PLUGIN"
 need "readme-documents-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$README_PLUGIN"
 need "readme-documents-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$README_PLUGIN"
-need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.23.0' "$RULE_TEMPLATE"
+need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.24.0' "$RULE_TEMPLATE"
 
 exit "$fails"
