@@ -16,9 +16,9 @@ dependent host operation. Resolve an unknown base first if it affects what shoul
 
 The final line of a successful preflight is tab-separated: `destination <remote> <hostname> <project>`.
 Use those fields as `DELIVERY_REMOTE`, `DELIVERY_HOST` and `DELIVERY_PROJECT` for the current checkout.
-Use `"$DELIVERY_REMOTE"` explicitly in Git fetch and push commands, and push only the candidate branch. When the remote has multiple push
-URLs or one that points to a different repository, select a remote whose fetch and push URLs reach
-the same project. Different protocols or a resolved SSH alias work when they identify the same
+Use `"$DELIVERY_REMOTE"` explicitly in Git fetch and push commands, and push only the candidate
+branch. When the remote has multiple push URLs or one that points to a different repository, select
+a remote whose fetch and push URLs reach the same project. Different protocols or a resolved SSH alias work when they identify the same
 forge repository.
 
 For GitHub, pass `--repo "$DELIVERY_HOST/$DELIVERY_PROJECT"` to every `gh pr` command during delivery,
@@ -30,6 +30,9 @@ the PR number from that repository. For REST calls, pass `--hostname "$DELIVERY_
 - `ambiguous`: use the remote the task identifies (`CC_TUNER_REMOTE=<name>` for host detection and
   delivery commands). Git's `branch.<name>.pushRemote` and `remote.pushDefault` also select it.
   Ask for the destination only when it is still unknown and needed.
+- A fork whose pull request lives in another repository is not one destination: the preflight names
+  the repository the selected remote pushes to, and `merge.sh` looks for the pull request there. Push
+  and verify as usual, then hand the review records and the merge over to the user.
 - A host mismatch needs the agreed destination reconciled with the spec. If the self-hosted forge
   login is missing, authenticate to its known hostname and detect again.
 - For a missing login, report the printed `gh auth login --hostname` or `glab auth login --hostname`

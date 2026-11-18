@@ -21,10 +21,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh" \
   || echo "prerequisites missing — /spec continues; /cc-tuner:run needs them before delivery"
 ```
 
-Use this checkout root for commands and paths throughout the spec. Record missing capabilities with the phase that needs them. Section 5 settles the required review
-mode before approval. For an unfamiliar dependency, a current-facts question or two defensible designs,
-consult [optional-opinions.md](references/optional-opinions.md). Start local discovery immediately.
-Ask about an optional paid call only if the uncertainty persists and its budget is not already authorized.
+Use this checkout root for commands and paths throughout the spec. Record missing capabilities with
+the phase that needs them. Section 5 settles the required review mode before approval. For an
+unfamiliar dependency, a current-facts question or two defensible designs, consult
+[optional-opinions.md](references/optional-opinions.md). Start local discovery immediately. Ask about
+an optional paid call only if the uncertainty persists and its budget is not already authorized.
 
 Read, in order:
 
@@ -236,8 +237,8 @@ absent, say once that only the visible list and its edges are lost, mention
 `--allowedTools TaskCreate` for one session), and continue to the handoff. Do not add a second
 confirmation after the approved contract and slices.
 
-When board writes are authorized and the spec names a `board:`, read `cc-tuner:task-flow`'s Board recipes and put the issue's card
-on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
+When board writes are authorized and the spec names a `board:`, read `cc-tuner:task-flow`'s Board
+recipes and put the issue's card on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
 unset (the value approved in section 6); for a sub-issue, put the epic's card on the board too.
 Report a move that failed.
 

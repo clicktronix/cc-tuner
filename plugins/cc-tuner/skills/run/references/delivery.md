@@ -73,8 +73,9 @@ also covers the complete repository/SHA set defined in [shared-task.md](shared-t
 
    Without publication authority, omit `--pr` and retain the receipt. If GitHub is unavailable,
    continue safe local fixes. Retry the saved receipt on the same PR before the next push or
-   review round. On resume pass the existing file directly to the helper. The helper reuses the authenticated author’s review for that round and pins
-   GitHub's `commit_id` to the reviewed SHA. A moved head needs its own review.
+   review round. On resume pass the existing file directly to the helper. The helper reuses the
+   authenticated author’s review for that round and pins GitHub's `commit_id` to the reviewed SHA. A
+   moved head needs its own review.
 
    | | `codex` (default) | `none:<reason>` |
    |---|---|---|
@@ -102,11 +103,11 @@ also covers the complete repository/SHA set defined in [shared-task.md](shared-t
 5. **Record the spec's DoD before merge.** Name each item and its evidence in a PR comment or body
    section. Do not commit it to the spec (that moves the reviewed SHA) or to the integration target.
 6. **Mark the PR ready and deliver through the checked script.** When the candidate is verified,
-   judged and its DoD recorded, run `gh pr ready <pr> --repo "$DELIVERY_HOST/$DELIVERY_PROJECT"` if it is a draft and wait for the checks that
-   start then.
-   Recheck target advancement as `/run`'s Prepare the candidate describes. When [Merge authorization](../SKILL.md#who-may-stop-the-run)
-   permits delivery, merge with the spec's strategy,
-   CI mode, pinned head and same review thread:
+   judged and its DoD recorded, run `gh pr ready <pr> --repo "$DELIVERY_HOST/$DELIVERY_PROJECT"` if
+   it is a draft and wait for the checks that start then. Recheck target advancement as `/run`'s
+   Prepare the candidate describes. When
+   [Merge authorization](../SKILL.md#who-may-stop-the-run) permits delivery, merge with the spec's
+   strategy, CI mode, pinned head and same review thread:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge.sh" [--ci <mode>] [--review none:<reason>] <pr> <squash|merge> <candidate-sha> [<review-thread>]

@@ -85,8 +85,9 @@ case "$PR" in
 esac
 case "$PR" in ''|*[!0-9]*) die "pass a pull request number or URL for $REPOSITORY" ;; esac
 
+# A pull request opened from a fork lives in the base repository, not in the one this remote pushes to.
 PRJSON="$("$GH" pr view "$PR" --repo "$REPOSITORY" --json headRefOid,baseRefName,baseRefOid,isDraft,reviews,comments 2>/dev/null)" \
-  || die "cannot resolve pull request '$PR'"
+  || die "cannot resolve pull request '$PR' in $REPOSITORY, the repository remote '$REMOTE' pushes to. A pull request opened from a fork lives in the base repository, which this script does not deliver to"
 
 HEAD_SHA="$(printf '%s' "$PRJSON" | jq -r '.headRefOid // empty')"
 [ -n "$HEAD_SHA" ] || die "pull request $PR reports no head commit"

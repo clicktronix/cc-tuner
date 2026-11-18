@@ -29,25 +29,48 @@ emit() {  # emit <context text> -- jq builds the JSON so the text cannot break o
     '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
 }
 
-PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve 2>/dev/null)" || exit 0
-
-# A plan whose exact content is already in the remote default branch belongs to work that landed; a
-# branch reused afterwards would otherwise be told to rebuild a finished task. Only identical content
-# counts: a landed plan this branch extended with new slices is still open work.
-DEFAULT_REF="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)"
-LANDED_BLOB="$( [ -z "$DEFAULT_REF" ] || git rev-parse -q --verify "$DEFAULT_REF:$PLAN" 2>/dev/null || true)"
-PLAN_BLOB="$(git rev-parse -q --verify "HEAD:$PLAN" 2>/dev/null)" || exit 0
-if [ -n "$LANDED_BLOB" ] && [ "$LANDED_BLOB" = "$PLAN_BLOB" ]; then
-  exit 0
+# A run under --local-only (commits reserved) keeps its plan on disk and nothing in HEAD. Without this
+# fallback such a run lost its plan at every /clear, compaction and new session.
+LOCAL_PLAN=0
+if ! PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve 2>/dev/null)"; then
+  PLAN="$(bash "$SCRIPTS/plan-path.sh" resolve --local-only 2>/dev/null)" || exit 0
+  LOCAL_PLAN=1
 fi
 
-committed_slices() {
-  set -o pipefail
-  git cat-file blob "$PLAN_BLOB" | bash "$SCRIPTS/plan-lint.sh" slices -
-}
-if ! SLICES="$(committed_slices 2>/dev/null)"; then
-  # A committed plan that does not parse is not nothing: staying quiet would let the branch look
-  # like it has no plan at all.
+NOTE=""
+if [ "$LOCAL_PLAN" -eq 1 ]; then
+  KIND="an uncommitted plan on disk"
+  DONE_KIND="uncommitted plan"
+  SAVE="and leave it on disk: this run does not commit. Resume with /cc-tuner:run --local-only <spec>"
+  read_slices() { bash "$SCRIPTS/plan-lint.sh" slices "$PLAN"; }
+else
+  # A plan whose exact content is already in the remote default branch belongs to work that landed; a
+  # branch reused afterwards would otherwise be told to rebuild a finished task. Only identical content
+  # counts: a landed plan this branch extended with new slices is still open work.
+  DEFAULT_REF="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)"
+  LANDED_BLOB="$( [ -z "$DEFAULT_REF" ] || git rev-parse -q --verify "$DEFAULT_REF:$PLAN" 2>/dev/null || true)"
+  PLAN_BLOB="$(git rev-parse -q --verify "HEAD:$PLAN" 2>/dev/null)" || exit 0
+  if [ -n "$LANDED_BLOB" ] && [ "$LANDED_BLOB" = "$PLAN_BLOB" ]; then
+    exit 0
+  fi
+  KIND="a committed plan"
+  DONE_KIND="committed plan"
+  SAVE="and commit it"
+  read_slices() {
+    set -o pipefail
+    git cat-file blob "$PLAN_BLOB" | bash "$SCRIPTS/plan-lint.sh" slices -
+  }
+  # The list below is HEAD's. The working copy is named, never read in its place: under --local-only it
+  # holds the ticks made since the last commit, and in any other run it is an edit in progress.
+  git diff --quiet HEAD -- "$PLAN" 2>/dev/null || NOTE="
+The working copy of $PLAN differs from HEAD. The list above is HEAD's; a --local-only run keeps its
+ticks in the working copy, so read the file before rebuilding.
+"
+fi
+
+if ! SLICES="$(read_slices 2>/dev/null)"; then
+  # A plan that does not parse is not nothing: staying quiet would let the branch look like it has
+  # no plan at all.
   emit "cc-tuner: $PLAN does not parse, so the task list was not restored. Run:
   bash \"$SCRIPTS/plan-lint.sh\" check \"$PLAN\""
   exit 0
@@ -102,15 +125,15 @@ $OUTSIDE
 
 if [ -z "$BODY" ]; then
   [ -n "$OUTSIDE" ] || exit 0
-  emit "cc-tuner: every slice in this branch's committed plan is done, and $PLAN still has open
+  emit "cc-tuner: every slice in this branch's $DONE_KIND is done, and $PLAN still has open
 checkboxes outside the slices. If this session continues that work, pick it up from them; if the
 session is about something else, ignore this.
-$OUTSIDE
-Tick \`- [ ]\` to \`- [x]\` in $PLAN as they are done, and commit it."
+$OUTSIDE$NOTE
+Tick \`- [ ]\` to \`- [x]\` in $PLAN as they are done, $SAVE."
   exit 0
 fi
 
-emit "cc-tuner: this branch has a committed plan with unfinished slices: $PLAN.
+emit "cc-tuner: this branch has $KIND with unfinished slices: $PLAN.
 If this session continues that work, rebuild the task list from it first. Rebuild it from $PLAN
 as below; if the session is about something else, ignore this.
 
@@ -125,6 +148,6 @@ marking first leaves the wiring to a pass that may not happen:
   3. TaskUpdate status completed for the slices marked already done
 
 $BODY
-$OUTSIDE
-Tick \`- [ ]\` to \`- [x]\` in $PLAN as criteria are met, and commit it. The file is the store; the task
+$OUTSIDE$NOTE
+Tick \`- [ ]\` to \`- [x]\` in $PLAN as criteria are met, $SAVE. The file is the store; the task
 list does not survive this session."

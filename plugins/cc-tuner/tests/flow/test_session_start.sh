@@ -286,5 +286,30 @@ C_DIRTY="$(context "$R_OPEN")"
 check "dirty-plan-restores-head-version" "Slice 2 — Wire the budget" "$C_DIRTY"
 absent "staged-version-not-restored" "Staged version" "$C_DIRTY"
 absent "unstaged-version-not-restored" "Working version" "$C_DIRTY"
+# The working copy is named, since a --local-only run keeps its ticks there; a clean one is not.
+check  "dirty-plan-names-the-working-copy" "differs from HEAD" "$C_DIRTY"
+absent "clean-plan-says-nothing-about-the-working-copy" "differs from HEAD" "$(context "$R")"
+
+# --- a plan that exists only on disk (a --local-only run) is restored from the file ----------------
+# plan-path.sh found it with --local-only and /run worked from it, but the hook asked HEAD alone and
+# said nothing: the run lost its plan at every /clear, compaction and new session.
+R_LOCAL="$(flow_repo)"
+(
+  cd "$R_LOCAL" || exit 1
+  git checkout -q -b feature/local
+  mkdir -p docs/task-plans
+  printf '%s' "$HALF" > docs/task-plans/2026-01-01-feature-local.md
+) || { printf 'FATAL: setup failed\n'; exit 1; }
+C_LOCAL="$(context "$R_LOCAL")"
+check  "local-only-plan-is-restored"          "Slice 2 — Wire the budget"   "$C_LOCAL"
+check  "local-only-plan-keeps-open-criteria"  "exhaustion is observable"    "$C_LOCAL"
+check  "local-only-plan-is-named-uncommitted" "an uncommitted plan on disk" "$C_LOCAL"
+check  "local-only-plan-names-the-resume"     "/cc-tuner:run --local-only"  "$C_LOCAL"
+absent "local-only-plan-is-not-told-to-commit" "and commit it"              "$C_LOCAL"
+# Committed afterwards, the same plan is HEAD's again and is described as such.
+( cd "$R_LOCAL" && git add -A && git commit -q -m 'add plan' )
+C_NOW="$(context "$R_LOCAL")"
+check  "committed-later-plan-is-a-committed-plan" "a committed plan with unfinished slices" "$C_NOW"
+absent "committed-later-plan-has-no-local-wording" "uncommitted plan on disk" "$C_NOW"
 
 exit $fails

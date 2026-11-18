@@ -21,9 +21,10 @@ Start previews, dedicated MCP servers and test containers as `task-flow`'s Runti
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
 DoD. If the argument is missing or names a plan, read the spec from the plan's `**Spec:**` header and
-say which one you took. Stop if neither names a spec that exists. `auto_ready: yes` is required for unattended delivery. If the sole obstacle is a destination or
-publication prerequisite, continue the approved local work and hold delivery. Missing acceptance
-or an unresolved human-only criterion still needs the spec's normal decision.
+say which one you took. Stop if neither names a spec that exists. `auto_ready: yes` is required for
+unattended delivery. If the sole obstacle is a destination or publication prerequisite, continue the
+approved local work and hold delivery. Missing acceptance or an unresolved human-only criterion still
+needs the spec's normal decision.
 
 **Re-detect the host** with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"`. For every delivery host,
 follow [hosts.md](references/hosts.md) before the first slice. A delivery prerequisite can wait
@@ -83,9 +84,11 @@ ticks, path transfers and archive links), check the edited files with the startu
 arguments **plus `--local-only` before commit**. Where commits are permitted, commit the reviewed
 change and repeat the HEAD check before dispatching or resuming. Local-only work keeps the disk plan.
 
-Within approved scope, split remaining work or move an Owned path between open slices yourself.
-Wait for affected writers to return or coordinate their handoff first. Update ownership, blockers and evidence; apply the edit check above and refresh the task list and peer claims.
-Ask only when the outcome, acceptance or an external owner's work would change.
+Within approved scope, split remaining work or move an Owned path between open slices yourself, and
+add a file no slice names to the slice that needs it. Wait for affected writers to return or
+coordinate their handoff first. Update ownership, blockers and evidence; apply the edit check above
+and refresh the task list and peer claims. Ask only when the outcome, acceptance or an external
+owner's work would change.
 
 Peers: if `mcp__cc-tuner__peers_claim` is listed, call it with the plan before the first slice,
 after each tick and before integrating the target. Before starting a slice whose Owned paths a peer's
@@ -184,8 +187,10 @@ opening or merging it again.
 ## Verifying the feature
 
 After every slice is done and before offering a candidate for review, run `cc-tuner:verify-feature`
-in a `general-purpose` subagent with `model: "sonnet"` and `effort: "high"`, or the model and effort [placement](references/placement.md#agent-selection) assigns to a complex verification. Create a private scratch directory outside the
-checkout (for example with `mktemp -d`). Pass the verifier an absolute output path there, the spec,
+in a `general-purpose` subagent with `model: "sonnet"` and `effort: "high"`, or the model and effort
+[placement](references/placement.md#agent-selection) assigns to a complex verification. Create a
+private scratch directory outside the checkout (for example with `mktemp -d`). Pass the verifier an
+absolute output path there, the spec,
 candidate worktree and SHA, heavy-check command and cleanup instructions. Use a fresh file for each
 verification. The verifier writes the record and returns its path and verified SHA or worktree base.
 Use the same file contract when running the skill yourself.

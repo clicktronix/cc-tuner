@@ -528,6 +528,16 @@ LATER_RC="$(jq -nc --arg b "cc-tuner-verdict: REQUEST_CHANGES $SHA" '[{author:{l
 D="$(EXTRA_COMMENTS="$LATER_RC" world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 check "later-comment-request-changes-refused" "is not an approval" "$(run "$D" 42 squash "$SHA")"
 
+# --- a pull request that is not in the delivery repository ---------------------------------------
+# The repository is the one the selected remote pushes to. A pull request opened from a fork lives in
+# the base repository, so the refusal names where it looked instead of only "cannot resolve".
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"; rm -f "$D/pr.json"
+OUT="$(run "$D" --check-only 42 squash "$SHA")"
+check  "missing-pr-names-the-repository" "cannot resolve pull request '42' in " "$OUT"
+check  "missing-pr-names-the-remote"     "pushes to"                            "$OUT"
+check  "missing-pr-explains-a-fork"      "lives in the base repository"         "$OUT"
+check  "missing-pr-rc1"                  "rc=1"                                 "$OUT"
+
 # --- a draft is not ready, and a preflight must not say it is -----------------------------------
 D="$(DRAFT=true world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run "$D" --check-only 42 squash "$SHA")"
