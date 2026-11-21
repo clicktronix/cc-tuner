@@ -1,6 +1,6 @@
 # Slice unit cap — plan
 
-**Spec:** docs/PLANS/2026-09-19-slice-unit-cap.md
+**Spec:** docs/ARCHIVE/PLANS/2026-09-19-slice-unit-cap.md
 **Branch:** feat/37-slice-unit-cap
 
 ## Slice 1 — The implementation unit exists as a capped agent and the validator guards it

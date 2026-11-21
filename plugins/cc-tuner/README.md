@@ -14,10 +14,10 @@ read-only. Placement rules: the root README.
 
 ### `claude-md-writer`
 
-Create, refactor, and audit **CLAUDE.md** and **`.claude/rules/`** memory files, following the official
-memory docs (<https://code.claude.com/docs/en/memory>). Triggers when you create, trim or split a
-CLAUDE.md, organize instructions into `.claude/rules/`, or decide what belongs in CLAUDE.md vs rules vs
-`CLAUDE.local.md` vs tool config. Load order, size targets, imports, auto memory, path-scoped rules
+Create, refactor, and audit **CLAUDE.md**, **AGENTS.md** and **`.claude/rules/`** instruction files,
+following the official memory docs (<https://code.claude.com/docs/en/memory>) and the AGENTS.md open
+format. Triggers when you create, trim or split a CLAUDE.md or AGENTS.md, organize instructions into
+`.claude/rules/`, or decide what belongs in CLAUDE.md vs rules vs `CLAUDE.local.md` vs tool config. Load order, size targets, imports, auto memory, path-scoped rules
 and the verified source list are in the skill's `reference.md`.
 
 ### `statusline`
@@ -64,10 +64,11 @@ in a fork of the script.
 
 ### `task-flow`
 
-Canonical git workflow — branch naming, Conventional Commits (incl. breaking
-changes), PR verification gates, GitHub Projects board recipes (create-on-board,
-field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
-`docs/` fallback), and anti-pattern case studies with dated incidents.
+Repository chores around a task — branch and commit conventions, the pre-PR checklist, cleanup
+after a merge, stacked-PR merges, the spec lifecycle (`wiki/PLANS/` → `ARCHIVE`, `docs/` fallback)
+and case studies of the incidents behind its rules. GitHub Projects board recipes (create-on-board,
+field-ID caching, card lifecycle) and epics live in `references/board.md`, read only when a board or
+an epic is involved.
 
 The always-on core installs per repo via the task-flow node of `/cc-tuner:setup` (plugins
 can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in
