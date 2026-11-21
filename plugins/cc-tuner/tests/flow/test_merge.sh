@@ -252,6 +252,13 @@ OUT="$(run "$D" 42 squash "$SHA")"
 check  "marker-with-empty-spec-path-refused" "does not cover thread" "$OUT"
 absent "marker-with-empty-spec-path-no-merge" "MERGED" "$OUT"
 
+# A path made of whitespace names no spec.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+printf ' \n' > "$D/codex-spec"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "marker-with-blank-spec-path-refused" "does not cover thread" "$OUT"
+absent "marker-with-blank-spec-path-no-merge" "MERGED" "$OUT"
+
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run "$D" 42 squash "$SHA" review-explicit)"
 check "explicit-required-review-thread-passes" "rc=0" "$OUT"

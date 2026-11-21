@@ -154,13 +154,17 @@ if [ "$REVIEW_MODE" = codex ]; then
   CODEX_MARKER="$(bash "$CODEX_CHECK" check "$REVIEW_THREAD" 2>&1)" \
     || die "cc-codex-triage did not approve this worktree candidate: $CODEX_MARKER"
   # One line: six whitespace-separated fields, then spec_path= and the rest of the line, which may
-  # hold spaces.
+  # hold spaces but not start with one.
   CODEX_FIELDS="${CODEX_MARKER%% spec_path=*}"
+  CODEX_SPEC="${CODEX_MARKER#"$CODEX_FIELDS spec_path="}"
+  NEWLINE='
+'
   set -f
   set -- $CODEX_FIELDS
   set +f
-  case "$CODEX_MARKER" in *"
-"*) false ;; *" spec_path="?*) true ;; *) false ;; esac \
+  [ "$CODEX_SPEC" != "$CODEX_MARKER" ] \
+    && case "$CODEX_MARKER" in *"$NEWLINE"*) false ;; *) true ;; esac \
+    && case "$CODEX_SPEC" in ''|[[:space:]]*) false ;; *) true ;; esac \
     && [ "$#" -eq 6 ] && [ "$1" = CC_CODEX_REQUIRED_REVIEW ] && [ "$2" = APPROVE ] \
     && [ "$3" = "thread=$REVIEW_THREAD" ] && [ "$4" = "head=$HEAD_SHA" ] \
     && case "$5:$6" in tree=?*:base_sha=?*) true ;; *) false ;; esac \
