@@ -223,13 +223,13 @@ skip the step, say it was skipped and why, and do not mention the `project` scop
 GraphQL error. If doctor warned about the scope, block this node, print `gh auth refresh -s project`
 for the user to run (it is interactive) and report the board as not wired.
 
-1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` — the recipes
-   are in the `cc-tuner:task-flow` skill. Node 3 must have run: it guarantees `task-flow.local.md`
-   exists and carries any migrated IDs.
-2. Check whether the org has an `Epic` issue type, with the query in the `cc-tuner:task-flow` skill's
-   Epics section. When it is absent, tell the user an **org admin has to add it in organisation
-   settings**, and that until then the skill falls back to an `[Epic]` title prefix, which is a
-   convention, not a filterable field.
+1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` with the
+   recipes in [board.md](../task-flow/references/board.md). Node 3 must have run: it guarantees
+   `task-flow.local.md` exists and carries any migrated IDs.
+2. Check whether the org has an `Epic` issue type, with the query in board.md's Epics section. When
+   it is absent, tell the user an **org admin has to add it in organisation settings**, and that
+   until then the skill falls back to an `[Epic]` title prefix, which is a convention, not a
+   filterable field.
 
 ### 7. Codex audit (optional, install mode)
 

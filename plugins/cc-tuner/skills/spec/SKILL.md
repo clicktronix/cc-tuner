@@ -237,8 +237,8 @@ absent, say once that only the visible list and its edges are lost, mention
 `--allowedTools TaskCreate` for one session), and continue to the handoff. Do not add a second
 confirmation after the approved contract and slices.
 
-When board writes are authorized and the spec names a `board:`, read `cc-tuner:task-flow`'s Board
-recipes and put the issue's card on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
+When board writes are authorized and the spec names a `board:`, read
+[board.md](../task-flow/references/board.md) and put the issue's card on it: add it when missing, set Status to Todo unless it already has a later one, and Priority when
 unset (the value approved in section 6); for a sub-issue, put the epic's card on the board too.
 Report a move that failed.
 

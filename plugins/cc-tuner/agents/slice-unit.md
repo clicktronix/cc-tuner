@@ -27,8 +27,8 @@ wait for a machine-wide slot, and stopped before you return. Lines in its output
 `heavy.sh: started without a slot` go into your return. The full suite, the e2e suite, browser
 MCP sessions and dev servers belong to the orchestrator and verify-feature.
 
-A container you start follows the Runtime cleanup section of
-`${CLAUDE_PLUGIN_ROOT}/skills/task-flow/SKILL.md`; read it before starting one. Your part of it:
+A container you start follows `${CLAUDE_PLUGIN_ROOT}/skills/run/references/runtime-cleanup.md`; read
+it before starting one. Your part of it:
 TaskStop everything you started before you return.
 
 Keep secret values out of everything you print and return: values from `.env` files never appear in

@@ -13,6 +13,8 @@ DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
+BOARD="$ROOT/plugins/cc-tuner/skills/task-flow/references/board.md"
+RUNTIME_CLEANUP="$ROOT/plugins/cc-tuner/skills/run/references/runtime-cleanup.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
@@ -120,7 +122,7 @@ else
 fi
 # Work done outside /spec and /run left cards where they were (stokli, marqa); the always-on rule is
 # what such work reads.
-if tr -s ' \n' ' ' < "$RULE_TEMPLATE" | grep -qF "which move the card themselves, move it by \`cc-tuner:task-flow\`'s Card lifecycle"; then
+if tr -s ' \n' ' ' < "$RULE_TEMPLATE" | grep -qF "which move the card themselves, move it by the Card lifecycle in \`cc-tuner:task-flow\`'s board reference"; then
   echo "PASS rule-template-moves-cards-outside-commands"
 else
   echo "FAIL rule-template-moves-cards-outside-commands"
@@ -563,7 +565,8 @@ LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
 SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
 need "task-flow-gitlab-merged-check"       'glab mr view <iid> --repo' "$TASK_FLOW"
 need "task-flow-local-merged-check"        '`git rev-parse refs/heads/<target>`' "$TASK_FLOW"
-need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$TASK_FLOW"
+need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$BOARD"
+need "task-flow-points-at-the-board"      '[board.md](references/board.md)' "$TASK_FLOW"
 README_ROOT="$ROOT/README.md"
 for readme in "$README_ROOT" "$README_PLUGIN"; do
   rn="${readme#$ROOT/}"
@@ -647,12 +650,14 @@ fi
 # what a machine consumes: the tool names skills call and allow, the ack prefix, the two file paths, the marker.
 need "spec-calls-and-allows-peers-report"   'mcp__cc-tuner__peers_report' "$SPEC"
 need "run-calls-and-allows-peers-claim"     'mcp__cc-tuner__peers_claim' "$RUN"
-need "task-flow-releases-leases"            'mcp__cc-tuner__peers_release' "$TASK_FLOW"
+need "runtime-cleanup-releases-leases"      'mcp__cc-tuner__peers_release' "$RUNTIME_CLEANUP"
+need "run-points-at-runtime-cleanup"        '[runtime-cleanup.md](references/runtime-cleanup.md)' "$RUN"
+need "unit-points-at-runtime-cleanup"       'skills/run/references/runtime-cleanup.md' "$UNIT"
 need "setup-names-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$SETUP"
 need "setup-names-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$SETUP"
 need "readme-documents-the-ack"             'CC_TUNER_ACK=<key>' "$README_PLUGIN"
 need "readme-documents-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$README_PLUGIN"
 need "readme-documents-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$README_PLUGIN"
-need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.24.0' "$RULE_TEMPLATE"
+need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.24.1' "$RULE_TEMPLATE"
 
 exit "$fails"

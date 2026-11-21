@@ -16,8 +16,8 @@ delivery. Apply the task and repository permissions in [Merge authorization](#wh
 
 ## Before starting
 
-Start previews, dedicated MCP servers and test containers as `task-flow`'s Runtime cleanup says;
-[Ending the run](#ending-the-run) stops them.
+Start previews, dedicated MCP servers and test containers as [runtime-cleanup.md](references/runtime-cleanup.md)
+says; [Ending the run](#ending-the-run) stops them.
 
 Read the named spec: it owns acceptance, tests, target, merge strategy, CI and review policy, and
 DoD. If the argument is missing or names a plan, read the spec from the plan's `**Spec:**` header and
@@ -59,7 +59,7 @@ tasks with `TaskCreate`, then set edges with `TaskUpdate addBlockedBy`:
 Mark tasks completed for every ticked slice before starting. Update statuses as stages execute. If
 native tools are absent, say so once and continue with the plan file as durable state.
 
-**The board.** For an authorized board, use the `cc-tuner:task-flow` Board recipes. Add the
+**The board.** For an authorized board, follow [board.md](../task-flow/references/board.md). Add the
 card if missing, set it In Progress before work, and move an unstarted parent epic with it.
 Report failed moves now and at handoff, then continue. Delivery owns the later moves.
 
@@ -212,7 +212,7 @@ again on resuming delivery. Follow its route through review, verdict, DoD and th
 ## Ending the run
 
 Before every final answer — after the merge, at the handoff before it, or on a block — stop what this
-run started, as `task-flow`'s Runtime cleanup says: TaskStop each background task, close the browser
+run started, as [runtime-cleanup.md](references/runtime-cleanup.md) says: TaskStop each background task, close the browser
 pages it opened, remove each container it created. What the user asked to keep running stays, and so
 does a task the guard refuses to stop. The answer then carries one line:
 
