@@ -68,8 +68,7 @@ holes, simpler alternatives); its findings are questions for the owner, never bl
 Security and Blind spots run on Opus, the rest on Sonnet unless the packet is one of the Opus cases below. Past 19 lenses (four shards) the owner asks
 the user whether to run them all, cut to the limit, or re-shard. The
 [deep-review procedure](skills/deep-review/SKILL.md) owns the accepted partition and the line printed
-before dispatch — lens count by model and effort, with a dollar figure only from a source the owner
-can name.
+before dispatch — lens count by model and effort.
 
 
 ### `verify-feature`
@@ -97,7 +96,7 @@ it can hand over a verified commit. Merge requires explicit authorization or req
 within the repository's permissions. GitHub merges go through `scripts/merge.sh`.
 
 Implementation units have a 300-turn cap and return unfinished work to the orchestrator. Deep-review
-lenses have read-only tools and a stated dispatch budget. The orchestrator may split and reassign
+lenses have read-only tools and a lens limit. The orchestrator may split and reassign
 slices while preserving scope and acceptance. See `skills/run/references/placement.md`.
 Unattended execution continues only while
 every gate is green, and never waives incomplete DoR, missing RED→GREEN evidence, failed tests, stale

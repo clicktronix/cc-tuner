@@ -28,8 +28,7 @@ sequential.
 
 Independent read-only review is the exception to sequential review: its own skill defines the
 reviewers and packets, while the orchestrator aggregates. `deep-review` owns its agent availability and
-coverage refusals. Before paid fan-out, state the count, model and effort; a dollar figure needs a
-source you can name.
+coverage refusals. Before a review fan-out, state the count, model and effort.
 
 ## Heavy checks
 
@@ -94,7 +93,8 @@ A brief configures neither model nor effort: pass them as the dispatch's `model`
 parameters, else the agent definition's, else the session's. The ladder:
 
 - **Sonnet by default** for units, ordinary review and verification, at `effort: high` — whatever the
-  session runs on, so a Fable or `max` orchestrator does not multiply every agent's cost.
+  session runs on, so a Fable or `max` orchestrator does not multiply every agent's usage against
+  the account's limits.
 - **Opus by complexity** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
   asking, for a unit, ordinary reviewer or verifier whose work is one of:
   - a sensitive surface, as [delivery.md](delivery.md) step 2 lists them (authorization, secrets,
@@ -148,7 +148,7 @@ work or use force to hide a dirty checkout.
 
 A capped slice returns partial when unfinished. The orchestrator reads landed commits/diff, check evidence,
 proven and remaining criteria. Permit one fresh unit with those facts — not a `SendMessage`
-continuation, which resumes the large context the cap stopped and pays for it on every turn. After a
+continuation, which resumes the large context the cap stopped and re-reads it on every turn. After a
 second partial, finish directly or split the remainder into independently verifiable slices.
 Coordinate ownership, preserve the acceptance criteria and validate updated dependencies before dispatch.
 Escalate only a scope decision or a concrete external blocker. Record the consumed retry beneath the slice:

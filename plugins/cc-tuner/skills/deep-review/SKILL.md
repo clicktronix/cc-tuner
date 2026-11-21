@@ -85,7 +85,7 @@ In single mode all seven read the full packet. In sharded mode, Correctness, Sta
 Tests run per shard; Specification, Architecture and Blind spots each read the whole candidate. The
 total is `shards × 4 + 3`, calculated from the accepted result. **The limit is 19 lenses** (the
 default four-shard cap). When the accepted total exceeds it, ask with `AskUserQuestion` before dispatching:
-the total, how many run on Opus and Sonnet, and the cost line below, with three options — run all of
+the total, how many run on Opus and Sonnet, and the line below, with three options — run all of
 them; cut to the limit, which makes the result `INCOMPLETE` naming the unread lenses and paths; or
 re-shard with larger `--files`/`--lines` so fewer shards fit, asking again if the new total still
 exceeds it. A limit the user raised earlier in this conversation counts as that answer.
@@ -93,11 +93,8 @@ exceeds it. A limit the user raised earlier in this conversation counts as that 
 Before dispatch, print one line and keep it in the review summary:
 
 ```text
-deep-review: <n> lenses (<k> opus, <m> sonnet) × effort high, <concurrency> at a time; cost: <$ figure and its source | unknown>
+deep-review: <n> lenses (<k> opus, <m> sonnet) × effort high, <concurrency> at a time
 ```
-
-A dollar figure comes only from a source you can name in this session: a price the user gave, or the
-measured usage of the same lens type and model. Everything else is `cost: unknown`.
 
 Dispatch independent readers together within available host slots; queue remaining jobs in bounded
 batches. They never cut their own shards or delegate. The orchestrator aggregates all returns. A timeout,
