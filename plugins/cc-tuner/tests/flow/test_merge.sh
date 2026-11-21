@@ -105,7 +105,9 @@ printf '%s\n' "$*" >> "$D/codex-calls"
 [ "$1" = check ] && [ -n "${2:-}" ] || exit 1
 [ ! -f "$D/codex-fail" ] || { echo NO_APPROVAL >&2; exit 10; }
 HEAD="$(cat "$D/codex-head")"
-printf 'CC_CODEX_REQUIRED_REVIEW APPROVE thread=%s head=%s tree=tree123 base_sha=base123 spec_path=docs/spec.md\n' "$2" "$HEAD"
+SPEC=docs/spec.md; [ ! -f "$D/codex-spec" ] || SPEC="$(cat "$D/codex-spec")"
+printf 'CC_CODEX_REQUIRED_REVIEW APPROVE thread=%s head=%s tree=tree123 base_sha=base123 spec_path=%s\n' "$2" "$HEAD" "$SPEC"
+[ ! -f "$D/codex-extra" ] || cat "$D/codex-extra"
 EOF
   chmod +x "$d/codex/scripts/review-state.sh"
   jq -nc --arg root "$d/codex" '[{id:"cc-codex-triage@cc-codex-triage",version:"0.11.0",scope:"user",enabled:true,installPath:$root}]' > "$d/plugins.json"
@@ -229,6 +231,26 @@ printf '%s\n' "$OTHER_SHA" > "$D/codex-head"
 OUT="$(run "$D" 42 squash "$SHA")"
 check "wrong-required-review-head-refused" "does not cover thread" "$OUT"
 absent "wrong-required-review-head-no-merge" "MERGED" "$OUT"
+
+# The spec path is the rest of the marker line, so a path with a space is still one approval.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+printf '%s\n' 'docs/PLANS/2026-01-01 retry spec.md' > "$D/codex-spec"
+OUT="$(run "$D" 42 squash "$SHA")"
+check "spec-path-with-space-merges" "rc=0" "$OUT"
+check "spec-path-with-space-merged" "MERGED pr merge 42" "$OUT"
+
+# Taking the rest of the line must not take the next one: anything after the marker is not an approval.
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+printf '%s\n' 'warning: something else' > "$D/codex-extra"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "marker-with-trailing-line-refused" "does not cover thread" "$OUT"
+absent "marker-with-trailing-line-no-merge" "MERGED" "$OUT"
+
+D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
+printf '' > "$D/codex-spec"
+OUT="$(run "$D" 42 squash "$SHA")"
+check  "marker-with-empty-spec-path-refused" "does not cover thread" "$OUT"
+absent "marker-with-empty-spec-path-no-merge" "MERGED" "$OUT"
 
 D="$(world "$PLAN_FILES" "$APPROVED" "$GREEN_CI")"
 OUT="$(run "$D" 42 squash "$SHA" review-explicit)"

@@ -353,7 +353,7 @@ fi
 for rf in "$ROUTE_GITLAB" "$ROUTE_LOCAL"; do
   rn="${rf##*/}"
   need "$rn-codex-review-state"        'review-state.sh check <thread>' "$rf"
-  need "$rn-codex-seven-field-marker"  'CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…' "$rf"
+  need "$rn-codex-approval-marker"  'CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…' "$rf"
   need "$rn-codex-head-is-the-worktree-head" 'the worktree'"'"'s `git rev-parse HEAD`' "$rf"
   need "$rn-codex-finds-install-by-plugin-here" 'plugin-here.sh' "$rf"
   need "$rn-verdict-record"            'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <full sha>' "$rf"
