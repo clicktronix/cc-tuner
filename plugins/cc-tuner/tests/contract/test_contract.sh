@@ -299,7 +299,25 @@ need "claude-md-writer-defers-wording"    '`mattpocock-skills:writing-for-agents
 # adviser on Opus that cannot change the tree; the user decides what it raises.
 BLIND="$ROOT/plugins/cc-tuner/agents/spec-blind-spots.md"
 need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:spec-blind-spots` once' "$SPEC"
-need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
+need "spec-blind-spots-prints-its-fan-out" 'spec-blind-spots: 1 opus × effort high`' "$SPEC"
+# The pass reads the whole draft, so it runs after the last part of section 5 is written.
+blind_line="$(grep -nF '**Blind spots, before the approval.**' "$SPEC" | head -1 | cut -d: -f1)"
+tracker_line="$(grep -nF 'set `tracker:` from' "$SPEC" | head -1 | cut -d: -f1)"
+plan_line="$(grep -n '^## 6\. Plan and confirm' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$blind_line" ] && [ -n "$tracker_line" ] && [ -n "$plan_line" ] \
+   && [ "$tracker_line" -lt "$blind_line" ] && [ "$blind_line" -lt "$plan_line" ]; then
+  echo "PASS spec-blind-spots-after-the-whole-draft"
+else
+  echo "FAIL spec-blind-spots-after-the-whole-draft (tracker=$tracker_line blind=$blind_line plan=$plan_line)"
+  fails=1
+fi
+# The plugins do not account for payment (owner decision, 2026-11-21): pre-dispatch lines carry the
+# count, model and effort, and no text asks for a dollar figure.
+if grep -rnE 'cost: <\$|dollar figure|paid (rounds|call|fan-out)' "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/agents" "$ROOT/plugins/cc-tuner/README.md" >/dev/null; then
+  echo "FAIL no-dollar-accounting"; fails=1
+else
+  echo "PASS no-dollar-accounting"
+fi
 need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
 # Without a `tools` allowlist an agent inherits every tool, so the check needs the allowlist present,
 # made only of read and web tools, and the write tools disallowed by name.

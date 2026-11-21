@@ -25,7 +25,7 @@ Use this checkout root for commands and paths throughout the spec. Record missin
 the phase that needs them. Section 5 settles the required review mode before approval. For an
 unfamiliar dependency, a current-facts question or two defensible designs, consult
 [optional-opinions.md](references/optional-opinions.md). Start local discovery immediately. Ask about
-an optional paid call only if the uncertainty persists and its budget is not already authorized.
+an optional call to the second provider only if the uncertainty persists and the call is not already authorized.
 
 Read, in order:
 
@@ -130,17 +130,6 @@ write it before the approval in section 6. Its final path is
 `wiki/` or `docs/` and the spelling of the plans directory the repository already tracks. It never
 returns `task-plans/`, which holds execution plans.
 
-**Blind spots, before the approval.** With the draft contract written, dispatch `cc-tuner:spec-blind-spots` once
-with the draft text, the issue, the repository path and the decisions already made; the agent's
-definition owns what it looks for. Validate each item against the code, drop what the draft already
-settles, and its returns become grilling questions asked as section 3 asks them; the user decides,
-and an adopted answer changes the draft before section 6. Before dispatching, print
-`spec-blind-spots: 1 opus × effort high; cost: <$ figure and its source | unknown>` (deep-review's
-rule for the figure). It ends with one status line; say it. An `incomplete: <reason>` goes to the
-user with the review in section 6 whatever questions came with it; `completed: no findings` leads
-straight on. Skip it only for a mechanical or documentation-only change, and say so: a one-file
-change can still move authorization or billing.
-
 For documentation-only or mechanical work, a concrete reason plus an alternative baseline/diff check
 may replace the failing check or mutation.
 
@@ -167,6 +156,16 @@ Use section 1’s host and set `tracker:` from `docs/agents/issue-tracker.md` (`
 `glab`, `local` or `other`, as that file describes), or `none` when it is absent and the user chose to continue.
 With `tracker: none` the spec is the record and no issue is created or updated at any point. With any
 other tracker, do not create or update the issue before the approval in section 6.
+
+**Blind spots, before the approval.** Once every part of the draft above is written, run this pass;
+skip it only for a mechanical or documentation-only change, and say so: a one-file change can still
+move authorization or billing. Print `spec-blind-spots: 1 opus × effort high`, then
+dispatch `cc-tuner:spec-blind-spots` once with the draft text, the issue, the repository path and
+the decisions already made; the agent's definition owns what it looks for. Validate each returned
+item against the code and drop what the draft already settles; the rest become grilling questions
+asked as section 3 asks them, the user decides, and an adopted answer changes the draft before
+section 6. Report the agent's closing status line: an `incomplete: <reason>` goes to the user with
+the review in section 6 whatever questions came with it; `completed: no findings` leads straight on.
 
 ## 6. Plan and confirm
 
