@@ -655,8 +655,7 @@ need "placement-carries-unmeasured-pressure" 'heavy.sh: memory pressure not meas
 if grep -qF 'do not exhaust memory together' "$PLACEMENT"; then echo "FAIL placement-no-memory-guarantee"; fails=1; else echo "PASS placement-no-memory-guarantee"; fi
 if grep -qF 'from running them at once' "$ROOT/plugins/cc-tuner/README.md"; then echo "FAIL readme-heavy-no-exclusive-claim"; fails=1; else echo "PASS readme-heavy-no-exclusive-claim"; fi
 need "readme-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$ROOT/plugins/cc-tuner/README.md"
-need "setup-heavy-override-user-wide"       'set it user-wide' "$SETUP"
-need "setup-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$SETUP"
+need "setup-heavy-points-at-the-readme"     '(../../README.md#heavy-checks)' "$SETUP"
 need "readme-heavy-override-user-wide"      'set it user-wide' "$ROOT/plugins/cc-tuner/README.md"
 if grep -rqF 'CC_TUNER_HEAVY_SLOTS`, default 1' "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/agents" "$ROOT/plugins/cc-tuner/README.md"; then
   echo "FAIL heavy-no-default-one-wording"; fails=1

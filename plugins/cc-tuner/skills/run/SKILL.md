@@ -94,7 +94,7 @@ Peers: if `mcp__cc-tuner__peers_claim` is listed, call it with the plan before t
 after each tick and before integrating the target. Before starting a slice whose Owned paths a peer's
 claims, edits or conflicts touch, name the peer and the overlapping path.
 
-Update task status as work progresses. Tick the slice and proved spec criteria together. For a
+Tick the slice and proved spec criteria together. For a
 delegated slice the orchestrator owns this integration commit. In local-only mode save the ticks
 on disk. Follow `cc-tuner:task-flow` for commit messages and trailers. Record DoD at delivery.
 

@@ -184,10 +184,9 @@ lookup, and nothing below it can spawn. `"1"` forbids that lookup too. Say that 
 to every session using this profile, including `/code-review` at max effort, which dispatches
 verifiers from inside a subagent: the choice is the user's.
 
-**Heavy checks** need no setting: heavy.sh gives one slot per 8 GB of RAM. `CC_TUNER_HEAVY_SLOTS`
-overrides the count (an e2e run holds two); set it user-wide, since sessions with different values
-see different capacities. A check waits at most `CC_TUNER_HEAVY_MEM_WAIT` seconds (default 600) while
-the system reports memory pressure.
+**Heavy checks** need no setting: heavy.sh sizes its slots from RAM. When the user wants another
+capacity or wait, the variables, and why the slot count is set user-wide, are in the
+[plugin README](../../README.md#heavy-checks).
 
 Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
 key in `$SETTINGS`?

@@ -133,13 +133,7 @@ every gate is green, and never waives incomplete DoR, missing RED→GREEN eviden
 review, unresolved `[eyes]`, CI that ran and did not pass, or scope beyond the spec. Where a repository
 runs no CI at all, the spec says so in advance and a pull-request comment records what stood in for it
 for that commit; what a person approves is the **mode**, once, at spec time. After merge it reconciles
-only the task lifecycle; deploy, publish and migration remain forbidden. Heavy checks (full suite, e2e,
-builds) go through `scripts/heavy.sh`, whose machine-wide slots limit how many run at once across
-sessions: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order,
-and a check waits while the system reports memory pressure, at most `CC_TUNER_HEAVY_MEM_WAIT` seconds
-(default 600), then starts with a warning. It waits for a slot at most `CC_TUNER_HEAVY_WAIT` seconds
-(default 1800), then starts without one, also with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the slot count, in slots of weight; set it user-wide,
-since sessions with different values see different capacities.
+only the task lifecycle; deploy, publish and migration remain forbidden.
 
 Run progress lives in the saved plan file (its `- [x]` ticks) and in Claude Code's task list; there
 is no state file. The task list survives `/compact` and resume unchanged. A new session (`startup` or
@@ -160,6 +154,17 @@ and `--unmanaged` merges only an ordinary pull request outside a run.
 cc-tuner's hooks see only the agent's own tool calls, so a raw CLI call, the merge button on
 github.com, `git push` and the REST API can all bypass `merge.sh`. It is workflow discipline, not a
 local security boundary.
+
+### Heavy checks
+
+Heavy checks (full suite, e2e, builds, container starts) go through `scripts/heavy.sh`, whose
+machine-wide slots limit how many run at once across sessions: one slot per 8 GB of RAM (at least 1),
+an e2e run holds two, waiters start in arrival order. While the system reports memory pressure a check
+waits at most `CC_TUNER_HEAVY_MEM_WAIT` seconds (default 600), then starts with a warning, and for the
+next 600 s checks skip that wait. A check waits for a slot at most `CC_TUNER_HEAVY_WAIT` seconds
+(default 1800), then starts without one, also with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the
+slot count, in slots of weight; set it user-wide, since sessions with different values see different
+capacities. Who runs which check, and with what weight, is in `skills/run/references/placement.md`.
 
 ### Delivery routes and the tracker
 

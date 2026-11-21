@@ -63,12 +63,11 @@ shared by every session on the machine and waiters start in arrival order, so th
 Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read the output
 when it exits; the command's own output and exit code pass through unchanged.
 
-While the system reports memory pressure, a check waits up to `CC_TUNER_HEAVY_MEM_WAIT` (600 s), then
-starts anyway; for the next 600 s the wait is skipped for every check. A check also waits at most
-`CC_TUNER_HEAVY_WAIT` (1800 s) for a slot, then starts without one. Carry into your report every
-output line that starts with `heavy.sh: started under memory pressure`,
-`heavy.sh: memory pressure not measured` or `heavy.sh: started without a slot`: a failure in that run
-may be the machine, not the code.
+A check may also wait while the system reports memory pressure. Past the limit of either wait it
+starts anyway; the plugin README's Heavy checks section owns the limits and their variables. Carry
+into your report every output line that starts with `heavy.sh: started under memory pressure`,
+`heavy.sh: memory pressure not measured` or `heavy.sh: started without a slot`: a failure in that
+run may be the machine, not the code.
 heavy.sh's own failures exit 64; any other code is the command's.
 
 ## Brief and return
