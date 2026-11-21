@@ -59,7 +59,10 @@ fi
 echo "Installed script -> $DEST"
 ```
 
-Tell the user to restart Claude Code or run `/reload` for the statusline to take effect.
+Tell the user to restart Claude Code or run `/reload` for the statusline to take effect. Tell them
+also that rate limits come from Claude Code's own payload, and that a client which does not send them
+makes the script fall back to an unofficial OAuth usage endpoint Anthropic does not document and may
+change or remove; the rate-limit segment then disappears and the rest of the line still renders.
 
 ## remove
 

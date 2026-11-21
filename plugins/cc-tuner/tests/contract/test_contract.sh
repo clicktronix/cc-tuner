@@ -234,6 +234,7 @@ fi
 # One setup, run as nodes; the old per-installer forwarders were removed after 0.15.0.
 need "setup-routes-task-flow-node"   'references/task-flow-rule.md' "$SETUP"
 need "setup-routes-statusline-node"  'references/statusline.md' "$SETUP"
+need "setup-statusline-install-names-the-unofficial-endpoint" 'unofficial OAuth usage endpoint' "$ROOT/plugins/cc-tuner/skills/setup/references/statusline.md"
 # setup writes user-global settings, so it stays a user command. spec and run are how the agent
 # enters the flow: when they were user-only, the agent rebuilt the lifecycle by hand without their text.
 need "setup-is-user-invoked" 'disable-model-invocation: true' "$SETUP"
