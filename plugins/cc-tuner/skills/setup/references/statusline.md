@@ -84,4 +84,4 @@ fi
 rm -f "$DEST" && echo "Removed $DEST"
 ```
 
-Data sources and token handling: [statusline skill](../../statusline/SKILL.md).
+Data sources and token handling: the statusline section of the [plugin README](../../../README.md#statusline).

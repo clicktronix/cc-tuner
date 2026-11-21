@@ -1,66 +1,15 @@
 ---
 name: statusline
-description: Use when the user wants a Claude Code statusline that shows rate-limit usage (5h / 7d windows with reset times), context-window %, git status (branch + staged/modified/untracked counts), model, and session duration — or wants to install, update, or remove the cc-tuner usage statusline.
+description: Use when the user wants to install, update or remove the cc-tuner usage statusline.
 ---
 
-# Usage Statusline
+# Usage statusline
 
-A two-line Claude Code statusline focused on **usage and reset times**:
+Run the statusline node of `/cc-tuner:setup`: `/cc-tuner:setup install statusline`, or `check
+statusline` / `remove statusline`. Plugins cannot register a statusline, so the node copies the
+script into the user's profile and patches `settings.json` with a backup.
 
-```
-➜ my-project git:(main) S:2 M:1 U:4 | Opus 4.8 xhigh | 1h12m
- | 5h:66%[▓▓▓▓▓░░░]>23:30  7d:9%[▓░░░░░░░]>17:00 | ctx:8%[▓░░░░░░░░░]
-```
-
-- **Line 1** — current dir, git branch with `S:`taged / `M:`odified / `U:`ntracked counts (or `✓` when clean), model + reasoning effort (`low`/`medium`/`high`/`xhigh`, shown only when the model exposes it), session duration (rolls over to hours).
-- **Line 2** — the 5-hour and 7-day rate-limit windows (utilization %, colored bar, local reset time), then context-window usage. Bars turn green → yellow (≥50%) → red (≥80%).
-
-## Install / update / remove
-
-Plugins can't register a statusline; it has to live in the user's `settings.json`. **Run the
-statusline node of `/cc-tuner:setup`** — `/cc-tuner:setup install statusline` (also `check statusline`
-and `remove statusline`) — which copies the script and wires it in, with a settings backup. After
-install, the user restarts Claude Code or runs `/reload`.
-
-## How the rate-limit data works
-
-**Native, first.** Claude Code's own statusline payload carries `rate_limits.five_hour`
-and `rate_limits.seven_day` (each a `used_percentage` and a `resets_at` epoch), documented
-at https://code.claude.com/docs/en/statusline. When it's there, the script renders
-straight from it — no credentials, cache, lock, or network touched at all. This field is
-only present for eligible claude.ai Pro/Max accounts, and only after the session's first
-API response; either window can be independently absent, and a missing one is hidden,
-never shown as `0%`.
-
-**OAuth endpoint, as a fallback.** Only when stdin has no `rate_limits` at all (an older
-client that doesn't send it yet) does the script fall back to Claude Code's OAuth usage
-endpoint (`api.anthropic.com/api/oauth/usage`, `anthropic-beta: oauth-2025-04-20`),
-cached for 5 minutes via an atomic `mkdir` lock so concurrent sessions don't stampede the
-refresh.
-
-> **The fallback endpoint is unofficial / internal.** Anthropic does not document it and
-> may change or remove it without notice. The statusline degrades gracefully — if the
-> endpoint, token, or dependencies are unavailable, the rate-limit segment is simply
-> dropped and the rest still renders. Mention this caveat to the user when they install.
-
-The OAuth token is read locally: macOS Keychain (`security find-generic-password -s
-'Claude Code-credentials'`), or `~/.claude/.credentials.json` on Linux/Windows (honoring
-`$CLAUDE_CONFIG_DIR`). The token is only ever sent to `api.anthropic.com`.
-
-## Requirements
-
-`bash`, `jq`, `git`. The OAuth fallback additionally requires `python3` — the native path
-needs nothing beyond `jq` and `date`. The statusline JSON fields it reads
-(`workspace.current_dir`, `model.display_name`, `effort.level`,
-`cost.total_duration_ms`, `context_window.used_percentage`, `rate_limits.five_hour`,
-`rate_limits.seven_day`) are all from Claude Code's documented statusline payload.
-
-## Customizing
-
-Edit `cc-tuner-statusline.sh` in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`: colours, thresholds and bar length are
-in `make_bar`, the cache TTL is `USAGE_CACHE_TTL` (default 300s), and each segment function
-(`git_info`, `model_info`, `duration_info`, `usage_info`, `context_info`) can be dropped from the
-final `printf`.
-
-Re-run `/cc-tuner:setup install statusline` after a plugin upgrade to refresh the copy
-(note: that overwrites local edits — keep customizations in a fork of the script).
+When it installs, tell the user that rate limits come from Claude Code's own payload, and that a
+client which does not send them makes the script fall back to an unofficial OAuth usage endpoint
+Anthropic does not document and may change or remove; the rate-limit segment then disappears and the
+rest of the line still renders.

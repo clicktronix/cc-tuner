@@ -22,15 +22,45 @@ and the verified source list are in the skill's `reference.md`.
 
 ### `statusline`
 
-A two-line usage statusline: rate-limit windows (5h / 7d), context-window %, git status, model and
-effort, session duration. Plugins can't register a statusline, so the statusline node of
-`/cc-tuner:setup` wires it into the user's `settings.json`, offered rather than assumed:
+A two-line usage statusline. Plugins can't register a statusline, so the statusline node of
+`/cc-tuner:setup` copies the script to `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/cc-tuner-statusline.sh`
+and wires it into the user's `settings.json` with a backup, offered rather than assumed
+(`check statusline` and `remove statusline` also exist):
 
 ```
 /cc-tuner:setup install statusline
 ```
 
-Sample output, data sources and the unofficial-endpoint caveat: `skills/statusline/SKILL.md`.
+```
+➜ my-project git:(main) S:2 M:1 U:4 | Opus 4.8 xhigh | 1h12m
+ | 5h:66%[▓▓▓▓▓░░░]>23:30  7d:9%[▓░░░░░░░]>17:00 | ctx:8%[▓░░░░░░░░░]
+```
+
+- **Line 1**: current directory, git branch with staged / modified / untracked counts (`✓` when
+  clean), model and reasoning effort (when the model exposes it), session duration.
+- **Line 2**: the 5-hour and 7-day rate-limit windows (utilization, bar, local reset time), then
+  context-window usage. Bars turn yellow at 50% and red at 80%.
+
+**Rate-limit data.** Claude Code's statusline payload carries `rate_limits.five_hour` and
+`rate_limits.seven_day` ([docs](https://code.claude.com/docs/en/statusline)) for eligible claude.ai
+Pro/Max accounts after the session's first API response; the script renders straight from it and
+touches no credentials or network. A missing window is hidden, never shown as `0%`. Only when the
+payload has no `rate_limits` at all does it fall back to Claude Code's OAuth usage endpoint
+(`api.anthropic.com/api/oauth/usage`), cached for 5 minutes behind an atomic `mkdir` lock. That
+endpoint is **unofficial**: Anthropic does not document it and may change or remove it, and if it,
+the token or a dependency is unavailable the rate-limit segment is dropped while the rest renders.
+The token is read locally — macOS Keychain (`Claude Code-credentials`) or
+`~/.claude/.credentials.json` elsewhere, honouring `$CLAUDE_CONFIG_DIR` — and sent only to
+`api.anthropic.com`.
+
+**Requirements.** `bash`, `jq`, `git`; the OAuth fallback also needs `python3`. Every payload field it
+reads is from Claude Code's documented statusline payload.
+
+**Customizing.** Edit the installed copy: colours, thresholds and bar length are in `make_bar`, the
+cache TTL is `USAGE_CACHE_TTL` (300 s), and each segment function (`git_info`, `model_info`,
+`duration_info`, `usage_info`, `context_info`) can be dropped from the final `printf`. Re-running
+install after a plugin upgrade refreshes the copy and overwrites local edits, so keep customizations
+in a fork of the script.
 
 ### `task-flow`
 
