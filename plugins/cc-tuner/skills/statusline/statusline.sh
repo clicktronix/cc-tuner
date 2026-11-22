@@ -40,9 +40,10 @@ mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
 # Claude Code cancels a render a newer one replaces, which can leave a temp file behind.
 find "$CACHE_DIR" -type f \( -name 'git-*' -o -name 'usage_cache.tmp.*' \) -mmin +60 -delete 2>/dev/null
 
-# Portable file mtime (epoch seconds): BSD/macOS `stat -f`, GNU/Linux `stat -c`.
+# Portable file mtime (epoch seconds): GNU/Linux `stat -c`, BSD/macOS `stat -f`. The Linux form goes
+# first: there `-f` means file-system status, so `stat -f %m FILE` prints that to stdout before failing.
 _mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
 }
 
 # Portable epoch-seconds -> local HH:MM: BSD/macOS `date -r`, GNU/Linux `date -d @`.
