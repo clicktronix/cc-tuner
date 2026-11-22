@@ -122,8 +122,97 @@ check  "partial-native-five-hour-renders" "5h:66%" "$OUT3"
 absent "partial-native-seven-day-absent"  "7d:"    "$OUT3"
 equals "partial-native-exits-0"           "0"      "$STATUSLINE_RC"
 
+# --- case 4: a plan with no five-hour window -> only 7d renders, behind its separator ---
+E4="$(stub_env)"
+CWD4="$(flow_workdir)"
+PAYLOAD4=$(jq -n --arg cwd "$CWD4" --argjson seven 53 --argjson seven_epoch "$SEVEN_EPOCH" '{
+    workspace: {current_dir: $cwd},
+    model: {display_name: "Test Model"},
+    context_window: {used_percentage: 42},
+    cost: {total_duration_ms: 0},
+    rate_limits: {seven_day: {used_percentage: $seven, resets_at: $seven_epoch}}
+  }')
+run_statusline "$E4" "$PAYLOAD4"; OUT4="$STATUSLINE_OUT"
 
-# --- case 4: the OAuth fallback reads credentials of the active profile only ---
+absent "weekly-only-five-hour-absent" "5h:"        "$OUT4"
+check  "weekly-only-seven-day-renders" " | 7d:53%" "$OUT4"
+
+# --- case 5: the OAuth fallback answers five_hour null -> 7d keeps its separator too ---
+E5="$(stub_env)"
+CFG5=$(printf '%s' "$E5/home/.claude" | cksum | cut -d' ' -f1)
+CACHE5="$E5/tmp/cc-tuner-statusline-$(id -u)-$CFG5"
+mkdir -p "$CACHE5"
+jq -n --argjson now "$(date +%s)" \
+  '{fetched_at: $now, five_hour: null, seven_day: {utilization: 53, reset_local: "12:00"}}' > "$CACHE5/usage_cache"
+run_statusline "$E5" "$PAYLOAD2"; OUT5="$STATUSLINE_OUT"
+
+absent "oauth-weekly-only-five-hour-absent" "5h:"        "$OUT5"
+check  "oauth-weekly-only-seven-day-renders" " | 7d:53%" "$OUT5"
+
+# --- case 6: subagent models -> last on the second line, for this session only ---
+E6="$(stub_env)"
+AGENTS6="$E6/home/.claude/cc-tuner/subagents"
+mkdir -p "$AGENTS6"
+printf '2 sonnet \302\267 1 opus' > "$AGENTS6/s1"
+printf '9 haiku' > "$AGENTS6/s2"
+PAYLOAD6=$(printf '%s' "$PAYLOAD4" | jq '. + {session_id: "s1"}')
+run_statusline "$E6" "$PAYLOAD6"; OUT6="$STATUSLINE_OUT"
+
+check  "subagents-render-for-this-session" "subagents: 2 sonnet · 1 opus" "$OUT6"
+absent "subagents-of-another-session-hidden" "9 haiku" "$OUT6"
+equals "subagents-come-last" "subagents: 2 sonnet · 1 opus" \
+  "$(printf '%s' "$OUT6" | tail -n 1 | sed 's/.* | //')"
+
+# --- case 7: a file the mod stopped rewriting (a crash, a reload) shows nothing; a render never
+# deletes, since the mod may have just written a fresh one ---
+touch -t 200001010000 "$AGENTS6/s1"
+run_statusline "$E6" "$PAYLOAD6"; OUT7="$STATUSLINE_OUT"
+
+absent "stale-subagents-hidden" "subagents:" "$OUT7"
+
+# --- case 8: the mod's empty file means none run -> nothing shown, file left to the sweep ---
+: > "$AGENTS6/s1"
+run_statusline "$E6" "$PAYLOAD6"; OUT8="$STATUSLINE_OUT"
+
+absent "empty-subagents-hidden" "subagents:" "$OUT8"
+equals "render-keeps-the-file" "yes" "$([ -e "$AGENTS6/s1" ] && echo yes || echo no)"
+
+# --- case 9: the file of a session that ended without a render is swept, a live one stays ---
+touch -t 200001010000 "$AGENTS6/ended"
+run_statusline "$E6" "$PAYLOAD6"
+
+equals "ended-session-file-swept" "no" "$([ -e "$AGENTS6/ended" ] && echo yes || echo no)"
+equals "other-live-session-file-kept" "yes" "$([ -e "$AGENTS6/s2" ] && echo yes || echo no)"
+
+# --- case 10: change counts are reused for a while, the branch name never is ---
+E10="$(stub_env)"
+REPO10="$(flow_workdir)"
+git -C "$REPO10" init -q -b main
+git -C "$REPO10" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+PAYLOAD10=$(jq -n --arg cwd "$REPO10" '{workspace: {current_dir: $cwd}, cost: {total_duration_ms: 0}}')
+run_statusline "$E10" "$PAYLOAD10"
+touch "$REPO10/new-file"
+run_statusline "$E10" "$PAYLOAD10"; OUT10="$STATUSLINE_OUT"
+absent "git-counts-reused-within-ttl" "U:1" "$OUT10"
+
+find "$E10/tmp" -name 'git-*' -exec touch -t 200001010000 {} +
+run_statusline "$E10" "$PAYLOAD10"; OUT11="$STATUSLINE_OUT"
+check  "git-counts-recounted-after-ttl" "U:1" "$OUT11"
+
+git -C "$REPO10" switch -q -c other
+touch "$REPO10/another-file"
+run_statusline "$E10" "$PAYLOAD10"; OUT12="$STATUSLINE_OUT"
+check  "git-branch-is-never-stale" "git:(other)" "$OUT12"
+check  "git-counts-belong-to-the-branch" "U:2" "$OUT12"
+
+# --- case 11: temp files a cancelled render left behind are swept ---
+CACHE11="$E10/tmp/cc-tuner-statusline-$(id -u)-$(printf '%s' "$E10/home/.claude" | cksum | cut -d' ' -f1)"
+touch -t 200001010000 "$CACHE11/usage_cache.tmp.123" "$CACHE11/git-old"
+run_statusline "$E10" "$PAYLOAD10"
+equals "cancelled-render-temp-swept" "no" "$([ -e "$CACHE11/usage_cache.tmp.123" ] && echo yes || echo no)"
+equals "old-git-counts-swept" "no" "$([ -e "$CACHE11/git-old" ] && echo yes || echo no)"
+
+# --- case 12: the OAuth fallback reads credentials of the active profile only ---
 # macOS keeps the default profile's token in the Keychain entry `Claude Code-credentials`. A session on
 # another CLAUDE_CONFIG_DIR must not read it: that would show the default account's usage. Real python3
 # runs here; `security` is a stub that records the call and returns no token, so nothing reaches the
@@ -138,16 +227,16 @@ run_profile() { # run_profile <envdir> <config-dir> <payload>
   STUB_MARKER="$1/stub-called" HOME="$1/home" CLAUDE_CONFIG_DIR="$2" TMPDIR="$1/tmp" \
     PATH="$1/bin:/usr/bin:/bin" bash "$SCRIPT" <<<"$3" >/dev/null 2>&1
 }
-E4="$(keychain_env)"; mkdir -p "$E4/profile b"
-run_profile "$E4" "$E4/profile b" "$PAYLOAD2"
-if grep -qx security "$E4/stub-called" 2>/dev/null; then
+E12="$(keychain_env)"; mkdir -p "$E12/profile b"
+run_profile "$E12" "$E12/profile b" "$PAYLOAD2"
+if grep -qx security "$E12/stub-called" 2>/dev/null; then
   echo "FAIL custom-profile-skips-default-keychain"; fails=$((fails+1))
 else
   echo "PASS custom-profile-skips-default-keychain"
 fi
-E5="$(keychain_env)"
-run_profile "$E5" "$E5/home/.claude" "$PAYLOAD2"
-if grep -qx security "$E5/stub-called" 2>/dev/null; then
+E13="$(keychain_env)"
+run_profile "$E13" "$E13/home/.claude" "$PAYLOAD2"
+if grep -qx security "$E13/stub-called" 2>/dev/null; then
   echo "PASS default-profile-reads-keychain"
 else
   echo "FAIL default-profile-reads-keychain"; fails=$((fails+1))

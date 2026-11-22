@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 import { Peers, UNKNOWN, join, world, type Event, type Verdict } from './peers'
 
 // Claude Code stops a session's background tasks when the process exits, but
@@ -16,13 +16,46 @@ const started = new Set<string>()
 let announced: string | undefined
 
 // The subagent panel shows an agent's type and its live activity, never its model, and a plugin
-// cannot redraw that panel. The status line carries the models of the subagents still running.
+// cannot redraw that panel. The status line carries the models of the subagents still running. The
+// cc-tuner status line is a separate script that runs per render, so it gets them through a file; a
+// timer keeps that file current, since nothing reaches a hook when a background subagent ends.
 const models = new Map<string, string>()
 const ACTIVE = new Set(['pending', 'running', 'waiting'])
 const ENDED = new Set(['completed', 'failed', 'killed'])
+const REWRITE_MS = 5000
 const family = (model: string) => /fable|mythos|opus|sonnet|haiku/.exec(model)?.[0] ?? model
+let rewrites: Timer | undefined
+let updating: Promise<void> = Promise.resolve()
 
-async function showModels($: EngineInterface) {
+// A path as setup quotes it for the shell that runs statusLine.command (jq's @sh).
+const shellQuoted = (path: string) => `'${path.replace(/'/g, `'\\''`)}'`
+
+// Where the installed cc-tuner status line reads the models from, or nothing when the line in use is
+// not one setup installed. Only such a copy can be inspected: an older one cannot read the file, and
+// setup is what refreshes it. Setup writes the script under the active config dir; before that it
+// wrote the home-relative spelling. A fork elsewhere keeps the status entry.
+async function subagentsDir($: EngineInterface) {
+  const line = await $.settings.read({ key: 'statusLine' }) as { command?: string } | undefined
+  if (line?.command === undefined) return undefined
+  const home = await $.env.get('HOME')
+  const config = await $.env.get('CLAUDE_CONFIG_DIR') ?? `${home}/.claude`
+  const scripts = new Map([
+    [`bash ${shellQuoted(`${config}/cc-tuner-statusline.sh`)}`, `${config}/cc-tuner-statusline.sh`],
+    ['bash ~/.claude/cc-tuner-statusline.sh', `${home}/.claude/cc-tuner-statusline.sh`],
+  ])
+  const script = scripts.get(line.command)
+  if (script === undefined) return undefined
+  const reads = (await $.fs.read(script).catch(() => '')).includes('cc-tuner/subagents')
+  return reads ? `${config}/cc-tuner/subagents` : undefined
+}
+
+async function publish($: EngineInterface, text: string) {
+  const dir = await subagentsDir($)
+  if (dir === undefined) $.ui.status(text === '' ? undefined : `subagents: ${text}`)
+  else await $.fs.write(`${dir}/${await $.session.id()}`, text)
+}
+
+async function update($: EngineInterface) {
   const agents = await $.agent.list()
   const counts = new Map<string, number>()
   for (const agent of agents) {
@@ -31,7 +64,25 @@ async function showModels($: EngineInterface) {
     if (ENDED.has(agent.status)) models.delete(agent.id)
     else if (ACTIVE.has(agent.status)) counts.set(model, (counts.get(model) ?? 0) + 1)
   }
-  $.ui.status(counts.size === 0 ? undefined : `subagents: ${[...counts].map(([m, n]) => `${n} ${m}`).join(' · ')}`)
+  const text = [...counts].map(([m, n]) => `${n} ${m}`).join(' · ')
+  await publish($, text).catch((error: unknown) => {
+    $.ui.log(`cc-tuner: could not publish subagent models: ${String(error)}`, { to: 'debug' })
+  })
+  if (text === '') {
+    rewrites?.cancel()
+    rewrites = undefined
+  } else {
+    rewrites ??= $.clock.every(REWRITE_MS, () => void showModels($))
+  }
+}
+
+// One at a time: an update still running holds an older snapshot, and publishing it after a newer
+// spawn would blank the line and stop the timer.
+function showModels($: EngineInterface) {
+  updating = updating.then(() => update($)).catch((error: unknown) => {
+    $.ui.log(`cc-tuner: could not read subagents: ${String(error)}`, { to: 'debug' })
+  })
+  return updating
 }
 
 // A printed secret is in the transcript for good, so the common accident is refused at the call rather
