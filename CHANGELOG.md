@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.24.1](https://github.com/clicktronix/cc-tuner/compare/v0.24.0...v0.24.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* lighter /run path, approval marker with spaces, no dollar accounting ([#83](https://github.com/clicktronix/cc-tuner/issues/83)) ([8679e93](https://github.com/clicktronix/cc-tuner/commit/8679e93f8d1f828d97f0e3f854e23ba0b30d5666))
+
 ## [0.24.0](https://github.com/clicktronix/cc-tuner/compare/v0.23.0...v0.24.0) (2026-11-18)
 
 
