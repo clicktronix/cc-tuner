@@ -1,6 +1,6 @@
 # Lens sharding — plan
 
-**Spec:** docs/PLANS/2026-09-19-lens-sharding.md
+**Spec:** docs/ARCHIVE/PLANS/2026-09-19-lens-sharding.md
 **Branch:** feat/38-lens-sharding
 
 ## Slice 1 — One parser hands Owned paths to other scripts

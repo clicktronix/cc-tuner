@@ -34,11 +34,6 @@ route; other hosts use the user's route. The tracker comes from `docs/agents/iss
 `/spec` and `/run` need **mattpocock-skills**; **cc-codex-triage** is optional. Setup offers the needed
 companions with per-plugin choices and installs accepted ones after one confirmation.
 
-
-## Why this exists
-
-The same `claude-md-writer` skill had been hand-copied into ~10 project folders and silently diverged — different size numbers, a wrong import depth (5 vs the documented 4), a "user-level rules never load" claim that's backwards, `paths:` frontmatter implied on CLAUDE.md (it only works on `.claude/rules/`), and a botched find-replace port. Centralizing it as a plugin kills the drift: one source of truth, doc-verified, updated in one place.
-
 ## Repository rules
 
 [Research and design](docs/2026-09-09-agent-rules-research.md).

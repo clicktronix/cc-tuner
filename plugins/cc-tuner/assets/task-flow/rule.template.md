@@ -1,8 +1,8 @@
-<!-- cc-tuner:task-flow v0.24.0 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
+<!-- cc-tuner:task-flow v0.24.1 — installed by /cc-tuner:setup install task-flow. Do not hand-edit: re-run that command to update. Repo-specific deltas belong in task-flow.local.md next to this file. -->
 
 # Task flow — invariants
 
-Procedures — board recipes, epics, cleanup, merge strategies, release notes — live in the
+Procedures — board recipes, epics, cleanup after a merge, merge strategies — live in the
 `cc-tuner:task-flow` skill. Where `task-flow.local.md` conflicts with this file, the local file wins.
 
 ## Never
@@ -61,8 +61,8 @@ One commit = one logical change. A WIP chain during work is fine — squash-on-m
   pause the run or require a new confirmation for work already authorised.
 - **Use the configured board for tracked work.** Add new issues when creating them and confirm reused
   issues are on it. Outside `/cc-tuner:spec` and `/cc-tuner:run`, which move the card themselves, move
-  it by `cc-tuner:task-flow`'s Card lifecycle. With `board: none`, use issues without project commands
-  or project permissions.
+  it by the Card lifecycle in `cc-tuner:task-flow`'s board reference. With `board: none`, use issues
+  without project commands or project permissions.
 - **Verification is a link, not a transcript.** Point at the green CI run; command output stays in
   the logs, where it does not bury the part a human has to read.
 - Match the body's length to the change. Say what changed, why, and what is still open. A one-file

@@ -20,8 +20,8 @@ Continue local reading while a call is unavailable or awaiting authorization. Wi
 dispatch once and overlap the work. Wait only for a decision that depends on it. For exit 20,
 monitor the existing dispatch.
 
-`debate` is available to you within the authorised task and budget, without a fresh
-user request per call. Use it only when two defensible positions remain after research; the round
+`debate` is available to you within the authorised task, without a fresh user request per
+call. Use it only when two defensible positions remain after research; the round
 ceiling is a bound, not a target. Grilling and the decisions stay with you because you
 hold the requirements — hand the adviser the relevant draft text or path rather than claiming it
 cannot see the draft.
@@ -37,5 +37,5 @@ resolves a product decision on the user's behalf. Record what was adopted and wh
 - No bridge → discovery proceeds unchanged.
 - Advisory threads never share a name with a required-review thread; the bridge refuses that, and
   `/spec` never needs a required thread.
-- Cost: one dispatch per method per spec, concurrent with your own work. Report the requested
-  model/effort and the observed usage the bridge records; do not guess a dollar figure.
+- Usage: one dispatch per method per spec, concurrent with your own work. Report the requested
+  model/effort and the observed usage the bridge records.

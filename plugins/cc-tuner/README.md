@@ -14,30 +14,61 @@ read-only. Placement rules: the root README.
 
 ### `claude-md-writer`
 
-Create, refactor, and audit **CLAUDE.md** and **`.claude/rules/`** memory files, following the official
-memory docs (<https://code.claude.com/docs/en/memory>). Triggers when you create, trim or split a
-CLAUDE.md, organize instructions into `.claude/rules/`, or decide what belongs in CLAUDE.md vs rules vs
-`CLAUDE.local.md` vs tool config. Load order, size targets, imports, auto memory, path-scoped rules
+Create, refactor, and audit **CLAUDE.md**, **AGENTS.md** and **`.claude/rules/`** instruction files,
+following the official memory docs (<https://code.claude.com/docs/en/memory>) and the AGENTS.md open
+format. Triggers when you create, trim or split a CLAUDE.md or AGENTS.md, organize instructions into
+`.claude/rules/`, or decide what belongs in CLAUDE.md vs rules vs `CLAUDE.local.md` vs tool config. Load order, size targets, imports, auto memory, path-scoped rules
 and the verified source list are in the skill's `reference.md`.
 
 ### `statusline`
 
-A two-line usage statusline: rate-limit windows (5h / 7d), context-window %, git status, model and
-effort, session duration. Plugins can't register a statusline, so the statusline node of
-`/cc-tuner:setup` wires it into the user's `settings.json`, offered rather than assumed:
+A two-line usage statusline. Plugins can't register a statusline, so the statusline node of
+`/cc-tuner:setup` copies the script to `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/cc-tuner-statusline.sh`
+and wires it into the user's `settings.json` with a backup, offered rather than assumed
+(`check statusline` and `remove statusline` also exist):
 
 ```
 /cc-tuner:setup install statusline
 ```
 
-Sample output, data sources and the unofficial-endpoint caveat: `skills/statusline/SKILL.md`.
+```
+➜ my-project git:(main) S:2 M:1 U:4 | Opus 4.8 xhigh | 1h12m
+ | 5h:66%[▓▓▓▓▓░░░]>23:30  7d:9%[▓░░░░░░░]>17:00 | ctx:8%[▓░░░░░░░░░]
+```
+
+- **Line 1**: current directory, git branch with staged / modified / untracked counts (`✓` when
+  clean), model and reasoning effort (when the model exposes it), session duration.
+- **Line 2**: the 5-hour and 7-day rate-limit windows (utilization, bar, local reset time), then
+  context-window usage. Bars turn yellow at 50% and red at 80%.
+
+**Rate-limit data.** Claude Code's statusline payload carries `rate_limits.five_hour` and
+`rate_limits.seven_day` ([docs](https://code.claude.com/docs/en/statusline)) for eligible claude.ai
+Pro/Max accounts after the session's first API response; the script renders straight from it and
+touches no credentials or network. A missing window is hidden, never shown as `0%`. Only when the
+payload has no `rate_limits` at all does it fall back to Claude Code's OAuth usage endpoint
+(`api.anthropic.com/api/oauth/usage`), cached for 5 minutes behind an atomic `mkdir` lock. That
+endpoint is **unofficial**: Anthropic does not document it and may change or remove it, and if it,
+the token or a dependency is unavailable the rate-limit segment is dropped while the rest renders.
+The token is read locally — macOS Keychain (`Claude Code-credentials`) or
+`~/.claude/.credentials.json` elsewhere, honouring `$CLAUDE_CONFIG_DIR` — and sent only to
+`api.anthropic.com`.
+
+**Requirements.** `bash`, `jq`, `git`; the OAuth fallback also needs `python3`. Every payload field it
+reads is from Claude Code's documented statusline payload.
+
+**Customizing.** Edit the installed copy: colours, thresholds and bar length are in `make_bar`, the
+cache TTL is `USAGE_CACHE_TTL` (300 s), and each segment function (`git_info`, `model_info`,
+`duration_info`, `usage_info`, `context_info`) can be dropped from the final `printf`. Re-running
+install after a plugin upgrade refreshes the copy and overwrites local edits, so keep customizations
+in a fork of the script.
 
 ### `task-flow`
 
-Canonical git workflow — branch naming, Conventional Commits (incl. breaking
-changes), PR verification gates, GitHub Projects board recipes (create-on-board,
-field-ID caching, card lifecycle), spec lifecycle (`wiki/PLANS/` → `ARCHIVE`,
-`docs/` fallback), and anti-pattern case studies with dated incidents.
+Repository chores around a task — branch and commit conventions, the pre-PR checklist, cleanup
+after a merge, stacked-PR merges, the spec lifecycle (`wiki/PLANS/` → `ARCHIVE`, `docs/` fallback)
+and case studies of the incidents behind its rules. GitHub Projects board recipes (create-on-board,
+field-ID caching, card lifecycle) and epics live in `references/board.md`, read only when a board or
+an epic is involved.
 
 The always-on core installs per repo via the task-flow node of `/cc-tuner:setup` (plugins
 can't ship `.claude/rules/*`): a versioned template, repo-specific deltas in
@@ -68,8 +99,7 @@ holes, simpler alternatives); its findings are questions for the owner, never bl
 Security and Blind spots run on Opus, the rest on Sonnet unless the packet is one of the Opus cases below. Past 19 lenses (four shards) the owner asks
 the user whether to run them all, cut to the limit, or re-shard. The
 [deep-review procedure](skills/deep-review/SKILL.md) owns the accepted partition and the line printed
-before dispatch — lens count by model and effort, with a dollar figure only from a source the owner
-can name.
+before dispatch — lens count by model and effort.
 
 
 ### `verify-feature`
@@ -97,20 +127,14 @@ it can hand over a verified commit. Merge requires explicit authorization or req
 within the repository's permissions. GitHub merges go through `scripts/merge.sh`.
 
 Implementation units have a 300-turn cap and return unfinished work to the orchestrator. Deep-review
-lenses have read-only tools and a stated dispatch budget. The orchestrator may split and reassign
+lenses have read-only tools and a lens limit. The orchestrator may split and reassign
 slices while preserving scope and acceptance. See `skills/run/references/placement.md`.
 Unattended execution continues only while
 every gate is green, and never waives incomplete DoR, missing RED→GREEN evidence, failed tests, stale
 review, unresolved `[eyes]`, CI that ran and did not pass, or scope beyond the spec. Where a repository
 runs no CI at all, the spec says so in advance and a pull-request comment records what stood in for it
 for that commit; what a person approves is the **mode**, once, at spec time. After merge it reconciles
-only the task lifecycle; deploy, publish and migration remain forbidden. Heavy checks (full suite, e2e,
-builds) go through `scripts/heavy.sh`, whose machine-wide slots limit how many run at once across
-sessions: one slot per 8 GB of RAM (at least 1), an e2e run holds two, waiters start in arrival order,
-and a check waits while the system reports memory pressure, at most `CC_TUNER_HEAVY_MEM_WAIT` seconds
-(default 600), then starts with a warning. It waits for a slot at most `CC_TUNER_HEAVY_WAIT` seconds
-(default 1800), then starts without one, also with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the slot count, in slots of weight; set it user-wide,
-since sessions with different values see different capacities.
+only the task lifecycle; deploy, publish and migration remain forbidden.
 
 Run progress lives in the saved plan file (its `- [x]` ticks) and in Claude Code's task list; there
 is no state file. The task list survives `/compact` and resume unchanged. A new session (`startup` or
@@ -131,6 +155,17 @@ and `--unmanaged` merges only an ordinary pull request outside a run.
 cc-tuner's hooks see only the agent's own tool calls, so a raw CLI call, the merge button on
 github.com, `git push` and the REST API can all bypass `merge.sh`. It is workflow discipline, not a
 local security boundary.
+
+### Heavy checks
+
+Heavy checks (full suite, e2e, builds, container starts) go through `scripts/heavy.sh`, whose
+machine-wide slots limit how many run at once across sessions: one slot per 8 GB of RAM (at least 1),
+an e2e run holds two, waiters start in arrival order. While the system reports memory pressure a check
+waits at most `CC_TUNER_HEAVY_MEM_WAIT` seconds (default 600), then starts with a warning, and for the
+next 600 s checks skip that wait. A check waits for a slot at most `CC_TUNER_HEAVY_WAIT` seconds
+(default 1800), then starts without one, also with a warning. `CC_TUNER_HEAVY_SLOTS` overrides the
+slot count, in slots of weight; set it user-wide, since sessions with different values see different
+capacities. Who runs which check, and with what weight, is in `skills/run/references/placement.md`.
 
 ### Delivery routes and the tracker
 

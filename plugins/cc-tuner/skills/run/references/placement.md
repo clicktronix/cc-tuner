@@ -28,8 +28,7 @@ sequential.
 
 Independent read-only review is the exception to sequential review: its own skill defines the
 reviewers and packets, while the orchestrator aggregates. `deep-review` owns its agent availability and
-coverage refusals. Before paid fan-out, state the count, model and effort; a dollar figure needs a
-source you can name.
+coverage refusals. Before a review fan-out, state the count, model and effort.
 
 ## Heavy checks
 
@@ -64,12 +63,11 @@ shared by every session on the machine and waiters start in arrival order, so th
 Start it as a Bash call with `run_in_background: true`, do other work meanwhile, and read the output
 when it exits; the command's own output and exit code pass through unchanged.
 
-While the system reports memory pressure, a check waits up to `CC_TUNER_HEAVY_MEM_WAIT` (600 s), then
-starts anyway; for the next 600 s the wait is skipped for every check. A check also waits at most
-`CC_TUNER_HEAVY_WAIT` (1800 s) for a slot, then starts without one. Carry into your report every
-output line that starts with `heavy.sh: started under memory pressure`,
-`heavy.sh: memory pressure not measured` or `heavy.sh: started without a slot`: a failure in that run
-may be the machine, not the code.
+A check may also wait while the system reports memory pressure. Past the limit of either wait it
+starts anyway; the plugin README's Heavy checks section owns the limits and their variables. Carry
+into your report every output line that starts with `heavy.sh: started under memory pressure`,
+`heavy.sh: memory pressure not measured` or `heavy.sh: started without a slot`: a failure in that
+run may be the machine, not the code.
 heavy.sh's own failures exit 64; any other code is the command's.
 
 ## Brief and return
@@ -94,7 +92,8 @@ A brief configures neither model nor effort: pass them as the dispatch's `model`
 parameters, else the agent definition's, else the session's. The ladder:
 
 - **Sonnet by default** for units, ordinary review and verification, at `effort: high` — whatever the
-  session runs on, so a Fable or `max` orchestrator does not multiply every agent's cost.
+  session runs on, so a Fable or `max` orchestrator does not multiply every agent's usage against
+  the account's limits.
 - **Opus by complexity** (`model: "opus", effort: "medium"`), chosen by the orchestrator without
   asking, for a unit, ordinary reviewer or verifier whose work is one of:
   - a sensitive surface, as [delivery.md](delivery.md) step 2 lists them (authorization, secrets,
@@ -148,7 +147,7 @@ work or use force to hide a dirty checkout.
 
 A capped slice returns partial when unfinished. The orchestrator reads landed commits/diff, check evidence,
 proven and remaining criteria. Permit one fresh unit with those facts — not a `SendMessage`
-continuation, which resumes the large context the cap stopped and pays for it on every turn. After a
+continuation, which resumes the large context the cap stopped and re-reads it on every turn. After a
 second partial, finish directly or split the remainder into independently verifiable slices.
 Coordinate ownership, preserve the acceptance criteria and validate updated dependencies before dispatch.
 Escalate only a scope decision or a concrete external blocker. Record the consumed retry beneath the slice:

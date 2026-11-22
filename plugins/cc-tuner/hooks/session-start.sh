@@ -134,8 +134,8 @@ Tick \`- [ ]\` to \`- [x]\` in $PLAN as they are done, $SAVE."
 fi
 
 emit "cc-tuner: this branch has $KIND with unfinished slices: $PLAN.
-If this session continues that work, rebuild the task list from it first. Rebuild it from $PLAN
-as below; if the session is about something else, ignore this.
+If this session continues that work, first rebuild the task list from $PLAN as below;
+if the session is about something else, ignore this.
 
 If TaskCreate is not in your tool list, skip the rebuild and work from $PLAN itself: it is the store.
 

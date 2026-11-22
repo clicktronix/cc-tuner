@@ -184,10 +184,9 @@ lookup, and nothing below it can spawn. `"1"` forbids that lookup too. Say that 
 to every session using this profile, including `/code-review` at max effort, which dispatches
 verifiers from inside a subagent: the choice is the user's.
 
-**Heavy checks** need no setting: heavy.sh gives one slot per 8 GB of RAM. `CC_TUNER_HEAVY_SLOTS`
-overrides the count (an e2e run holds two); set it user-wide, since sessions with different values
-see different capacities. A check waits at most `CC_TUNER_HEAVY_MEM_WAIT` seconds (default 600) while
-the system reports memory pressure.
+**Heavy checks** need no setting: heavy.sh sizes its slots from RAM. When the user wants another
+capacity or wait, the variables, and why the slot count is set user-wide, are in the
+[plugin README](../../README.md#heavy-checks).
 
 Detect has two halves: is `TaskCreate` in this session's tool list (your own tool list), and is the
 key in `$SETTINGS`?
@@ -223,13 +222,13 @@ skip the step, say it was skipped and why, and do not mention the `project` scop
 GraphQL error. If doctor warned about the scope, block this node, print `gh auth refresh -s project`
 for the user to run (it is interactive) and report the board as not wired.
 
-1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` — the recipes
-   are in the `cc-tuner:task-flow` skill. Node 3 must have run: it guarantees `task-flow.local.md`
-   exists and carries any migrated IDs.
-2. Check whether the org has an `Epic` issue type, with the query in the `cc-tuner:task-flow` skill's
-   Epics section. When it is absent, tell the user an **org admin has to add it in organisation
-   settings**, and that until then the skill falls back to an `[Epic]` title prefix, which is a
-   convention, not a filterable field.
+1. Resolve the board and cache its field IDs into `.claude/rules/task-flow.local.md` with the
+   recipes in [board.md](../task-flow/references/board.md). Node 3 must have run: it guarantees
+   `task-flow.local.md` exists and carries any migrated IDs.
+2. Check whether the org has an `Epic` issue type, with the query in board.md's Epics section. When
+   it is absent, tell the user an **org admin has to add it in organisation settings**, and that
+   until then the skill falls back to an `[Epic]` title prefix, which is a convention, not a
+   filterable field.
 
 ### 7. Codex audit (optional, install mode)
 

@@ -7,6 +7,12 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 HEAVY="$FLOW_PLUGIN/scripts/heavy.sh"
+# This file is shared with codex-tuner (plugins/codex-tuner/scripts/heavy.sh in the codex-tuner
+# repository): both plugins lock the same slot directory, so both copies must run one protocol.
+# Change them together, byte for byte, and update this pin and codex-tuner's in the same change.
+HEAVY_SHA256=b8ea3190329c0b9a5c617e43b6915a8b3aca9fd8165bab71571b7ed5d7b78156
+equals "helper-matches-codex-tuner" "$HEAVY_SHA256" \
+  "$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$HEAVY")"
 W="$(flow_workdir)"
 # The machine's RAM must not decide any case: capacity is derived from this seam (16 GB -> 2 slots)
 # unless a case sets CC_TUNER_HEAVY_SLOTS itself.

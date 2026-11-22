@@ -13,6 +13,8 @@ DEEP_REVIEW="$ROOT/plugins/cc-tuner/skills/deep-review/SKILL.md"
 PLACEMENT="$ROOT/plugins/cc-tuner/skills/run/references/placement.md"
 SETUP="$ROOT/plugins/cc-tuner/skills/setup/SKILL.md"
 TASK_FLOW="$ROOT/plugins/cc-tuner/skills/task-flow/SKILL.md"
+BOARD="$ROOT/plugins/cc-tuner/skills/task-flow/references/board.md"
+RUNTIME_CLEANUP="$ROOT/plugins/cc-tuner/skills/run/references/runtime-cleanup.md"
 CLAUDE_MD_WRITER="$ROOT/plugins/cc-tuner/skills/claude-md-writer/SKILL.md"
 CLAUDE_MD_AUDIT="$ROOT/plugins/cc-tuner/skills/claude-md-writer/audit.md"
 RULE_TEMPLATE="$ROOT/plugins/cc-tuner/assets/task-flow/rule.template.md"
@@ -120,7 +122,7 @@ else
 fi
 # Work done outside /spec and /run left cards where they were (stokli, marqa); the always-on rule is
 # what such work reads.
-if tr -s ' \n' ' ' < "$RULE_TEMPLATE" | grep -qF "which move the card themselves, move it by \`cc-tuner:task-flow\`'s Card lifecycle"; then
+if tr -s ' \n' ' ' < "$RULE_TEMPLATE" | grep -qF "which move the card themselves, move it by the Card lifecycle in \`cc-tuner:task-flow\`'s board reference"; then
   echo "PASS rule-template-moves-cards-outside-commands"
 else
   echo "FAIL rule-template-moves-cards-outside-commands"
@@ -232,6 +234,7 @@ fi
 # One setup, run as nodes; the old per-installer forwarders were removed after 0.15.0.
 need "setup-routes-task-flow-node"   'references/task-flow-rule.md' "$SETUP"
 need "setup-routes-statusline-node"  'references/statusline.md' "$SETUP"
+need "setup-statusline-install-names-the-unofficial-endpoint" 'unofficial OAuth usage endpoint' "$ROOT/plugins/cc-tuner/skills/setup/references/statusline.md"
 # setup writes user-global settings, so it stays a user command. spec and run are how the agent
 # enters the flow: when they were user-only, the agent rebuilt the lifecycle by hand without their text.
 need "setup-is-user-invoked" 'disable-model-invocation: true' "$SETUP"
@@ -297,7 +300,25 @@ need "claude-md-writer-defers-wording"    '`mattpocock-skills:writing-for-agents
 # adviser on Opus that cannot change the tree; the user decides what it raises.
 BLIND="$ROOT/plugins/cc-tuner/agents/spec-blind-spots.md"
 need "spec-dispatches-blind-spots"        'dispatch `cc-tuner:spec-blind-spots` once' "$SPEC"
-need "spec-blind-spots-prints-its-cost"    'spec-blind-spots: 1 opus × effort high; cost:' "$SPEC"
+need "spec-blind-spots-prints-its-fan-out" 'spec-blind-spots: 1 opus × effort high`' "$SPEC"
+# The pass reads the whole draft, so it runs after the last part of section 5 is written.
+blind_line="$(grep -nF '**Blind spots, before the approval.**' "$SPEC" | head -1 | cut -d: -f1)"
+tracker_line="$(grep -nF 'set `tracker:` from' "$SPEC" | head -1 | cut -d: -f1)"
+plan_line="$(grep -n '^## 6\. Plan and confirm' "$SPEC" | head -1 | cut -d: -f1)"
+if [ -n "$blind_line" ] && [ -n "$tracker_line" ] && [ -n "$plan_line" ] \
+   && [ "$tracker_line" -lt "$blind_line" ] && [ "$blind_line" -lt "$plan_line" ]; then
+  echo "PASS spec-blind-spots-after-the-whole-draft"
+else
+  echo "FAIL spec-blind-spots-after-the-whole-draft (tracker=$tracker_line blind=$blind_line plan=$plan_line)"
+  fails=1
+fi
+# The plugins do not account for payment (owner decision, 2026-11-21): pre-dispatch lines carry the
+# count, model and effort, and no text asks for a dollar figure.
+if grep -rnE 'cost: <\$|dollar figure|paid (rounds|call|fan-out)' "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/agents" "$ROOT/plugins/cc-tuner/README.md" >/dev/null; then
+  echo "FAIL no-dollar-accounting"; fails=1
+else
+  echo "PASS no-dollar-accounting"
+fi
 need "spec-blind-spots-says-when-empty"    '`completed: no findings`' "$BLIND"
 # Without a `tools` allowlist an agent inherits every tool, so the check needs the allowlist present,
 # made only of read and web tools, and the write tools disallowed by name.
@@ -353,7 +374,7 @@ fi
 for rf in "$ROUTE_GITLAB" "$ROUTE_LOCAL"; do
   rn="${rf##*/}"
   need "$rn-codex-review-state"        'review-state.sh check <thread>' "$rf"
-  need "$rn-codex-seven-field-marker"  'CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…' "$rf"
+  need "$rn-codex-approval-marker"  'CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…' "$rf"
   need "$rn-codex-head-is-the-worktree-head" 'the worktree'"'"'s `git rev-parse HEAD`' "$rf"
   need "$rn-codex-finds-install-by-plugin-here" 'plugin-here.sh' "$rf"
   need "$rn-verdict-record"            'cc-tuner-verdict: <APPROVE|REQUEST_CHANGES> <full sha>' "$rf"
@@ -563,7 +584,8 @@ LOCAL_CI="$ROOT/plugins/cc-tuner/skills/run/references/local-ci.md"
 SHARED_TASK="$ROOT/plugins/cc-tuner/skills/run/references/shared-task.md"
 need "task-flow-gitlab-merged-check"       'glab mr view <iid> --repo' "$TASK_FLOW"
 need "task-flow-local-merged-check"        '`git rev-parse refs/heads/<target>`' "$TASK_FLOW"
-need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$TASK_FLOW"
+need "task-flow-boards-are-github-only"    'Boards are GitHub-only' "$BOARD"
+need "task-flow-points-at-the-board"      '[board.md](references/board.md)' "$TASK_FLOW"
 README_ROOT="$ROOT/README.md"
 for readme in "$README_ROOT" "$README_PLUGIN"; do
   rn="${readme#$ROOT/}"
@@ -634,8 +656,7 @@ need "placement-carries-unmeasured-pressure" 'heavy.sh: memory pressure not meas
 if grep -qF 'do not exhaust memory together' "$PLACEMENT"; then echo "FAIL placement-no-memory-guarantee"; fails=1; else echo "PASS placement-no-memory-guarantee"; fi
 if grep -qF 'from running them at once' "$ROOT/plugins/cc-tuner/README.md"; then echo "FAIL readme-heavy-no-exclusive-claim"; fails=1; else echo "PASS readme-heavy-no-exclusive-claim"; fi
 need "readme-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$ROOT/plugins/cc-tuner/README.md"
-need "setup-heavy-override-user-wide"       'set it user-wide' "$SETUP"
-need "setup-heavy-mem-wait"                'CC_TUNER_HEAVY_MEM_WAIT' "$SETUP"
+need "setup-heavy-points-at-the-readme"     '(../../README.md#heavy-checks)' "$SETUP"
 need "readme-heavy-override-user-wide"      'set it user-wide' "$ROOT/plugins/cc-tuner/README.md"
 if grep -rqF 'CC_TUNER_HEAVY_SLOTS`, default 1' "$ROOT/plugins/cc-tuner/skills" "$ROOT/plugins/cc-tuner/agents" "$ROOT/plugins/cc-tuner/README.md"; then
   echo "FAIL heavy-no-default-one-wording"; fails=1
@@ -647,12 +668,14 @@ fi
 # what a machine consumes: the tool names skills call and allow, the ack prefix, the two file paths, the marker.
 need "spec-calls-and-allows-peers-report"   'mcp__cc-tuner__peers_report' "$SPEC"
 need "run-calls-and-allows-peers-claim"     'mcp__cc-tuner__peers_claim' "$RUN"
-need "task-flow-releases-leases"            'mcp__cc-tuner__peers_release' "$TASK_FLOW"
+need "runtime-cleanup-releases-leases"      'mcp__cc-tuner__peers_release' "$RUNTIME_CLEANUP"
+need "run-points-at-runtime-cleanup"        '[runtime-cleanup.md](references/runtime-cleanup.md)' "$RUN"
+need "unit-points-at-runtime-cleanup"       'skills/run/references/runtime-cleanup.md' "$UNIT"
 need "setup-names-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$SETUP"
 need "setup-names-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$SETUP"
 need "readme-documents-the-ack"             'CC_TUNER_ACK=<key>' "$README_PLUGIN"
 need "readme-documents-the-repository-resources-file" '.claude/cc-tuner-resources.json' "$README_PLUGIN"
 need "readme-documents-the-machine-resources-file"    '~/.config/cc-tuner/resources.json' "$README_PLUGIN"
-need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.24.0' "$RULE_TEMPLATE"
+need "rule-template-marker-bumped"          'cc-tuner:task-flow v0.24.1' "$RULE_TEMPLATE"
 
 exit "$fails"

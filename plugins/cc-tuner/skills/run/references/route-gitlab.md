@@ -81,8 +81,9 @@ and never relabel a `REQUEST_CHANGES` as `APPROVE`.
    rule says the evidence still covers it. Print every `NOT PROVED` line in the merge report.
 3. **Review and verdict.** Under `review: codex`, take the cc-codex-triage install directory from the first
    field of `bash "<plugin root>/scripts/setup/plugin-here.sh" cc-codex-triage@cc-codex-triage` and
-   run `bash <install>/scripts/review-state.sh check <thread>` in the candidate worktree. Only the 7-field
-   marker `CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…`,
+   run `bash <install>/scripts/review-state.sh check <thread>` in the candidate worktree. Only the one-line
+   marker `CC_CODEX_REQUIRED_REVIEW APPROVE thread=<thread> head=<head> tree=… base_sha=… spec_path=…`
+   (the spec path is the rest of the line and may contain spaces),
    with `head` equal to the MR's `sha` and to the worktree's `git rev-parse HEAD`, is an approval. Under
    `review: none:<reason>`, you judge the candidate once the findings are fixed or refuted. Either way,
    publish the `cc-tuner-verdict` note for the judged SHA before addressing findings or pushing a fix. The latest record about the head must be
