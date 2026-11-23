@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.25.1](https://github.com/clicktronix/cc-tuner/compare/v0.25.0...v0.25.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **peers:** take the lease of an exclusive resource under a kernel file lock ([#87](https://github.com/clicktronix/cc-tuner/issues/87)) ([a5b02da](https://github.com/clicktronix/cc-tuner/commit/a5b02da90800e6736682466534a31d5f33614a5d))
+
 ## [0.25.0](https://github.com/clicktronix/cc-tuner/compare/v0.24.1...v0.25.0) (2026-11-23)
 
 
