@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.25.0](https://github.com/clicktronix/cc-tuner/compare/v0.24.1...v0.25.0) (2026-11-23)
+
+
+### Features
+
+* show running subagent models in the usage statusline ([#85](https://github.com/clicktronix/cc-tuner/issues/85)) ([c78fe37](https://github.com/clicktronix/cc-tuner/commit/c78fe379b271d032f12dec1313f4103e06406116))
+
 ## [0.24.1](https://github.com/clicktronix/cc-tuner/compare/v0.24.0...v0.24.1) (2026-11-22)
 
 
