@@ -33,25 +33,34 @@ and wires it into the user's `settings.json` with a backup, offered rather than 
 
 ```
 ➜ my-project git:(main) S:2 M:1 U:4 | Opus 4.8 xhigh | 1h12m
- | 5h:66%[▓▓▓▓▓░░░]>23:30  7d:9%[▓░░░░░░░]>17:00 | ctx:8%[▓░░░░░░░░░]
+ | 5h:66%[▓▓▓▓▓░░░]>23:30  7d:9%[▓░░░░░░░]>17:00 | ctx:8%[▓░░░░░░░░░] | subagents: 2 sonnet · 1 opus
 ```
 
 - **Line 1**: current directory, git branch with staged / modified / untracked counts (`✓` when
   clean), model and reasoning effort (when the model exposes it), session duration.
-- **Line 2**: the 5-hour and 7-day rate-limit windows (utilization, bar, local reset time), then
-  context-window usage. Bars turn yellow at 50% and red at 80%.
+- **Line 2**: the rate-limit windows the plan has (utilization, bar, local reset time), then
+  context-window usage, then the models of the subagents running now. Bars turn yellow at 50% and
+  red at 80%. A plan without a 5-hour window shows only `7d`.
 
 **Rate-limit data.** Claude Code's statusline payload carries `rate_limits.five_hour` and
 `rate_limits.seven_day` ([docs](https://code.claude.com/docs/en/statusline)) for eligible claude.ai
 Pro/Max accounts after the session's first API response; the script renders straight from it and
 touches no credentials or network. A missing window is hidden, never shown as `0%`. Only when the
 payload has no `rate_limits` at all does it fall back to Claude Code's OAuth usage endpoint
-(`api.anthropic.com/api/oauth/usage`), cached for 5 minutes behind an atomic `mkdir` lock. That
+(`api.anthropic.com/api/oauth/usage`), cached for 5 minutes behind a best-effort `mkdir` lock. That
 endpoint is **unofficial**: Anthropic does not document it and may change or remove it, and if it,
 the token or a dependency is unavailable the rate-limit segment is dropped while the rest renders.
 The token is read locally — macOS Keychain (`Claude Code-credentials`) or
 `~/.claude/.credentials.json` elsewhere, honouring `$CLAUDE_CONFIG_DIR` — and sent only to
 `api.anthropic.com`.
+
+**Subagent models.** The payload does not name running subagents, so cc-tuner's mod writes their
+models to `<config dir>/cc-tuner/subagents/<session id>` and rewrites the file every 5 seconds while
+any runs. The script shows that text unless the file is empty or older than 30 seconds, which is how a
+crash or a reload clears the segment; `refreshInterval` in `settings.json` redraws the line while the
+session waits. Without this statusline the mod pins the same text under the prompt. Git change counts
+are reused for 30 seconds per directory and branch, since the timer would otherwise repeat the scan;
+the branch name is read on every render.
 
 **Requirements.** `bash`, `jq`, `git`; the OAuth fallback also needs `python3`. Every payload field it
 reads is from Claude Code's documented statusline payload.

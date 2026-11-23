@@ -169,7 +169,7 @@ rm -f "$W/thing.unknownext"
 # --- the file comes back with its mode, not just its bytes ----------------------------------------
 chmod 755 "$W/calc.py"
 OUT="$(run "$W/calc.py" "bash $W/check.sh" "chmod 600 \$MUTATE_FILE && sed 's/n < 0/n < -1/' \$MUTATE_FILE > \$MUTATE_FILE.m && mv \$MUTATE_FILE.m \$MUTATE_FILE && chmod 600 \$MUTATE_FILE")"
-check "mode-restored" "755" "$(stat -f '%Lp' "$W/calc.py" 2>/dev/null || stat -c '%a' "$W/calc.py")"
+check "mode-restored" "755" "$(stat -c '%a' "$W/calc.py" 2>/dev/null || stat -f '%Lp' "$W/calc.py")"
 chmod 644 "$W/calc.py"
 BEFORE="$(shasum -a 256 "$W/calc.py" | cut -d' ' -f1)"
 

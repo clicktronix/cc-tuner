@@ -36,7 +36,8 @@ fi
 ## install
 
 Show a different existing statusline command before replacing it. Preserve other settings and back
-up before patching. When the command already matches, refresh only the script.
+up before patching. When the command and a refresh interval are already set, refresh only the script.
+The interval re-runs the line while the session waits, which keeps the subagent models current.
 
 ```bash
 for dep in python3 git; do command -v "$dep" >/dev/null || echo "WARNING: '$dep' not found — the statusline needs it"; done
@@ -44,13 +45,12 @@ mkdir -p "$CONFIG_DIR" || exit 1
 [ -f "$S" ] || printf '{}\n' > "$S" || exit 1
 jq -e . "$S" >/dev/null 2>&1 || { echo "ERROR: $S is not valid JSON — left unchanged"; exit 1; }
 cp "$SRC" "$DEST" && chmod +x "$DEST" || exit 1
-existing=$(jq -r '.statusLine.command // empty' "$S")
-if [ "$existing" != "$COMMAND" ]; then
+if ! jq -e --arg command "$COMMAND" '.statusLine.command == $command and .statusLine.refreshInterval != null' "$S" >/dev/null; then
   BACKUP="$S.bak-$(date +%Y%m%d-%H%M%S)"
   cp "$S" "$BACKUP" || { echo "ERROR: backup failed — left settings unchanged"; exit 1; }
   echo "Backed up settings -> $BACKUP"
   TMP=$(mktemp "$CONFIG_DIR/.cc-tuner-statusline.XXXXXX") || exit 1
-  if jq --arg command "$COMMAND" '.statusLine = {type:"command", command:$command}' "$S" > "$TMP" && mv "$TMP" "$S"; then
+  if jq --arg command "$COMMAND" '.statusLine = {type:"command", command:$command, refreshInterval:10}' "$S" > "$TMP" && mv "$TMP" "$S"; then
     echo "settings.json statusLine -> $COMMAND"
   else
     rm -f "$TMP"; echo "ERROR: failed to patch $S — restore from $BACKUP if needed"; exit 1

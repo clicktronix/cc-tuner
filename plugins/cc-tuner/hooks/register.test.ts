@@ -1,5 +1,5 @@
-import type { AgentSpawnInput, AgentStatus, On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import type { AgentSpawnInput, AgentStatus, On, Settings } from 'claude-code'
+import { expect, mock, test } from 'claude-code/testing'
 import { UNKNOWN } from './peers'
 import { steps } from './register'
 
@@ -199,15 +199,19 @@ const spawn = (prompt: string, model?: string): AgentSpawnInput => ({
 })
 
 // Stubs the engine beneath agent spawns: each spawn answers the next id with its model, the agent
-// list reports the given statuses, and every status-line text is recorded.
-function agents(on: On, status: Map<string, AgentStatus>) {
+// list reports the given statuses as of the call (and answers once held settles), every status-line
+// text is recorded, and settings are as given.
+function agents(on: On, status: Map<string, AgentStatus>, settings: Settings = {}, held?: () => Promise<void> | undefined) {
   const lines: (string | undefined)[] = []
   let n = 0
   on('agent.spawn', (_, e) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: `a${++n}` }))
-  on('agent.list', () => ({
-    value: [...status].map(([id, s]) => ({ id, description: id, type: 'cc-tuner:slice-unit', status: s })),
-  }))
+  on('agent.list', async () => {
+    const value = [...status].map(([id, s]) => ({ id, description: id, type: 'cc-tuner:slice-unit', status: s }))
+    await held?.()
+    return { value }
+  })
   on('ui.status', (_, e) => { lines.push(e.text); return { value: undefined } })
+  on('settings.read', () => ({ value: settings }))
   return lines
 }
 
@@ -231,6 +235,135 @@ test('the status line clears once no tracked subagent runs', async ($, on) => {
 
   await $.agent.spawn(spawn('slice one'))
   expect(lines).toEqual([undefined])
+})
+
+const INSTALLED: Settings = { statusLine: { type: 'command', command: 'bash ~/.claude/cc-tuner-statusline.sh' } }
+
+// What the cc-tuner status line needs: the session's id, the config dir, and every write recorded.
+function statusLineFile(on: On) {
+  const writes: { path: string; text: string }[] = []
+  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home' })
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', () => ({ value: 'agents_dir=".../cc-tuner/subagents"' }))
+  on('fs.write', (_, e) => { writes.push({ path: e.path, text: e.text }); return { value: undefined } })
+  return writes
+}
+
+test('with the cc-tuner status line the models go to its file, not a second status entry', async ($, on) => {
+  const status = new Map<string, AgentStatus>()
+  const lines = agents(on, status, INSTALLED)
+  const writes = statusLineFile(on)
+  mock.clock(on)
+
+  status.set('a1', 'running')
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  status.set('a2', 'running')
+  await $.agent.spawn(spawn('slice two', 'opus'))
+
+  expect(lines).toEqual([])
+  expect(writes).toEqual([
+    { path: '/cfg/cc-tuner/subagents/s1', text: '1 sonnet' },
+    { path: '/cfg/cc-tuner/subagents/s1', text: '1 sonnet · 1 opus' },
+  ])
+})
+
+test('the command setup writes for the active config dir is known by its quoted script path', async ($, on) => {
+  const status = new Map<string, AgentStatus>([['a1', 'running']])
+  const lines = agents(on, status, { statusLine: { type: 'command', command: "bash '/cfg/cc-tuner-statusline.sh'" } })
+  const writes: string[] = []
+  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home' })
+  mock.clock(on)
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', (_, e) => ({ value: e.path === '/cfg/cc-tuner-statusline.sh' ? 'cc-tuner/subagents' : '' }))
+  on('fs.write', (_, e) => { writes.push(e.path); return { value: undefined } })
+
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  expect(lines).toEqual([])
+  expect(writes).toEqual(['/cfg/cc-tuner/subagents/s1'])
+})
+
+test('the file follows a subagent that ends with no new event, then the rewrites stop', async ($, on) => {
+  const status = new Map<string, AgentStatus>()
+  agents(on, status, INSTALLED)
+  const writes = statusLineFile(on)
+  const clock = mock.clock(on)
+
+  status.set('a1', 'running')
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  await clock.advance(5000)
+  expect(writes.map(w => w.text)).toEqual(['1 sonnet', '1 sonnet'])
+
+  status.set('a1', 'completed')
+  await clock.advance(5000)
+  expect(writes.map(w => w.text)).toEqual(['1 sonnet', '1 sonnet', ''])
+
+  await clock.advance(20000)
+  expect(writes.length).toBe(3)
+})
+
+test('an update in flight cannot publish its older snapshot over a newer spawn', async ($, on) => {
+  const status = new Map<string, AgentStatus>()
+  let held: Promise<void> | undefined
+  agents(on, status, INSTALLED, () => held)
+  const writes = statusLineFile(on)
+  const clock = mock.clock(on)
+
+  status.set('a1', 'running')
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+
+  // The tick lists a1 as completed and stops there, then a second subagent starts.
+  status.set('a1', 'completed')
+  let release = () => {}
+  held = new Promise(resolve => { release = resolve })
+  void clock.advance(5000)
+  await clock.settle()
+  held = undefined
+  status.set('a2', 'running')
+  const second = $.agent.spawn(spawn('slice two', 'opus'))
+  await clock.settle()
+  release()
+  await second
+  await clock.settle()
+
+  expect(writes.at(-1)?.text).toBe('1 opus')
+  const before = writes.length
+  await clock.advance(5000)
+  expect(writes.length).toBeGreaterThan(before)
+})
+
+test('an old copy of the script gets the status entry, since it cannot read the file', async ($, on) => {
+  const status = new Map<string, AgentStatus>([['a1', 'running']])
+  const lines = agents(on, status, INSTALLED)
+  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home' })
+  mock.clock(on)
+  on('fs.read', () => ({ value: '#!/usr/bin/env bash\n# a script from before this release' }))
+
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  expect(lines).toEqual(['subagents: 1 sonnet'])
+})
+
+test('a fork of the script elsewhere gets the status entry, whatever the installed copy can do', async ($, on) => {
+  const status = new Map<string, AgentStatus>([['a1', 'running']])
+  const lines = agents(on, status, { statusLine: { type: 'command', command: 'bash ~/bin/cc-tuner-statusline.sh' } })
+  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home' })
+  mock.clock(on)
+  on('fs.read', () => ({ value: 'cc-tuner/subagents' }))
+
+  await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  expect(lines).toEqual(['subagents: 1 sonnet'])
+})
+
+test('a file that cannot be written does not fail the spawn', async ($, on) => {
+  const status = new Map<string, AgentStatus>([['a1', 'running']])
+  agents(on, status, INSTALLED)
+  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home' })
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', () => ({ value: 'cc-tuner/subagents' }))
+  mock.clock(on)
+  on('fs.write', () => { throw new Error('read-only') })
+
+  const spawned = await $.agent.spawn(spawn('slice one', 'claude-sonnet-5-5'))
+  expect(spawned.agentId).toBe('a1')
 })
 
 interface Step { words: string[]; dir: string; op: string; writes: boolean; assumed?: boolean; outputs?: string[] }

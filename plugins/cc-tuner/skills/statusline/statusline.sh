@@ -4,7 +4,7 @@
 #
 # Renders two lines:
 #   line 1: ➜ <dir> git:(<branch>) S:.. M:.. U:..  | <model> | <session duration>
-#   line 2: 5h:NN%[bar]>HH:MM  7d:NN%[bar]>HH:MM | ctx:NN%[bar]
+#   line 2: 5h:NN%[bar]>HH:MM  7d:NN%[bar]>HH:MM | ctx:NN%[bar] | subagents: 2 sonnet · 1 opus
 #
 # The 5h / 7d figures come from Claude Code's own statusline payload
 # (`rate_limits.five_hour` / `rate_limits.seven_day`, each with `used_percentage` and
@@ -30,15 +30,29 @@ MAGENTA=$'\033[0;35m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
 
-# Portable file mtime (epoch seconds): BSD/macOS `stat -f`, GNU/Linux `stat -c`.
+# Private per-user dir (700) so a shared /tmp on Linux can't leak one user's
+# usage response to another. Scoped by uid AND a hash of the effective Claude
+# config dir, so one user running multiple accounts (different CLAUDE_CONFIG_DIR)
+# doesn't reuse another account's cached usage.
+_cfg_id=$(printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | cksum | cut -d' ' -f1)
+CACHE_DIR="${TMPDIR:-/tmp}/cc-tuner-statusline-$(id -u 2>/dev/null || echo 0)-${_cfg_id}"
+mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
+# Claude Code cancels a render a newer one replaces, which can leave a temp file behind.
+find "$CACHE_DIR" -type f \( -name 'git-*' -o -name 'usage_cache.tmp.*' \) -mmin +60 -delete 2>/dev/null
+
+# Portable file mtime (epoch seconds): GNU/Linux `stat -c`, BSD/macOS `stat -f`. The Linux form goes
+# first: there `-f` means file-system status, so `stat -f %m FILE` prints that to stdout before failing.
 _mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
 }
 
 # Portable epoch-seconds -> local HH:MM: BSD/macOS `date -r`, GNU/Linux `date -d @`.
 _epoch_to_local() {
   date -r "$1" +%H:%M 2>/dev/null || date -d "@$1" +%H:%M 2>/dev/null
 }
+
+GIT_COUNTS_TTL=30
+AGENTS_MAX_STALE=30   # the mod rewrites every 5s; older means it stopped (a crash, a reload)
 
 # JSON from stdin (the statusline payload Claude Code pipes in)
 input=$(cat)
@@ -52,11 +66,19 @@ git_info=""
 if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
   branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null || git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
   if [ -n "$branch" ]; then
-    # GIT_OPTIONAL_LOCKS=0 is the env form; --no-optional-locks is a top-level
-    # git option, NOT a `git diff` option (passing it after `diff` errors out).
-    staged=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
-    modified=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
-    untracked=$(git -C "$cwd" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+    # Counting scans the tree (a second or more in a large repository) and the status line also
+    # runs on a timer, so the counts are reused for a while, per directory and branch.
+    counts_cache="$CACHE_DIR/git-$(printf '%s' "$cwd:$branch" | cksum | cut -d' ' -f1)"
+    if [ -f "$counts_cache" ] && [ "$(( $(date +%s) - $(_mtime "$counts_cache") ))" -le "$GIT_COUNTS_TTL" ]; then
+      read -r staged modified untracked < "$counts_cache"
+    else
+      # GIT_OPTIONAL_LOCKS=0 is the env form; --no-optional-locks is a top-level
+      # git option, NOT a `git diff` option (passing it after `diff` errors out).
+      staged=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
+      modified=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
+      untracked=$(git -C "$cwd" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+      printf '%s %s %s\n' "$staged" "$modified" "$untracked" > "$counts_cache.$$" && mv "$counts_cache.$$" "$counts_cache"
+    fi
 
     counts=""
     [ "$staged" -gt 0 ] 2>/dev/null && counts="${counts} ${GREEN}S:${staged}${RESET}"
@@ -172,23 +194,17 @@ if [ -n "$rate_limits_json" ] && [ "$rate_limits_json" != "null" ]; then
     usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
   fi
 else
-  # --- Fallback: OAuth usage endpoint (5 min cache, mkdir lock so only one process
-  # refreshes) ---
-  # Private per-user dir (700) so a shared /tmp on Linux can't leak one user's
-  # usage response to another. Scoped by uid AND a hash of the effective Claude
-  # config dir, so one user running multiple accounts (different CLAUDE_CONFIG_DIR)
-  # doesn't reuse another account's cached usage.
-  _cfg_id=$(printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | cksum | cut -d' ' -f1)
-  USAGE_CACHE_DIR="${TMPDIR:-/tmp}/cc-tuner-statusline-$(id -u 2>/dev/null || echo 0)-${_cfg_id}"
-  mkdir -p "$USAGE_CACHE_DIR" 2>/dev/null && chmod 700 "$USAGE_CACHE_DIR" 2>/dev/null
-  USAGE_CACHE="$USAGE_CACHE_DIR/usage_cache"
-  USAGE_CACHE_LOCK="$USAGE_CACHE_DIR/usage_cache.lock"
-  USAGE_BACKOFF="$USAGE_CACHE_DIR/usage_backoff"   # epoch until which 429 suppresses refreshes
+  # --- Fallback: OAuth usage endpoint (5 min cache; a best-effort mkdir lock keeps most
+  # concurrent renders from refreshing together) ---
+  USAGE_CACHE="$CACHE_DIR/usage_cache"
+  USAGE_CACHE_LOCK="$CACHE_DIR/usage_cache.lock"
+  USAGE_BACKOFF="$CACHE_DIR/usage_backoff"   # epoch until which 429 suppresses refreshes
   USAGE_CACHE_TTL=300
   USAGE_MAX_STALE=1800   # stop showing rate-limit data once it is >30 min old
 
   refresh_usage() {
-    # mkdir is atomic — only one process wins the lock and refreshes.
+    # Best effort: some mkdir builds (uutils coreutils 0.10) report success to both of two racing
+    # calls. Two winners cost a duplicate request; each writes its own temp file and moves it in.
     if ! mkdir "$USAGE_CACHE_LOCK" 2>/dev/null; then
       # Drop a stale lock (a crashed process would leave it forever).
       local lock_age=$(( $(date +%s) - $(_mtime "$USAGE_CACHE_LOCK") ))
@@ -328,7 +344,10 @@ json.dump(data, sys.stdout)
       seven_reset=$(jq -r '.seven_day.reset_local // empty' "$USAGE_CACHE" 2>/dev/null)
 
       [ -n "$five_h" ] && usage_info="${usage_info} ${DIM}|${RESET}$(window_segment 5h "$five_h" "$five_reset")"
-      [ -n "$seven_d" ] && usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+      if [ -n "$seven_d" ]; then
+        [ -n "$usage_info" ] || usage_info=" ${DIM}|${RESET}"
+        usage_info="${usage_info}$(window_segment 7d "$seven_d" "$seven_reset")"
+      fi
     fi
   fi
 fi
@@ -342,8 +361,22 @@ if [ -n "$used_pct" ]; then
   context_info=" ${DIM}|${RESET} ${bar_color}ctx:${used_int}%${RESET} ${DIM}[${RESET}${bar_color}${bar_result}${RESET}${DIM}]${RESET}"
 fi
 
+# --- Models of the running subagents, from the file cc-tuner's mod rewrites while any runs ---
+agents_info=""
+session_id=$(echo "$input" | jq -r '.session_id // empty')
+agents_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/cc-tuner/subagents"
+agents_file="$agents_dir/$session_id"
+# A session that ended without another render leaves its file behind.
+[ -d "$agents_dir" ] && find "$agents_dir" -type f -mmin +60 -delete 2>/dev/null
+if [ -n "$session_id" ] && [ -f "$agents_file" ]; then
+  agents_text=$(cat "$agents_file" 2>/dev/null)
+  if [ -n "$agents_text" ] && [ "$(( $(date +%s) - $(_mtime "$agents_file") ))" -le "$AGENTS_MAX_STALE" ]; then
+    agents_info=" ${DIM}|${RESET} ${CYAN}subagents: ${agents_text}${RESET}"
+  fi
+fi
+
 # --- Second line: the bars ---
-bars_line="${usage_info}${context_info}"
+bars_line="${usage_info}${context_info}${agents_info}"
 
 # Output: line 1 = dir/git/model/duration, line 2 = bars
 printf "%s  %s%s%s%s\n%s" \
