@@ -46,8 +46,10 @@ class Machine {
   truncate = new Set<string>()
   links = new Map<string, string>()
   afterRead = new Map<string, () => Promise<void>>()
-  // Runs each time a renewal or take finds the lock's mutex busy: the other caller's work going on.
+  // Runs each time a lease script finds the file lock held: the other caller's work going on.
   busy: (() => void) | undefined
+  // The file lock cannot be taken at all (no python3, or a lock file that does not open): every lease script exits 3.
+  noLock = false
   // Runs before each command the guard starts: a slow command in the middle of a decision.
   onRun: ((argv: readonly string[]) => void) | undefined
   private tick = 1
@@ -186,30 +188,23 @@ class Machine {
     if (cmd === 'git' && a[2] === 'rev-parse' && a.includes('--verify')) return this.refs.has(a[a.length - 1]!) ? { stdout: `${this.revs.get(a[a.length - 1]!) ?? 'sha'}\n` } : { exitCode: 1, stdout: '' }
     if (cmd === 'git' && a[2] === 'rev-parse') return { stdout: `${this.shas.get(a[1]!) ?? ''}\n` }
     if (cmd === 'git' && a[2] === 'symbolic-ref') return this.symbolic.has(a[1]!) ? { stdout: `${this.symbolic.get(a[1]!)}\n` } : { exitCode: 1, stdout: '' }
-    // The lease scripts, as the shell runs them: one atomic step each.
-    // Each script of the lease runs under the `.take` directory: while another caller holds it, the exit is 2.
-    if (cmd === '/bin/sh' && a[1]?.includes('printf %s') && !a[1].includes('if mkdir')) {
+    // The lease scripts, as the shell runs them: one atomic step each, under the file lock `<lock>.lock`. A lock
+    // another caller holds is an entry of `dirs` here: while it is there, every script exits 2.
+    if (cmd === '/bin/sh' && a[1]?.includes('holder.json')) {
       const [lock, seen, info] = a.slice(3) as [string, string, string]
-      if (this.dirs.has(`${lock}.take`)) { this.busy?.(); return { exitCode: 2, stdout: '' } }
+      if (this.noLock || !this.dirs.has(lock.slice(0, lock.lastIndexOf('/')))) return { exitCode: 3, stdout: '' }
+      if (this.dirs.has(`${lock}.lock`)) { this.busy?.(); return { exitCode: 2, stdout: '' } }
+      if (a[1].includes('mkdir -p')) {
+        const old = this.clock - (this.dirTimes.get(lock) ?? 0) > 540_000
+        if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen && (seen !== '' || old)) this.drop(lock)
+        if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
+        this.put(`${lock}/holder.json`, info)
+        this.dirTimes.set(lock, this.clock)
+        return { stdout: '' }
+      }
       if (this.cat(`${lock}/holder.json`) !== seen) return { exitCode: 1, stdout: '' }
-      this.put(`${lock}/holder.json`, info)
-      return { stdout: '' }
-    }
-    if (cmd === '/bin/sh' && a[1]?.includes('printf %s')) {
-      const [lock, seen, info] = a.slice(3) as [string, string, string]
-      if (!this.dirs.has(lock.slice(0, lock.lastIndexOf('/')))) return { exitCode: 1, stdout: '' }
-      if (this.dirs.has(lock) && this.dirs.has(`${lock}.take`)) return { exitCode: 2, stdout: '' }
-      const old = this.clock - (this.dirTimes.get(lock) ?? 0) > 540_000
-      if (this.dirs.has(lock) && this.cat(`${lock}/holder.json`) === seen && (seen !== '' || old)) this.drop(lock)
-      if (this.dirs.has(lock)) return { exitCode: 1, stdout: '' }
-      this.put(`${lock}/holder.json`, info)
-      this.dirTimes.set(lock, this.clock)
-      return { stdout: '' }
-    }
-    if (cmd === '/bin/sh' && a[1]?.includes('holder.json') && a[1].includes('rm -rf')) {
-      if (this.dirs.has(`${a[3]}.take`)) return { exitCode: 2, stdout: '' }
-      if (this.cat(`${a[3]}/holder.json`) !== a[4]) return { exitCode: 1, stdout: '' }
-      this.drop(a[3]!)
+      if (a[1].includes('printf %s')) this.put(`${lock}/holder.json`, info)
+      else if (a[1].includes('rm -rf')) this.drop(lock)
       return { stdout: '' }
     }
     if (cmd === '/bin/sh' && a[1]?.includes('XDG_CONFIG_HOME')) return { stdout: `${this.xdg}\n` }
@@ -2270,6 +2265,25 @@ test('resource: two simultaneous first users get one lease, across products', as
   expect(loser.reason).toContain(`pid ${holder.pid}`)
 })
 
+test('resource: a first take that finds the file lock held stops and takes nothing; one that cannot lock names python3', async () => {
+  const { m, ra, sr } = products()
+  declareMachine(m, CHROME)
+  const lock = `${DIR}/${lockName('chrome')}`
+  m.dirs.add(`${lock}.lock`)
+  const busy = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(busy.decision, 'resource-first-take-under-a-held-lock-stops').toBe('stop')
+  expect(busy.reason).toContain('taken or renewed')
+  expect(m.dirs.has(lock), 'a busy take writes nothing').toBe(false)
+  m.dirs.delete(`${lock}.lock`)
+  m.noLock = true
+  const unlocked = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(unlocked.decision, 'resource-take-that-cannot-lock-stops').toBe('stop')
+  expect(unlocked.reason).toContain('python3')
+  expect(m.dirs.has(lock), 'a take that cannot lock writes nothing').toBe(false)
+  m.noLock = false
+  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-take-once-the-lock-works').toBe('note')
+})
+
 test('resource: a machine lease applies to sessions outside any repository', async () => {
   const { m, sr, sc } = products()
   declareMachine(m, CHROME)
@@ -2308,9 +2322,9 @@ test('resource: the lease is the holder\'s until its release, 10 min of silence 
 test('resource: a renewal or a release that lost the race to a takeover changes nothing, and a renewal comes once a minute', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.lock`]
   const use = (s: Session, top: string) => s.peers.lease(CLICK, top, s.sid)
-  const renewals = () => m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s') && !a[2].includes('if mkdir')).length
+  const renewals = () => m.ran.filter(a => a[0] === '/bin/sh' && a[2]?.includes('printf %s') && !a[2].includes('mkdir -p')).length
   const last = () => (JSON.parse(m.cat(`${lock}/holder.json`)) as { last: number }).last
   await use(sr, ra)
   const first = last()
@@ -2348,7 +2362,7 @@ test('resource: a renewal or a release that lost the race to a takeover changes 
 test('resource: a renewal that finds the lock busy asks again and then reads the holder: a takeover that finished in between stops it', async () => {
   const { m, ra, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.lock`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   m.dirs.add(take)
@@ -2365,7 +2379,7 @@ test('resource: a renewal that finds the lock busy asks again and then reads the
 test('resource: a renewal that stays busy stops with no ack, so a takeover that then completes never has two users', async () => {
   const { m, ra, rc, sr, sc } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.lock`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   m.dirs.add(take)
@@ -2387,17 +2401,35 @@ test('resource: a renewal that stays busy stops with no ack, so a takeover that 
 test('resource: a renewal that lost a race and re-reads its own lock allows only while the mutex is free', async () => {
   const { m, ra, sr } = products()
   declareMachine(m, CHROME)
-  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.take`]
+  const [lock, take] = [`${DIR}/${lockName('chrome')}`, `${DIR}/${lockName('chrome')}.lock`]
   await sr.peers.lease(CLICK, ra, 'sr')
   m.advance(661)
   const text = () => m.cat(`${lock}/holder.json`)
-  const rewrite = () => m.put(`${lock}/holder.json`, text().replace(/"last":\d+/, '"last":1'))
+  const rewrite = (last = 1) => m.put(`${lock}/holder.json`, text().replace(/"last":\d+/, `"last":${last}`))
   m.busy = undefined
   m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite() })
   expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-reread-own-lock-with-a-free-mutex-allows').toBe('allow')
+  // The lock is taken by another caller only after the renewal has answered, so the re-read is what meets it.
+  const isCheck = (a: readonly string[]) => a[0] === '/bin/sh' && a[2]?.includes('holder.json') === true && !a[2].includes('printf %s') && !a[2].includes('rm -rf')
+  const checks = () => m.ran.filter(isCheck).length
   m.advance(661)
-  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite(); m.dirs.add(take) })
-  expect((await sr.peers.lease(CLICK, ra, 'sr')).decision, 'resource-reread-own-lock-with-a-busy-mutex-stops').toBe('stop')
+  m.ran.length = 0
+  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite(2) })
+  m.onRun = argv => { if (isCheck(argv)) { m.onRun = undefined; m.dirs.add(take) } }
+  const busy = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(busy.decision, 'resource-reread-own-lock-with-a-busy-mutex-stops').toBe('stop')
+  expect(busy.reason).toContain('taken or renewed')
+  expect(checks(), 'the re-read asked under the lock').toBe(1)
+  // The holder file changes once more between the re-read and its check: the check refuses, and the holder is named.
+  m.dirs.delete(take)
+  m.advance(661)
+  m.ran.length = 0
+  m.afterRead.set(`${lock}/holder.json`, async () => { m.afterRead.delete(`${lock}/holder.json`); rewrite(3) })
+  m.onRun = argv => { if (isCheck(argv)) { m.onRun = undefined; m.put(`${lock}/holder.json`, text().replace(/"pid":\d+/, '"pid":4242')) } }
+  const changed = await sr.peers.lease(CLICK, ra, 'sr')
+  expect(changed.decision, 'resource-reread-that-changes-under-the-check-stops').toBe('stop')
+  expect(changed.reason).toContain('leased to pid 4242')
+  expect(checks()).toBe(1)
 })
 
 test('resource: a repository resource is leased too, and a lock with no holder file yet is not up for grabs', async () => {
@@ -3104,7 +3136,7 @@ test('resource: a holder that cannot be read gives back what the call took', asy
   declareMachine(m, { key: 'screen', kind: 'exclusive', tools: ['mirror', 'capture'] }, { key: 'device', kind: 'exclusive', tools: ['mirror', 'device'] })
   const [a, b, c] = [session('a'), session('b'), session('c')]
   expect((await a.peers.lease('device', r, 'a')).decision).toBe('note')
-  m.onRun = argv => { if (argv[2]?.startsWith('d="$1"; if mkdir')) { m.failing.set('ps', 2); m.onRun = undefined } }
+  m.onRun = argv => { if (argv[2]?.includes('mkdir -p "$d"')) { m.failing.set('ps', 2); m.onRun = undefined } }
   await b.peers.pid()
   m.advance(61)
   expect((await b.peers.lease('mirror', r, 'b')).reason, 'unread-holder-stops').toContain('could not read the process list')

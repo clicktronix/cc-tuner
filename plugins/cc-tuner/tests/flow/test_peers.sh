@@ -374,7 +374,7 @@ absent "record-clear-follows-the-new-session-id" "0000000000e3" "$(e2e_rec .sess
 
 # --- resources: a shared stop and an exclusive lease, in real sessions --------------------------------------------
 # The stop is a `touch` of a marker file, so the file shows whether the command ran. The tool is the one of a
-# stand-in MCP server; the lease is taken by the real `mkdir`.
+# stand-in MCP server; the lease is taken by the real lease script.
 RR="$(repo)"; mkdir -p "$RR/.claude"
 jq -nc --arg c "touch $W/stack-stopped" '{product: "res", resources: [{key: "stack", kind: "shared", start: [], stop: [$c]}]}' > "$RR/.claude/cc-tuner-resources.json"
 peer; PR=$SP; fixture pr "$PR" "$RR" null
@@ -427,7 +427,7 @@ lab 00000000-0000-4000-8000-0000000000f1
 LOCK=$(dirname "$(grep -l '"key":"lab"' "$CC_TUNER_PEERS_DIR"/lease.*/holder.json)")
 check  "resource-lease-lock-name-is-a-digest" "lease." "$(basename "$LOCK" | grep -E '^lease\.[0-9a-f]{16}$')"
 check  "resource-lease-tool-ran" "pong-from-lab" "$(cat "$W/api.log")"
-equals "resource-lease-first-user-takes-it-with-mkdir" "$(session_pid)" "$(jq -r .pid "$LOCK/holder.json")"
+equals "resource-lease-first-user-takes-it" "$(session_pid)" "$(jq -r .pid "$LOCK/holder.json")"
 peer; PL=$SP
 rm -rf "$LOCK"; mkdir "$LOCK"
 jq -nc --argjson pid "$PL" --arg st "$(lstart "$PL")" '{v: 1, key: "lab", pid: $pid, start: $st, session: "x", last: (now | floor)}' > "$LOCK/holder.json"
@@ -443,12 +443,24 @@ check  "resource-lease-moves-on-death" "pong-from-lab" "$(cat "$W/api.log")"
 check  "resource-lease-release-by-the-holder" "cc-tuner: released lab." "$(cat "$W/api.log")"
 equals "resource-lease-release-frees-the-lock" "no" "$([ -e "$LOCK" ] && echo yes || echo no)"
 
-# A holder whose renewal is due meets another session's takeover mutex: it is stopped, not allowed, because the takeover
-# may complete a moment later. Once it has, the old holder is stopped naming the new one. The mutex and the takeover
-# are staged by the session's own Bash calls between its tool calls; the renewal and the stop are the real code's.
+# A holder whose renewal is due meets another session holding the lease's file lock: it is stopped, not allowed, because
+# the takeover may complete a moment later. Once it has, the old holder is stopped naming the new one. The held lock and
+# the takeover are staged by the session's own Bash calls between its tool calls; the renewal and the stop are the real
+# code's.
+# The lease scripts are the guard's own, cut out of hooks/peers.ts and printed by node.
+script_of() { node -e "$(sed -n '/^const FLOCK =/,/^const SWEEP =/p' "$FLOW_PLUGIN/hooks/peers.ts" | sed '$d'); process.stdout.write($1)" 2>/dev/null; }
+# hold-lock.sh <lock> <held marker> <free marker>: takes the lease's file lock the way every lease script does (LOCKED,
+# so the lock is the shell's descriptor after python3 has exited), holds it until the free marker appears, and returns
+# once it is held. The held marker carries the pid of the shell that holds it.
+script_of LOCKED > "$W/locked.txt"
+cat > "$W/hold-lock.sh" <<'HOLD'
+LOCKED="$(cat "$(dirname "$0")/locked.txt")"
+sh -c 'd="$1"; '"$LOCKED"' echo $$ > "$2"; while [ ! -e "$3" ]; do sleep 0.05 9>&-; done; exec 9>&-; rm -f "$2"' sh "$1" "$2" "$3" >/dev/null 2>&1 </dev/null &
+n=0; until [ -e "$2" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done; [ -e "$2" ]
+HOLD
 peer; PT=$SP
-BACKDATE="printf %s \"\$(jq -c '.last = 1' $LOCK/holder.json)\" > $LOCK/holder.json; mkdir $LOCK.take"
-TAKEN="rmdir $LOCK.take; printf %s '$(jq -nc --argjson pid "$PT" --arg st "$(lstart "$PT")" '{v: 1, key: "lab", pid: $pid, start: $st, session: "t", last: (now | floor)}')' > $LOCK/holder.json"
+BACKDATE="printf %s \"\$(jq -c '.last = 1' $LOCK/holder.json)\" > $LOCK/holder.json; sh $W/hold-lock.sh $LOCK $W/lease-held $W/lease-free"
+TAKEN=": > $W/lease-free; until [ ! -e $W/lease-held ]; do sleep 0.05; done; printf %s '$(jq -nc --argjson pid "$PT" --arg st "$(lstart "$PT")" '{v: 1, key: "lab", pid: $pid, start: $st, session: "t", last: (now | floor)}')' > $LOCK/holder.json"
 script "$(jq -nc --arg b "$BACKDATE" --arg t "$TAKEN" '{when: "", calls: [
   {name: "mcp__lab__ping", input: {}}, {name: "Bash", input: {command: $b}}, {name: "mcp__lab__ping", input: {}},
   {name: "Bash", input: {command: $t}}, {name: "mcp__lab__ping", input: {}}]}')"
@@ -458,7 +470,7 @@ absent "resource-lease-busy-renewal-offers-no-ack" "CC_TUNER_ACK=" "$(grep -F 'b
 check  "resource-lease-after-the-takeover-names-the-new-holder" "lab is leased to pid $PT" "$(cat "$W/api.log")"
 equals "resource-lease-takeover-holder-stays" "$PT" "$(jq -r .pid "$LOCK/holder.json")"
 kill "$PT"; until [ -z "$(lstart "$PT")" ]; do sleep 0.05; done
-rm -rf "$LOCK" "$LOCK.take"
+rm -rf "$LOCK" "$LOCK.lock"
 
 # --- inspection is inert: the guard's own git reads run nothing the repository, an included file or ~/.gitconfig configures ---
 # A clean filter runs while `git status` hashes a changed file, a merge driver while merge-tree merges two commits, and a
@@ -734,29 +746,45 @@ equals "commit-literal-own-path-and-only-amend-ran-on-real-git" "reworded" "$(gi
 equals "commit-literal-own-path-took-only-that-path"            "own" "$(git -C "$RF" show --name-only --format= HEAD)"
 equals "commit-only-amend-left-the-foreign-staged"              "foreign" "$(git -C "$RF" diff --cached --name-only)"
 
-# --- the lease script, raced in a real shell: a stale lock goes to exactly one of 20 callers -------------------------
-# TAKE, RENEW and RELEASE are the guard's own scripts, cut out of hooks/peers.ts and printed by node.
+# --- the lease scripts, raced in a real shell: a lock goes to exactly one of 20 callers ------------------------------
 if ! command -v node >/dev/null 2>&1; then
   fail "lease-race (node is not on PATH)"
 else
-  script_of() { node -e "$(sed -n '/^const LOCKED =/,/^const SWEEP =/p' "$FLOW_PLUGIN/hooks/peers.ts" | sed '$d'); process.stdout.write($1)" 2>/dev/null; }
   TAKE="$(script_of TAKE)"; RENEW="$(script_of RENEW)"; RELEASE="$(script_of RELEASE)"
   RACE="$W/race"; mkdir -p "$RACE"
   take() { sh -c "$TAKE" sh "$@"; }
   renew() { sh -c "$RENEW" sh "$@"; }
   release() { sh -c "$RELEASE" sh "$@"; }
+  # race <name> <lock> <seen> [mkdir dir]: twenty callers wait at one gate and take together.
+  race() {
+    RP=""; rm -f "$RACE/go"
+    for i in $(seq 1 20); do
+      ( until [ -e "$RACE/go" ]; do :; done; PATH="${4:+$4:}$PATH" take "$2" "$3" "mine$i"; echo $? > "$RACE/$1.$i" ) & RP="$RP $!"
+    done
+    : > "$RACE/go"; wait $RP
+  }
+  # A lock nobody holds yet, with a `mkdir` that reports success whether or not it made the directory, as the one of
+  # uutils coreutils 0.10 does to both of two racing calls: the lease is the file lock's, so one caller still gets it.
+  mkdir "$RACE/bin"; printf '#!/bin/sh\n/bin/mkdir "$@" 2>/dev/null\nexit 0\n' > "$RACE/bin/mkdir"; chmod +x "$RACE/bin/mkdir"
+  race frc "$RACE/lease.f" "" "$RACE/bin"
+  equals "lease-race-exactly-one-caller-takes-a-free-lock" "1" "$(cat "$RACE"/frc.* | grep -c '^0$')"
+  WINNER="$(grep -l '^0$' "$RACE"/frc.* | sed 's/.*frc\.//')"
+  equals "lease-race-the-free-lock-holds-the-winner" "mine$WINNER" "$(cat "$RACE/lease.f/holder.json")"
   mkdir "$RACE/lease.x"; printf %s '{"v":1,"key":"x","pid":1,"start":"gone","session":null,"last":1}' > "$RACE/lease.x/holder.json"
-  SEEN="$(cat "$RACE/lease.x/holder.json")"; RP=""
-  for i in $(seq 1 20); do ( take "$RACE/lease.x" "$SEEN" "mine$i"; echo $? > "$RACE/rc.$i" ) & RP="$RP $!"; done
-  wait $RP
+  race rc "$RACE/lease.x" "$(cat "$RACE/lease.x/holder.json")"
   equals "lease-race-exactly-one-caller-takes-a-stale-lock" "1" "$(cat "$RACE"/rc.* | grep -c '^0$')"
   WINNER="$(grep -l '^0$' "$RACE"/rc.* | sed 's/.*rc\.//')"
   equals "lease-race-the-lock-holds-the-winner" "mine$WINNER" "$(cat "$RACE/lease.x/holder.json")"
-  equals "lease-race-leaves-no-moved-aside-lock" "0" "$(ls "$RACE" | grep -c 'lease\.x\.')"
+  equals "lease-race-leaves-the-lock-and-its-lock-file-only" "lease.x lease.x.lock" "$(ls "$RACE" | grep '^lease\.x' | tr '\n' ' ' | sed 's/ $//')"
   mkdir "$RACE/lease.e"
   take "$RACE/lease.e" "" mine; equals "lease-a-fresh-empty-lock-is-not-taken" "1" "$?"
   touch -t 202001010000 "$RACE/lease.e"
   take "$RACE/lease.e" "" mine; equals "lease-an-old-empty-lock-is-taken" "0" "$?"
+  # A session still on the scripts from before the file lock makes the directory and writes its holder outside it: a
+  # take that saw no lock does not write over that holder.
+  mkdir "$RACE/hook"; printf '#!/bin/sh\n/bin/mkdir "$@" && printf old > "$2/holder.json"\n' > "$RACE/hook/mkdir"; chmod +x "$RACE/hook/mkdir"
+  (PATH="$RACE/hook:$PATH"; take "$RACE/lease.o" "" mine); equals "lease-take-does-not-write-over-a-holder-that-appeared" "1" "$?"
+  equals "lease-the-holder-that-appeared-stays" "old" "$(cat "$RACE/lease.o/holder.json")"
   # A renewal or a release that read the lock before a takeover must not act on the new holder's lock.
   mkdir "$RACE/lease.r"; printf %s A > "$RACE/lease.r/holder.json"
   renew "$RACE/lease.r" A A2; equals "lease-renewal-by-the-holder-runs" "0" "$?"
@@ -766,13 +794,22 @@ else
   equals "lease-renewal-after-a-takeover-leaves-the-new-holder" "B" "$(cat "$RACE/lease.r/holder.json")"
   release "$RACE/lease.r" A2; equals "lease-release-after-a-takeover-is-refused" "1" "$?"
   equals "lease-release-after-a-takeover-leaves-the-new-holder" "B" "$(cat "$RACE/lease.r/holder.json")"
-  mkdir "$RACE/lease.r.take"
+  # While another shell holds the file lock every script is busy. That shell holds it as the scripts do, on its own
+  # descriptor after python3 has exited, and the kernel frees it the moment the shell is killed.
+  sh "$W/hold-lock.sh" "$RACE/lease.r" "$RACE/held" "$RACE/free"
   release "$RACE/lease.r" B; equals "lease-release-while-a-take-is-under-way-is-busy" "2" "$?"
   renew "$RACE/lease.r" B B2; equals "lease-renewal-while-a-take-is-under-way-is-busy" "2" "$?"
+  take "$RACE/lease.r" B C; equals "lease-take-while-a-take-is-under-way-is-busy" "2" "$?"
   equals "lease-busy-calls-change-nothing" "B" "$(cat "$RACE/lease.r/holder.json")"
-  rmdir "$RACE/lease.r.take"
-  release "$RACE/lease.r" B; equals "lease-release-by-the-holder-runs" "0" "$?"
-  equals "lease-release-removes-the-lock-and-leaves-no-mutex" "0" "$(ls "$RACE" | grep -c '^lease\.r')"
+  HP="$(cat "$RACE/held")"; kill -KILL "$HP"; until ! kill -0 "$HP" 2>/dev/null; do sleep 0.05; done
+  release "$RACE/lease.r" B; equals "lease-release-after-the-lock-holder-was-killed-runs" "0" "$?"
+  equals "lease-release-removes-the-lease-and-keeps-its-lock-file" "lease.r.lock" "$(ls "$RACE" | grep '^lease\.r' | tr '\n' ' ' | sed 's/ $//')"
+  # A lock file that does not open, or no python3 to take the lock: the scripts say so with a status of their own.
+  mkdir "$RACE/lease.d.lock"
+  take "$RACE/lease.d" "" mine; equals "lease-take-with-a-lock-file-that-does-not-open-exits-3" "3" "$?"
+  mkdir "$RACE/nopy"; for t in sh true cat find mkdir rm; do ln -s "$(command -v $t)" "$RACE/nopy/$t"; done
+  (PATH="$RACE/nopy"; take "$RACE/lease.n" "" mine); equals "lease-take-without-python3-exits-3" "3" "$?"
+  equals "lease-take-without-python3-takes-nothing" "no" "$([ -e "$RACE/lease.n" ] && echo yes || echo no)"
 fi
 
 # --- latency: the module decides in at most 150 ms p95 over 50 calls with 10 records --------------------------------

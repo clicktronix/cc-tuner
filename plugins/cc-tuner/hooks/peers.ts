@@ -28,9 +28,9 @@ import type { EngineInterface } from 'claude-code'
 // stay); the machine's `products` maps names to paths (`~` allowed), a repository file's `product` winning. A shared resource (`start` and `stop` command prefixes) is not stopped
 // while another session of the product is live; the machine's, while any session is. An exclusive one (`tools`,
 // MCP tool-name patterns) is leased to the first session that calls one: a lock directory `lease.<key>` in the
-// record directory, made by an atomic `mkdir` that carries {v, key, pid, start, session, last use}. The holder renews it
-// at most once a minute; a takeover, a renewal and a release each run under one cross-process mutex and compare the holder
-// they read. The lease moves on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
+// record directory that carries {v, key, pid, start, session, last use}. The holder renews it at most once a minute;
+// the first take, a takeover, a renewal and a release each run under one kernel file lock (`lease.<key>.lock`) and
+// compare the holder they read. The lease moves on the holder's `peers_release`, after 10 minutes of its silence, or when its process is gone.
 //
 // A process runs only for what a decision needs: `ps` (start times kept for a minute), `git status`
 // before a command that could lose or commit files (and, limited to one path, before the first edit of it in an
@@ -128,17 +128,25 @@ const LEASE_RENEW = 60
 // Use is written at most once a minute, so ten minutes from the last use is up to a minute more from the last write.
 const LEASE_IDLE = 10 * 60 + LEASE_RENEW
 const NONE: Config = { off: false, products: {}, resources: [] }
-// The lease scripts: each is one step in the shell, and each acts on a lock that exists only under LOCKED, the `.take`
-// directory made by an atomic `mkdir` (exit 2 while another caller holds it; one left by a crashed caller goes after a
-// minute). TAKE makes the lock with an atomic `mkdir`; a lock that exists is replaced only while it still holds the
-// text the caller read (an empty lock only when it is old). RENEW and RELEASE act only while it holds the caller's own
-// text, so neither lands on the lock of whoever took it over in between.
-const LOCKED = 'find "$d.take" -maxdepth 0 -mmin +1 -exec rmdir {} + 2>/dev/null; mkdir "$d.take" 2>/dev/null || exit 2; trap \'rmdir "$d.take"\' EXIT; '
-const TAKE = 'd="$1"; if mkdir "$d" 2>/dev/null; then printf %s "$3" > "$d/holder.json"; exit; fi; ' + LOCKED +
-  '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && { [ -n "$2" ] || [ -n "$(find "$d" -maxdepth 0 -mmin +9)" ]; } || exit 1; ' +
-  'rm -rf "$d" && mkdir "$d" 2>/dev/null && printf %s "$3" > "$d/holder.json"'
-const RENEW = 'd="$1"; ' + LOCKED + '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && printf %s "$3" > "$d/holder.json" || exit 1'
-const RELEASE = 'd="$1"; ' + LOCKED + '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ] && rm -rf "$d" || exit 1'
+// The lease scripts: each is one step in the shell, run under LOCKED: a kernel lock (flock) on the permanent file
+// `<lock>.lock`, taken without waiting (exit 2 while another caller holds it) and released by the kernel when the
+// shell exits, however it exits, so nothing is left to sweep. The exit status of `mkdir` decides nothing: some
+// builds (uutils coreutils 0.10) report success to both of two racing calls. python3 takes the lock on the shell's
+// descriptor; exit 3 when the lock file cannot be opened or python3 cannot run (`true`, not `exec`, tries the file
+// first: a redirection that fails on `exec` ends dash with a status of its own). TAKE replaces a lock that exists only
+// while it still holds the text the caller read (an empty lock only when it is old), and writes the holder file only
+// if none is there, so a session still running the scripts from before the file lock cannot be written over. RENEW
+// and RELEASE act only while the lock holds the caller's own text, so neither lands on the lock of whoever took it
+// over in between; CHECK only compares.
+const FLOCK = 'import fcntl, sys\ntry: fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)\nexcept BlockingIOError: sys.exit(2)'
+const LOCKED = `true 2>/dev/null >>"$d.lock" || exit 3; exec 9>>"$d.lock"; python3 -c '${FLOCK}' 2>/dev/null; case $? in 0) ;; 2) exit 2 ;; *) exit 3 ;; esac; `
+const HELD = '[ "$(cat "$d/holder.json" 2>/dev/null)" = "$2" ]'
+const TAKE = 'd="$1"; ' + LOCKED +
+  `if [ -d "$d" ]; then ${HELD} && { [ -n "$2" ] || [ -n "$(find "$d" -maxdepth 0 -mmin +9)" ]; } || exit 1; rm -rf "$d"; fi; ` +
+  'mkdir -p "$d" && (set -C; printf %s "$3" > "$d/holder.json") 2>/dev/null || exit 1'
+const RENEW = 'd="$1"; ' + LOCKED + HELD + ' && printf %s "$3" > "$d/holder.json" || exit 1'
+const RELEASE = 'd="$1"; ' + LOCKED + HELD + ' && rm -rf "$d" || exit 1'
+const CHECK = 'd="$1"; ' + LOCKED + HELD + ' || exit 1'
 const SWEEP = 'cd "$1" || exit 0; shift; rm -f -- "$@"; find merge -type f -mmin +1440 -exec rm -f {} + 2>/dev/null; ' +
   'find . -maxdepth 1 -name ".objects.*" -mmin +60 -exec rm -rf {} + 2>/dev/null; exit 0'
 // merge-tree in a bare repository of its own. `$1` is the record directory (the temporary repository is `.objects.*`
@@ -1134,18 +1142,23 @@ export class Peers {
   // The holder's call renews the lease at most once a minute. A renewal that stays busy past its retries is a takeover under
   // way that may still complete: the call stops (no ack) rather than allows, so the old and the new holder are never both
   // users. One that finds the lock changed re-reads it, and the lock's holder decides; a re-read that shows this session
-  // still the holder allows only while the takeover mutex is free.
+  // still the holder allows only after CHECK confirms that text under the file lock.
   private async hold(key: string, lock: string, me: [number, string], sid: string | null, renew = true): Promise<Verdict> {
     const [pid, start] = me
     const [text, st] = [await this.held(lock), await this.w.stat(lock)]
     const [cur, now] = [holder(text), this.now()]
     const mine = JSON.stringify({ v: 1, key, pid, start, session: sid, last: now })
     if (cur?.pid === pid && cur.start === start) {
-      if (!renew) return (await this.w.stat(`${lock}.take`)) === undefined ? { decision: 'allow' } : this.taking(key)
+      if (!renew) {
+        const rc = (await this.run(['/bin/sh', '-c', CHECK, 'sh', lock, text])).exitCode
+        if (rc === 0) return { decision: 'allow' }
+        return rc === 2 ? this.taking(key) : rc === 3 ? this.unlocked(key) : this.leased(key, holder(await this.held(lock)), now)
+      }
       if (now - cur.last < LEASE_RENEW) return { decision: 'allow' }
       let rc = 2
       for (let i = 0; i < 3 && rc === 2; i++) rc = (await this.run(['/bin/sh', '-c', RENEW, 'sh', lock, text, mine])).exitCode
       if (rc === 2) return this.taking(key)
+      if (rc === 3) return this.unlocked(key)
       return rc === 0 ? { decision: 'allow' } : this.hold(key, lock, me, sid, false)
     }
     if (st !== undefined) {
@@ -1155,12 +1168,19 @@ export class Peers {
       if (!gone && now - last < LEASE_IDLE) return this.leased(key, cur, now)
     }
     const r = await this.run(['/bin/sh', '-c', TAKE, 'sh', lock, text, mine])
+    if (r.exitCode === 2) return this.taking(key)
+    if (r.exitCode === 3) return this.unlocked(key)
     if (r.exitCode !== 0) return this.leased(key, holder(await this.held(lock)), now)
     return { decision: 'note', reason: `you hold ${key}; release it with peers_release when you are done.` }
   }
 
   private taking(key: string): Verdict {
     return { decision: 'stop', reason: `cc-tuner: ${key} is being taken or renewed by another session; try again shortly.` }
+  }
+
+  // The file lock itself could not be taken: its file did not open, or python3, which takes it, did not run.
+  private unlocked(key: string): Verdict {
+    return { decision: 'stop', reason: `cc-tuner: ${key} is an exclusive resource and its lease could not be locked: python3 must run and the peers directory must be writable.` }
   }
 
   private leased(key: string, h: Holder | undefined, now: number): Verdict {
@@ -1192,7 +1212,7 @@ export class Peers {
       const dir = await this.dir()
       const locks: string[] = []
       for (const e of await this.w.list(dir).catch(() => [])) {
-        if (!e.name.startsWith('lease.') || e.name.endsWith('.take')) continue
+        if (!e.name.startsWith('lease.') || e.name.endsWith('.lock')) continue
         const h = holder(await this.held(`${dir}/${e.name}`))
         if (h?.key === key && h.pid === me[0] && h.start === me[1]) locks.push(`${dir}/${e.name}`)
       }

@@ -251,7 +251,8 @@ The machine's go in `~/.config/cc-tuner/resources.json` and apply across product
 ```
 
 A `shared` resource stays up while another session of the product is live, and `/clear` keeps its task. An
-`exclusive` one is leased to its first user, per product or, for the machine's, per machine. The machine
+`exclusive` one is leased to its first user, per product or, for the machine's, per machine; the lease is
+taken under a kernel file lock, which needs `python3`. The machine
 file can map repositories to products, `"products": {"shop": ["~/code/shop-api", "~/code/shop-web"]}`.
 `"guard": false` disables peer coordination. The session-wide transcript check and Bash task tracking still run.
 
