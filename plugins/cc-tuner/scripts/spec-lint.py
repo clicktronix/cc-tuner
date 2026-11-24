@@ -52,35 +52,27 @@ def git(*args, check=True):
 
 
 def section_lines(text):
-    """The lines of the design section, read outside fenced code blocks and HTML comments.
+    """The lines of the design section, read as plain text.
 
-    The section is closed on purpose: it holds its six field lines and blank lines, and any other
-    line is an error. Markdown has more ways to hide or end a section than a check can follow, so the
-    section is not left room for them."""
-    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
-    fence, inside, found, lines = None, False, 0, []
-    for line in text.splitlines():
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-        if fence is None and marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
-            fence = marker.group(1)
+    The section is closed on purpose: its heading appears once in the file, it ends at the next line
+    that starts with "#", and between them it holds its six field lines and blank lines; any other
+    line is an error. Markdown has more ways to hide or end a section than a check can follow, so
+    none of them is followed: fences, comments and headings of any spelling are text, and inside the
+    section text is an error. What a renderer would show is not this check's question."""
+    lines = text.splitlines()
+    starts = [at for at, line in enumerate(lines) if line == HEADING]
+    if len(starts) != 1:
+        fail(f'the spec needs one "{HEADING}" line, at the start of a line (found {len(starts)})')
+    field_line = re.compile(r"^(%s): " % "|".join(field for field, _, _ in FIELDS))
+    section = []
+    for line in lines[starts[0] + 1:]:
+        if line.startswith("#"):
+            break
+        if line.strip(" \t") and not field_line.match(line):
+            errors.append(f"the design section holds only its field lines, one per line from the line start: {line.strip()}")
             continue
-        if fence is not None:
-            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip(" \t"):
-                fence = None
-            continue
-        if line.strip() == HEADING and re.match(r"^ {0,3}#", line):
-            found += 1
-            inside = True
-            continue
-        if inside and re.match(r"^ {0,3}#{1,2}(\s|$)", line):
-            inside = False
-        if inside and line.strip(" \t"):
-            if not re.match(r"^(%s): " % "|".join(field for field, _, _ in FIELDS), line):
-                errors.append(f"the design section holds only its field lines, one per line from the line start: {line.strip()}")
-            lines.append(line)
-    if found != 1:
-        fail(f'the spec needs one "{HEADING}" section (found {found})')
-    return lines
+        section.append(line)
+    return section
 
 
 def is_placeholder(text):

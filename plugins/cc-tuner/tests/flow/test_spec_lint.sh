@@ -73,16 +73,16 @@ printf 'x\n' > "$R/nonequilibrium.md"
 check "keyword-prefix-of-a-name-is-a-name" "rc=0" "$(lint "$(spec noneq "$(with Research "$FULL" 'nonequilibrium.md')")")"
 check "angle-brackets-in-a-design-pass" "rc=0" "$(lint "$(spec gen "$(with Modules "$NONE" 'RefundService<Refund> behind refund(order)')")")"
 
-refused "missing-section-refused" "needs one \"## Domain model and design\" section" \
+refused "missing-section-refused" "needs one \"## Domain model and design\" line" \
   "$(printf '# x\n\n## Run config\ntarget: main\n' > "$R/docs/PLANS/bare.md"; lint docs/PLANS/bare.md)"
-refused "fenced-heading-is-not-a-section" "needs one \"## Domain model and design\" section" \
+refused "fence-inside-the-section-refused" "holds only its field lines" \
   "$(printf '# x\n\n```\n## Domain model and design\n```\n' > "$R/docs/PLANS/fenced.md"; lint docs/PLANS/fenced.md)"
-check "fenced-example-beside-the-section-passes" "rc=0" \
+refused "a-second-heading-anywhere-refused" 'at the start of a line (found 2)' \
   "$(f="$(spec fence "$NONE")"; printf '\n```md\n## Domain model and design\nADR: none\n```\n' >> "$R/$f"; lint "$f")"
 
-refused "info-string-inside-a-fence-does-not-close-it" "needs one \"## Domain model and design\" section" \
+refused "fence-with-info-inside-the-section-refused" "holds only its field lines" \
   "$(printf '# x\n\n```md\n```python\n## Domain model and design\n```\n' > "$R/docs/PLANS/fence2.md"; lint docs/PLANS/fence2.md)"
-refused "indented-heading-ends-the-section" 'needs one "Modules:" line (found 0)' \
+refused "indented-heading-is-text-and-refused" "holds only its field lines" \
   "$(lint "$(spec indent "$(printf '%s' "$NONE" | grep -v '^Modules:'; printf '\n  ## Later\nModules: unchanged — smuggled')")")"
 check "hyphenated-name-is-a-path" "rc=0" \
   "$(printf 'n\n' > "$R/none-notes.md"; lint "$(spec hyph "$(with Research "$FULL" 'none-notes.md')")")"
@@ -94,10 +94,15 @@ git -C "$R" remote add team/upstream https://example.invalid/x.git
 git -C "$R" update-ref refs/remotes/team/upstream/prototype/remote-states "$(git -C "$R" rev-parse HEAD)"
 check "remote-with-a-slash-holds-a-prototype" "rc=0" "$(lint "$(spec rproto "$(with Prototype "$FULL" 'prototype/remote-states')")")"
 
-refused "commented-section-is-hidden" "needs one \"## Domain model and design\" section" \
-  "$(printf '# x\n\n<!--\n## Domain model and design\n%s\n-->\n' "$NONE" > "$R/docs/PLANS/comment.md"; lint docs/PLANS/comment.md)"
-refused "fence-closed-by-a-nonbreaking-space-stays-open" "needs one \"## Domain model and design\" section" \
-  "$(printf '# x\n\n```\n```\xc2\xa0\n## Domain model and design\n%s\n```\n' "$NONE" > "$R/docs/PLANS/nbsp.md"; lint docs/PLANS/nbsp.md)"
+refused "a-line-starting-with-hash-ends-the-section" 'needs one "Modules:" line (found 0)' \
+  "$(lint "$(spec hashend "$(printf '%s' "$NONE" | grep -v '^Modules:'; printf '\n##\xc2\xa0not a heading\nModules: unchanged — after the end')")")"
+# The section is plain text: anything but its field lines inside it is an error, so no Markdown
+# construct (a fence, a comment, a heading that is not one) can carry a field or end it early.
+for extra in '```' '<!-- note -->' 'Mod<!-- x -->ules: unchanged — no' '  ## Later'; do
+  refused "extra-line-refused: $extra" "holds only its field lines" \
+    "$(lint "$(spec "x$RANDOM" "$NONE
+$extra")")"
+done
 refused "setext-heading-inside-the-section-refused" "holds only its field lines" \
   "$(lint "$(spec setext "$(printf '%s' "$NONE" | grep -v '^Modules:'; printf '\nAcceptance criteria\n---\nModules: unchanged — smuggled')")")"
 refused "em-dash-without-space-is-a-skip" 'give the reason after "—"' \
