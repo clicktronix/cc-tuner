@@ -146,6 +146,7 @@ need "run-codex-required-review"    '--required' "$DELIVERY"
 need "spec-assigns-mutation-classes"     'fail-closed guards'  "$SPEC"
 need "spec-writes-the-plan"         'plan-path.sh" create' "$SPEC"
 need "spec-validates-the-plan"      'plan-lint.sh" check' "$SPEC"
+need "spec-lints-the-design-record" 'spec-lint.py" design' "$SPEC"
 need "spec-hands-off-to-run"        '/cc-tuner:run docs/PLANS' "$SPEC"
 
 # This checks the published instruction's order, not whether a model followed it. A lone

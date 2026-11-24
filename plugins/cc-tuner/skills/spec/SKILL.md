@@ -19,6 +19,8 @@ carries a `cc-tuner-groom:` record: it says whose record counts as settled.
 ROOT=$(git rev-parse --show-toplevel) && cd "$ROOT" || exit 1
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh" \
   || echo "prerequisites missing — /spec continues; /cc-tuner:run needs them before delivery"
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' \
+  || echo "python3 3.9+ missing — section 6 runs spec-lint.py before the spec is committed"
 ```
 
 Use this checkout root for commands and paths throughout the spec. Record missing capabilities with
@@ -52,6 +54,20 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/host.sh"
 Use the detected host for `host:`. For other hosts or `ambiguous`, follow
 [hosts.md](../run/references/hosts.md), including when to record `pending`.
 
+**Track the design steps as tasks.** When the native task tools are available, `TaskCreate` these
+five in order, each blocked by the one before. A task is done when its line of the spec's
+`## Domain model and design` section is written: a path this branch changed, or the keyword and a
+reason. Each closes on the record, never on the impression that nothing was needed.
+
+1. **Research** — `Research:`. Facts the repository cannot answer (a dependency's current API, an
+   external rule) go to `mattpocock-skills:research`, which leaves cited notes in the repository;
+   [optional-opinions.md](references/optional-opinions.md) says when Codex answers instead. Its
+   report goes into the notes file either way.
+2. **Grill with docs** — `Glossary:` and `ADR:`, section 3.
+3. **Prototype** — `Prototype:`, section 3.
+4. **Design** — `Seams:` and `Modules:`, section 3.
+5. **Spec and plan** — sections 4 to 6, closed when `spec-lint.py` and `plan-lint.sh` pass.
+
 **Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
 subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
 with the Agent tool (`Explore` for search, `general-purpose` on `haiku` at `effort: "high"` for a
@@ -64,7 +80,9 @@ section 3: an adviser can be handed the draft text, never the decision.
 
 Resolve the integration target from repository policy or the remote default. Fetch when available;
 offline, use the known base and check the fresh tip before publication. With host `local`, use
-`refs/heads/<target>`. If branch creation is reserved, stay in the designated checkout. Otherwise
+`refs/heads/<target>`. Record the commit the branch is cut from (`git rev-parse <that ref>`), not the
+ref, which can move: `spec-lint.py` measures the branch's design records against that commit in
+section 6. If branch creation is reserved, stay in the designated checkout. Otherwise
 create the task branch before grilling, since `domain-modeling` may write `GLOSSARY.md` or ADRs.
 On an existing branch, confirm it belongs to the task. Check any previous PR when reachable.
 Keep task commits off the integration branch.
@@ -74,18 +92,30 @@ conventions**, resolved in the order `cc-tuner:task-flow` gives under Commit con
 
 ## 3. Grill the problem
 
-Resolve only decisions not already settled by the request, repository or approved spec. Use
-`mattpocock-skills:grilling` for unresolved design choices. Ask each of its rounds through
-`AskUserQuestion` rather than as prose: up to four questions per call, the recommended option first
-and labelled "(Recommended)", each option described by its consequence; a question with no discrete
-options stays text. Ask dependent questions after their prerequisites are answered.
+Resolve only decisions not already settled by the request, repository or approved spec.
 
-Invoke `mattpocock-skills:domain-modeling` here, while the decision is made, whenever the interview
-changes a domain term or settles something worth an ADR: it challenges the term and writes
-`GLOSSARY.md` / the ADR in the repository's format. A slice may later carry that text into place,
-but a unit never decides the model. When the decision adds a module or moves an interface or seam,
-invoke `mattpocock-skills:codebase-design` so the ownership and boundaries below are stated in its
-terms. Pull current dependency documentation through Context7.
+**Grill with docs.** Invoke `mattpocock-skills:grilling` and `mattpocock-skills:domain-modeling`
+together before the first question, as Matt Pocock's `grill-with-docs` does: the interview and the
+domain model are one activity, so every term the interview settles is written to `GLOSSARY.md`
+the moment it is settled, and a decision that meets `domain-modeling`'s three ADR conditions gets
+its ADR then. A slice may later carry that text into place, but a unit never decides the model.
+Ask each grilling round through `AskUserQuestion` rather than as prose: up to four questions per
+call, the recommended option first and labelled "(Recommended)", each option described by its
+consequence; a question with no discrete options stays text. Ask dependent questions after their
+prerequisites are answered. Record the glossary and ADR paths, or `unchanged —` / `none —` with the
+reason, in the spec's design section.
+
+**Prototype.** A design question that only running code can settle — whether a state model holds,
+what a UI should look like — goes to `mattpocock-skills:prototype` now, before Design, on a
+`prototype/<name>` branch; name that branch in `Prototype:` and let its answer feed the seams. A
+fact that needs the real subsystem built is a spike slice instead (below), and `Prototype:` says
+`not needed —` with that slice's number.
+
+**Design.** Invoke `mattpocock-skills:codebase-design` and state, in its vocabulary, the seams the
+acceptance tests drive (the highest existing seam first, as few as possible) and the modules added
+or whose interface moves. Check the seams with the user in the same `AskUserQuestion` round as
+the slices' approval in section 6 when they are new. Pull current dependency documentation through
+Context7.
 These methods do not add a confirmation beyond section 6; a complete contract needs no new interview.
 
 Resolve before calling the task ready:
@@ -100,8 +130,7 @@ Resolve before calling the task ready:
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec is not ready.
 When the missing fact can only be learned by building something — the test command of a subsystem
 that does not exist yet, an API's real shape — make the first slice a **spike** whose deliverable is
-that fact, run `mattpocock-skills:prototype` for it in a disposable workspace, and let the rest of the plan depend on
-it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
+that fact, and let the rest of the plan depend on it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
 it lands (see its loop).
 
 ## 4. Define acceptance and delivery shape
@@ -124,7 +153,7 @@ its spec/plan and task-list sections apply here, under the same approval.
 Read `${CLAUDE_SKILL_DIR}/spec-template.md` and fill it at the size of the task. A one-file fix or a
 small change needs Goal, the acceptance criteria with their checks, the first failing check,
 `target_test`, `full_test`, `ci`, `review` and `merge`; other sections may read `not applicable —
-<reason>`. Larger or riskier work fills every field. Draft the result in the conversation; do not
+<reason>`, except the design section, whose lines take their own keyword and reason. Larger or riskier work fills every field. Draft the result in the conversation; do not
 write it before the approval in section 6. Its final path is
 `$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" spec-dir)/YYYY-MM-DD-<slug>.md`: the script picks
 `wiki/` or `docs/` and the spelling of the plans directory the repository already tracks. It never
@@ -185,6 +214,10 @@ then remove the old form only after every batch.
 Before presenting, if `mcp__cc-tuner__peers_report` is listed, call it with the target repository's path and
 name each peer whose claims, edits or merge conflicts touch the slices' Owned paths.
 
+Before asking for approval, confirm `python3` 3.9+ runs (section 1 checked it): without it
+`spec-lint.py` cannot check the design record, so stop here and say so rather than approve or write
+to the tracker.
+
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
 and blockers, plus the card's Priority when a board is named and neither the issue nor
 `task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.
@@ -211,12 +244,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 Use the printed path literally. Fill `${CLAUDE_SKILL_DIR}/plan-template.md`, then run:
 
 ```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.py" design <the approved spec path> --base <the commit of section 2>
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> \
   --spec <the approved spec path> --branch "$(git branch --show-current)" --local-only
 ```
 
-Fix errors and inspect the task diff. If commits are permitted, stage only the reviewed spec, plan
-and intended issue or glossary/ADR changes, then commit them together. Otherwise leave them in
+Fix errors and inspect the task diff. A `spec-lint.py` error is a design step without its record: do
+the step or write why it had nothing to do, never delete the line. If commits are permitted, stage
+only the reviewed spec, plan, the files its design section names, and intended issue changes, then
+commit them together. Otherwise leave them in
 this checkout for `/run --local-only`. Preserve unrelated WIP.
 
 ## 7. Publish and hand off
