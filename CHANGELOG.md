@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.27.0](https://github.com/clicktronix/cc-tuner/compare/v0.26.0...v0.27.0) (2026-11-24)
+
+
+### Features
+
+* **spec:** design steps leave a record the spec-lint checks ([#91](https://github.com/clicktronix/cc-tuner/issues/91)) ([d387b51](https://github.com/clicktronix/cc-tuner/commit/d387b5164d1a106a8456ab49deaf9e02003eac13))
+
 ## [0.26.0](https://github.com/clicktronix/cc-tuner/compare/v0.25.1...v0.26.0) (2026-11-24)
 
 
