@@ -52,7 +52,12 @@ def git(*args, check=True):
 
 
 def section_lines(text):
-    """The lines of the design section, read outside fenced code blocks."""
+    """The lines of the design section, read outside fenced code blocks and HTML comments.
+
+    The section is closed on purpose: it holds its six field lines and blank lines, and any other
+    line is an error. Markdown has more ways to hide or end a section than a check can follow, so the
+    section is not left room for them."""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
     fence, inside, found, lines = None, False, 0, []
     for line in text.splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -60,7 +65,7 @@ def section_lines(text):
             fence = marker.group(1)
             continue
         if fence is not None:
-            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip():
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip(" \t"):
                 fence = None
             continue
         if line.strip() == HEADING and re.match(r"^ {0,3}#", line):
@@ -69,7 +74,9 @@ def section_lines(text):
             continue
         if inside and re.match(r"^ {0,3}#{1,2}(\s|$)", line):
             inside = False
-        if inside:
+        if inside and line.strip(" \t"):
+            if not re.match(r"^(%s): " % "|".join(field for field, _, _ in FIELDS), line):
+                errors.append(f"the design section holds only its field lines, one per line from the line start: {line.strip()}")
             lines.append(line)
     if found != 1:
         fail(f'the spec needs one "{HEADING}" section (found {found})')
@@ -146,12 +153,13 @@ def main(argv):
         if is_placeholder(value):
             errors.append(f"{field}: replace the placeholder with the answer: {value}")
             continue
-        skip = re.fullmatch(r"(not needed|unchanged|none)(?:\s+(?:—|--|-)(?:\s+(.*)|\s*))?", value)
+        # A spaced ASCII dash or any em dash marks a skip; `none-notes.md` stays a path.
+        skip = re.fullmatch(r"(not needed|unchanged|none)(?:\s*—\s*(.*)|\s+(?:--|-)(?:\s+(.*)|\s*))?", value)
         if skip:
             if keyword is None or skip.group(1) != keyword:
                 shape = f"{field}: <answer>" if keyword is None else f"{field}: <artifact> | {keyword} — <reason>"
                 errors.append(f"{field}: write {shape}")
-            elif not skip.group(2) or is_placeholder(skip.group(2)):
+            elif not (skip.group(2) or skip.group(3)) or is_placeholder(skip.group(2) or skip.group(3)):
                 errors.append(f'{field}: give the reason after "—": {keyword} — <reason>')
             continue
         if kind == "paths":

@@ -94,6 +94,17 @@ git -C "$R" remote add team/upstream https://example.invalid/x.git
 git -C "$R" update-ref refs/remotes/team/upstream/prototype/remote-states "$(git -C "$R" rev-parse HEAD)"
 check "remote-with-a-slash-holds-a-prototype" "rc=0" "$(lint "$(spec rproto "$(with Prototype "$FULL" 'prototype/remote-states')")")"
 
+refused "commented-section-is-hidden" "needs one \"## Domain model and design\" section" \
+  "$(printf '# x\n\n<!--\n## Domain model and design\n%s\n-->\n' "$NONE" > "$R/docs/PLANS/comment.md"; lint docs/PLANS/comment.md)"
+refused "fence-closed-by-a-nonbreaking-space-stays-open" "needs one \"## Domain model and design\" section" \
+  "$(printf '# x\n\n```\n```\xc2\xa0\n## Domain model and design\n%s\n```\n' "$NONE" > "$R/docs/PLANS/nbsp.md"; lint docs/PLANS/nbsp.md)"
+refused "setext-heading-inside-the-section-refused" "holds only its field lines" \
+  "$(lint "$(spec setext "$(printf '%s' "$NONE" | grep -v '^Modules:'; printf '\nAcceptance criteria\n---\nModules: unchanged — smuggled')")")"
+refused "em-dash-without-space-is-a-skip" 'give the reason after "—"' \
+  "$(lint "$(spec emd "$(with Modules "$NONE" 'unchanged —TBD')")")"
+check "em-dash-without-space-with-a-reason-passes" "rc=0" \
+  "$(lint "$(spec emd2 "$(with Modules "$NONE" 'unchanged —no interface moves')")")"
+
 for field in Research Glossary ADR Prototype Seams Modules; do
   body="$(printf '%s' "$NONE" | grep -v "^$field:")"
   refused "missing-$field-refused" "needs one \"$field:\" line" "$(lint "$(spec "no-$field" "$body")")"

@@ -214,6 +214,10 @@ then remove the old form only after every batch.
 Before presenting, if `mcp__cc-tuner__peers_report` is listed, call it with the target repository's path and
 name each peer whose claims, edits or merge conflicts touch the slices' Owned paths.
 
+Before asking for approval, confirm `python3` 3.9+ runs (section 1 checked it): without it
+`spec-lint.py` cannot check the design record, so stop here and say so rather than approve or write
+to the tracker.
+
 Present the spec decisions and proposed slices as one concise review: title, delivery, owned paths,
 and blockers, plus the card's Priority when a board is named and neither the issue nor
 `task-flow.local.md` sets one. Ask once whether the contract, granularity, and edges are right; revise until approved.
