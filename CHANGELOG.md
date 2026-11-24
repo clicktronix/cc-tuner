@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.26.0](https://github.com/clicktronix/cc-tuner/compare/v0.25.1...v0.26.0) (2026-11-24)
+
+
+### Features
+
+* **run:** size a review renewal with --rounds when the user names a number ([#89](https://github.com/clicktronix/cc-tuner/issues/89)) ([1be5e43](https://github.com/clicktronix/cc-tuner/commit/1be5e436a970c12fab408e2b0b8f6791a627beb6))
+
 ## [0.25.1](https://github.com/clicktronix/cc-tuner/compare/v0.25.0...v0.25.1) (2026-11-23)
 
 
