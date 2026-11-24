@@ -7,8 +7,8 @@
 ## Domain model and design
 Research: <path to the cited notes>[, <path>...] | not needed — <reason>
 Glossary: <path to the GLOSSARY.md this branch changed> | unchanged — <reason>
-ADR: <path>[, <path>...] | none — <reason>
-Prototype: <branch> | not needed — <reason>
+ADR: <path under an adr/ directory>[, <path>...] | none — <reason>
+Prototype: prototype/<name> | not needed — <reason>
 Seams: <where the acceptance tests drive the change, in codebase-design terms>
 Modules: <modules added or whose interface moves, with their seam> | unchanged — <reason>
 

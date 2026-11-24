@@ -64,7 +64,7 @@ reason. Each closes on the record, never on the impression that nothing was need
 2. **Grill with docs** — `Glossary:` and `ADR:`, section 3.
 3. **Prototype** — `Prototype:`, section 3.
 4. **Design** — `Seams:` and `Modules:`, section 3.
-5. **Spec and plan** — sections 4 to 6, closed when `spec-lint.sh` and `plan-lint.sh` pass.
+5. **Spec and plan** — sections 4 to 6, closed when `spec-lint.py` and `plan-lint.sh` pass.
 
 **Fan out the reading, keep the conclusions.** When the task's baseline spans several areas — separate
 subsystems, a second repository, an unfamiliar dependency — dispatch one read-only subagent per area
@@ -78,7 +78,8 @@ section 3: an adviser can be handed the draft text, never the decision.
 
 Resolve the integration target from repository policy or the remote default. Fetch when available;
 offline, use the known base and check the fresh tip before publication. With host `local`, use
-`refs/heads/<target>`. If branch creation is reserved, stay in the designated checkout. Otherwise
+`refs/heads/<target>`. Keep the exact ref the branch is cut from (`origin/main`, `refs/heads/main`):
+`spec-lint.py` measures the branch's design records against it in section 6. If branch creation is reserved, stay in the designated checkout. Otherwise
 create the task branch before grilling, since `domain-modeling` may write `GLOSSARY.md` or ADRs.
 On an existing branch, confirm it belongs to the task. Check any previous PR when reachable.
 Keep task commits off the integration branch.
@@ -101,6 +102,12 @@ consequence; a question with no discrete options stays text. Ask dependent quest
 prerequisites are answered. Record the glossary and ADR paths, or `unchanged —` / `none —` with the
 reason, in the spec's design section.
 
+**Prototype.** A design question that only running code can settle — whether a state model holds,
+what a UI should look like — goes to `mattpocock-skills:prototype` now, before Design, on a
+`prototype/<name>` branch; name that branch in `Prototype:` and let its answer feed the seams. A
+fact that needs the real subsystem built is a spike slice instead (below), and `Prototype:` says
+`not needed —` with that slice's number.
+
 **Design.** Invoke `mattpocock-skills:codebase-design` and state, in its vocabulary, the seams the
 acceptance tests drive (the highest existing seam first, as few as possible) and the modules added
 or whose interface moves. Check the seams with the user in the same `AskUserQuestion` round as
@@ -120,8 +127,7 @@ Resolve before calling the task ready:
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec is not ready.
 When the missing fact can only be learned by building something — the test command of a subsystem
 that does not exist yet, an API's real shape — make the first slice a **spike** whose deliverable is
-that fact, run `mattpocock-skills:prototype` for it on a `prototype/<name>` branch, name that branch
-in `Prototype:`, and let the rest of the plan depend on
+that fact, run `mattpocock-skills:prototype` for it in a disposable workspace, and let the rest of the plan depend on
 it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
 it lands (see its loop).
 
@@ -232,12 +238,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 Use the printed path literally. Fill `${CLAUDE_SKILL_DIR}/plan-template.md`, then run:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.sh" design <the approved spec path>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.py" design <the approved spec path> --base <the ref of section 2>
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> \
   --spec <the approved spec path> --branch "$(git branch --show-current)" --local-only
 ```
 
-Fix errors and inspect the task diff. A `spec-lint` error is a design step without its record: do
+Fix errors and inspect the task diff. A `spec-lint.py` error is a design step without its record: do
 the step or write why it had nothing to do, never delete the line. If commits are permitted, stage
 only the reviewed spec, plan, the files its design section names, and intended issue changes, then
 commit them together. Otherwise leave them in
