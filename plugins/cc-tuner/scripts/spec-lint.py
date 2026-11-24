@@ -55,21 +55,19 @@ def section_lines(text):
     """The lines of the design section, read outside fenced code blocks."""
     fence, inside, found, lines = None, False, 0, []
     for line in text.splitlines():
-        marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
-        if marker:
-            run = marker.group(1)
-            if fence is None:
-                fence = run
-            elif run[0] == fence[0] and len(run) >= len(fence):
-                fence = None
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None and marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
+            fence = marker.group(1)
             continue
         if fence is not None:
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip():
+                fence = None
             continue
-        if line.rstrip() == HEADING:
+        if line.strip() == HEADING and re.match(r"^ {0,3}#", line):
             found += 1
             inside = True
             continue
-        if inside and re.match(r"^#{1,2} ", line):
+        if inside and re.match(r"^ {0,3}#{1,2}(\s|$)", line):
             inside = False
         if inside:
             lines.append(line)
@@ -88,7 +86,8 @@ def changed_paths(base):
     if merge_base.returncode != 0:
         fail(f"cannot find a merge base of HEAD and {base}; pass the ref the task branch was cut from")
     base_commit = merge_base.stdout.decode().strip()
-    listed = git("diff", "-z", "--name-only", "--no-renames", base_commit, "--").stdout
+    # A deletion is no record: --diff-filter=d leaves it out, so a file deleted from git but left on disk fails.
+    listed = git("diff", "-z", "--name-only", "--no-renames", "--diff-filter=d", base_commit, "--").stdout
     listed += git("ls-files", "-z", "--others", "--exclude-standard").stdout
     return {name.decode("utf-8", "surrogateescape") for name in listed.split(b"\0") if name}
 
@@ -103,13 +102,13 @@ def check_paths(field, value, changed):
             errors.append(f"{field}: a path is repo-relative, without . or .. components: {path}")
         elif not os.path.lexists(path):
             errors.append(f"{field}: the file does not exist: {path}")
-        elif os.path.islink(path) or not os.path.isfile(path):
+        elif os.path.islink(path) or not os.path.isfile(path) or not os.path.realpath(path).startswith(os.getcwd() + os.sep):
             errors.append(f"{field}: the record is a regular file of this checkout, not a link or a directory: {path}")
         elif path not in changed:
             errors.append(f"{field}: the file is not changed on this branch: {path}")
         elif field == "Glossary" and parts[-1] != "GLOSSARY.md":
             errors.append(f"Glossary names GLOSSARY.md, the file domain-modeling writes: {path}")
-        elif field == "ADR" and "adr" not in parts[:-1]:
+        elif field == "ADR" and ("adr" not in parts[:-1] or parts[-1] == "GLOSSARY.md"):
             errors.append(f"ADR: an ADR lives under an adr/ directory, where domain-modeling writes it: {path}")
 
 
@@ -118,8 +117,9 @@ def check_branch(value):
     if not re.fullmatch(r"prototype/[^\s~^:?*\[\\]+", name) or git("check-ref-format", f"refs/heads/{name}", check=False).returncode:
         errors.append(f"Prototype: name the prototype's branch, prototype/<name>: {name}")
         return
-    refs = git("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes").stdout.decode().splitlines()
-    if f"refs/heads/{name}" not in refs and not any(ref.endswith("/" + name) and ref.startswith("refs/remotes/") and ref.count("/") == name.count("/") + 3 for ref in refs):
+    refs = set(git("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes").stdout.decode().splitlines())
+    remotes = git("remote").stdout.decode().split()
+    if f"refs/heads/{name}" not in refs and not any(f"refs/remotes/{remote}/{name}" in refs for remote in remotes):
         errors.append(f"Prototype: there is no branch named {name}")
 
 
@@ -130,7 +130,7 @@ def main(argv):
     root = git("rev-parse", "--show-toplevel", check=False)
     if root.returncode != 0:
         fail("spec-lint needs a git repository")
-    os.chdir(root.stdout.decode().strip())
+    os.chdir(root.stdout.decode("utf-8", "surrogateescape").removesuffix("\n"))
     if not os.path.isfile(spec):
         fail(f"no such spec: {spec}")
     with open(spec, encoding="utf-8") as handle:
@@ -146,12 +146,12 @@ def main(argv):
         if is_placeholder(value):
             errors.append(f"{field}: replace the placeholder with the answer: {value}")
             continue
-        skip = re.fullmatch(r"(not needed|unchanged|none)(?:\s*(?:—|--|-)\s*(.*))?", value)
+        skip = re.fullmatch(r"(not needed|unchanged|none)(?:\s+(?:—|--|-)(?:\s+(.*)|\s*))?", value)
         if skip:
             if keyword is None or skip.group(1) != keyword:
                 shape = f"{field}: <answer>" if keyword is None else f"{field}: <artifact> | {keyword} — <reason>"
                 errors.append(f"{field}: write {shape}")
-            elif skip.group(2) is None or is_placeholder(skip.group(2)):
+            elif not skip.group(2) or is_placeholder(skip.group(2)):
                 errors.append(f'{field}: give the reason after "—": {keyword} — <reason>')
             continue
         if kind == "paths":

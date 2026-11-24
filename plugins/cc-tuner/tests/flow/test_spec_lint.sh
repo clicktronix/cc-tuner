@@ -80,6 +80,20 @@ refused "fenced-heading-is-not-a-section" "needs one \"## Domain model and desig
 check "fenced-example-beside-the-section-passes" "rc=0" \
   "$(f="$(spec fence "$NONE")"; printf '\n```md\n## Domain model and design\nADR: none\n```\n' >> "$R/$f"; lint "$f")"
 
+refused "info-string-inside-a-fence-does-not-close-it" "needs one \"## Domain model and design\" section" \
+  "$(printf '# x\n\n```md\n```python\n## Domain model and design\n```\n' > "$R/docs/PLANS/fence2.md"; lint docs/PLANS/fence2.md)"
+refused "indented-heading-ends-the-section" 'needs one "Modules:" line (found 0)' \
+  "$(lint "$(spec indent "$(printf '%s' "$NONE" | grep -v '^Modules:'; printf '\n  ## Later\nModules: unchanged — smuggled')")")"
+check "hyphenated-name-is-a-path" "rc=0" \
+  "$(printf 'n\n' > "$R/none-notes.md"; lint "$(spec hyph "$(with Research "$FULL" 'none-notes.md')")")"
+refused "glossary-under-adr-is-no-adr" "an ADR lives under an adr/ directory" \
+  "$(printf '# g\n' > "$R/docs/adr/GLOSSARY.md"; lint "$(spec gadr "$(with ADR "$FULL" 'docs/adr/GLOSSARY.md')")")"
+refused "deleted-from-git-left-on-disk-refused" "is not changed on this branch: docs/research/old.md" \
+  "$(git -C "$R" rm -q --cached docs/research/old.md; printf 'docs/research/old.md\n' >> "$R/.git/info/exclude"; lint "$(spec gone "$(with Research "$FULL" 'docs/research/old.md')")")"
+git -C "$R" remote add team/upstream https://example.invalid/x.git
+git -C "$R" update-ref refs/remotes/team/upstream/prototype/remote-states "$(git -C "$R" rev-parse HEAD)"
+check "remote-with-a-slash-holds-a-prototype" "rc=0" "$(lint "$(spec rproto "$(with Prototype "$FULL" 'prototype/remote-states')")")"
+
 for field in Research Glossary ADR Prototype Seams Modules; do
   body="$(printf '%s' "$NONE" | grep -v "^$field:")"
   refused "missing-$field-refused" "needs one \"$field:\" line" "$(lint "$(spec "no-$field" "$body")")"

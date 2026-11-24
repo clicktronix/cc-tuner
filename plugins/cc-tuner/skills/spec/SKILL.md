@@ -19,6 +19,8 @@ carries a `cc-tuner-groom:` record: it says whose record counts as settled.
 ROOT=$(git rev-parse --show-toplevel) && cd "$ROOT" || exit 1
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup/prereq-check.sh" \
   || echo "prerequisites missing — /spec continues; /cc-tuner:run needs them before delivery"
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' \
+  || echo "python3 3.9+ missing — section 6 runs spec-lint.py before the spec is committed"
 ```
 
 Use this checkout root for commands and paths throughout the spec. Record missing capabilities with
@@ -78,8 +80,9 @@ section 3: an adviser can be handed the draft text, never the decision.
 
 Resolve the integration target from repository policy or the remote default. Fetch when available;
 offline, use the known base and check the fresh tip before publication. With host `local`, use
-`refs/heads/<target>`. Keep the exact ref the branch is cut from (`origin/main`, `refs/heads/main`):
-`spec-lint.py` measures the branch's design records against it in section 6. If branch creation is reserved, stay in the designated checkout. Otherwise
+`refs/heads/<target>`. Record the commit the branch is cut from (`git rev-parse <that ref>`), not the
+ref, which can move: `spec-lint.py` measures the branch's design records against that commit in
+section 6. If branch creation is reserved, stay in the designated checkout. Otherwise
 create the task branch before grilling, since `domain-modeling` may write `GLOSSARY.md` or ADRs.
 On an existing branch, confirm it belongs to the task. Check any previous PR when reachable.
 Keep task commits off the integration branch.
@@ -127,8 +130,7 @@ Resolve before calling the task ready:
 A pending `TBD`, “as appropriate”, unknown test command, or unstated expected failure means the spec is not ready.
 When the missing fact can only be learned by building something — the test command of a subsystem
 that does not exist yet, an API's real shape — make the first slice a **spike** whose deliverable is
-that fact, run `mattpocock-skills:prototype` for it in a disposable workspace, and let the rest of the plan depend on
-it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
+that fact, and let the rest of the plan depend on it. The spec records the spike and what it must establish; `/run` revises the dependent slices after
 it lands (see its loop).
 
 ## 4. Define acceptance and delivery shape
@@ -238,7 +240,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-path.sh" create
 Use the printed path literally. Fill `${CLAUDE_SKILL_DIR}/plan-template.md`, then run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.py" design <the approved spec path> --base <the ref of section 2>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.py" design <the approved spec path> --base <the commit of section 2>
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-lint.sh" check <the printed plan path> \
   --spec <the approved spec path> --branch "$(git branch --show-current)" --local-only
 ```
